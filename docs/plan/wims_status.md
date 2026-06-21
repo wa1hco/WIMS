@@ -1,0 +1,102 @@
+# WIMS — Build Status & Milestones
+
+Companion tracker to **[wims_design.md](wims_design.md)** (the requirements / design source of
+truth). This file holds **implementation progress only** — what's built, tested, and running —
+and references design sections by their `§` numbers. When a *design* changes, edit
+wims_design.md; when *code* lands, edit here.
+
+Status: `[ ]` todo · `[~]` in progress · `[x]` done
+
+---
+
+## How to run (current)
+
+```
+python src/wims/server/app.py --iface 127.0.0.1
+#   Operate page:   http://localhost:8787/
+#   System status:  http://localhost:8787/status
+```
+- **Log seed:** auto-finds the N1MM contest `.s3db` in the standard Databases dir and seeds the
+  log copy at startup (`--seed-db` / `--seed-db-dir` / `--no-seed`). Currently `N2OY.s3db`
+  (ARRL June VHF / `ARRLVHFJUN`, 951 QSOs).
+- **Ingest:** WSJT-X multicast `224.0.0.73:2237` + N1MM broadcasts `:12060` on `--iface`.
+- **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
+- **Interlock bench:** `python testbed/interlock_bench.py`
+
+## Tests — **11 suites green** (no pytest dep; run `python tests/unit/test_*.py`)
+`test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
+`test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
+`test_server_state`
+
+---
+
+## Milestones (design intent: §4 / §4.5)
+
+- [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
+  dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
+  complete:** fleet/instances, interlock/overlap (§2.1), call roster (§2.2 / §3.5), decode-activity
+  heatmaps (§2.5), decode log, N1MM-sync, loggers — all live & verified vs the emulator. Console
+  split into two pages (Operate / Status). Next: command path + Phase-2 polish.
+- [~] **M2 — arbiter + control on bench (no RF).** Core done: emulator (§5.1), `TxController`
+  (§3.2), `TxArbiter` + `OverlapDetector` (§3.4) — interlock bench proves zero overlap live.
+  Remaining: per-resource-group config from profiles, SSB/CW fast-inhibit path, lease gating.
+- [~] **M3 — decision engine + N1MM dupe/mult.** Live server scores a ranked roster
+  (`engine/roster.py` + `scoring.py`) against a log copy seeded from the N1MM `.s3db` at startup
+  and kept current from live `<contactinfo>`; dupe/new-mult per band×grid, verified live (951
+  QSOs). Remaining: operator resync trigger, give-up / run-vs-S&P signals, geometry-aware
+  reachability (§3.14).
+- [ ] **M4 — multi-instance + rotator + safety.**
+- [ ] **M5 — WIMS op works one band on-air** via roster + click-to-work (one empty seat).
+- [ ] **M6 — WIMS op covers multiple empty-seat bands**, smooth local⇄WIMS handoff (§4.2).
+- [ ] **M7 — remote + multi-operator** over the internet; non-cooperative lease handoff (§4.5).
+
+---
+
+## Module implementation status (design: §3 table)
+
+| § | Module | Status | Built / remaining |
+|---|--------|--------|-------------------|
+| 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
+| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, drives the emulator live. Remaining: Free Text/Replay, lease gating. |
+| 3.3 | Multi-instance manager | `[ ]` | host agent (fast mute, thumbnail) + setup wizard — not started. |
+| 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. Remaining: fast-mute path, lease gating, per-group config from profiles. |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: run/S&P, give-up, geometry, persistent grid memory, grid→WSJT-X for logging. |
+| 3.6 | Logger interface (N1MM) | `[~]` | seed (`integrations/n1mm/logdb.py`) + live `<contactinfo>` + `reconcile()` resync (`state/logstore.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction, operator resync trigger. |
+| 3.7 | GridTracker interface | `[ ]` | — |
+| 3.8 | Rotator controller | `[ ]` | — |
+| 3.9 | Safety / watchdog | `[ ]` | — |
+| 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
+| 3.11 | Config | `[ ]` | scoring weights exist as defaults (`engine/scoring.py`); no Instance-Profile / config files yet. |
+| 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), two pages. Remaining: command endpoints (click-to-work / click-to-point), lease endpoints, published enriched feed. |
+| 3.13 | Override interface | `[ ]` | — |
+| 3.15 | Network discovery & diagnostics | `[~]` | passive fleet discovery + health + expected-vs-actual + N1MM presence from **any** broadcast (`<RadioInfo>`/`<AppInfo>`, no QSO needed) — `discovery/fleet.py`. Remaining: active probes, GridTracker/rotator nodes, topology map. |
+
+**Dashboard panels live (Phase-1):** interlock/overlap · call roster · instances · decode-activity ·
+decode log · N1MM-sync · loggers · system summary.
+**State-contract keys (`server/state.py`):** `instances, loggers, rx, interlock, roster, activity,
+decodes, n1mm_sync`.
+
+**Test bed (§5):** WSJT-X emulator built (`testbed/simulators/emulator.py`, reacts Reply→TX /
+Halt→RX); interlock bench (`testbed/interlock_bench.py`). Remaining: captured-traffic replay, N1MM
+stub, rotator stub, fast-mute harness.
+
+**§2.6 roster feature backlog status:** A4/A5/A6, C1/C2 done; B3, C3, C4, D1, D3, the §3.15 pieces
+partial; everything else missing — see the backlog table in wims_design.md §2.6 for priorities.
+
+---
+
+## Build log
+
+- **2026-06-17** — §3.1 parser + read-only console monitor. N1MM log layer (DXLOG seed +
+  `contactinfo` → `LoggedQso` → SQLite log copy with dupe/rover/mult + resync). Decode-activity
+  map, fleet discovery, WSJT-X config validator, datagram encoder, WSJT-X emulator. M2 core:
+  `TxController` + `TxArbiter` + `OverlapDetector` (5000-step stress + live bench, 0 overlap).
+  §3.5 scoring engine. Browser dashboard: stdlib HTTP+SSE, state contract, first fleet panel live.
+- **2026-06-19** — Interlock/overlap safety panel (live `OverlapDetector`, `--group-by`, overlap
+  alarm verified live). Call-roster panel + M3 start (`RosterBuilder` + N1MM-fed dupe/mult, per
+  band×grid, verified live). Decode-activity heatmap tiles. Decode-log + N1MM-sync panels →
+  Phase-1 read-only sweep complete.
+- **2026-06-20** — Startup `.s3db` seed (951 QSOs from `N2OY.s3db`). N1MM presence from any
+  broadcast (RadioInfo/AppInfo — no QSO needed, for setup verification). Console split into two
+  pages (Operate / Status), shared `wims.css`/`wims.js`. Fixed brittle `test_n1mm_log` (was pinned
+  to volatile live-DB content). §2.6 roster feature backlog drafted into the design doc.

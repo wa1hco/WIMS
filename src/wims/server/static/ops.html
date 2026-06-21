@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WIMS — Operate</title>
+<link rel="stylesheet" href="/wims.css">
+</head>
+<body>
+<header>
+  <h1>WIMS</h1>
+  <nav><a href="/" class="active">Operate</a><a href="/status">Status</a></nav>
+  <span id="conn" class="down">connecting…</span>
+  <span class="meta" id="clock" style="margin-left:auto"></span>
+</header>
+<main>
+  <h2>Interlock · TX overlap</h2>
+  <div id="il-banner" class="banner ok">✓ no overlap</div>
+  <div id="il-meta" class="meta" style="margin:6px 0 8px"></div>
+  <table id="il">
+    <thead><tr>
+      <th>Group</th><th>Instances</th><th>Transmitting</th><th>Status</th>
+    </tr></thead>
+    <tbody id="il-body"></tbody>
+  </table>
+  <div id="il-empty" class="empty">no instances — all RX</div>
+
+  <h2>Call roster · workable stations (ranked)</h2>
+  <div id="ros-meta" class="meta" style="margin:6px 0 8px"></div>
+  <table id="ros">
+    <thead><tr>
+      <th class="num">Score</th><th>Call</th><th>Grid</th><th>Band</th><th>Inst</th>
+      <th class="num">SNR</th><th class="num">Age</th><th>Why (scoring breakdown)</th>
+    </tr></thead>
+    <tbody id="ros-body"></tbody>
+  </table>
+  <div id="ros-empty" class="empty">no workable CQs yet…</div>
+</main>
+<script src="/wims.js"></script>
+</body>
+</html>

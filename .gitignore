@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.venv/
+venv/
+
+# WIMS runtime state (derived; rebuildable)
+wims.db
+*.db-wal
+*.db-shm
+*.jsonl
+
+# Local packet/QSO captures — real on-air data, not for the public repo.
+# (The capture-based tests skip gracefully when these are absent.)
+captures/
+
+# N1MM / contest databases (never tracked; live outside the repo anyway)
+*.s3db
+
+# Claude Code local settings (machine-specific paths + permission grants)
+.claude/settings.local.json
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

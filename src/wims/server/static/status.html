@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WIMS — System status</title>
+<link rel="stylesheet" href="/wims.css">
+</head>
+<body>
+<header>
+  <h1>WIMS</h1>
+  <nav><a href="/">Operate</a><a href="/status" class="active">Status</a></nav>
+  <span id="conn" class="down">connecting…</span>
+  <span class="meta" id="rx"></span>
+  <span class="meta" id="clock" style="margin-left:auto"></span>
+</header>
+<main>
+  <h2>System · nodes</h2>
+  <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
+
+  <h2>WSJT-X instances</h2>
+  <table id="inst">
+    <thead><tr>
+      <th>ID</th><th>Host</th><th>Band</th><th>Mode</th><th>Freq (MHz)</th>
+      <th>State</th><th class="num">Dec/p</th><th class="num">LastDec</th>
+      <th class="num">HB</th><th>Health</th>
+    </tr></thead>
+    <tbody id="inst-body"></tbody>
+  </table>
+  <div id="inst-empty" class="empty">waiting for WSJT-X traffic…</div>
+
+  <h2>N1MM sync</h2>
+  <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
+
+  <h2>N1MM instances (live broadcasts on the wire)</h2>
+  <table id="log">
+    <thead><tr>
+      <th>Station</th><th>Host</th><th>MyCall</th><th>Seen</th>
+      <th class="num">QSOs</th><th>Last QSO</th>
+    </tr></thead>
+    <tbody id="log-body"></tbody>
+  </table>
+  <div id="log-empty" class="empty">
+    No N1MM broadcasts heard yet. WIMS registers an N1MM instance from <b>any</b>
+    broadcast (RadioInfo/AppInfo beacons arrive periodically — no QSO needed). Enable
+    <b>Config → Configure Ports → Broadcast Data</b> → tick <b>Radio</b> (+ Contacts) →
+    <b>127.0.0.1:12060</b>. (Existing log is loaded separately — see N1MM sync.)
+  </div>
+
+  <h2>Decode activity (audio-freq × cycle × SNR)</h2>
+  <div id="amap-wrap" class="amap-wrap"></div>
+  <div id="amap-empty" class="empty">no decodes yet…</div>
+
+  <h2>Decode log</h2>
+  <div class="logwrap">
+    <table id="dlog">
+      <thead><tr>
+        <th>Time</th><th>Inst</th><th class="num">dB</th><th class="num">dF</th><th>Message</th>
+      </tr></thead>
+      <tbody id="dlog-body"></tbody>
+    </table>
+  </div>
+  <div id="dlog-empty" class="empty">no decodes yet…</div>
+</main>
+<script src="/wims.js"></script>
+</body>
+</html>
