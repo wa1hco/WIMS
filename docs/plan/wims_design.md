@@ -742,6 +742,74 @@ Copy this block for each new scenario.
   sensed?
 - **Mode:** setup.
 
+### Setup / installation scenarios (per-role onboarding)
+
+WIMS installs from **one package** and is told its **role** for that PC (§4.5 packaging). The
+install/setup wizard (§3.3) collects role + bands, **reads and verifies the existing WSJT-X / N1MM
+config files** against what the operator declared, and configures the interlock interfaces
+(§3.4.1). These run before any operating scenario and feed the readiness gate (S1).
+
+#### I1 — Install on a WSJT-X station
+- **Context / preconditions:** A radio-host PC already running **N1MM + one or more WSJT-X
+  instances** (and maybe SDR software) for one or more digital bands. Each WSJT-X launches with an
+  informative **rig-name** (`6M-TVStation`, `2M-WEST`, …), one per band.
+- **Trigger:** Operator installs WIMS and runs setup; selects role = **WSJT-X station** (a §4.5
+  *agent*, optionally + console).
+- **Walkthrough:** WIMS asks which **bands** this station covers. It **reads the WSJT-X and N1MM
+  config files**, enumerates the WSJT-X instances by rig-name, maps **rig-name → band**, and
+  **verifies the config matches** what the operator declared (rig-name↔band, UDP multicast
+  group/port, unique `id`, N1MM WSJT-X-reader settings) — flagging mismatches. It then **configures
+  the audio-path actuator** (§3.4.1): the OS-specific interface that ramps TX audio to 0 on an
+  interlock trigger, confirming a fast-mute mechanism exists for every TX-capable instance.
+- **Expected behavior:** Every declared band has a matching, validated WSJT-X instance + N1MM
+  reader; the audio-path mute is wired and **test-fires**; every discrepancy (missing band,
+  rig-name/band mismatch, port/id collision, no fast-mute path) is **named**, not just flagged.
+  Station shows green only when all required checks pass.
+- **Drives / exercises:** §3.3 setup wizard, §3.14 Instance Profile, §3.4.1 actuator config,
+  `integrations/wsjtx_config` + §3.6 N1MM, §3.15 discovery.
+- **Open questions:** config-file locations across WSJT-X versions / per-instance config dirs; how
+  the audio-path actuator is chosen (volume API vs analog) per host.
+- **Mode:** setup.
+
+#### I2 — Install on an SSB/CW station
+- **Context / preconditions:** A PC running **N1MM** (and maybe SDR) for an **SSB/CW** operating
+  position on one or more bands. No WSJT-X TX here.
+- **Trigger:** Operator installs WIMS and runs setup; selects role = **SSB/CW station** (a §4.5
+  *agent* + console).
+- **Walkthrough:** WIMS reads which **band(s)** this SSB/CW position operates (from N1MM /
+  operator) so it knows which WSJT-X it must interlock — **same band** (§3.4.1). It configures the
+  **TX-state sensor** (PTT read as the **USB-serial CTS** line) and the **announcement** of
+  key-down / key-up (with band) on the LAN, so WIMS on the WSJT-X PCs can gate/halt. A lightweight
+  console shows WIMS activity on this band so the op can wait for an in-progress digital QSO to
+  finish.
+- **Expected behavior:** Keying the SSB/CW rig is sensed (CTS edge) and announced within budget;
+  same-band WSJT-X stations receive it and gate/halt (§3.4.1). The sensor **test-fires during setup
+  without requiring an on-air transmission** (keying/loopback test).
+- **Drives / exercises:** §3.4.1 sensor + announcement, §3.13 override interface, §3.3 setup, §2.2
+  SSB/CW band-activity console.
+- **Open questions:** CTS wiring per rig/interface; announcement datagram format + multicast group.
+- **Mode:** setup.
+
+#### I3 — Install on the control PC (WIMS server)
+- **Context / preconditions:** The PC that will run the **WIMS server** (§4.5) — the single
+  multicast consumer, state authority, and only sender of control to WSJT-X. May be a **dedicated**
+  box or **stacked** on a PC that is also a WSJT-X or SSB/CW station (roles compose: server + agent
+  + console).
+- **Trigger:** Operator installs WIMS and runs setup; selects role = **server** (control).
+- **Walkthrough:** WIMS comes up as the server, **discovers the fleet** from the multicast (§3.15),
+  **seeds the log copy** from a designated N1MM `.s3db` (§3.6), and serves the console (Operate /
+  Status). If stacked with a station role on the same PC, it also runs that PC's agent
+  (sensor/actuator) locally. It **verifies connectivity** to every declared WSJT-X and N1MM
+  instance across the fleet and reports loss of comms.
+- **Expected behavior:** One server per site; it sees every expected instance (expected-vs-actual,
+  §3.15) and **names** any missing/dead/quiet node; the log seed succeeds; stacked roles run
+  side-by-side **without the server entering the §3.4.1 10 ms safety path**.
+- **Drives / exercises:** §4.5 server role + role stacking, §3.15 discovery, §3.6 seed, §3.12
+  server/console, §3.3 fleet connectivity verification.
+- **Open questions:** which N1MM the server reads when stacked vs dedicated; multi-server is out of
+  scope (single authoritative server, §4.5).
+- **Mode:** setup.
+
 ### Scenario backlog (to write)
 Candidate situations worth covering — rename, add, or cut freely:
 - S1 — Cold start & station readiness check *(example above)*
