@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(if \\(-not $?\\) { \"NO UPSTREAM\" })",
+      "PowerShell(git fetch origin)",
+      "PowerShell(git add .claude/settings.json)"
+    ]
+  }
+}
