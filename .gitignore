@@ -9,6 +9,9 @@ dist/
 .venv/
 venv/
 
+# Throwaway working files (validation logs, exploratory output)
+scratch/
+
 # WIMS runtime state (derived; rebuildable)
 wims.db
 *.db-wal

@@ -28,6 +28,12 @@ python src/wims/server/app.py --iface 127.0.0.1
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
 `test_server_state`
 
+**One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
+import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
+captures one SSE frame, asserts the state contract + emulated instances flow through).
+Exit 0 = all green; per-check logs land in `scratch/validate/` (gitignored). Overridable
+via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
+
 ---
 
 ## Milestones (design intent: §4 / §4.5)
