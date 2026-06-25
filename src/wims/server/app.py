@@ -17,6 +17,7 @@ Run (with the emulator on loopback, or real WSJT-X):
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import select
 import socket
@@ -253,6 +254,22 @@ def main() -> None:
     ap.add_argument("--no-seed", action="store_true",
                     help="do not seed from any N1MM .s3db at startup")
     args = ap.parse_args()
+
+    # Validate network args up front: a malformed address otherwise only blows up
+    # deep inside the ingest thread (inet_aton), which dies silently while the
+    # server keeps serving empty state. Fail fast with a clear message instead.
+    try:
+        ipaddress.IPv4Address(args.iface)
+    except ipaddress.AddressValueError:
+        ap.error(f"invalid --iface {args.iface!r}: not a valid IPv4 address "
+                 f"(e.g. 127.0.0.1 for the local emulator, or 0.0.0.0 for all interfaces)")
+    try:
+        if not ipaddress.IPv4Address(args.group).is_multicast:
+            ap.error(f"invalid --group {args.group!r}: not a multicast address "
+                     f"(WSJT-X default is 224.0.0.73)")
+    except ipaddress.AddressValueError:
+        ap.error(f"invalid --group {args.group!r}: not a valid IPv4 address "
+                 f"(WSJT-X default is 224.0.0.73)")
 
     live = LiveFleet(grouping=args.group_by, condition=args.condition)
 
