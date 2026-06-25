@@ -149,16 +149,8 @@ class LiveFleet:
             return d
 
 
-def ingest_loop(live: LiveFleet, iface: str, group: str, port: int, n1mm_port: int):
-    s_wsjt = open_socket(iface, port, group)
-    socks = [s_wsjt]
-    s_n1mm = None
-    if n1mm_port:
-        try:
-            s_n1mm = open_socket(iface, n1mm_port, None)
-            socks.append(s_n1mm)
-        except OSError:
-            pass
+def ingest_loop(live: LiveFleet, s_wsjt: socket.socket, s_n1mm: socket.socket | None):
+    socks = [s for s in (s_wsjt, s_n1mm) if s is not None]
     while True:
         ready, _, _ = select.select(socks, [], [], 1.0)
         now = time.time()
@@ -285,13 +277,29 @@ def main() -> None:
                 print(f"  (seed skipped: {e})")
         else:
             print("  (no N1MM contest .s3db found to seed; log copy starts empty)")
+    # Open the ingest sockets here (not inside the thread) so a bind failure is
+    # reported on the main path and the bound addresses are confirmed deterministically.
+    s_wsjt = open_socket(args.iface, args.port, args.group)
+    s_n1mm = None
+    if args.n1mm_port:
+        # N1MM broadcasts unicast/broadcast XML (not multicast). Bind it to ALL
+        # interfaces regardless of --iface: packets from the N1MM host elsewhere on
+        # the LAN arrive on the LAN interface, so binding to a specific --iface
+        # (e.g. 127.0.0.1) silently drops them — the classic "WIMS can't see N1MM".
+        try:
+            s_n1mm = open_socket("0.0.0.0", args.n1mm_port, None)
+        except OSError as e:
+            print(f"  WARNING: N1MM listener could not bind :{args.n1mm_port} ({e}); "
+                  f"N1MM ingest disabled")
     threading.Thread(target=ingest_loop, daemon=True,
-                     args=(live, args.iface, args.group, args.port, args.n1mm_port)).start()
+                     args=(live, s_wsjt, s_n1mm)).start()
 
     httpd = ThreadingHTTPServer(("0.0.0.0", args.http_port), make_handler(live, args.refresh))
     print(f"WIMS server: http://localhost:{args.http_port}/  (Operate)   "
           f"http://localhost:{args.http_port}/status  (System status)")
-    print(f"  ingesting {args.group}:{args.port} + N1MM :{args.n1mm_port} on {args.iface}")
+    print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
+    if s_n1mm is not None:
+        print(f"  N1MM XML listening on 0.0.0.0:{args.n1mm_port} (all interfaces)")
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()
