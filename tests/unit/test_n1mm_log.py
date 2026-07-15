@@ -44,6 +44,34 @@ def test_from_contactinfo_capture():
     assert len(q.id) == 32        # N1MM hex id
 
 
+def test_from_contactreplace_same_fields():
+    xml = ("<contactreplace><app>N1MM</app><ID>abcd1234</ID><call>W1AW</call>"
+           "<band>50</band><gridsquare>FN31</gridsquare><points>1</points>"
+           "<ismultiplier1>1</ismultiplier1></contactreplace>")
+    q = LoggedQso.from_contactinfo(xml)
+    assert q.id == "abcd1234" and q.call == "W1AW" and q.band == "6m"
+    assert q.grid == "FN31" and q.is_mult is True and q.source == "live"
+
+
+def test_id_from_contactdelete():
+    from wims.integrations.n1mm.qso import id_from_contactdelete
+    xml = ('<?xml version="1.0" encoding="utf-8"?>'
+           "<contactdelete><app>N1MM</app><call>W1AW</call>"
+           "<band>50</band><ID>deadbeefcafe</ID></contactdelete>")
+    assert id_from_contactdelete(xml) == "deadbeefcafe"
+    assert id_from_contactdelete(
+        "<contactinfo><ID>x</ID><call>A</call><band>50</band></contactinfo>") is None
+
+
+def test_delete_by_id_clears_dupe():
+    store = LogStore(":memory:")
+    store.upsert(_qso("K1ABC", "6m", "FN42", qid="q-del"))
+    assert store.is_dupe("K1ABC", "6m", "FN42") is True
+    store.delete("q-del")
+    assert store.count() == 0
+    assert store.is_dupe("K1ABC", "6m", "FN42") is False
+
+
 def test_read_dxlog_seed():
     db = logdb.find_contest_db(N1MM_DB_DIR)
     if not db:

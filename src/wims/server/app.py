@@ -39,7 +39,7 @@ from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
 from wims.engine.roster import RosterBuilder  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
-from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
+from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
     decodes_to_dict, n1mm_sync_to_dict, agents_to_dict)
@@ -75,6 +75,7 @@ class LiveFleet:
         self._last_n1mm: float | None = None       # last datagram on the N1MM port
         self._last_qso: dict | None = None         # last QSO folded into the log copy
         self._seed: dict | None = None             # seed meta (count, source, contest…)
+        self._last_resync: dict | None = None      # last operator (or API) DXLOG reconcile
         # Contest log discovery — operators pick by human label, not ContestNR CLI.
         self._seed_db_dir: str | None = None
         self._seed_db_hint: str | None = None      # optional preferred .s3db path
@@ -167,6 +168,90 @@ class LiveFleet:
             active = self._active_contest
         return {"ok": True, "seeded": n, "contest": active}
 
+    def resync_log(self, *, now: float | None = None) -> dict:
+        """Operator-triggered re-read of the active contest's DXLOG → reconcile.
+
+        UDP contactinfo/delete/replace keeps the log copy live; this is the
+        safety net when events were missed (WIMS down, Contacts broadcast off,
+        remote DB replaced). Re-opens the same ``.s3db`` + ContestNR already
+        loaded, upserts by ID, and deletes rows no longer in N1MM.
+
+        Does **not** drive N1MM peer "Resync" — if multi-op seats disagree,
+        resync N1MM peers first so the file is authoritative, then call this.
+        """
+        from wims.integrations.n1mm import logdb
+        now = time.time() if now is None else now
+        with self._lock:
+            active = dict(self._active_contest) if self._active_contest else {}
+            seed = dict(self._seed) if self._seed else {}
+        db_path = active.get("db_path") or seed.get("db_path")
+        contest_nr = active.get("contest_nr")
+        if contest_nr is None:
+            contest_nr = seed.get("contest_nr")
+        contest_name = active.get("contest_name") or seed.get("contest_name")
+        label = active.get("label") or seed.get("label") or contest_name
+        if not db_path:
+            return {
+                "ok": False,
+                "error": "no_active_log",
+                "hint": "Pick a contest log under Setup first.",
+            }
+        if not Path(db_path).is_file():
+            return {
+                "ok": False,
+                "error": "db_not_found",
+                "db_path": db_path,
+                "hint": "Copy the N1MM .s3db onto this host (seed dir), then Rescan.",
+            }
+        try:
+            nr = int(contest_nr) if contest_nr is not None else None
+        except (TypeError, ValueError):
+            nr = None
+        try:
+            qsos = logdb.read_dxlog(
+                db_path,
+                contest_nr=nr,
+                contest_name=contest_name if nr is None else None,
+            )
+        except Exception as e:
+            return {"ok": False, "error": str(e), "db_path": db_path}
+
+        with self._lock:
+            summary = self._log.reconcile(qsos)
+            self._seed = {
+                "count": summary["total"],
+                "source": Path(db_path).name,
+                "db_path": db_path,
+                "contest_nr": nr,
+                "contest_name": contest_name,
+                "label": label,
+            }
+            if self._active_contest is not None:
+                self._active_contest = {
+                    **self._active_contest,
+                    "qso_count": len(qsos),
+                    "db_path": db_path,
+                }
+            last = {
+                "ts": now,
+                "upserted": summary["upserted"],
+                "deleted": summary["deleted"],
+                "total": summary["total"],
+                "source": Path(db_path).name,
+                "db_path": db_path,
+                "contest_nr": nr,
+                "contest_name": contest_name,
+                "label": label,
+            }
+            self._last_resync = last
+            active_out = self._active_contest
+        try:
+            self.refresh_contest_catalog()
+        except Exception:
+            pass
+        return {"ok": True, "summary": last, "contest": active_out,
+                "qso_count": last["total"]}
+
     def accept_agent_report(self, body: dict, *, now: float | None = None) -> dict:
         """Ingest a seat agent report (POST /api/agents/report). Local-first agent
         already validated configs on the station PC; this stores the snapshot for
@@ -247,8 +332,16 @@ class LiveFleet:
             self.n1mm_pkts += 1
             self._last_n1mm = now
             self._tracker.observe_n1mm_xml(xml_text, now, src_ip=src_ip)
-            if "<contactinfo" in xml_text:        # a logged QSO -> update the log copy
-                try:
+            # Live log maintenance: N1MM Contacts broadcasts cover add / edit / delete.
+            # Edit = contactdelete + contactreplace (same ID). Delete alone removes the
+            # row so roster needed/dupe flips back without waiting for DXLOG resync.
+            try:
+                low = xml_text.lower()
+                if "<contactdelete" in low:
+                    qid = id_from_contactdelete(xml_text)
+                    if qid:
+                        self._log.delete(qid)
+                elif "<contactinfo" in low or "<contactreplace" in low:
                     q = LoggedQso.from_contactinfo(xml_text)
                     if not q.id:
                         return
@@ -262,8 +355,8 @@ class LiveFleet:
                             return
                     self._log.upsert(q)
                     self._last_qso = {"call": q.call, "band": q.band, "ts": now}
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
     def snapshot(self, now) -> dict:
         with self._lock:
@@ -291,7 +384,8 @@ class LiveFleet:
                 now, n1mm_pkts=self.n1mm_pkts, last_n1mm=self._last_n1mm,
                 qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed,
                 active_contest=self._active_contest,
-                contests=self._contest_catalog)
+                contests=self._contest_catalog,
+                last_resync=self._last_resync)
             self._prune_agents(now)
             d["agents"] = agents_to_dict(self._agents, now)
             return d
@@ -392,6 +486,14 @@ def make_handler(live: LiveFleet, refresh: float):
                 try:
                     contests = live.refresh_contest_catalog()
                     self._send_json(200, {"ok": True, "contests": contests})
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/log/resync":
+                # Operator safety net: re-read active contest DXLOG → reconcile by ID.
+                try:
+                    result = live.resync_log()
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/agents/report":

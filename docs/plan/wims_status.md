@@ -59,7 +59,8 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 - [~] **M3 — decision engine + N1MM dupe/mult.** Live server scores a ranked roster
   (`engine/roster.py` + `scoring.py`) against a log copy seeded from the N1MM `.s3db` at startup
   and kept current from live `<contactinfo>`; dupe/new-mult per band×grid, verified live (951
-  QSOs). Remaining: operator resync trigger, give-up / run-vs-S&P signals, geometry-aware
+  QSOs). Operator **Resync log** (DXLOG re-read) done. Remaining: give-up / run-vs-S&P,
+  geometry-aware
   reachability (§3.14).
 - [ ] **M4 — multi-instance + rotator + safety.**
 - [ ] **M5 — WIMS op works one band on-air** via roster + click-to-work (one empty seat).
@@ -77,7 +78,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent (config/monitor slice):** `wims.agent` local UI :8790 + POST `/api/agents/report`; Status/Setup board. Config tool: `wsjtx_config.py`. Remaining: host fast mute, thumbnails, setup wizard apply, process service install. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. Remaining: fast-mute path, lease gating, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: run/S&P, give-up, geometry, persistent grid memory, grid→WSJT-X for logging. |
-| 3.6 | Logger interface (N1MM) | `[~]` | seed (`integrations/n1mm/logdb.py`) + live `<contactinfo>` + `reconcile()` resync (`state/logstore.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction, operator resync trigger. |
+| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[ ]` | — |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -156,3 +157,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   continuous export. Seat pack: kill-then-start N1MM/WSJT-X/agent (`Start-WimsSeat.cmd`, Startup
   install). N1MM process = `N1MMLogger.net.exe`; DBs under registry UserDir\\Databases.
   Server handoff: [wims_agent_dashboard.md](wims_agent_dashboard.md).
+- **2026-07-15** — **Live N1MM delete/edit:** handle `<contactdelete>` (remove by ID → roster
+  needed/dupe restores) and `<contactreplace>` (upsert). Log was append-only on `<contactinfo>`
+  so a deleted QSO stayed greyed until DXLOG resync.
+- **2026-07-15** — **Manual log resync:** `POST /api/log/resync` re-reads active contest DXLOG →
+  `reconcile()` (add/update/delete by ID). Setup **Resync log** button + last-resync line;
+  Status N1MM panel shows last resync summary/age. UDP remains live path; resync is safety net
+  (copy fresh `.s3db` first if N1MM is remote). Setup contest list is ephemeral (Rescan → pick/cancel).

@@ -194,7 +194,8 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
                       qso_count: int, last_qso: dict | None,
                       seed: dict | None = None, stale_after: float = 180.0,
                       active_contest: dict | None = None,
-                      contests: list | None = None) -> dict:
+                      contests: list | None = None,
+                      last_resync: dict | None = None) -> dict:
     """N1MM feed + log-copy freshness (plan §2.2 / §3.6).
 
     N1MM has **no heartbeat** — it only broadcasts on activity (logged QSO, spot,
@@ -203,6 +204,9 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
     feeds the roster's dupe/mult; `seed` records the startup `.s3db` read (count +
     source file) so the operator can see the existing log was pulled in even before
     any live broadcast.
+
+    `last_resync` is the operator (or API) DXLOG re-read + reconcile summary — the
+    safety net when UDP events were missed.
 
     `contests` / `active_contest` support multi-log .s3db files (June + Sept VHF…):
     the Status page lists human labels; no ContestNR knowledge required.
@@ -214,6 +218,17 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
         status = "active"
     else:
         status = "idle"                       # seen before, quiet now (not a fault)
+    resync = None
+    if last_resync:
+        ts = last_resync.get("ts")
+        resync = {
+            "age": None if ts is None else round(now - float(ts), 1),
+            "upserted": last_resync.get("upserted"),
+            "deleted": last_resync.get("deleted"),
+            "total": last_resync.get("total"),
+            "source": last_resync.get("source"),
+            "label": last_resync.get("label") or last_resync.get("contest_name"),
+        }
     return {
         "status": status,
         "feed_age": feed_age,
@@ -222,6 +237,7 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
         "seed": seed,
         "active_contest": active_contest,
         "contests": contests or [],
+        "last_resync": resync,
         "last_qso": None if not last_qso else {
             "call": last_qso["call"],
             "band": last_qso["band"],

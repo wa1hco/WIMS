@@ -27,24 +27,34 @@
 
   <h2>Contest log (dupe / mult source)</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    One N1MM <code>.s3db</code> can hold several contests (e.g. June VHF 2026 + Sept VHF 2025).
-    WIMS auto-picks the latest log with QSOs; change it here if wrong.
-    Copy the contest database onto <b>this</b> machine (the WIMS host) — no ContestNR or IP knowledge required.
+    Shows the <b>active</b> contest only. Use <b>Rescan</b> to pick a different log from N1MM
+    <code>.s3db</code> files on this host (list closes after you select or cancel).
+    <br>
+    <b>UDP</b> Contacts keep the log live; <b>Resync log</b> re-reads the active file by QSO ID.
+    Multi-op: resync N1MM peers first if seats disagree, then Resync log here.
   </p>
   <div id="contest-active" class="syncrow"><span class="k">waiting…</span></div>
   <div class="toolbar" style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <button type="button" id="contest-rescan">Rescan files</button>
+    <button type="button" id="contest-resync" title="Re-read active contest DXLOG into WIMS">Resync log</button>
+    <button type="button" id="contest-rescan" title="Scan seed dir and pick a contest">Rescan…</button>
     <span class="meta" id="contest-msg"></span>
   </div>
-  <table id="contest-tbl">
-    <thead><tr>
-      <th></th><th>Contest</th><th>Start</th><th class="num">QSOs</th><th>File</th>
-    </tr></thead>
-    <tbody id="contest-body"></tbody>
-  </table>
-  <div id="contest-empty" class="empty">
-    No contest logs found. Copy an N1MM contest <b>.s3db</b> into
-    <code>~/Documents/N1MM Logger+/Databases</code> on the WIMS host (or the configured seed dir), then Rescan.
+  <div id="contest-resync-line" class="meta" style="margin:0 0 6px 0"></div>
+  <div id="contest-picker" style="display:none;margin:8px 0 12px 0;padding:8px;border:1px solid var(--border,#ccc);border-radius:4px">
+    <div class="toolbar" style="margin:0 0 6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span class="k">Select a contest log</span>
+      <button type="button" id="contest-cancel">Cancel</button>
+    </div>
+    <table id="contest-tbl">
+      <thead><tr>
+        <th></th><th>Contest</th><th>Start</th><th class="num">QSOs</th><th>File</th>
+      </tr></thead>
+      <tbody id="contest-body"></tbody>
+    </table>
+    <div id="contest-empty" class="empty" style="display:none">
+      No contest logs found. Copy an N1MM contest <b>.s3db</b> into
+      <code>~/Documents/N1MM Logger+/Databases</code> on the WIMS host (or the configured seed dir), then Rescan.
+    </div>
   </div>
 
   <h2>WIMS server</h2>

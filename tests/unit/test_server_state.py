@@ -155,6 +155,54 @@ def test_livefleet_logged_qso_marks_dupe():
     assert r["not_needed"] == 1 and r["needed"] == 0
 
 
+def test_livefleet_contactdelete_restores_needed():
+    """Deleting a QSO in N1MM must un-grey the call on the roster (live, no resync)."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8", decoding=True)),
+                       now=1.0, src_ip="192.168.10.21")
+    live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-3, delta_time=0.1,
+                                              delta_frequency=1500, message="CQ K1ABC FN42")),
+                       now=1.1, src_ip="192.168.10.21")
+    live.observe_n1mm("<contactinfo><app>N1MM</app><ID>abc-1</ID><call>K1ABC</call>"
+                      "<band>50</band><gridsquare>FN42</gridsquare>"
+                      "<contestname>ARRLVHFJUN</contestname></contactinfo>",
+                      now=1.5, src_ip="192.168.10.22")
+    k = next(c for c in live.snapshot(2.0)["roster"]["candidates"] if c["call"] == "K1ABC")
+    assert k["is_dupe"] is True and k["is_needed"] is False
+    # Operator deletes the QSO in N1MM → contactdelete by ID.
+    live.observe_n1mm(
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<contactdelete><app>N1MM</app><timestamp>2026-07-15 12:00:00</timestamp>"
+        "<mycall>W2SZ</mycall><band>50</band><call>K1ABC</call>"
+        "<contestnr>20</contestnr><StationName>VM</StationName>"
+        "<ID>abc-1</ID></contactdelete>",
+        now=3.0, src_ip="192.168.10.22")
+    r = live.snapshot(3.5)["roster"]
+    k = next(c for c in r["candidates"] if c["call"] == "K1ABC")
+    assert k["is_dupe"] is False and k["is_needed"] is True
+    assert r["not_needed"] == 0 and r["needed"] == 1
+    assert live.snapshot(3.5)["n1mm_sync"]["qso_count"] == 0
+
+
+def test_livefleet_contactreplace_updates_log():
+    """Edit in N1MM is delete+replace; replace upserts the corrected record."""
+    live = LiveFleet()
+    live.observe_n1mm("<contactinfo><app>N1MM</app><ID>e1</ID><call>K1ABC</call>"
+                      "<band>50</band><gridsquare>FN42</gridsquare></contactinfo>",
+                      now=1.0, src_ip="192.168.10.22")
+    assert live._log.is_dupe("K1ABC", "6m", "FN42")
+    # Edit grid FN42 → FN31: N1MM sends delete then replace (same ID).
+    live.observe_n1mm("<contactdelete><app>N1MM</app><ID>e1</ID><call>K1ABC</call>"
+                      "<band>50</band></contactdelete>",
+                      now=2.0, src_ip="192.168.10.22")
+    live.observe_n1mm("<contactreplace><app>N1MM</app><ID>e1</ID><call>K1ABC</call>"
+                      "<band>50</band><gridsquare>FN31</gridsquare></contactreplace>",
+                      now=2.1, src_ip="192.168.10.22")
+    assert live._log.count() == 1
+    assert live._log.is_dupe("K1ABC", "6m", "FN42") is False
+    assert live._log.is_dupe("K1ABC", "6m", "FN31") is True
+
+
 def test_livefleet_activity_tile():
     live = LiveFleet()
     live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8", decoding=True)),
@@ -289,6 +337,80 @@ def test_auto_seed_picks_one_contest_not_all():
         assert s2["n1mm_sync"]["active_contest"]["contest_name"] == "OLD"
     finally:
         os.unlink(db)
+
+
+def test_resync_log_reconciles_from_file():
+    """Operator Resync re-reads DXLOG: drops deleted QSOs, keeps file truth."""
+    import os, sqlite3, tempfile
+
+    fd, db = tempfile.mkstemp(suffix=".s3db"); os.close(fd)
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE ContestInstance (
+          ContestID INT, ContestName TEXT, StartDate TEXT, ContestNR INT);
+        CREATE TABLE DXLOG (
+          ID TEXT, Call TEXT, Band TEXT, GridSquare TEXT, Mode TEXT,
+          Points INT, IsMultiplier1 INT, ContestName TEXT, ContestNR INT,
+          TimeStamp TEXT, Operator TEXT);
+    """)
+    con.execute("INSERT INTO ContestInstance VALUES (1,'ARRLVHFJUN','2026-06-14',20)")
+    for i, call in enumerate(("AA1A", "BB2B", "CC3C")):
+        con.execute("INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"id{i}" + "0" * 29, call, "50", "FN42", "FT8", 1, 0,
+                     "ARRLVHFJUN", 20, "2026-06-14", "W2SZ"))
+    con.commit()
+    try:
+        live = LiveFleet()
+        live.configure_log_discovery(db_path=db)
+        assert live.auto_seed()["ok"] is True
+        assert live.snapshot(1.0)["n1mm_sync"]["qso_count"] == 3
+        # Live UDP QSO not (yet) reflected in file — resync must drop it.
+        live.observe_n1mm(
+            "<contactinfo><app>N1MM</app><ID>liveonly</ID><call>ZZ9Z</call>"
+            "<band>50</band><gridsquare>FN31</gridsquare>"
+            "<contestname>ARRLVHFJUN</contestname></contactinfo>",
+            now=2.0, src_ip="10.0.0.2")
+        assert live._log.count() == 4
+        # Operator deleted BB2B in N1MM (file updated; no contactdelete reached WIMS).
+        con.execute("DELETE FROM DXLOG WHERE Call=?", ("BB2B",))
+        con.commit()
+        r = live.resync_log(now=10.0)
+        assert r["ok"] is True
+        s = r["summary"]
+        assert s["total"] == 2
+        assert s["deleted"] == 2          # BB2B + liveonly
+        assert s["upserted"] == 2
+        assert live._log.is_dupe("BB2B", "6m", "FN42") is False
+        assert live._log.is_dupe("ZZ9Z", "6m", "FN31") is False
+        assert live._log.is_dupe("AA1A", "6m", "FN42") is True
+        snap = live.snapshot(11.0)
+        ns = snap["n1mm_sync"]
+        assert ns["qso_count"] == 2
+        assert ns["last_resync"] is not None
+        assert ns["last_resync"]["deleted"] == 2
+        assert ns["last_resync"]["total"] == 2
+        assert ns["last_resync"]["age"] == 1.0
+    finally:
+        con.close()
+        os.unlink(db)
+
+
+def test_resync_log_requires_active_contest():
+    live = LiveFleet()
+    r = live.resync_log(now=1.0)
+    assert r["ok"] is False and r["error"] == "no_active_log"
+
+
+def test_n1mm_sync_includes_last_resync():
+    out = n1mm_sync_to_dict(
+        100.0, n1mm_pkts=1, last_n1mm=99.0, qso_count=5, last_qso=None,
+        last_resync={"ts": 90.0, "upserted": 5, "deleted": 1, "total": 5,
+                     "source": "N2OY.s3db", "label": "ARRLVHFJUN"})
+    assert out["last_resync"]["age"] == 10.0
+    assert out["last_resync"]["deleted"] == 1 and out["last_resync"]["total"] == 5
+    assert out["last_resync"]["source"] == "N2OY.s3db"
+    none = n1mm_sync_to_dict(100.0, n1mm_pkts=0, last_n1mm=None, qso_count=0, last_qso=None)
+    assert none["last_resync"] is None
 
 
 def test_json_serializable():

@@ -1,9 +1,14 @@
 """Unified logged-QSO record from N1MM's two feeds (plan §3.6).
 
-Both the live `<contactinfo>` UDP broadcast and the `DXLOG` rows of N1MM's `.s3db`
-describe the same QSO with the same field names and the same unique `ID`, so they
-collapse to one `LoggedQso`. The DB read seeds the log copy at cold start; the
-broadcast keeps it live; both dedup on `id`.
+Both the live `<contactinfo>` / `<contactreplace>` UDP broadcasts and the `DXLOG`
+rows of N1MM's `.s3db` describe the same QSO with the same field names and the
+same unique `ID`, so they collapse to one `LoggedQso`. The DB read seeds the log
+copy at cold start; live add/edit/delete keep it current; both dedup on `id`.
+
+N1MM contact UDP roots (Broadcast Data → Contacts):
+  - `<contactinfo>`   — new QSO logged
+  - `<contactdelete>` — QSO deleted (or first half of an edit)
+  - `<contactreplace>` — edited QSO (second half of an edit; same fields as contactinfo)
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ import xml.etree.ElementTree as ET
 from wims.core.bands import band_label_mhz
 
 _FALSEY = {"", "0", "false", "no", "n"}
+# Roots that carry a full contact record (upsert into the log copy).
+_LIVE_UPSERT_ROOTS = frozenset({"contactinfo", "contactreplace"})
 
 
 def _truthy(v) -> bool:
@@ -30,6 +37,22 @@ def _band(v) -> str:
         return band_label_mhz(float(v))
     except (TypeError, ValueError):
         return "?"
+
+
+def _fields(xml_text: str) -> tuple[str, dict[str, str]]:
+    """Return (root_tag_lower, {tag_lower: text}) for an N1MM XML datagram."""
+    root = ET.fromstring(xml_text)
+    d = {c.tag.lower(): (c.text or "").strip() for c in root}
+    return root.tag.lower(), d
+
+
+def id_from_contactdelete(xml_text: str) -> str | None:
+    """Extract the unique QSO ID from a `<contactdelete>` packet, or None."""
+    tag, d = _fields(xml_text)
+    if tag != "contactdelete":
+        return None
+    qid = (d.get("id") or "").strip()
+    return qid or None
 
 
 @dataclass
@@ -68,8 +91,10 @@ class LoggedQso:
 
     @classmethod
     def from_contactinfo(cls, xml_text: str) -> "LoggedQso":
-        root = ET.fromstring(xml_text)
-        d = {c.tag.lower(): (c.text or "").strip() for c in root}
+        """Parse `<contactinfo>` or `<contactreplace>` (same field set)."""
+        tag, d = _fields(xml_text)
+        if tag not in _LIVE_UPSERT_ROOTS:
+            raise ValueError(f"expected contactinfo/contactreplace, got <{tag}>")
         return cls._from_dict(d, source="live")
 
     @classmethod

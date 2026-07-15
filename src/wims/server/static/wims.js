@@ -212,6 +212,17 @@ function renderDecodes(list) {
   }
 }
 
+function formatResync(rs) {
+  if (!rs) return null;
+  const when = rs.age == null ? "" : ` · ${age(rs.age)} ago`;
+  const up = rs.upserted != null ? `+${rs.upserted}` : "";
+  const del = rs.deleted != null ? `−${rs.deleted}` : "";
+  const delta = [up, del].filter(Boolean).join(" / ");
+  const total = rs.total != null ? ` → ${rs.total} QSOs` : "";
+  const src = rs.source ? ` · ${rs.source}` : "";
+  return `${delta}${total}${src}${when}`;
+}
+
 function renderSync(n) {
   if (!n) return;
   if ($("n1mm-sync")) {
@@ -220,12 +231,17 @@ function renderSync(n) {
     const feed = n.feed_age == null ? "none seen" : `${age(n.feed_age)} ago`;
     const lq = n.last_qso ? `${n.last_qso.call} ${n.last_qso.band} (${age(n.last_qso.age)} ago)` : "—";
     const seed = n.seed ? ` ✓ seeded from ${esc(n.seed.source)}` : "";
+    const rsTxt = formatResync(n.last_resync);
+    const resync = rsTxt
+      ? `<span><span class="k">last resync:</span>${esc(rsTxt)}</span>`
+      : `<span><span class="k">last resync:</span>— <a href="/setup">Setup → Resync log</a></span>`;
     $("n1mm-sync").innerHTML =
       `<span><span class="dot ${n.status}"></span><span class="k">live feed:</span><b>${label}</b></span>` +
       `<span><span class="k">last packet:</span>${feed}</span>` +
       `<span><span class="k">packets:</span>${n.packets}</span>` +
       `<span><span class="k">log copy:</span><b>${n.qso_count}</b> QSO${n.qso_count===1?'':'s'}${seed}</span>` +
-      `<span><span class="k">last logged:</span>${lq}</span>`;
+      `<span><span class="k">last logged:</span>${lq}</span>` +
+      resync;
   }
   // Status: one-line pointer to Setup for contest selection (not the full picker).
   const line = $("status-contest-line");
@@ -233,7 +249,7 @@ function renderSync(n) {
     const ac = n.active_contest;
     if (ac && (ac.label || ac.contest_name)) {
       line.innerHTML = `Contest log: <b>${esc(ac.label || ac.contest_name)}</b> · `
-        + `${n.qso_count||0} QSOs in WIMS · change under <a href="/setup">Setup</a>`;
+        + `${n.qso_count||0} QSOs in WIMS · change / resync under <a href="/setup">Setup</a>`;
     } else {
       line.innerHTML = `Contest log: <b>none loaded</b> — dupe/mult will be wrong until you `
         + `pick a log under <a href="/setup">Setup</a>`;
@@ -243,36 +259,44 @@ function renderSync(n) {
   renderSetupExtras(n, /*fullState*/ null);
 }
 
-function renderContests(n) {
+// Contest picker is ephemeral: only open after Rescan, closed on select/cancel.
+// Do not paint the full catalog on every SSE tick.
+let contestPickerOpen = false;
+let contestPickerList = [];
+let contestPickerActive = null;   // active contest at last render (for "loaded" badge)
+
+function hideContestPicker() {
+  contestPickerOpen = false;
+  contestPickerList = [];
+  const picker = $("contest-picker");
+  if (picker) picker.style.display = "none";
   const body = $("contest-body");
-  if (!body) return;
-  const list = n.contests || [];
-  const active = n.active_contest;
-  const act = $("contest-active");
-  if (act) {
-    if (active && (active.label || active.contest_name)) {
-      act.innerHTML =
-        `<span><span class="dot active"></span><span class="k">active log:</span>` +
-        `<b>${esc(active.label || active.contest_name)}</b></span>` +
-        `<span><span class="k">file:</span>${esc(active.db_label || "")}</span>` +
-        `<span><span class="k">loaded:</span><b>${n.qso_count||0}</b> QSOs in WIMS</span>`;
-    } else {
-      act.innerHTML =
-        `<span><span class="dot idle"></span><span class="k">active log:</span>` +
-        `<b>none</b> — every heard station looks like a new mult until you load a contest</span>`;
-    }
-  }
-  $("contest-empty").style.display = list.length ? "none" : "block";
+  if (body) body.innerHTML = "";
+  const empty = $("contest-empty");
+  if (empty) empty.style.display = "none";
+}
+
+function fillContestPicker(list, active) {
+  const body = $("contest-body");
+  const empty = $("contest-empty");
+  const picker = $("contest-picker");
+  if (!body || !picker) return;
+  contestPickerOpen = true;
+  contestPickerList = list || [];
+  contestPickerActive = active || null;
+  picker.style.display = "block";
   body.innerHTML = "";
-  // Prefer contests with QSOs first, then name.
-  const sorted = [...list].sort((a, b) =>
+  if (empty) empty.style.display = contestPickerList.length ? "none" : "block";
+  if (!contestPickerList.length) return;
+  const sorted = [...contestPickerList].sort((a, b) =>
     (b.qso_count - a.qso_count) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
   for (const c of sorted) {
-    const isActive = active && active.db_path === c.db_path &&
-      Number(active.contest_nr) === Number(c.contest_nr);
+    const isActive = contestPickerActive && contestPickerActive.db_path === c.db_path &&
+      Number(contestPickerActive.contest_nr) === Number(c.contest_nr);
     const tr = document.createElement("tr");
     if (isActive) tr.className = "tx";
-    const start = (c.start_date || "").startsWith("1900") ? "—" : esc((c.start_date || "").slice(0, 10) || "—");
+    const start = (c.start_date || "").startsWith("1900")
+      ? "—" : esc((c.start_date || "").slice(0, 10) || "—");
     const rec = c.recommended && !isActive ? ' <span class="badge">auto</span>' : "";
     const btn = isActive
       ? "<span class=\"meta\">loaded</span>"
@@ -290,6 +314,45 @@ function renderContests(n) {
   });
 }
 
+function renderContests(n) {
+  // Setup page only — other pages have no contest-active element.
+  const act = $("contest-active");
+  if (!act) return;
+  const active = n.active_contest;
+  if (active && (active.label || active.contest_name)) {
+    act.innerHTML =
+      `<span><span class="dot active"></span><span class="k">active log:</span>` +
+      `<b>${esc(active.label || active.contest_name)}</b></span>` +
+      `<span><span class="k">file:</span>${esc(active.db_label || "")}</span>` +
+      `<span><span class="k">loaded:</span><b>${n.qso_count||0}</b> QSOs in WIMS</span>`;
+  } else {
+    act.innerHTML =
+      `<span><span class="dot idle"></span><span class="k">active log:</span>` +
+      `<b>none</b> — Rescan… to pick a contest (needed for correct dupe/mult)</span>`;
+  }
+  // Remember active for the ephemeral picker "loaded" badge (picker is not always open).
+  const prev = contestPickerActive;
+  contestPickerActive = active || null;
+  const rline = $("contest-resync-line");
+  if (rline) {
+    const rsTxt = formatResync(n.last_resync);
+    rline.innerHTML = rsTxt
+      ? `Last resync: <b>${esc(rsTxt)}</b>`
+      : `Last resync: <span class="k">never</span> — use <b>Resync log</b> after copying a fresh N1MM .s3db or if roster greying looks wrong.`;
+  }
+  // While picker is open, only re-paint if the active log identity changed (avoid
+  // clobbering mid-click on every SSE tick). Catalog itself is fixed from Rescan.
+  if (contestPickerOpen) {
+    const same = prev && contestPickerActive
+      && prev.db_path === contestPickerActive.db_path
+      && Number(prev.contest_nr) === Number(contestPickerActive.contest_nr);
+    const bothNone = !prev && !contestPickerActive;
+    if (!same && !bothNone) {
+      fillContestPicker(contestPickerList, contestPickerActive);
+    }
+  }
+}
+
 async function selectContest(dbPath, contestNr) {
   const msg = $("contest-msg");
   if (msg) msg.textContent = "loading…";
@@ -305,26 +368,79 @@ async function selectContest(dbPath, contestNr) {
         ? `loaded ${j.seeded} QSOs · ${j.contest && j.contest.label ? j.contest.label : ""}`
         : (j.error || "failed");
     }
+    if (j.ok) hideContestPicker();
   } catch (e) {
     if (msg) msg.textContent = String(e);
   }
 }
 
 function wireContestToolbar() {
-  const b = $("contest-rescan");
-  if (!b || b._wired) return;
-  b._wired = true;
-  b.onclick = async () => {
-    const msg = $("contest-msg");
-    if (msg) msg.textContent = "scanning…";
-    try {
-      const r = await fetch("/api/contests/rescan", {method: "POST", body: "{}"});
-      const j = await r.json();
-      if (msg) msg.textContent = j.ok ? `found ${(j.contests||[]).length} contest(s)` : (j.error || "fail");
-    } catch (e) {
-      if (msg) msg.textContent = String(e);
-    }
-  };
+  const scan = $("contest-rescan");
+  if (scan && !scan._wired) {
+    scan._wired = true;
+    scan.onclick = async () => {
+      const msg = $("contest-msg");
+      if (msg) msg.textContent = "scanning…";
+      try {
+        const r = await fetch("/api/contests/rescan", {method: "POST", body: "{}"});
+        const j = await r.json();
+        if (!j.ok) {
+          if (msg) msg.textContent = j.error || "fail";
+          return;
+        }
+        const list = j.contests || [];
+        // Prefer active from live SSE cache if present; picker works without it.
+        fillContestPicker(list, contestPickerActive);
+        if (msg) {
+          msg.textContent = list.length
+            ? `${list.length} contest(s) — select one or Cancel`
+            : "no contests found";
+        }
+      } catch (e) {
+        if (msg) msg.textContent = String(e);
+      }
+    };
+  }
+  const cancel = $("contest-cancel");
+  if (cancel && !cancel._wired) {
+    cancel._wired = true;
+    cancel.onclick = () => {
+      hideContestPicker();
+      const msg = $("contest-msg");
+      if (msg) msg.textContent = "cancelled";
+    };
+  }
+  const sync = $("contest-resync");
+  if (sync && !sync._wired) {
+    sync._wired = true;
+    sync.onclick = async () => {
+      const msg = $("contest-msg");
+      if (msg) msg.textContent = "resyncing from N1MM file…";
+      sync.disabled = true;
+      try {
+        const r = await fetch("/api/log/resync", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: "{}",
+        });
+        const j = await r.json();
+        if (msg) {
+          if (j.ok && j.summary) {
+            const s = j.summary;
+            msg.textContent =
+              `resync +${s.upserted} / −${s.deleted} → ${s.total} QSOs`
+              + (s.source ? ` · ${s.source}` : "");
+          } else {
+            msg.textContent = j.hint || j.error || "resync failed";
+          }
+        }
+      } catch (e) {
+        if (msg) msg.textContent = String(e);
+      } finally {
+        sync.disabled = false;
+      }
+    };
+  }
 }
 wireContestToolbar();
 

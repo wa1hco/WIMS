@@ -215,9 +215,10 @@ bed (§5).
   ID (handles deletions); operator-triggerable, no N1MM resync feature needed. *N1MM's own
   (networked) Resync merges peer logs into `DXLOG` by unique ID over N1MM's TCP peer channel;
   since WIMS mirrors `DXLOG`, it **inherits** the result at its next reconcile — the two compose,
-  and WIMS never speaks N1MM's proprietary network protocol.* **Live edits/deletes:** expect N1MM
-  `contactreplace`/`contactdelete` broadcasts — *to verify by editing/deleting a QSO with the
-  listener running.* **Open:** confirm `GridSquare` populates under a real VHF-contest config
+  and WIMS never speaks N1MM's proprietary network protocol.* **Live edits/deletes:** N1MM
+  `<contactdelete>` removes the QSO from the log copy by `ID` (roster needed/dupe updates
+  immediately); `<contactreplace>` upserts like `<contactinfo>` (edit = delete + replace).
+  **Open:** confirm `GridSquare` populates under a real VHF-contest config
   (grid comes from WSJT-X regardless).
 - **Spot grid source** — spots sent to N1MM must carry grid; source it from the **WSJT-X Decode
   datagram** (`CQ CALL GRID` / Tx1 text) parsed in §3.1, *not* the GridTracker forward path —

@@ -2,9 +2,10 @@
 
 This is WIMS's database — a SQLite file (`wims.db` by default, or `:memory:` for
 tests), the materialized view the decision engine queries. It is **seeded** from
-N1MM's `.s3db` (read-only) and kept **live** by `<contactinfo>` broadcasts; an
-operator **resync** is `reconcile()` over a fresh DB read. WIMS only ever writes
-this database, never N1MM's.
+N1MM's `.s3db` (read-only) and kept **live** by N1MM contact UDP (`<contactinfo>`
+add, `<contactreplace>` edit, `<contactdelete>` delete); an operator **resync**
+is `reconcile()` over a fresh DB read. WIMS only ever writes this database, never
+N1MM's.
 
 VHF dupe/mult model: a QSO is a dupe of an earlier one with the same
 `(call, band, grid)` — so a rover in a *new* grid is not a dupe. A multiplier is a
