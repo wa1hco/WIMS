@@ -10,6 +10,7 @@
 param(
     [string] $RepoPath = "",
     [string] $RepoUrl = "https://github.com/wa1hco/WIMS.git",
+    [string] $LogPath = "",
     [switch] $SkipFirewall,
     [switch] $SkipShortcut,
     [switch] $SkipClone
@@ -20,9 +21,9 @@ $script:LogFile = $null
 
 function Log([string] $msg, [string] $color = "White") {
     $line = "[{0}] {1}" -f (Get-Date -Format "HH:mm:ss"), $msg
-    Write-Host $line -ForegroundColor $color
+    try { Write-Host $line -ForegroundColor $color } catch { Write-Output $line }
     if ($script:LogFile) {
-        Add-Content -Path $script:LogFile -Value $line -Encoding UTF8
+        try { Add-Content -LiteralPath $script:LogFile -Value $line -Encoding UTF8 } catch { }
     }
 }
 function Step($m) { Log "==> $m" "Cyan" }
@@ -413,12 +414,20 @@ exit /b %ERR%
 
 # ========== main ==========
 try {
-    if ($PSScriptRoot) {
+    # Prefer caller-supplied log path so elevated + non-elevated share one file.
+    if ($LogPath) {
+        $script:LogFile = $LogPath
+    } elseif ($PSScriptRoot) {
         $script:LogFile = Join-Path $PSScriptRoot "install-log.txt"
     } else {
         $script:LogFile = Join-Path $env:TEMP "wims-install-log.txt"
     }
-    Set-Content -Path $script:LogFile -Value "WIMS install log $(Get-Date -Format o)" -Encoding UTF8
+    $logDir = Split-Path -Parent $script:LogFile
+    if ($logDir -and -not (Test-Path $logDir)) {
+        New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    }
+    Add-Content -LiteralPath $script:LogFile -Value "" -Encoding UTF8
+    Add-Content -LiteralPath $script:LogFile -Value "==== PS1 start $(Get-Date -Format o) ====" -Encoding UTF8
 
     if (-not $RepoPath) {
         if ($PSScriptRoot) {
@@ -430,11 +439,12 @@ try {
         if (-not $RepoPath) { $RepoPath = Join-Path $env:USERPROFILE "src\WIMS" }
     }
 
-    Log "WIMS Windows install starting"
+    Log "WIMS Windows install starting (elevated child or direct)"
     Log "RepoPath = $RepoPath"
     Log "Admin    = $(Test-IsAdmin)"
     Log "User     = $env:USERNAME"
     Log "Log file = $script:LogFile"
+    Log "PSScriptRoot = $PSScriptRoot"
 
     if (-not (Test-IsAdmin)) {
         Warn "NOT running as Administrator."
