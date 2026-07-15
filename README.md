@@ -71,8 +71,9 @@ and the build log.
 ```bash
 # Run the server (auto-seeds the N1MM contest log; ingests WSJT-X multicast + N1MM broadcasts)
 python src/wims/server/app.py --iface 127.0.0.1
-#   Operate:        http://localhost:8787/
-#   System status:  http://localhost:8787/status
+#   Operate:  http://localhost:8787/
+#   Status:   http://localhost:8787/status
+#   Setup:    http://localhost:8787/setup
 
 # No-RF test bed: simulate a fleet of WSJT-X instances
 python testbed/simulators/emulator.py --iface 127.0.0.1 \
@@ -82,7 +83,18 @@ python testbed/simulators/emulator.py --iface 127.0.0.1 \
 for t in tests/unit/test_*.py; do python "$t"; done
 ```
 
-Requires **Python 3.14**, stdlib only.
+Requires **Python ≥ 3.10** (stdlib only; no pip runtime deps). Project docs often use 3.12–3.14.
+
+### Windows 10 (template / lab server)
+
+```powershell
+# Admin PowerShell recommended (winget + firewall TCP 8787)
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\scripts\windows\Install-Wims.ps1
+.\scripts\windows\Start-WimsServer.ps1
+```
+
+Details: [scripts/windows/README.md](scripts/windows/README.md).
 
 ## Repository layout
 
