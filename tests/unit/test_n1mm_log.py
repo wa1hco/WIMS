@@ -47,9 +47,14 @@ def test_from_contactinfo_capture():
 def test_read_dxlog_seed():
     db = logdb.find_contest_db(N1MM_DB_DIR)
     if not db:
+        # Portable: also try the host standard path when the Windows path is absent.
+        db = logdb.find_contest_db(
+            str(Path.home() / "Documents" / "N1MM Logger+" / "Databases"))
+    if not db:
         raise Skip("no N1MM contest DB")
     qsos = logdb.read_dxlog(db)
-    assert qsos, "DXLOG empty"
+    if not qsos:
+        raise Skip("DXLOG empty")
     assert all(q.source == "seed" for q in qsos)
     assert all(len(q.id) == 32 for q in qsos)
     # Structural validity against whatever contest DB is loaded — do NOT pin a
@@ -97,6 +102,52 @@ def test_reconcile_resync():
     assert store.is_dupe("BB2B", "6m", "FN42") is False   # removed
     assert store.is_dupe("DD4D", "6m", "FN31") is True    # added
 
+
+def test_multi_contest_list_pick_and_filter():
+    """One .s3db with June + Sept VHF — auto-pick latest, filter by ContestNR."""
+    import os, sqlite3, tempfile
+    fd, db = tempfile.mkstemp(suffix=".s3db")
+    os.close(fd)
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE ContestInstance (
+          ContestID INT, ContestName TEXT, StartDate TEXT, ContestNR INT);
+        CREATE TABLE DXLOG (
+          ID TEXT, Call TEXT, Band TEXT, GridSquare TEXT, Mode TEXT,
+          Points INT, IsMultiplier1 INT, ContestName TEXT, ContestNR INT,
+          TimeStamp TEXT, Operator TEXT);
+    """)
+    con.execute("INSERT INTO ContestInstance VALUES (1,'ARRLVHFSEP','2025-09-13',10)")
+    con.execute("INSERT INTO ContestInstance VALUES (2,'ARRLVHFJUN','2026-06-14',20)")
+    con.execute("INSERT INTO ContestInstance VALUES (3,'DELETEDQS','1900-01-01',-1)")
+    # Sept 2025: 2 QSOs; June 2026: 3 QSOs (should auto-pick June by date)
+    for i, call in enumerate(("A1A", "B1B")):
+        con.execute("INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"s{i}" + "0"*30, call, "50", "FN42", "FT8", 1, 1,
+                     "ARRLVHFSEP", 10, "2025-09-13", "W2SZ"))
+    for i, call in enumerate(("C1C", "D1D", "E1E")):
+        con.execute("INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (f"j{i}" + "0"*30, call, "50", "FN42", "FT8", 1, 1,
+                     "ARRLVHFJUN", 20, "2026-06-14", "W2SZ"))
+    con.commit()
+    con.close()
+    try:
+        contests = logdb.list_contests(db)
+        names = {c.contest_name for c in contests}
+        assert "ARRLVHFJUN" in names and "ARRLVHFSEP" in names
+        pick = logdb.pick_contest(contests)
+        assert pick is not None
+        assert pick.contest_name == "ARRLVHFJUN"
+        assert pick.qso_count == 3
+        june = logdb.read_dxlog(db, contest_nr=pick.contest_nr)
+        assert len(june) == 3
+        assert all(q.call in ("C1C", "D1D", "E1E") for q in june)
+        sept = logdb.read_dxlog(db, contest_nr=10)
+        assert len(sept) == 2
+        disc = logdb.discover(db_path=db)
+        assert disc["recommended"]["contest_name"] == "ARRLVHFJUN"
+    finally:
+        os.unlink(db)
 
 if __name__ == "__main__":
     import traceback

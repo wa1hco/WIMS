@@ -40,6 +40,36 @@ def test_fleet_to_dict_shape():
     assert lg["last_band"] == "6m"
 
 
+def test_activity_tile_on_heartbeat_without_decode():
+    """Quiet band: Heartbeat alone must create an activity tile that still scrolls."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_heartbeat("VM-9700", version="2.7.0")),
+                       now=100.0, src_ip="192.168.10.50")
+    s = live.snapshot(now=100.0)
+    assert any(a["instance"] == "VM-9700" for a in s["activity"])
+    tile = next(a for a in s["activity"] if a["instance"] == "VM-9700")
+    assert tile["count"] == 0
+    # Continuous clock window: full strip of empty periods (not zero rows).
+    assert len(tile["rows"]) == 15  # ActivityMap default n_rows
+    assert all(all(c is None for c in r["snr"]) for r in tile["rows"])
+
+
+def test_snapshot_prunes_dead_instance_and_activity():
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_heartbeat("OLD-DESKTOP", version="2.7.0")),
+                       now=100.0, src_ip="192.168.1.10")
+    live.observe_wsjtx(M.parse(E.build_heartbeat("VM-9700", version="2.7.0")),
+                       now=100.0, src_ip="192.168.10.50")
+    assert len(live.snapshot(now=100.0)["instances"]) == 2
+    # Only VM keeps heartbeat; desktop silent past prune window (120s).
+    live.observe_wsjtx(M.parse(E.build_heartbeat("VM-9700", version="2.7.0")),
+                       now=250.0, src_ip="192.168.10.50")
+    s = live.snapshot(now=250.0)
+    ids = {i["id"] for i in s["instances"]}
+    assert ids == {"VM-9700"}
+    assert all(a["instance"] != "OLD-DESKTOP" for a in s["activity"])
+
+
 def test_interlock_no_overlap_instance_grouping():
     det = OverlapDetector(group_of=identity_groups)
     det.observe("A", True, now=10.0)      # A transmitting, its own group
@@ -84,23 +114,28 @@ def test_livefleet_band_grouping_flags_overlap():
     assert sorted(il["tx_now"]) == ["SIM-6A", "SIM-6B"]
 
 
-def test_livefleet_roster_ranks_cq_decodes():
-    # Status gives the instance a band; CQ decodes then populate a scored roster.
+def test_livefleet_roster_lists_all_decodes():
+    # Status gives the instance a band + grid; all decodes populate the roster, scored.
     live = LiveFleet()
-    live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8", decoding=True)),
+    live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8",
+                                              de_grid="FN31", decoding=True)),
                        now=1.0, src_ip="192.168.10.21")
     live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-3, delta_time=0.1,
                                               delta_frequency=1500, message="CQ K1ABC FN42")),
                        now=1.1, src_ip="192.168.10.21")
     live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-1, delta_time=0.1,
                                               delta_frequency=1600, message="WA1HCO W2XYZ FN20")),
-                       now=1.1, src_ip="192.168.10.21")  # not a CQ -> excluded from roster
+                       now=1.1, src_ip="192.168.10.21")  # a mid-exchange decode, still listed
     r = live.snapshot(2.0)["roster"]
     assert r["strategy"] == "vhf-default" and r["condition"] == "open"
-    assert [c["call"] for c in r["candidates"]] == ["K1ABC"]
-    top = r["candidates"][0]
-    assert top["band"] == "6m" and top["is_new_mult"] is True   # empty log -> new mult
-    assert any(f["name"] == "new_mult" for f in top["factors"])  # breakdown is present
+    by = {c["call"]: c for c in r["candidates"]}
+    assert set(by) == {"K1ABC", "W2XYZ"}                     # CQ and non-CQ both listed
+    assert by["K1ABC"]["is_cq"] is True and by["K1ABC"]["to_call"] == "CQ"
+    assert by["K1ABC"]["is_needed"] is True and by["K1ABC"]["is_new_mult"] is True  # empty log
+    assert any(f["name"] == "new_mult" for f in by["K1ABC"]["factors"])   # breakdown present
+    assert by["K1ABC"]["freq_hz"] == 50_313_000 + 1500      # RF = dial + decode df
+    assert by["K1ABC"]["az"] is not None and 0 <= by["K1ABC"]["az"] < 360  # FN31 -> FN42
+    assert by["W2XYZ"]["is_cq"] is False and by["W2XYZ"]["to_call"] == "WA1HCO"
 
 
 def test_livefleet_logged_qso_marks_dupe():
@@ -110,27 +145,38 @@ def test_livefleet_logged_qso_marks_dupe():
     live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-3, delta_time=0.1,
                                               delta_frequency=1500, message="CQ K1ABC FN42")),
                        now=1.1, src_ip="192.168.10.21")
-    # N1MM logs the QSO -> roster must drop K1ABC as a dupe.
+    # N1MM logs the QSO -> K1ABC stays in the roster but is flagged already-worked.
     live.observe_n1mm("<contactinfo><app>N1MM</app><ID>abc-1</ID><call>K1ABC</call>"
                       "<band>50</band><gridsquare>FN42</gridsquare></contactinfo>",
                       now=1.5, src_ip="192.168.10.22")
     r = live.snapshot(2.0)["roster"]
-    assert [c["call"] for c in r["candidates"]] == []
-    assert r["excluded"] == 1
+    k = next(c for c in r["candidates"] if c["call"] == "K1ABC")
+    assert k["is_dupe"] is True and k["is_needed"] is False
+    assert r["not_needed"] == 1 and r["needed"] == 0
 
 
 def test_livefleet_activity_tile():
     live = LiveFleet()
     live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8", decoding=True)),
                        now=1.0, src_ip="192.168.10.21")
-    live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=12, delta_time=0.1,
-                                              delta_frequency=795, message="CQ NJ1H FN42")),
-                       now=1.1, src_ip="192.168.10.21")
-    act = live.snapshot(2.0)["activity"]
-    assert len(act) == 1 and act[0]["instance"] == "SIM-6M" and act[0]["count"] == 1
-    row = act[0]["rows"][0]
-    col = int(795 / act[0]["freq_max"] * act[0]["n_bins"])
-    assert row["snr"][col] == 12
+    # time_ms must fall inside the continuous window ending at wall-clock `now`.
+    # Pin wall clock so the decode lands on the last row of the scrolling strip.
+    import wims.udp.activity as actmod
+    tms = 8_145_000
+    real = actmod.utc_ms_since_midnight
+    actmod.utc_ms_since_midnight = lambda t: tms + 1_000  # same 15s period
+    try:
+        live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=tms, snr=12, delta_time=0.1,
+                                                  delta_frequency=795, message="CQ NJ1H FN42")),
+                           now=1.1, src_ip="192.168.10.21")
+        act = live.snapshot(2.0)["activity"]
+        assert len(act) == 1 and act[0]["instance"] == "SIM-6M" and act[0]["count"] == 1
+        assert len(act[0]["rows"]) == 15  # continuous strip
+        col = int(795 / act[0]["freq_max"] * act[0]["n_bins"])
+        # Decode is in the current period → last row of the scrolling window
+        assert act[0]["rows"][-1]["snr"][col] == 12
+    finally:
+        actmod.utc_ms_since_midnight = real
 
 
 def test_decodes_to_dict_newest_first():
@@ -198,9 +244,49 @@ def test_livefleet_seeds_log_from_s3db(tmp_path=None):
         assert s["n1mm_sync"]["qso_count"] == 1
         assert s["n1mm_sync"]["seed"]["count"] == 1
         assert s["n1mm_sync"]["seed"]["source"].endswith(".s3db")
-        # seeded QSO makes the matching CQ a dupe -> excluded from the roster
-        assert [c["call"] for c in s["roster"]["candidates"]] == []
-        assert s["roster"]["excluded"] == 1
+        # seeded QSO makes the matching CQ already-worked -> listed but not needed
+        assert [c["call"] for c in s["roster"]["candidates"]] == ["K1ABC"]
+        assert s["roster"]["candidates"][0]["is_needed"] is False
+        assert s["roster"]["not_needed"] == 1
+    finally:
+        os.unlink(db)
+
+
+def test_auto_seed_picks_one_contest_not_all():
+    import os, sqlite3, tempfile
+    fd, db = tempfile.mkstemp(suffix=".s3db"); os.close(fd)
+    con = sqlite3.connect(db)
+    con.executescript("""
+        CREATE TABLE ContestInstance (
+          ContestID INT, ContestName TEXT, StartDate TEXT, ContestNR INT);
+        CREATE TABLE DXLOG (
+          ID TEXT, Call TEXT, Band TEXT, GridSquare TEXT, Mode TEXT,
+          Points INT, IsMultiplier1 INT, ContestName TEXT, ContestNR INT,
+          TimeStamp TEXT, Operator TEXT);
+    """)
+    con.execute("INSERT INTO ContestInstance VALUES (1,'OLD','2025-09-01',1)")
+    con.execute("INSERT INTO ContestInstance VALUES (2,'NEW','2026-06-14',2)")
+    con.execute("INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("o"*32, "OLD1", "50", "FN42", "FT8", 1, 0, "OLD", 1, "", "W2SZ"))
+    con.execute("INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                ("n"*32, "NEW1", "50", "FN31", "FT8", 1, 1, "NEW", 2, "", "W2SZ"))
+    con.commit(); con.close()
+    try:
+        live = LiveFleet()
+        live.configure_log_discovery(db_path=db)
+        r = live.auto_seed()
+        assert r["ok"] is True
+        assert r["seeded"] == 1
+        assert r["contest"]["contest_name"] == "NEW"
+        s = live.snapshot(1.0)
+        assert s["n1mm_sync"]["qso_count"] == 1
+        assert s["n1mm_sync"]["active_contest"]["contest_name"] == "NEW"
+        assert any(c["contest_name"] == "OLD" for c in s["n1mm_sync"]["contests"])
+        # Switch to OLD via select_contest (Status UI path)
+        live.select_contest(db_path=db, contest_nr=1)
+        s2 = live.snapshot(2.0)
+        assert s2["n1mm_sync"]["qso_count"] == 1
+        assert s2["n1mm_sync"]["active_contest"]["contest_name"] == "OLD"
     finally:
         os.unlink(db)
 

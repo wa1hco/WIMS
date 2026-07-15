@@ -8,13 +8,21 @@ contract — and everything behind it — stays put. Keep it additive and versio
 
 from __future__ import annotations
 
+from wims.engine.geo import bearing as _bearing
+
 API_VERSION = 1
 
 
 def _instance(n, now: float) -> dict:
+    # id_collision uses a recent-host window so a desktop→VM move of the same
+    # rig-name does not sticky-flag ⚠ id after the old source goes silent.
+    collide = (n.id_collision_at(now) if hasattr(n, "id_collision_at")
+               else n.id_collision)
+    recent = sorted(n.hosts_recent(now)) if hasattr(n, "hosts_recent") else sorted(n.hosts)
     return {
         "id": n.id,
         "host": n.host,
+        "hosts": recent,   # live sources (debug / multi-host collision UI)
         "band": n.band,
         "mode": n.mode,
         "dial_hz": n.dial_hz,
@@ -25,7 +33,7 @@ def _instance(n, now: float) -> dict:
         "heartbeat_age": None if n.last_heartbeat is None else round(now - n.last_heartbeat, 1),
         "health": n.health(now),
         "quiet": n.is_quiet(now),
-        "id_collision": n.id_collision,
+        "id_collision": collide,
         "version": n.version,
     }
 
@@ -90,28 +98,42 @@ def interlock_to_dict(detector, group_of, grouping: str,
     }
 
 
-def roster_to_dict(scored_pairs, excluded: int, now: float,
+def roster_to_dict(scored_rows, not_needed: int, now: float,
                    *, condition: str, strategy: str) -> dict:
-    """Snapshot the ranked call roster (plan §3.5 / §2.2) for the console.
+    """Snapshot the GridTracker-style call roster (plan §3.5 / §2.2) for the console.
 
-    `scored_pairs` is `[(ScoredCandidate, last_seen), ...]` best-first (from
-    `RosterBuilder.ranked`). Each candidate ships its **per-factor breakdown** so the
-    operator sees exactly why a station ranks where it does — the explainability is the
-    point. `excluded` is how many retained candidates were suppressed (dupe / not
-    reachable) and are not shown."""
+    `scored_rows` is `[(ScoredCandidate, entry), ...]` from `RosterBuilder.ranked` —
+    **every** retained station (needed and already-worked), each carrying its per-factor
+    score breakdown (the explainability is the point) plus the fields for the console
+    columns: `to_call` (who they're calling), RF `freq_hz` (instance dial + decode df),
+    `az` (great-circle bearing from the instance's own grid to the DX grid — pointing),
+    and `is_needed` (not a dupe per the N1MM log copy) so the console can toggle needed /
+    all and filter by band. `operator_call` (who manages that band) is stubbed until the
+    §3.14 fleet profile is wired. `not_needed` counts already-worked (dupe) rows."""
     cands = []
-    for sc, last_seen in scored_pairs:
+    for sc, e in scored_rows:
         c = sc.candidate
+        d = e.decode
+        freq_hz = (e.dial_hz + d.delta_frequency) if e.dial_hz else None
         cands.append({
             "call": c.call,
+            "to_call": d.to_call,                  # "calling" column
             "grid": c.grid,
             "band": c.band,
+            "mode": d.mode,
             "instance": c.instance_id,
+            "operator_call": None,                 # §3.14 profile stub (band manager)
             "snr": c.snr,
+            "freq_hz": freq_hz,
+            "az": None if (a := _bearing(e.de_grid, c.grid)) is None else round(a),
             "score": round(sc.total, 1),
+            "is_needed": not c.is_dupe,
+            "is_cq": c.is_cq,
+            "is_dupe": c.is_dupe,
             "is_new_mult": c.is_new_mult,
             "is_rover": c.is_rover,
-            "age": round(now - last_seen, 1),
+            "ts": e.last_seen,                     # epoch -> console formats UTC
+            "age": round(now - e.last_seen, 1),
             "factors": [{"name": f.name, "contribution": round(f.contribution, 1),
                          "detail": f.detail} for f in sc.factors],
         })
@@ -119,18 +141,23 @@ def roster_to_dict(scored_pairs, excluded: int, now: float,
         "condition": condition,
         "strategy": strategy,
         "count": len(cands),
-        "excluded": excluded,
+        "needed": sum(1 for x in cands if x["is_needed"]),
+        "not_needed": not_needed,
         "candidates": cands,
     }
 
 
-def activity_to_dict(amap) -> dict:
+def activity_to_dict(amap, now: float | None = None) -> dict:
     """Snapshot one instance's decode-activity map (plan §2.5) — the df × cycle × SNR
     heatmap that confirms decodes are flowing without any screen capture. Cells carry
-    raw best-SNR (or null = nothing decoded there); the console colors them."""
+    raw best-SNR (or null = nothing decoded there); the console colors them.
+
+    Pass `now` so empty periods fill in and the strip scrolls like WSJT-X even when
+    no Decode UDP arrives.
+    """
     rows = []
-    for bucket, snrs in amap.recent_rows():
-        secs = bucket * amap.period_s
+    for bucket, snrs in amap.recent_rows(now):
+        secs = (bucket * amap.period_s) % 86400
         rows.append({
             "cycle": bucket,
             "label": f"{secs // 3600 % 24:02d}:{secs % 3600 // 60:02d}:{secs % 60:02d}",
@@ -165,7 +192,9 @@ def decodes_to_dict(buffer, now: float, limit: int = 120) -> list:
 
 def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
                       qso_count: int, last_qso: dict | None,
-                      seed: dict | None = None, stale_after: float = 180.0) -> dict:
+                      seed: dict | None = None, stale_after: float = 180.0,
+                      active_contest: dict | None = None,
+                      contests: list | None = None) -> dict:
     """N1MM feed + log-copy freshness (plan §2.2 / §3.6).
 
     N1MM has **no heartbeat** — it only broadcasts on activity (logged QSO, spot,
@@ -173,7 +202,11 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
     wording reflects that. `qso_count`/`last_qso` describe WIMS's own log copy that
     feeds the roster's dupe/mult; `seed` records the startup `.s3db` read (count +
     source file) so the operator can see the existing log was pulled in even before
-    any live broadcast."""
+    any live broadcast.
+
+    `contests` / `active_contest` support multi-log .s3db files (June + Sept VHF…):
+    the Status page lists human labels; no ContestNR knowledge required.
+    """
     feed_age = None if last_n1mm is None else round(now - last_n1mm, 1)
     if last_n1mm is None:
         status = "none"                       # no N1MM datagram ever seen
@@ -187,6 +220,8 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
         "packets": n1mm_pkts,
         "qso_count": qso_count,
         "seed": seed,
+        "active_contest": active_contest,
+        "contests": contests or [],
         "last_qso": None if not last_qso else {
             "call": last_qso["call"],
             "band": last_qso["band"],

@@ -6,11 +6,17 @@ the Y axis, with cell intensity from SNR. It is NOT a real spectrogram (WSJT-X
 sends no audio), but it confirms at a glance that an instance is hearing the band
 and decodes are flowing — confidence without any screen capture or host agent.
 
+Like the WSJT-X waterfall, the view **scrolls on the clock**: empty 15 s cycles
+appear as blank rows even when no Decode UDP arrived. Only SNR cells require
+messages.
+
 Per WSJT-X instance: one ActivityMap. Pure logic + a console renderer; the same
 data feeds the dashboard tile later.
 """
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 # SNR -> glyph, weakest to strongest. Tuned for FT8 (~ -24..+25 dB).
 _LEVELS = [(-21, "."), (-16, ":"), (-11, "-"), (-6, "="), (-1, "+"),
@@ -27,7 +33,15 @@ def snr_glyph(snr: int | None) -> str:
 
 
 def _hms(seconds: int) -> str:
-    return f"{seconds // 3600 % 24:02d}:{seconds % 3600 // 60:02d}:{seconds % 60:02d}"
+    s = seconds % 86400
+    return f"{s // 3600 % 24:02d}:{s % 3600 // 60:02d}:{s % 60:02d}"
+
+
+def utc_ms_since_midnight(now: float) -> int:
+    """Wall-clock UTC milliseconds since midnight — same epoch WSJT-X uses for Decode.time_ms."""
+    t = datetime.fromtimestamp(now, tz=timezone.utc)
+    return ((t.hour * 3600 + t.minute * 60 + t.second) * 1000
+            + t.microsecond // 1000)
 
 
 class ActivityMap:
@@ -40,7 +54,12 @@ class ActivityMap:
         self.n_rows = n_rows
         self.count = 0
         # bucket index (time_ms // period_ms) -> [n_bins] best SNR seen, or None.
+        # Bucket is period-of-day (0 .. periods_per_day-1), matching WSJT-X time_ms.
         self._rows: dict[int, list[int | None]] = {}
+
+    @property
+    def periods_per_day(self) -> int:
+        return max(1, (24 * 3600) // self.period_s)
 
     def bin_of(self, df_hz: int) -> int:
         b = int(df_hz / self.freq_max * self.n_bins)
@@ -49,29 +68,61 @@ class ActivityMap:
     def bucket_of(self, time_ms: int) -> int:
         return time_ms // (self.period_s * 1000)
 
+    def period_index_now(self, now: float) -> int:
+        """Current FT8/MSK period index from wall clock (UTC)."""
+        return self.bucket_of(utc_ms_since_midnight(now)) % self.periods_per_day
+
     def add(self, decode) -> None:
         """Record a parsed messages.Decode (uses time_ms, delta_frequency, snr)."""
-        bucket = self.bucket_of(decode.time_ms)
+        bucket = self.bucket_of(decode.time_ms) % self.periods_per_day
         b = self.bin_of(decode.delta_frequency)
         row = self._rows.setdefault(bucket, [None] * self.n_bins)
         if row[b] is None or decode.snr > row[b]:
             row[b] = decode.snr
         self.count += 1
 
-    def recent_rows(self) -> list[tuple[int, list[int | None]]]:
-        """The most-recent n_rows cycles as `(bucket, [n_bins] best-SNR-or-None)`,
-        oldest first — the data behind `render()`, for the dashboard tile (§2.5)."""
-        return [(bk, self._rows[bk]) for bk in sorted(self._rows)[-self.n_rows:]]
+    def recent_rows(self, now: float | None = None
+                    ) -> list[tuple[int, list[int | None]]]:
+        """Most recent `n_rows` cycles, oldest first.
 
-    def render(self) -> str:
+        When `now` is given (dashboard path), the window ends at the **current**
+        wall-clock period and includes empty cycles — continuous scroll like
+        WSJT-X, not only rows that received a Decode.
+        When `now` is omitted, only stored (non-empty) buckets are returned
+        (legacy / offline analysis).
+        """
+        empty = [None] * self.n_bins
+        if now is None:
+            return [(bk, list(self._rows[bk]))
+                    for bk in sorted(self._rows)[-self.n_rows:]]
+
+        end = self.period_index_now(now)
+        day = self.periods_per_day
+        out: list[tuple[int, list[int | None]]] = []
+        for i in range(self.n_rows - 1, -1, -1):
+            bk = (end - i) % day
+            row = self._rows.get(bk)
+            out.append((bk, list(row) if row is not None else list(empty)))
+        # Drop buckets that scrolled off the visible window (keep a little margin).
+        keep = {bk for bk, _ in out}
+        for old in list(self._rows.keys()):
+            if old not in keep:
+                # Keep a short history beyond the window for late UDP.
+                # Distance on circular day clock:
+                dist = (end - old) % day
+                if dist > self.n_rows + 4:
+                    del self._rows[old]
+        return out
+
+    def render(self, now: float | None = None) -> str:
         """Render the most recent n_rows cycles as a text heatmap."""
-        if not self._rows:
-            return f"[{self.instance_id}] no decodes yet"
-        buckets = sorted(self._rows)[-self.n_rows:]
+        rows = self.recent_rows(now)
+        if not rows:
+            return f"[{self.instance_id}] no cycles yet"
         out = [f"[{self.instance_id}]  {self.count} decodes  "
                f"(cols 0..{self.freq_max} Hz, rows = {self.period_s}s cycles)"]
-        for bk in buckets:
-            line = "".join(snr_glyph(s) for s in self._rows[bk])
+        for bk, snrs in rows:
+            line = "".join(snr_glyph(s) for s in snrs)
             out.append(f"  {_hms(bk * self.period_s)} |{line}|")
         # Frequency axis ruler.
         ruler = [" "] * self.n_bins
@@ -120,7 +171,7 @@ def _main() -> None:
                 last = now
                 print("\033[2J\033[H", end="")  # clear screen
                 for amap in maps.values():
-                    print(amap.render())
+                    print(amap.render(now=now))
                     print()
     except KeyboardInterrupt:
         print(f"\nstopped — {sum(m.count for m in maps.values())} decodes, "

@@ -11,6 +11,10 @@ records design decisions as they're made.
 companion tracker [wims_status.md](wims_status.md).** Keep the two separated: change this file
 when the *design* changes; record *progress* there.
 
+**Fleet networking map** (WSJT-X / N1MM / GridTracker multicast ports, logger segregation,
+consoles, **resilience & guided setup** for tired/non-expert seat ops):
+**[wims_networking.md](wims_networking.md)** (§12).
+
 ---
 
 ## WIMS goals
@@ -74,30 +78,47 @@ not WSJT-X — decides which station to work, run vs S&P, and when to give up.
 ### Deployment context (current operation)
 
 A **fixed, unlimited multi-multi** entry in the **ARRL June & September VHF** contests —
-stationary, **one grid, no roving on our side**. Three vehicles: **"Roy"** (truck) 222 + 432;
-**"Chip"** (truck) 903 + 1296 + up (microwave); **"Trailer"** 50 + 144. Each vehicle = a host
-running WSJT-X instance(s) for its digital bands plus operators on SSB/CW. Today the vehicles
-have a network between them **but no shared visibility — coordination is by chat only.** WIMS's
+stationary, **one grid, no roving on our side**. Vehicles: **"Roy"** (truck) 222 + 432;
+**"Chip"** (truck) 903 + 1296 + up (microwave); **"Trailer"** 50 + 144. Each vehicle runs
+WSJT-X instance(s) for its digital bands plus operators on SSB/CW. Today the vehicles have a
+network between them **but no shared visibility — coordination is by chat only.** WIMS's
 headline value is the **cross-vehicle operations console**: one combined call roster, per-vehicle
 band-activity + health, one merged log / dupe-mult view — replacing "anyone there?" over chat.
 
-- *Mapping:* **vehicle = host**, **band = instance**; each mixed SSB/CW + digital.
+**Digital fleet (authoritative instance/N1MM counts — networking detail in
+[wims_networking.md](wims_networking.md)):**
+
+| Seat | N1MM | WSJT-X |
+|------|------|--------|
+| Trailer 50 | N1MM-50 | **3×** FT8, fixed beams in different directions |
+| Trailer 144 | N1MM-144 | **2×** (FT8 + MSK144, or FT8 + EME) |
+| 222 (e.g. Roy) | N1MM-222 | **1×** FT8 |
+| 432 (e.g. Roy) | N1MM-432 | **1×** FT8 |
+
+→ **4 N1MMs** (one per band) + **7 WSJT-X**, all N1MMs networked into one contest log. Shorthand
+“band = instance” is **false on Trailer** (multi-instance per band); true on 222/432.
+
+- *Mapping:* **vehicle ≈ host(s)**, **instance = one WSJT-X** (`--rig-name` / UDP id);
+  **band = one TX resource group** (one radiated signal — three 6m beams share `50-signal`).
+  Each seat mixed SSB/CW + digital as equipped.
 - *Network:* single **`192.168.10.0/24`, wired L2 switches** → one broadcast domain, so **WSJT-X
-  multicast works across all vehicles natively** (the "everyone joins the group" model holds
-  end-to-end). Per-vehicle unicast relay (host agent) is a **fallback**, not required. *Watch:*
-  managed switches with **IGMP snooping** + no querier can prune multicast — verify on
-  plain/unmanaged L2 it floods fine. Internet is **1–2 Starlinks**, separate Starlink WiFi for
-  other devices — **out of the WIMS data path** (WIMS is LAN-only; Starlink CGNAT/latency never
-  involved).
+  multicast works across all vehicles natively**. **Segregate UDP by band** (port or group) so
+  each N1MM is the sole logger for its instances; WIMS joins **all** streams — full map in
+  [wims_networking.md](wims_networking.md). Per-vehicle unicast relay (host agent) is a
+  **fallback**, not required. *Watch:* managed switches with **IGMP snooping** + no querier can
+  prune multicast — verify on plain/unmanaged L2 it floods fine. Internet is **1–2 Starlinks**,
+  separate Starlink WiFi for other devices — **out of the WIMS data path** (WIMS radio path is
+  LAN-only; Starlink CGNAT/latency never involved).
 - *Rover dupe still applies:* our position is one fixed grid, but we **work rovers** (others'
   stations moving between grids); each grid×band is a mult, so the `(call, band, grid)` dupe key
   (grid from the WSJT-X decode) stays necessary for worked stations.
 - *Arbiter scope:* multi-multi = multiple simultaneous transmitters by design; zero-overlap is
-  enforced **per resource group** (transmitter/antenna/PA chain, §3.14) — Roy-432, Chip-1296,
-  Trailer-6m all TX concurrently; contention is only *within* a shared radio/antenna (§3.4).
+  enforced **per resource group** (transmitter/antenna/PA chain **or same-band signal**, §3.14)
+  — 50, 144, 222, 432 may TX concurrently; the three Trailer-50 instances contend for one
+  `50-signal` token (§3.4).
 - **Operating model — NO automated operation.** Every active transmitter always has a human
   operator: either the **local op in the seat**, or the **WIMS console operator** who **smoothly
-  takes over** a band when its seat is empty (e.g. 222/432 in Roy when nobody's there). WIMS is a
+  takes over** a band when its seat is empty (e.g. 222/432 when nobody's there). WIMS is a
   **remote operating position + force-multiplier** — one console op covers several empty-seat
   bands via the call roster + click-to-work. WIMS **ranks/recommends; the human initiates every
   TX**. The key UX is **clean handoff** (local ⇄ WIMS op, request/grant/release) with always
@@ -137,7 +158,15 @@ bed (§5).
 - **Multicast vs unicast** — this station uses **multicast `224.0.0.73:2237`** (TTL 3), so WIMS
   joins the group and receives alongside GridTracker/N1MM, non-disruptively. `BroadcastToN1MM=false`
   (N1MM is not fed by WSJT-X's direct unicast — it consumes the multicast). Config:
-  `AppData/Roaming/WSJT-X/WSJT-X.ini`; two named instances available (`WSJTX_Flex_A/B`).
+  `AppData/Roaming/WSJT-X/WSJT-X.ini` (Windows) or `~/.config/WSJT-X*.ini` (Linux, including
+  `WSJT-X - <rig-name>.ini`).
+- **Outgoing interface is mandatory** — Settings → Reporting → **Outgoing interface** must be the
+  **contest LAN NIC**. Blank / Qt `@Invalid()` / loopback is a **silent failure mode**: WSJT-X
+  still decodes, but Heartbeat/Status/Decode never reach WIMS or other hosts (observed: one
+  instance on `127.0.0.1` visible to WIMS, another on `224.0.0.73` with `@Invalid()` interface
+  invisible despite local decodes). **Setup, config verification (`wsjtx_config`), and continuous
+  readiness must all treat this as a first-class error** — see
+  [wims_networking.md](wims_networking.md) §4 / §12.
 - **Port/ID per instance** — confirm N instances can each emit on a distinct port / unique ID
   without collision.
 
@@ -243,10 +272,20 @@ SSB/CW or hand off to a 2nd op.
 ### 2.2 Operational awareness
 - **Decision log** — station chosen, needed-vs-dupe reason, run/S&P mode, give-up events
   (scrolling).
-- **Call roster** — sorted by score value (§Goals); a **rover** reappearing in a **new grid**
-  shows as a fresh, high-value row (new mult), not greyed as a dupe. Scored via §3.5 with a visible
-  per-factor breakdown; kept current from N1MM `<contactinfo>` so a worked station drops to a dupe
-  **per band×grid**. (Feature backlog: §2.6.)
+- **Call roster** — **GridTracker-style flat table, one row per station heard** (every decode with a
+  callsign, CQ or mid-exchange), scored via §3.5 with the score **kept as a sortable column** (not the
+  only view). Columns: **DX callsign · Calling** (who they address — `CQ` or the worked call) **· Band ·
+  Mode · Grid · dB · Freq** (RF = instance dial + decode audio df) **· Az** (great-circle bearing from the
+  *instance's own* `de_grid`, reported live by WSJT-X, to the DX grid — no station config needed) **· Age ·
+  UTC · Op** (callsign managing that band — from the §3.14 fleet profile; **stubbed `—` until wired**) **·
+  Score**. **Every header sorts**, and the chosen sort + filters persist across live SSE re-renders. The
+  operator **filters by need** (needed = not a dupe per the N1MM log copy; toggle needed-only / all) and
+  **by band**. A **rover** in a **new grid** is a fresh, high-value row (new mult), never collapsed onto its
+  old grid; a worked station is flagged already-worked **per band×grid** from N1MM `<contactinfo>` and
+  dimmed rather than dropped. The durable contract (`server/state.py`) ships the raw per-row facts
+  (`is_needed`, `band`, `az`, `freq_hz`, `operator_call`, `score`, `to_call`, `ts`); the console does the
+  filter/sort so the frontend stays disposable. Non-CQ rows are listed but not scored (score 0). Azimuth
+  math is a pure helper (`engine/geo.py`: Maidenhead → lat/lon → great-circle bearing). (Feature backlog: §2.6.)
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
   broadcast). N1MM has no heartbeat — "no recent packet" means quiet, not a fault.
@@ -267,11 +306,14 @@ SSB/CW or hand off to a 2nd op.
   §3.12 JSON state to a static HTML/JS page (`src/wims/server/`). No framework/build step; lowest
   lock-in. The **JSON state contract (`server/state.py`) is the durable boundary** — the frontend
   is the only replaceable part.
-- **Two-page console.** Both pages share one SSE feed (`/events`) with a header nav toggle:
+- **Three-page console.** All pages share one SSE feed (`/events`) with a header nav:
   **`/` Operate** = workable stations (call roster + interlock/overlap safety banner);
-  **`/status` System status** = system/nodes summary, WSJT-X instances, N1MM loggers + sync,
-  decode-activity, decode log. Shared `static/wims.css` + `wims.js` (every render no-ops when its
-  panel is absent); each page is just the DOM containers it owns.
+  **`/status` Status** = **live health** — system/nodes, WSJT-X instances, N1MM loggers + live
+  sync, decode-activity, decode log (RF / operators / signals);
+  **`/setup` Setup** = **configuration & install diagnostics** — contest log picker (multi-contest
+  `.s3db`), networking checklist, seed paths, host app config audit (WSJT-X / N1MM / GridTracker;
+  growing). Setup is generally static or slow-changing; Status is the “is the contest healthy?”
+  view. Shared `static/wims.css` + `wims.js` (every render no-ops when its panel is absent).
 - **Two-phase UI build (guiding principle).** *Phase 1 — developer-oriented:* information-dense,
   expose internals + diagnostics, breadth over polish; its job is to **validate the design and
   discover what information we actually need** (rendering is deliberately disposable; the
@@ -283,14 +325,18 @@ SSB/CW or hand off to a 2nd op.
 ### 2.5 Network setup, health & confidence
 Goal: make a complex multi-host UDP fleet **describable, verifiable, and visible** without
 reaching for Wireshark — WIMS is already on the wire, so it can be the diagnostic tool (fed by
-§3.15).
+§3.15). **Resilience for non-expert seat operators** (reboots, fatigue, 222/432 not run by WIMS
+authors): contest profile as source of truth, guided seat bring-up, continuous 🟢/🔴 readiness with
+**one plain-language fix**, fail-soft (no TX while red) — full how-it-works in
+**[wims_networking.md §12](wims_networking.md#12-resilience--guided-setup-tired-operators-restarts)**.
 - **Live topology map** — nodes (WSJT-X instances, N1MM(s), GridTracker, rotators, hosts, WIMS) +
   UDP flows + multicast-group membership + who-logs-whom, health-colored.
 - **Expected-vs-actual fleet** — passive discovery of every WSJT-X instance (id/host/band/mode/
   freq/state), health (ALIVE/STALE/DEAD + QUIET = alive-but-no-decodes), id-collision detection
   (same id from 2 hosts), and a diff vs the expected fleet that **names** each discrepancy (missing
   / dead / unexpected / band-mismatch / quiet). Dual-socket (WSJT-X 2237 + N1MM 12060 → loggers
-  shown per station name).
+  shown per station name). **Per-seat readiness** collapses this to 🟢 READY / 🟡 DEGRADED /
+  🔴 BROKEN / ⚪ OFF plus a single next action (networking §12.5).
 - **Protocol-aware packet view ("Wireshark-lite")** — a live **decode log** (time / instance / dB
   / dF / message across the whole fleet, CQ-highlighted) plus per-source packet/decode rates,
   message-type counts, decode hex on demand — filtered to the ham protocols WIMS understands.
@@ -478,11 +524,12 @@ rig); prompt for what we can't (antenna geometry, intended limits).
   (e.g. `ROY-432`)** — this both isolates that instance's config dir *and* sets the UDP `id` field,
   which is the **real disambiguator** (unique IP is *not* enough: two instances on one PC share an
   IP, and the protocol keys on `id`). Convention: `VEHICLE-BAND`. host (IP/name); UDP **multicast
-  group/port** (standardize on multicast, §4.3); **reachability** = LAN vs remote-over-tunnel
-  (host-agent relay, §4.3); host **remote-desktop ID/address** (RustDesk, §2.5); the instance's
-  **`logger_of_record`** = `local-n1mm` | `wims-n1mm` (which single N1MM logs this instance, §4.3
-  invariant); whether an operator **GridTracker** subscribes (read-only viewer — never a TX
-  controller on a managed instance).
+  group/port** (standardize on multicast, §4.3); **UDP outgoing interface = contest LAN NIC**
+  (required — blank/`@Invalid`/loopback is setup **error**, §1.1); **reachability** = LAN vs
+  remote-over-tunnel (host-agent relay, §4.3); host **remote-desktop ID/address** (RustDesk, §2.5);
+  the instance's **`logger_of_record`** = `local-n1mm` | `wims-n1mm` (which single N1MM logs this
+  instance, §4.3 invariant); whether an operator **GridTracker** subscribes (read-only viewer —
+  never a TX controller on a managed instance).
 - **Operating** — band; mode(s) + submode/**period length** (FT8 15 s, MSK144 15 s, Q65
   15/30/60/120 s — drives interlock windows & fault timeouts); dial freq; **RX-only vs
   TX-capable**; role (run / S&P / monitor); priority weight.
@@ -566,13 +613,15 @@ Integration of §3 modules into one supervised, fail-safe controller.
   - *Go-boxes* (no local N1MM): a **designated networked N1MM** (e.g. the SSB/CW position's, or the
     server-host's — *not necessarily a dedicated WIMS one*, §3.6) is the logger of record for them
     — keeps the go-box minimal (WSJT-X + host agent, no N1MM).
-  - *Mechanism:* segregate WSJT-X UDP streams (per-instance **multicast group/port**) so each N1MM
-    ingests only its assigned instances; WIMS subscribes to **all** (it reads, never logs, so
-    cannot double-log). N1MM supports two independent WSJT-X readers (`WSJTJTDXUDPIP/IP2`,
-    `…Port/Port2`, `EnableWSJTJTDXUDPReader/Reader2`) for source-specific addressing. All N1MMs
-    network into one merged log; WIMS reads its own local networked N1MM's `DXLOG`. Declared
-    per-instance in the Instance Profile (§3.14, `logger_of_record`), enforced by exactly-one-logger
-    setup validation.
+  - *Mechanism:* segregate WSJT-X UDP streams (**multicast group/port per band** — see
+    [wims_networking.md](wims_networking.md)) so each N1MM ingests only its assigned instances;
+    WIMS subscribes to **all** (it reads, never logs, so cannot double-log). N1MM supports two
+    independent WSJT-X readers (`WSJTJTDXUDPIP/IP2`, `…Port/Port2`,
+    `EnableWSJTJTDXUDPReader/Reader2`) for source-specific addressing; many instances may share
+    one reader if they share a stream and have distinct UDP ids. All N1MMs network into one
+    merged log; WIMS reads any designated networked N1MM's `DXLOG` plus live `<contactinfo>`.
+    Declared per-instance in the Instance Profile (§3.14, `logger_of_record`), enforced by
+    exactly-one-logger setup validation.
 - **Single flat LAN across vehicles** — `192.168.10.0/24` on **wired L2 switches** = one broadcast
   domain, so **WSJT-X multicast works across all vehicles natively**; the "everyone joins the
   group" model holds. Each WSJT-X must send on the **LAN NIC, not loopback** (loopback stays on one
@@ -603,7 +652,8 @@ Integration of §3 modules into one supervised, fail-safe controller.
 - Screen-share path to manage the remote station.
 
 > **Milestones** (M1–M7) and per-module build status live in
-> **[wims_status.md](wims_status.md)**.
+> **[wims_status.md](wims_status.md)**. Fleet UDP/N1MM/GridTracker networking map:
+> **[wims_networking.md](wims_networking.md)**.
 
 ---
 
@@ -729,17 +779,19 @@ Copy this block for each new scenario.
 
 #### S1 — Cold start & station readiness check
 - **Context / preconditions:** Pre-contest. Remote station powered; N WSJT-X instances launched,
-  one per band/mode.
-- **Trigger:** Operator requests "bring up / arm."
-- **Walkthrough:** WIMS confirms each instance's heartbeat, checks N1MM, GridTracker, and the
-  rotator are reachable, and verifies station readiness (PA, 120 V line power, SDR up). Each band
-  turns green on the dashboard; anything missing shows red.
-- **Expected behavior:** Operation stays blocked until all *required* readiness checks pass; every
-  failing item is named on the dashboard, not just flagged.
-- **Drives / exercises:** §3.3 multi-instance manager, §3.9 safety/watchdog, §2.2 readiness panel;
-  go/no-go gate for M1 and M5.
+  one per band/mode. Contest profile loaded (expected fleet — [wims_networking.md §12](wims_networking.md#12-resilience--guided-setup-tired-operators-restarts)).
+- **Trigger:** Operator requests "bring up / arm" (or seat shortcut after reboot).
+- **Walkthrough:** WIMS confirms each **expected** instance's heartbeat, checks N1MM presence
+  (plane B), GridTracker optional, and the rotator are reachable, and verifies station readiness
+  (PA, 120 V line power, SDR up). Each **seat** turns 🟢/🟡/🔴 on the dashboard with a
+  **named fix** when not green; wrangler board shows the same state.
+- **Expected behavior:** TX/click-to-work stays blocked for seats that fail *required* checks;
+  every failing item is named in plain language, not just flagged. Dress rehearsal: cold-start
+  time-to-green with a non-author operator (networking §12.12).
+- **Drives / exercises:** §3.3 multi-instance manager, §3.9 safety/watchdog, §2.2 readiness panel,
+  §3.15 expected-vs-actual, networking §12; go/no-go gate for M1 and M5.
 - **Open questions raised:** Which checks are mandatory vs. advisory? How is "PA ready" actually
-  sensed?
+  sensed? Hard-block TX when N1MM missing but WSJT-X alive?
 - **Mode:** setup.
 
 ### Setup / installation scenarios (per-role onboarding)
@@ -756,15 +808,19 @@ config files** against what the operator declared, and configures the interlock 
 - **Trigger:** Operator installs WIMS and runs setup; selects role = **WSJT-X station** (a §4.5
   *agent*, optionally + console).
 - **Walkthrough:** WIMS asks which **bands** this station covers. It **reads the WSJT-X and N1MM
-  config files**, enumerates the WSJT-X instances by rig-name, maps **rig-name → band**, and
-  **verifies the config matches** what the operator declared (rig-name↔band, UDP multicast
-  group/port, unique `id`, N1MM WSJT-X-reader settings) — flagging mismatches. It then **configures
-  the audio-path actuator** (§3.4.1): the OS-specific interface that ramps TX audio to 0 on an
-  interlock trigger, confirming a fast-mute mechanism exists for every TX-capable instance.
+  config files** (`wsjtx_config` + N1MM settings), enumerates the WSJT-X instances by rig-name, maps
+  **rig-name → band**, and **verifies the config matches** what the operator declared
+  (rig-name↔band, UDP multicast group/port, **Outgoing interface = contest LAN NIC**, unique `id`,
+  N1MM WSJT-X-reader settings) — flagging mismatches. Blank/`@Invalid`/loopback interface or
+  `UDPServer=127.0.0.1` in fleet mode is a **hard fail** with a plain-language fix (networking §4 /
+  §12). It then **configures the audio-path actuator** (§3.4.1): the OS-specific interface that
+  ramps TX audio to 0 on an interlock trigger, confirming a fast-mute mechanism exists for every
+  TX-capable instance.
 - **Expected behavior:** Every declared band has a matching, validated WSJT-X instance + N1MM
-  reader; the audio-path mute is wired and **test-fires**; every discrepancy (missing band,
-  rig-name/band mismatch, port/id collision, no fast-mute path) is **named**, not just flagged.
-  Station shows green only when all required checks pass.
+  reader; **UDP iface + server pass `wsjtx_config` fleet rules**; the audio-path mute is wired and
+  **test-fires**; every discrepancy (missing band, rig-name/band mismatch, port/id collision,
+  **unset LAN interface**, no fast-mute path) is **named**, not just flagged. Station shows green
+  only when all required checks pass.
 - **Drives / exercises:** §3.3 setup wizard, §3.14 Instance Profile, §3.4.1 actuator config,
   `integrations/wsjtx_config` + §3.6 N1MM, §3.15 discovery.
 - **Open questions:** config-file locations across WSJT-X versions / per-instance config dirs; how

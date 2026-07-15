@@ -3,18 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WIMS — System status</title>
+<title>WIMS — Status</title>
 <link rel="stylesheet" href="/wims.css">
 </head>
 <body>
 <header>
   <h1>WIMS</h1>
-  <nav><a href="/">Operate</a><a href="/status" class="active">Status</a></nav>
+  <nav>
+    <a href="/">Operate</a>
+    <a href="/status" class="active">Status</a>
+    <a href="/setup">Setup</a>
+  </nav>
   <span id="conn" class="down">connecting…</span>
   <span class="meta" id="rx"></span>
   <span class="meta" id="clock" style="margin-left:auto"></span>
 </header>
 <main>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 12px 0">
+    <b>Status</b> is live health: instances, loggers, RF/decode activity, operators on the wire.
+    Contest log selection and install diagnostics live under <a href="/setup">Setup</a>.
+  </p>
+
   <h2>System · nodes</h2>
   <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
 
@@ -29,10 +38,11 @@
   </table>
   <div id="inst-empty" class="empty">waiting for WSJT-X traffic…</div>
 
-  <h2>N1MM sync</h2>
+  <h2>N1MM sync (live)</h2>
   <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
+  <div id="status-contest-line" class="meta" style="margin:4px 0 8px 0"></div>
 
-  <h2>N1MM instances (live broadcasts on the wire)</h2>
+  <h2>N1MM instances (live broadcasts)</h2>
   <table id="log">
     <thead><tr>
       <th>Station</th><th>Host</th><th>MyCall</th><th>Seen</th>
@@ -41,15 +51,15 @@
     <tbody id="log-body"></tbody>
   </table>
   <div id="log-empty" class="empty">
-    No N1MM broadcasts heard yet. WIMS registers an N1MM instance from <b>any</b>
-    broadcast (RadioInfo/AppInfo beacons arrive periodically — no QSO needed). Enable
-    <b>Config → Configure Ports → Broadcast Data</b> → tick <b>Radio</b> (+ Contacts) →
-    <b>127.0.0.1:12060</b>. (Existing log is loaded separately — see N1MM sync.)
+    No N1MM broadcasts heard yet. Enable
+    <b>Config → Configure Ports → Broadcast Data</b> → Radio + Contacts →
+    WIMS host or multicast <code>:12060</code>.
+    Historical dupe/mult log is chosen under <a href="/setup">Setup → Contest log</a>.
   </div>
 
   <h2>Decode activity (audio-freq × cycle × SNR)</h2>
   <div id="amap-wrap" class="amap-wrap"></div>
-  <div id="amap-empty" class="empty">no decodes yet…</div>
+  <div id="amap-empty" class="empty">no instances yet…</div>
 
   <h2>Decode log</h2>
   <div class="logwrap">

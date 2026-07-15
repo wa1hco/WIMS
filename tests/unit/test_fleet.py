@@ -46,6 +46,30 @@ def test_health_transitions():
     assert n.health(now=200.0) == "DEAD"    # 100s (>4*15)
 
 
+def test_prune_drops_silent_instances():
+    t = FleetTracker()
+    t.observe(M.parse(HEARTBEAT), now=100.0, src_ip="192.168.10.21")
+    assert "WSJT-X" in t.nodes
+    # Still within prune window (default 120s) — keep, even if DEAD for UI.
+    assert t.prune(now=200.0) == []
+    assert "WSJT-X" in t.nodes
+    removed = t.prune(now=230.0)   # 130s silent > 120s
+    assert removed == ["WSJT-X"]
+    assert "WSJT-X" not in t.nodes
+
+
+def test_id_collision_recent_hosts_only():
+    t = FleetTracker()
+    t.observe(M.parse(HEARTBEAT), now=100.0, src_ip="127.0.0.1")
+    t.observe(M.parse(HEARTBEAT), now=101.0, src_ip="192.168.1.50")
+    n = t.nodes["WSJT-X"]
+    assert n.id_collision_at(now=105.0) is True
+    # Desktop path gone; only VM still sending — no sticky collision.
+    t.observe(M.parse(HEARTBEAT), now=200.0, src_ip="192.168.1.50")
+    assert n.id_collision_at(now=200.0) is False
+    assert n.host == "192.168.1.50"
+
+
 def test_quiet_detection():
     t = FleetTracker()
     t.observe(M.parse(HEARTBEAT), now=100.0, src_ip="192.168.10.21")

@@ -63,7 +63,15 @@ def test_decode_and_grid():
     assert msg.message == "CQ NJ1H FN42"
     assert msg.is_cq is True
     assert msg.dx_call == "NJ1H"
+    assert msg.to_call == "CQ"     # "calling" column: a CQ addresses CQ
     assert msg.grid == "FN42"  # the rover/mult-critical field
+
+
+def test_interpret_exchange_to_and_from():
+    is_cq, dx_call, to_call, grid = m._interpret_decode("WA1HCO K1ABC -05")
+    assert is_cq is False
+    assert dx_call == "K1ABC"      # station of interest (the one transmitting)
+    assert to_call == "WA1HCO"     # who it is calling
 
 
 def test_non_wsjtx_returns_none():

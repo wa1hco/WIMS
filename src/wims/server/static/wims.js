@@ -1,8 +1,12 @@
-// WIMS console — shared render layer for both pages (operate + status).
+// WIMS console — shared render layer for Operate / Status / Setup.
 // One SSE feed (/events) carries the full JSON state contract; each page includes
 // only the DOM containers for the panels it wants, and every render* function
 // no-ops when its container is absent. The frontend is the disposable part; the
 // state contract (server/state.py) is the durable boundary.
+//
+//   Operate  — roster + interlock (work the contest)
+//   Status   — live health, RF/decode activity, operators on the wire
+//   Setup    — config: contest log, networking checklist, host app configs
 
 const $ = (id) => document.getElementById(id);
 const age = (a) => a == null ? "-" : (a < 90 ? a.toFixed(0)+"s" : (a/60).toFixed(0)+"m");
@@ -125,18 +129,150 @@ function renderDecodes(list) {
 }
 
 function renderSync(n) {
-  if (!n || !$("n1mm-sync")) return;
-  const label = {active:"active", idle:"quiet · N1MM has no heartbeat",
-                 none:"none heard yet (broadcast not enabled?)"}[n.status];
-  const feed = n.feed_age == null ? "none seen" : `${age(n.feed_age)} ago`;
-  const lq = n.last_qso ? `${n.last_qso.call} ${n.last_qso.band} (${age(n.last_qso.age)} ago)` : "—";
-  const seed = n.seed ? ` ✓ seeded from ${esc(n.seed.source)}` : "";
-  $("n1mm-sync").innerHTML =
-    `<span><span class="dot ${n.status}"></span><span class="k">live feed:</span><b>${label}</b></span>` +
-    `<span><span class="k">last packet:</span>${feed}</span>` +
-    `<span><span class="k">packets:</span>${n.packets}</span>` +
-    `<span><span class="k">log copy:</span><b>${n.qso_count}</b> QSO${n.qso_count===1?'':'s'}${seed}</span>` +
-    `<span><span class="k">last logged:</span>${lq}</span>`;
+  if (!n) return;
+  if ($("n1mm-sync")) {
+    const label = {active:"active", idle:"quiet · N1MM has no heartbeat",
+                   none:"none heard yet (broadcast not enabled?)"}[n.status];
+    const feed = n.feed_age == null ? "none seen" : `${age(n.feed_age)} ago`;
+    const lq = n.last_qso ? `${n.last_qso.call} ${n.last_qso.band} (${age(n.last_qso.age)} ago)` : "—";
+    const seed = n.seed ? ` ✓ seeded from ${esc(n.seed.source)}` : "";
+    $("n1mm-sync").innerHTML =
+      `<span><span class="dot ${n.status}"></span><span class="k">live feed:</span><b>${label}</b></span>` +
+      `<span><span class="k">last packet:</span>${feed}</span>` +
+      `<span><span class="k">packets:</span>${n.packets}</span>` +
+      `<span><span class="k">log copy:</span><b>${n.qso_count}</b> QSO${n.qso_count===1?'':'s'}${seed}</span>` +
+      `<span><span class="k">last logged:</span>${lq}</span>`;
+  }
+  // Status: one-line pointer to Setup for contest selection (not the full picker).
+  const line = $("status-contest-line");
+  if (line) {
+    const ac = n.active_contest;
+    if (ac && (ac.label || ac.contest_name)) {
+      line.innerHTML = `Contest log: <b>${esc(ac.label || ac.contest_name)}</b> · `
+        + `${n.qso_count||0} QSOs in WIMS · change under <a href="/setup">Setup</a>`;
+    } else {
+      line.innerHTML = `Contest log: <b>none loaded</b> — dupe/mult will be wrong until you `
+        + `pick a log under <a href="/setup">Setup</a>`;
+    }
+  }
+  renderContests(n);
+  renderSetupExtras(n, /*fullState*/ null);
+}
+
+function renderContests(n) {
+  const body = $("contest-body");
+  if (!body) return;
+  const list = n.contests || [];
+  const active = n.active_contest;
+  const act = $("contest-active");
+  if (act) {
+    if (active && (active.label || active.contest_name)) {
+      act.innerHTML =
+        `<span><span class="dot active"></span><span class="k">active log:</span>` +
+        `<b>${esc(active.label || active.contest_name)}</b></span>` +
+        `<span><span class="k">file:</span>${esc(active.db_label || "")}</span>` +
+        `<span><span class="k">loaded:</span><b>${n.qso_count||0}</b> QSOs in WIMS</span>`;
+    } else {
+      act.innerHTML =
+        `<span><span class="dot idle"></span><span class="k">active log:</span>` +
+        `<b>none</b> — every heard station looks like a new mult until you load a contest</span>`;
+    }
+  }
+  $("contest-empty").style.display = list.length ? "none" : "block";
+  body.innerHTML = "";
+  // Prefer contests with QSOs first, then name.
+  const sorted = [...list].sort((a, b) =>
+    (b.qso_count - a.qso_count) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
+  for (const c of sorted) {
+    const isActive = active && active.db_path === c.db_path &&
+      Number(active.contest_nr) === Number(c.contest_nr);
+    const tr = document.createElement("tr");
+    if (isActive) tr.className = "tx";
+    const start = (c.start_date || "").startsWith("1900") ? "—" : esc((c.start_date || "").slice(0, 10) || "—");
+    const rec = c.recommended && !isActive ? ' <span class="badge">auto</span>' : "";
+    const btn = isActive
+      ? "<span class=\"meta\">loaded</span>"
+      : `<button type="button" data-db="${esc(c.db_path)}" data-nr="${c.contest_nr}">Use this log</button>`;
+    tr.innerHTML =
+      `<td>${btn}</td>` +
+      `<td>${esc(c.contest_name || "?")}${rec}</td>` +
+      `<td>${start}</td>` +
+      `<td class="num">${c.qso_count}</td>` +
+      `<td class="meta">${esc(c.db_label || "")}</td>`;
+    body.appendChild(tr);
+  }
+  body.querySelectorAll("button[data-nr]").forEach(btn => {
+    btn.onclick = () => selectContest(btn.dataset.db, btn.dataset.nr);
+  });
+}
+
+async function selectContest(dbPath, contestNr) {
+  const msg = $("contest-msg");
+  if (msg) msg.textContent = "loading…";
+  try {
+    const r = await fetch("/api/contests/select", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({db_path: dbPath, contest_nr: Number(contestNr)}),
+    });
+    const j = await r.json();
+    if (msg) {
+      msg.textContent = j.ok
+        ? `loaded ${j.seeded} QSOs · ${j.contest && j.contest.label ? j.contest.label : ""}`
+        : (j.error || "failed");
+    }
+  } catch (e) {
+    if (msg) msg.textContent = String(e);
+  }
+}
+
+function wireContestToolbar() {
+  const b = $("contest-rescan");
+  if (!b || b._wired) return;
+  b._wired = true;
+  b.onclick = async () => {
+    const msg = $("contest-msg");
+    if (msg) msg.textContent = "scanning…";
+    try {
+      const r = await fetch("/api/contests/rescan", {method: "POST", body: "{}"});
+      const j = await r.json();
+      if (msg) msg.textContent = j.ok ? `found ${(j.contests||[]).length} contest(s)` : (j.error || "fail");
+    } catch (e) {
+      if (msg) msg.textContent = String(e);
+    }
+  };
+}
+wireContestToolbar();
+
+/** Setup-only live hints (no-op on other pages). */
+function renderSetupExtras(n1mm, s) {
+  const net = $("setup-net-live");
+  if (net && s) {
+    const inst = s.instances || [];
+    const logs = s.loggers || [];
+    const hosts = [...new Set(inst.map(i => i.host).filter(Boolean))];
+    net.innerHTML =
+      `<span><span class="k">WSJT-X ids on wire:</span><b>${inst.length}</b></span>` +
+      `<span><span class="k">source hosts:</span>${hosts.length ? hosts.map(esc).join(", ") : "—"}</span>` +
+      `<span><span class="k">N1MM stations heard:</span><b>${logs.length}</b>` +
+      (logs.length ? ` (${logs.map(l => esc(l.id)).join(", ")})` : "") + `</span>` +
+      `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM</span>`;
+  }
+  const fleet = $("setup-fleet-hint");
+  if (fleet && s) {
+    const inst = s.instances || [];
+    const byHost = {};
+    for (const n of inst) {
+      const h = n.host || "?";
+      byHost[h] = byHost[h] || [];
+      byHost[h].push(n.id);
+    }
+    const parts = Object.keys(byHost).sort().map(h =>
+      `<span><span class="k">${esc(h)}:</span>${byHost[h].map(esc).join(", ")}</span>`);
+    fleet.innerHTML = parts.length
+      ? parts.join("")
+      : `<span class="k">No WSJT-X hosts seen yet — start instances with LAN multicast (see checklist).</span>`;
+  }
 }
 
 // -- operating page --------------------------------------------------------- //
@@ -182,27 +318,103 @@ function renderInterlock(il) {
   }
 }
 
+// GridTracker-style call roster: one row per station heard, with the score kept as a
+// column. Rows filter by need (from the N1MM log copy) and band; every header sorts,
+// and the chosen sort/filter persist across live SSE re-renders (state below).
+const utc = (ts) => new Date(ts*1000).toISOString().substr(11, 8);
+const ROS_COLS = [
+  {key:"call",          label:"DX",      cls:"",          cell:rosCall},
+  {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
+  {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
+  {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
+  {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
+  {key:"snr",           label:"dB",      cls:"num", num:1, cell:c=>sgn(c.snr)},
+  {key:"freq_hz",       label:"Freq",    cls:"num", num:1, cell:c=>c.freq_hz?(c.freq_hz/1e6).toFixed(4):"-"},
+  {key:"az",            label:"Az",      cls:"num", num:1, cell:c=>c.az==null?"-":c.az+"°"},
+  {key:"age",           label:"Age",     cls:"num", num:1, cell:c=>age(c.age)},
+  {key:"ts",            label:"UTC",     cls:"num", num:1, cell:c=>utc(c.ts)},
+  {key:"operator_call", label:"Op",      cls:"",          cell:c=>c.operator_call||"—"},
+  {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
+];
+let _rosData = null;                              // latest roster payload
+let _rosSort = {key:"score", dir:-1};             // default: score, descending
+let _rosWired = false;
+
+function rosCall(c) {
+  const badges =
+    (c.is_new_mult ? '<span class="badge">mult</span>' : '') +
+    (c.is_rover ? '<span class="badge rover">R</span>' : '');
+  return `${esc(c.call)}${badges}`;
+}
+function rosCalling(c) {
+  return c.is_cq ? '<span class="cq">CQ</span>' : esc(c.to_call || "-");
+}
+
+function rosBuildHead() {
+  const head = $("ros-head");
+  head.innerHTML = ROS_COLS.map(col => {
+    const active = col.key === _rosSort.key;
+    const arrow = active ? (_rosSort.dir < 0 ? " ▾" : " ▴") : "";
+    return `<th data-key="${col.key}" class="${col.cls}${active?' sort':''}">${col.label}${arrow}</th>`;
+  }).join("");
+}
+
+function rosWire() {
+  if (_rosWired) return;
+  _rosWired = true;
+  $("ros-head").addEventListener("click", (e) => {
+    const th = e.target.closest("th"); if (!th) return;
+    const key = th.dataset.key;
+    if (_rosSort.key === key) _rosSort.dir *= -1;
+    else _rosSort = {key, dir: (ROS_COLS.find(c=>c.key===key)||{}).num ? -1 : 1};
+    rosDraw();
+  });
+  $("ros-needed").addEventListener("change", rosDraw);
+  $("ros-band").addEventListener("change", rosDraw);
+}
+
 function renderRoster(r) {
-  if (!r || !$("ros-meta")) return;
+  if (!r || !$("ros-body")) return;
+  _rosData = r;
+  rosWire();
+  rosDraw();
+}
+
+function rosDraw() {
+  const r = _rosData; if (!r) return;
+  // Band filter options, preserving the current selection.
+  const sel = $("ros-band"), cur = sel.value;
+  const bands = [...new Set(r.candidates.map(c => c.band).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="all">all</option>' +
+    bands.map(b => `<option value="${b}">${b}</option>`).join("");
+  sel.value = bands.includes(cur) || cur === "all" ? cur : "all";
+
+  const neededOnly = $("ros-needed").checked;
+  let rows = r.candidates.filter(c =>
+    (!neededOnly || c.is_needed) && (sel.value === "all" || c.band === sel.value));
+
+  const col = ROS_COLS.find(c => c.key === _rosSort.key) || ROS_COLS[0];
+  const val = (c) => {
+    const v = c[col.key];
+    if (col.num) return v == null ? -Infinity : v;
+    return (v || "").toString().toUpperCase();
+  };
+  rows.sort((a, b) => {
+    const x = val(a), y = val(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * _rosSort.dir;
+  });
+
+  rosBuildHead();
   $("ros-meta").textContent =
-    `${r.count} workable · ${r.excluded} suppressed (dupe/unreachable) · ` +
-    `strategy ${r.strategy} · band ${r.condition}`;
+    `${r.needed} needed · ${r.not_needed} worked · ${r.count} heard` +
+    ` · showing ${rows.length} · strategy ${r.strategy} · band ${r.condition}`;
   const body = $("ros-body"); body.innerHTML = "";
-  $("ros-empty").style.display = r.candidates.length ? "none" : "block";
-  for (const c of r.candidates) {
+  $("ros-empty").style.display = rows.length ? "none" : "block";
+  for (const c of rows) {
     const tr = document.createElement("tr");
-    if (c.is_new_mult) tr.className = "mult";
-    const badges =
-      (c.is_new_mult ? '<span class="badge">new mult</span>' : '') +
-      (c.is_rover ? '<span class="badge rover">rover</span>' : '');
-    const why = c.factors
-      .map(f => `<b>${f.name}</b> ${f.contribution>=0?'+':''}${f.contribution}`)
-      .join(" · ");
-    tr.innerHTML =
-      `<td class="num score">${c.score.toFixed(1)}</td>` +
-      `<td>${c.call}${badges}</td><td>${c.grid||"-"}</td><td>${c.band}</td>` +
-      `<td>${c.instance}</td><td class="num">${c.snr>=0?'+':''}${c.snr}</td>` +
-      `<td class="num">${age(c.age)}</td><td class="why">${why}</td>`;
+    tr.className = (c.is_new_mult ? "mult " : "") + (c.is_needed ? "" : "dupe");
+    tr.innerHTML = ROS_COLS.map(col =>
+      `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
     body.appendChild(tr);
   }
 }
@@ -219,6 +431,7 @@ function render(s) {
   renderDecodes(s.decodes);
   renderSync(s.n1mm_sync);
   renderLoggers(s);
+  renderSetupExtras(s.n1mm_sync, s);
 }
 
 function connect() {

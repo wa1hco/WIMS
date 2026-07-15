@@ -13,13 +13,23 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ```
 python src/wims/server/app.py --iface 127.0.0.1
-#   Operate page:   http://localhost:8787/
-#   System status:  http://localhost:8787/status
+#   Operate:  http://localhost:8787/          (roster / work stations)
+#   Status:   http://localhost:8787/status    (live health, RF, decodes)
+#   Setup:    http://localhost:8787/setup     (contest log, networking, config)
 ```
-- **Log seed:** auto-finds the N1MM contest `.s3db` in the standard Databases dir and seeds the
-  log copy at startup (`--seed-db` / `--seed-db-dir` / `--no-seed`). Currently `N2OY.s3db`
-  (ARRL June VHF / `ARRLVHFJUN`, 951 QSOs).
-- **Ingest:** WSJT-X multicast `224.0.0.73:2237` + N1MM broadcasts `:12060` on `--iface`.
+- **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**
+  (`ContestInstance` / `ContestNR`), **auto-picks** the latest log with QSOs, and loads only that
+  contest (not whole multi-year DXLOG). Status page **Contest log** picker to change / rescan;
+  `POST /api/contests/select`. Optional `--seed-db` / `--seed-db-dir` / `--no-seed` — operators
+  should not need ContestNR. Copy the VM’s contest DB into the seed dir when N1MM is remote.
+- **Ingest (current code):** WSJT-X multicast `224.0.0.73:2237` on `--iface` + N1MM XML on
+  `:12060` (unicast/broadcast by default; `--n1mm-group 224.0.0.73` for multi-host multicast —
+  same group as WSJT-X is fine, port differs). Multicast join uses `--iface` (use the LAN IP,
+  not `127.0.0.1`, for a bridged VM / other host).
+- **Fleet networking (design):** multi-band layout is **one N1MM + N× WSJT-X per band**,
+  streams segregated by port (2237–2240) so each logger is sole owner — full map in
+  **[wims_networking.md](wims_networking.md)**. Server multi-port join for 2238–2240 is not
+  wired yet (lab still uses a single WSJT-X port).
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
 - **Interlock bench:** `python testbed/interlock_bench.py`
 
@@ -64,7 +74,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, drives the emulator live. Remaining: Free Text/Replay, lease gating. |
-| 3.3 | Multi-instance manager | `[ ]` | host agent (fast mute, thumbnail) + setup wizard — not started. |
+| 3.3 | Multi-instance manager | `[ ]` | host agent (fast mute, thumbnail) + setup wizard — not started. Config tool: `integrations/wsjtx_config.py` validates UDP Server + **Outgoing interface** (LAN required; `@Invalid`/loopback = error). |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. Remaining: fast-mute path, lease gating, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: run/S&P, give-up, geometry, persistent grid memory, grid→WSJT-X for logging. |
 | 3.6 | Logger interface (N1MM) | `[~]` | seed (`integrations/n1mm/logdb.py`) + live `<contactinfo>` + `reconcile()` resync (`state/logstore.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction, operator resync trigger. |
@@ -106,3 +116,35 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   broadcast (RadioInfo/AppInfo — no QSO needed, for setup verification). Console split into two
   pages (Operate / Status), shared `wims.css`/`wims.js`. Fixed brittle `test_n1mm_log` (was pinned
   to volatile live-DB content). §2.6 roster feature backlog drafted into the design doc.
+- **2026-07-09** — Compact UI density pass (row padding 6→2px, tighter header/`main`/`h2`, 13px
+  base). **Call roster reworked GridTracker-style:** one row per station heard (all decodes, not
+  CQ-only), score kept as a sortable column; new columns Calling / Mode / Freq (dial+df) / Az /
+  UTC / Op-stub; needed-only + band filters, all headers sortable with sort/filter persisted across
+  SSE ticks. New `to_call` decode field, `de_grid` captured on nodes, pure `engine/geo.py`
+  (Maidenhead→bearing). Contract (`roster_to_dict`) now ships every row with `is_needed`/`az`/
+  `freq_hz`/`operator_call`; roster/state tests updated to new semantics; `test_geo` added.
+  Full suite + live validator green. **Still stubbed:** `operator_call` (band manager) pending the
+  §3.14 fleet profile — shared with the planned per-operator table.
+- **2026-07-13** — Design: fleet networking map
+  ([wims_networking.md](wims_networking.md)) — Trailer 50×3 + 144×2, 222×1, 432×1; four N1MMs;
+  WSJT-X port-per-band segregation; N1MM external multicast; console unicast. Deployment context
+  in wims_design.md updated to match. Server still single-port WSJT-X join in code.
+- **2026-07-13** — Design: **resilience & guided setup** (wims_networking.md §12) — contest
+  profile, seat bring-up, continuous 🟢/🔴 readiness with plain-language fixes, fail-soft TX,
+  MVP build order; §2.5 / S1 cross-links in wims_design.md. Not implemented in code yet.
+- **2026-07-14** — **WSJT-X Outgoing interface** elevated to first-class setup/verify/monitor
+  requirement (silent failure: decodes OK, WIMS blind). Design §1.1 / §3.14 / I1 + networking §4/§12;
+  `wsjtx_config.py` errors on blank/`@Invalid`/loopback iface and loopback UDP Server (fleet mode);
+  `--all` discovers Linux `WSJT-X - <rig>.ini`; `test_wsjtx_config` added.
+- **2026-07-14** — networking.md **§4.1 Contest LAN interface** expanded: required/forbidden
+  values, silent-failure lab case, operator steps, multi-homed rules, `wsjtx_config` gate, live
+  monitoring, WIMS/N1MM iface parallels.
+- **2026-07-14** — Fleet UX: **prune** WSJT-X nodes silent >120s (killed desktop no longer sticks
+  as DEAD forever); activity “waterfall” tile created on Heartbeat/Status (empty band OK);
+  id_collision uses recent-host window so desktop→VM move clears ⚠ id.
+- **2026-07-14** — Multi-contest log selection: `logdb.list_contests` / `pick_contest` / filtered
+  `read_dxlog(contest_nr=)`; auto-seed at startup; Status **Contest log** UI +
+  `/api/contests/*` (no cryptic ContestNR CLI).
+- **2026-07-15** — **Three-page console:** Operate / **Status** (live health & RF) / **Setup**
+  (contest log picker, networking checklist, config diagnostics scaffold). Contest log moved off
+  Status onto Setup; Status keeps one-line active-log pointer.

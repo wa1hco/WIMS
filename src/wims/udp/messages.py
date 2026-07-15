@@ -152,7 +152,8 @@ class Decode(WsjtxMessage):
     off_air: bool = False
     # Derived from the message text (see _interpret_decode):
     is_cq: bool = False
-    dx_call: str | None = None
+    dx_call: str | None = None    # the station of interest (CQer, or the caller)
+    to_call: str | None = None    # who dx_call is calling ("CQ", or the addressed call)
     grid: str | None = None
 
 
@@ -235,15 +236,18 @@ def extract_grid(message: str | None) -> str | None:
     return last.upper() if _GRID_RE.match(last) else None
 
 
-def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None]:
-    """Best-effort (is_cq, dx_call, grid) from decode text.
+def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None, str | None]:
+    """Best-effort (is_cq, dx_call, to_call, grid) from decode text.
 
-    Full WSJT-X message grammar is richer; this covers CQ and standard exchanges
-    well enough for the roster/decision engine and is refined later (§3.5).
+    `dx_call` is the station of interest (the CQer, or the station transmitting an
+    exchange); `to_call` is who it is addressing ("CQ", or the addressed callsign) —
+    the GridTracker-style "calling" column. Full WSJT-X message grammar is richer;
+    this covers CQ and standard exchanges well enough for the roster/decision engine
+    and is refined later (§3.5).
     """
     grid = extract_grid(message)
     if not message:
-        return False, None, grid
+        return False, None, None, grid
     tokens = message.split()
     if tokens and tokens[0] == "CQ":
         # Skip an optional qualifier (DX / region / contest tag) after CQ.
@@ -251,11 +255,12 @@ def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None
         if len(tokens) > 2 and tokens[1].upper() in _CQ_QUALIFIERS:
             idx = 2
         dx_call = tokens[idx] if len(tokens) > idx else None
-        return True, dx_call, grid
+        return True, dx_call, "CQ", grid
     # Standard exchange "<to> <from> <report/grid>": the caller of interest (the
-    # station transmitting) is the 2nd token.
+    # station transmitting) is the 2nd token; the 1st is who it is addressing.
+    to_call = tokens[0] if tokens else None
     dx_call = tokens[1] if len(tokens) >= 2 else None
-    return False, dx_call, grid
+    return False, dx_call, to_call, grid
 
 
 # --------------------------------------------------------------------------- #
@@ -325,7 +330,7 @@ def parse(data: bytes) -> WsjtxMessage | None:
             low_confidence=r.boolean(),
             off_air=r.boolean() if not r.at_end() else False,
         )
-        msg.is_cq, msg.dx_call, msg.grid = _interpret_decode(msg.message)
+        msg.is_cq, msg.dx_call, msg.to_call, msg.grid = _interpret_decode(msg.message)
         return msg
 
     if mtype == CLEAR:

@@ -25,6 +25,11 @@ from wims.udp import messages as M  # noqa: E402
 
 PULSE = 15  # WSJT-X heartbeat period (s); health thresholds are multiples of it.
 
+# After this long with no UDP, drop the node from the fleet table (and UI).
+# STALE at 2*PULSE, DEAD at 4*PULSE; prune a bit after DEAD so the operator
+# still sees "DEAD" briefly when someone kills WSJT-X.
+DEFAULT_PRUNE_AFTER = 8 * PULSE   # 120 s
+
 # N1MM external-broadcast root tags we treat as presence-bearing (lowercased).
 _N1MM_ROOTS = {"contactinfo", "radioinfo", "appinfo", "dynamicresults",
                "spot", "lookupinfo", "contactdelete", "contactreplace"}
@@ -35,11 +40,13 @@ class NodeState:
     """Live state of one WSJT-X instance, keyed by its UDP id."""
 
     id: str
-    hosts: set[str] = field(default_factory=set)   # source IPs seen for this id
+    # source IP -> last time a datagram arrived from that IP (for collision + host)
+    host_seen: dict[str, float] = field(default_factory=dict)
     version: str | None = None
     band: str | None = None
     mode: str | None = None
     dial_hz: int = 0
+    de_grid: str | None = None      # this instance's own grid (Status.de_grid) — az reference
     transmitting: bool = False
     decoding: bool = False
     config_name: str | None = None
@@ -49,6 +56,15 @@ class NodeState:
     decode_count: int = 0
     decode_times: list[float] = field(default_factory=list)
     first_seen: float = 0.0
+
+    def note_host(self, src_ip: str | None, now: float) -> None:
+        if src_ip:
+            self.host_seen[src_ip] = now
+
+    def hosts_recent(self, now: float, window: float = 4 * PULSE) -> set[str]:
+        """IPs that still look live for this id (drops stale sources so a move
+        desktop→VM does not sticky-flag id_collision forever)."""
+        return {ip for ip, t in self.host_seen.items() if now - t <= window}
 
     def decodes_per_period(self, now: float, window: float = 60.0, pulse: int = PULSE) -> float:
         """Average decodes per TX/RX period over the last `window` seconds — the
@@ -82,13 +98,25 @@ class NodeState:
         return (now - self.last_decode) > quiet_after
 
     @property
+    def hosts(self) -> set[str]:
+        """All source IPs ever seen (tests / debug). Prefer hosts_recent(now)."""
+        return set(self.host_seen)
+
+    @property
     def host(self) -> str | None:
-        return sorted(self.hosts)[0] if self.hosts else None
+        """Most recently heard source IP for this id."""
+        if not self.host_seen:
+            return None
+        return max(self.host_seen.items(), key=lambda kv: kv[1])[0]
+
+    def id_collision_at(self, now: float, window: float = 4 * PULSE) -> bool:
+        # Same WSJT-X id from >1 *currently live* host = ambiguous control/logging.
+        return len(self.hosts_recent(now, window)) > 1
 
     @property
     def id_collision(self) -> bool:
-        # Same WSJT-X id from >1 host = two instances WIMS/N1MM can't tell apart.
-        return len(self.hosts) > 1
+        """Backward-compatible: any multi-host history (prefer id_collision_at(now))."""
+        return len(self.host_seen) > 1
 
 
 @dataclass
@@ -178,8 +206,7 @@ class FleetTracker:
         if n is None:
             n = NodeState(id=mid, first_seen=now)
             self.nodes[mid] = n
-        if src_ip:
-            n.hosts.add(src_ip)
+        n.note_host(src_ip, now)
         if isinstance(msg, M.Heartbeat):
             n.last_heartbeat = now
             if msg.version:
@@ -189,6 +216,8 @@ class FleetTracker:
             n.dial_hz = msg.dial_frequency
             n.band = band_label(msg.dial_frequency)
             n.mode = msg.mode
+            if msg.de_grid:
+                n.de_grid = msg.de_grid.upper()
             n.transmitting = msg.transmitting
             n.decoding = msg.decoding
             n.config_name = msg.config_name
@@ -198,6 +227,20 @@ class FleetTracker:
             n.decode_times.append(now)
             if n.decode_times[0] < now - 120.0:  # keep ~2 min of history
                 n.decode_times = [t for t in n.decode_times if t >= now - 120.0]
+
+    def prune(self, now: float, after: float = DEFAULT_PRUNE_AFTER) -> list[str]:
+        """Drop WSJT-X nodes silent longer than `after` seconds. Returns removed ids.
+
+        Without this the Status table accumulates every instance ever heard in the
+        process lifetime (killed desktop WSJT-X stays listed as DEAD forever).
+        """
+        dead = []
+        for mid, n in list(self.nodes.items()):
+            ls = n.last_seen()
+            if ls is None or (now - ls) > after:
+                dead.append(mid)
+                del self.nodes[mid]
+        return dead
 
     # -- expected vs actual ------------------------------------------------- #
 
@@ -221,9 +264,10 @@ class FleetTracker:
         for mid, n in self.nodes.items():
             if mid not in by_id:
                 out.append(Discrepancy("unexpected", "warn", f"{mid} on {n.host} not in expected fleet"))
-            if n.id_collision:
+            live_hosts = sorted(n.hosts_recent(now))
+            if len(live_hosts) > 1:
                 out.append(Discrepancy("id-collision", "error",
-                                       f"id '{mid}' seen from multiple hosts {sorted(n.hosts)} - instances need unique WSJT-X ids"))
+                                       f"id '{mid}' seen from multiple hosts {live_hosts} - instances need unique WSJT-X ids"))
         return out
 
     # -- rendering ---------------------------------------------------------- #
@@ -276,6 +320,8 @@ def _main() -> None:
     ap.add_argument("--port", type=int, default=2237, help="WSJT-X UDP port")
     ap.add_argument("--multicast", default=None, help="WSJT-X multicast group")
     ap.add_argument("--n1mm-port", type=int, default=12060, help="N1MM broadcast port (0 to disable)")
+    ap.add_argument("--n1mm-group", default=None,
+                    help="N1MM multicast group (e.g. 224.0.0.73); omit for unicast/broadcast")
     ap.add_argument("--refresh", type=float, default=3.0)
     args = ap.parse_args()
 
@@ -284,7 +330,7 @@ def _main() -> None:
     s_n1mm = None
     if args.n1mm_port:
         try:
-            s_n1mm = open_socket(args.host, args.n1mm_port, None)
+            s_n1mm = open_socket(args.host, args.n1mm_port, args.n1mm_group)
             socks.append(s_n1mm)
         except OSError as e:
             print(f"(N1MM port {args.n1mm_port} unavailable: {e} - WSJT-X only)")
@@ -294,7 +340,9 @@ def _main() -> None:
     wsjt_pkts = n1mm_pkts = 0
     listen = f"WSJT-X {args.multicast or args.host}:{args.port}"
     if s_n1mm:
-        listen += f" + N1MM :{args.n1mm_port}"
+        n1mm_where = (f"{args.n1mm_group}:{args.n1mm_port}" if args.n1mm_group
+                      else f":{args.n1mm_port}")
+        listen += f" + N1MM {n1mm_where}"
     print("WIMS fleet view - Ctrl-C to stop\n")
     try:
         while True:

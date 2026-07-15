@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WIMS — Setup</title>
+<link rel="stylesheet" href="/wims.css">
+</head>
+<body>
+<header>
+  <h1>WIMS</h1>
+  <nav>
+    <a href="/">Operate</a>
+    <a href="/status">Status</a>
+    <a href="/setup" class="active">Setup</a>
+  </nav>
+  <span id="conn" class="down">connecting…</span>
+  <span class="meta" id="rx"></span>
+  <span class="meta" id="clock" style="margin-left:auto"></span>
+</header>
+<main>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 12px 0">
+    <b>Setup</b> is for configuring WIMS and diagnosing installation problems
+    (logs, networking, app configs). For live RF health, operators, and decode flow use
+    <a href="/status">Status</a>; for working stations use <a href="/">Operate</a>.
+  </p>
+
+  <h2>Contest log (dupe / mult source)</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    One N1MM <code>.s3db</code> can hold several contests (e.g. June VHF 2026 + Sept VHF 2025).
+    WIMS auto-picks the latest log with QSOs; change it here if wrong.
+    Copy the contest database onto <b>this</b> machine (the WIMS host) — no ContestNR or IP knowledge required.
+  </p>
+  <div id="contest-active" class="syncrow"><span class="k">waiting…</span></div>
+  <div class="toolbar" style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <button type="button" id="contest-rescan">Rescan files</button>
+    <span class="meta" id="contest-msg"></span>
+  </div>
+  <table id="contest-tbl">
+    <thead><tr>
+      <th></th><th>Contest</th><th>Start</th><th class="num">QSOs</th><th>File</th>
+    </tr></thead>
+    <tbody id="contest-body"></tbody>
+  </table>
+  <div id="contest-empty" class="empty">
+    No contest logs found. Copy an N1MM contest <b>.s3db</b> into
+    <code>~/Documents/N1MM Logger+/Databases</code> on the WIMS host (or the configured seed dir), then Rescan.
+  </div>
+
+  <h2>WIMS server</h2>
+  <div id="setup-server" class="syncrow">
+    <span><span class="k">role:</span> site server (ingest + console)</span>
+    <span><span class="k">console:</span> this browser → HTTP + SSE <code>/events</code></span>
+    <span><span class="k">default seed dir:</span>
+      <code>~/Documents/N1MM Logger+/Databases</code></span>
+  </div>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:6px 0 0 0">
+    Live packet counts and feed age appear on <a href="/status">Status</a> (N1MM sync / System).
+  </p>
+
+  <h2>Networking checklist</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Flat LAN; WSJT-X multicast by band port; N1MM external broadcast to WIMS; see
+    <code>docs/plan/wims_networking.md</code>.
+  </p>
+  <ul class="checklist" style="font-size:13px;line-height:1.5;margin:0 0 12px 1.2em;padding:0">
+    <li>WSJT-X <b>UDP Server</b> = fleet multicast (e.g. <code>224.0.0.73</code>), not <code>127.0.0.1</code></li>
+    <li>WSJT-X <b>Outgoing interface</b> = contest <b>LAN NIC</b> (never blank / <code>@Invalid()</code> / loopback)</li>
+    <li>N1MM Broadcast Data → Contacts + Radio → destination WIMS host or <code>224.0.0.73:12060</code></li>
+    <li>Each N1MM WSJT reader joins only its band’s stream (avoid double-log)</li>
+    <li>Host firewall allows console TCP <b>8787</b> from operator PCs / VMs</li>
+    <li>Unique WSJT-X <code>--rig-name</code> / UDP id per instance</li>
+  </ul>
+  <div id="setup-net-live" class="syncrow"><span class="k">waiting for live discovery…</span></div>
+
+  <h2>Host app configs (WSJT-X / N1MM / GridTracker)</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Planned: read config files from this host (and later agents on radio PCs) and show pass/fail
+    against the networking map. Until agents ship, run the local checker on each WSJT-X machine:
+  </p>
+  <pre class="cmd" style="font-size:12px;padding:8px;overflow:auto">python src/wims/integrations/wsjtx_config.py --all</pre>
+  <div id="setup-cfg-audit" class="empty">
+    Live config audit panel not wired yet — use the command above on each radio PC, and the
+    networking checklist. Future: WSJT-X.ini / N1MM Broadcast Data / GridTracker viewer-only.
+  </div>
+
+  <h2>Other networked PCs</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Each seat (Trailer 50/144, 222, 432) runs N1MM + WSJT-X; WIMS server is usually one Linux box.
+    Operators open this console in a browser — they do not need multicast to their laptop.
+  </p>
+  <div id="setup-fleet-hint" class="syncrow"><span class="k">waiting…</span></div>
+</main>
+<script src="/wims.js"></script>
+</body>
+</html>

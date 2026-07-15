@@ -1,4 +1,4 @@
-"""RosterBuilder: retain CQs, age out, resolve dupe/mult, rank (engine/roster.py)."""
+"""RosterBuilder: retain decodes, age out, resolve dupe/mult, rank (engine/roster.py)."""
 
 import sys
 from pathlib import Path
@@ -16,28 +16,30 @@ def _decode(mid, msg, *, snr=-5, df=1500):
                                   delta_frequency=df, message=msg))
 
 
-def test_retains_only_cq_and_ranks_by_score():
+def test_retains_all_decodes_and_ranks():
     rb = RosterBuilder(log=None)
     rb.observe_decode(_decode("SIM-6M", "CQ K1ABC FN42", snr=-2), "6m", now=10.0)
     rb.observe_decode(_decode("SIM-6M", "CQ W2XYZ FN20", snr=-18), "6m", now=10.0)
     rb.observe_decode(_decode("SIM-6M", "WA1HCO K3DEF FN30", snr=0), "6m", now=10.0)  # not CQ
-    scored, excluded = rb.ranked(now=11.0)
-    calls = [s.candidate.call for s, _ in scored]
-    assert calls == ["K1ABC", "W2XYZ"]          # non-CQ never enters; stronger first
-    assert excluded == 0
+    rows, not_needed = rb.ranked(now=11.0)
+    calls = [s.candidate.call for s, _ in rows]
+    assert calls == ["K1ABC", "W2XYZ", "K3DEF"]   # all decodes retained; CQ scores rank first
+    assert not_needed == 0                         # empty log -> nothing worked
+    k3 = next(s for s, _ in rows if s.candidate.call == "K3DEF")
+    assert k3.candidate.is_cq is False and k3.total == 0.0   # non-CQ isn't scored, still listed
 
 
 def test_rover_new_grid_is_distinct_row():
     rb = RosterBuilder(log=None)
     rb.observe_decode(_decode("SIM-6M", "CQ K1ROV/R FN31"), "6m", now=10.0)
     rb.observe_decode(_decode("SIM-6M", "CQ K1ROV/R FN32"), "6m", now=10.0)  # new grid
-    scored, _ = rb.ranked(now=11.0)
-    grids = sorted(s.candidate.grid for s, _ in scored)
+    rows, _ = rb.ranked(now=11.0)
+    grids = sorted(s.candidate.grid for s, _ in rows)
     assert grids == ["FN31", "FN32"]            # two rows, not collapsed
-    assert all(s.candidate.is_rover for s, _ in scored)
+    assert all(s.candidate.is_rover for s, _ in rows)
 
 
-def test_dupe_from_log_is_excluded():
+def test_dupe_from_log_flagged_not_needed():
     log = LogStore(":memory:")
     log.upsert(LoggedQso(id="q1", call="K1ABC", band="6m", grid="FN42", mode="FT8",
                          points=1, is_mult=True, contest="VHF", timestamp="", operator="",
@@ -45,10 +47,13 @@ def test_dupe_from_log_is_excluded():
     rb = RosterBuilder(log=log)
     rb.observe_decode(_decode("SIM-6M", "CQ K1ABC FN42"), "6m", now=10.0)   # already worked
     rb.observe_decode(_decode("SIM-6M", "CQ N1NEW FN43"), "6m", now=10.0)   # fresh + new mult
-    scored, excluded = rb.ranked(now=11.0)
-    assert [s.candidate.call for s, _ in scored] == ["N1NEW"]
-    assert excluded == 1
-    assert scored[0][0].candidate.is_new_mult is True
+    rows, not_needed = rb.ranked(now=11.0)
+    by = {s.candidate.call: s for s, _ in rows}
+    assert set(by) == {"K1ABC", "N1NEW"}                # both retained, none dropped
+    assert by["K1ABC"].candidate.is_dupe is True        # worked -> not needed
+    assert by["N1NEW"].candidate.is_new_mult is True
+    assert not_needed == 1
+    assert [s.candidate.call for s, _ in rows][0] == "N1NEW"  # needed ranks above worked dupe
 
 
 def test_stale_entries_age_out():

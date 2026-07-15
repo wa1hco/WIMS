@@ -11,12 +11,16 @@ make-or-break question for the §3.6 spot round-trip (can WIMS read N1MM's
 contest-rules verdict instead of reimplementing it?).
 
 Enable in N1MM: Config -> "Configure Ports, Telnet Address, Other..." -> "Broadcast
-Data" tab -> tick Contacts, Spots, and "Lookup" / External Lookup -> destination
-127.0.0.1:12060 (default) -> OK. Then type a call into the Entry Window (lookup) and
-log a test QSO (contact) to generate traffic.
+Data" tab -> tick Contacts, Spots, Radio, and "Lookup" / External Lookup -> destination
+either this host's LAN IP:12060 (unicast) or a multicast group e.g. 224.0.0.73:12060
+(multi-host fleets) -> OK. Then type a call into the Entry Window (lookup) and log a
+test QSO (contact) to generate traffic.
 
 Run (from the repo root):
     python src/wims/integrations/n1mm/listener.py --port 12060
+    # multicast (same group as WSJT-X is fine; port differs):
+    python src/wims/integrations/n1mm/listener.py --port 12060 \\
+        --multicast 224.0.0.73 --host 192.168.1.119
 """
 
 from __future__ import annotations
@@ -63,8 +67,12 @@ def summarize(text: str) -> tuple[str, dict[str, str], list[str]]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="N1MM+ External UDP broadcast listener.")
-    ap.add_argument("--host", default="0.0.0.0", help="local bind interface (default 0.0.0.0)")
+    ap.add_argument("--host", default="0.0.0.0",
+                    help="local interface for bind / multicast join (default 0.0.0.0; "
+                         "use the LAN IP when joining a multicast group)")
     ap.add_argument("--port", type=int, default=12060, help="N1MM broadcast port (default 12060)")
+    ap.add_argument("--multicast", default=None,
+                    help="join this multicast group (e.g. 224.0.0.73) for multi-host N1MM")
     ap.add_argument("--out", default="captures", help="output directory (default captures/)")
     args = ap.parse_args()
 
@@ -73,12 +81,19 @@ def main() -> None:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     out_path = out_dir / f"n1mm-{stamp}.jsonl"
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind((args.host, args.port))
+    if args.multicast:
+        from wims.udp.sink import open_socket
+        sock = open_socket(args.host, args.port, args.multicast)
+        where = f"{args.multicast} (multicast via {args.host})"
+    else:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((args.host, args.port))
+        where = args.host
 
-    print(f"listening for N1MM XML on {args.host}:{args.port}  ->  {out_path}")
-    print("Enable N1MM Broadcast Data (Contacts/Spots/Lookup) to 127.0.0.1:12060, "
+    print(f"listening for N1MM XML on {where}:{args.port}  ->  {out_path}")
+    dest = f"{args.multicast or 'HOST_IP'}:12060"
+    print(f"Enable N1MM Broadcast Data to {dest}, "
           "then type a call into the Entry Window and log a test QSO.")
     print("Ctrl-C to stop.\n")
 

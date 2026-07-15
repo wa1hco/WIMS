@@ -74,18 +74,95 @@ class LiveFleet:
         self.n1mm_pkts = 0
         self._last_n1mm: float | None = None       # last datagram on the N1MM port
         self._last_qso: dict | None = None         # last QSO folded into the log copy
-        self._seed: dict | None = None             # {count, source} of the .s3db seed
+        self._seed: dict | None = None             # seed meta (count, source, contest…)
+        # Contest log discovery — operators pick by human label, not ContestNR CLI.
+        self._seed_db_dir: str | None = None
+        self._seed_db_hint: str | None = None      # optional preferred .s3db path
+        self._active_contest: dict | None = None   # ContestInfo.to_dict() currently loaded
+        self._contest_catalog: list = []           # all discovered contests for UI
 
-    def seed_from_db(self, db_path: str) -> int:
-        """Pull the existing N1MM contest log into the log copy at startup (§3.6) so
-        dupe/mult are correct before any live broadcast. Read-only; WIMS never writes
-        N1MM's DB. Returns the number of QSOs seeded."""
+    def configure_log_discovery(self, *, databases_dir: str | None = None,
+                                db_path: str | None = None) -> None:
+        """Where to look for N1MM .s3db files (no IPs required — local paths only)."""
+        self._seed_db_dir = databases_dir
+        self._seed_db_hint = db_path
+
+    def refresh_contest_catalog(self) -> list:
+        """Re-scan disk for multi-contest .s3db files. Returns contest dicts for UI."""
         from wims.integrations.n1mm import logdb
-        qsos = logdb.read_dxlog(db_path)
+        disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
+        with self._lock:
+            self._contest_catalog = disc["contests"]
+        return disc["contests"]
+
+    def seed_from_db(self, db_path: str, *, contest_nr: int | None = None,
+                     contest_name: str | None = None) -> int:
+        """Pull one N1MM contest log into the log copy (§3.6). Read-only.
+
+        When the .s3db holds multiple contests (June + Sept VHF…), pass contest_nr
+        (preferred) so only that ContestInstance's DXLOG rows load.
+        """
+        from wims.integrations.n1mm import logdb
+        qsos = logdb.read_dxlog(db_path, contest_nr=contest_nr,
+                                contest_name=contest_name)
+        contests = logdb.list_contests(db_path)
+        active = None
+        for c in contests:
+            if contest_nr is not None and c.contest_nr == contest_nr:
+                active = c.to_dict()
+                break
+            if contest_name and c.contest_name == contest_name:
+                active = c.to_dict()
+                break
+        if active is None and contests:
+            # Record what we loaded even if filter was by name only.
+            active = {
+                "contest_nr": contest_nr,
+                "contest_name": contest_name,
+                "qso_count": len(qsos),
+                "db_path": db_path,
+                "db_label": Path(db_path).name,
+                "label": contest_name or f"ContestNR {contest_nr}",
+            }
         with self._lock:
             self._log.reconcile(qsos)
-            self._seed = {"count": len(qsos), "source": Path(db_path).name}
+            self._seed = {
+                "count": len(qsos),
+                "source": Path(db_path).name,
+                "db_path": db_path,
+                "contest_nr": contest_nr,
+                "contest_name": (active or {}).get("contest_name") or contest_name,
+                "label": (active or {}).get("label"),
+            }
+            self._active_contest = active
+            self._seed_db_hint = db_path
         return len(qsos)
+
+    def auto_seed(self) -> dict:
+        """Discover contests and seed the recommended one (latest with QSOs).
+
+        Returns a small status dict for startup logging / API. Never raises on
+        empty discovery — log copy stays empty and UI offers a picker.
+        """
+        from wims.integrations.n1mm import logdb
+        disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
+        with self._lock:
+            self._contest_catalog = disc["contests"]
+        rec = disc.get("recommended")
+        if not rec:
+            return {"ok": False, "reason": "no_contests_with_qsos",
+                    "contests": disc["contests"]}
+        n = self.seed_from_db(rec["db_path"], contest_nr=rec["contest_nr"])
+        return {"ok": True, "seeded": n, "contest": rec,
+                "contests": disc["contests"]}
+
+    def select_contest(self, *, db_path: str, contest_nr: int) -> dict:
+        """Operator picked a contest in the Status UI — reload log copy from DXLOG."""
+        n = self.seed_from_db(db_path, contest_nr=int(contest_nr))
+        self.refresh_contest_catalog()
+        with self._lock:
+            active = self._active_contest
+        return {"ok": True, "seeded": n, "contest": active}
 
     def group_of(self, instance_id: str) -> str:
         """Map an instance to its resource group per the active scheme. Callers
@@ -100,13 +177,19 @@ class LiveFleet:
         with self._lock:
             self.wsjt_pkts += 1
             self._tracker.observe(msg, now, src_ip=src_ip)
+            mid = getattr(msg, "id", None) or "?"
+            # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
+            # Status), not only after the first Decode — quiet bands still get a frame.
+            self._maps.setdefault(mid, ActivityMap(mid))
             if isinstance(msg, M.Status):
-                self._overlap.observe(msg.id or "?", msg.transmitting, now)
+                self._overlap.observe(mid, msg.transmitting, now)
             elif isinstance(msg, M.Decode):
-                mid = msg.id or "?"
                 node = self._tracker.nodes.get(mid)
-                self._roster.observe_decode(msg, (node.band if node else None) or "?", now)
-                self._maps.setdefault(mid, ActivityMap(mid)).add(msg)
+                self._roster.observe_decode(
+                    msg, (node.band if node else None) or "?", now,
+                    dial_hz=(node.dial_hz if node else 0),
+                    de_grid=(node.de_grid if node else None))
+                self._maps[mid].add(msg)
                 self._decodes.append({
                     "ts": now, "instance": mid, "snr": msg.snr,
                     "df": msg.delta_frequency, "message": msg.message or "",
@@ -121,14 +204,26 @@ class LiveFleet:
             if "<contactinfo" in xml_text:        # a logged QSO -> update the log copy
                 try:
                     q = LoggedQso.from_contactinfo(xml_text)
-                    if q.id:
-                        self._log.upsert(q)
-                        self._last_qso = {"call": q.call, "band": q.band, "ts": now}
+                    if not q.id:
+                        return
+                    # If operator selected a contest, ignore live QSOs from other logs
+                    # (same multi-contest .s3db problem over the wire).
+                    active = self._active_contest
+                    if active:
+                        want_name = (active.get("contest_name") or "").strip().upper()
+                        got_name = (q.contest or "").strip().upper()
+                        if want_name and got_name and want_name != got_name:
+                            return
+                    self._log.upsert(q)
+                    self._last_qso = {"call": q.call, "band": q.band, "ts": now}
                 except Exception:
                     pass
 
     def snapshot(self, now) -> dict:
         with self._lock:
+            # Drop instances that stopped sending (killed WSJT-X / moved host).
+            for mid in self._tracker.prune(now):
+                self._maps.pop(mid, None)
             d = fleet_to_dict(self._tracker, now,
                               wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts)
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
@@ -136,16 +231,21 @@ class LiveFleet:
                 self._overlap, self.group_of, self._grouping,
                 list(self._tracker.nodes), tx_ids, now)
             ctx = S.Context(weights=S.weights_for(self._condition), condition=self._condition)
-            scored, excluded = self._roster.ranked(now, ctx)
-            d["roster"] = roster_to_dict(scored, excluded, now,
+            rows, not_needed = self._roster.ranked(now, ctx)
+            d["roster"] = roster_to_dict(rows, not_needed, now,
                                          condition=self._condition,
                                          strategy=self._roster.strategy.name)
-            d["activity"] = [activity_to_dict(self._maps[mid])
-                             for mid in sorted(self._maps)]
+            # One activity tile per live instance (including empty / no decodes).
+            live_ids = set(self._tracker.nodes)
+            d["activity"] = [activity_to_dict(self._maps[mid], now=now)
+                             for mid in sorted(self._maps)
+                             if mid in live_ids]
             d["decodes"] = decodes_to_dict(self._decodes, now)
             d["n1mm_sync"] = n1mm_sync_to_dict(
                 now, n1mm_pkts=self.n1mm_pkts, last_n1mm=self._last_n1mm,
-                qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed)
+                qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed,
+                active_contest=self._active_contest,
+                contests=self._contest_catalog)
             return d
 
 
@@ -179,9 +279,13 @@ def make_handler(live: LiveFleet, refresh: float):
             self.end_headers()
             self.wfile.write(body)
 
+        def _send_json(self, code: int, obj: dict):
+            self._send(code, "application/json",
+                       json.dumps(obj).encode("utf-8"))
+
         # path -> static file (two pages share one SSE feed; see static/wims.js).
         PAGES = {"/": "ops.html", "/index.html": "ops.html", "/ops": "ops.html",
-                 "/status": "status.html"}
+                 "/status": "status.html", "/setup": "setup.html"}
         TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css",
                  ".js": "text/javascript", ".json": "application/json"}
 
@@ -193,8 +297,53 @@ def make_handler(live: LiveFleet, refresh: float):
                 self._send(200, "application/json", b'{"ok":true}')
             elif path == "/events":
                 self._stream_events()
+            elif path == "/api/contests":
+                # Fresh disk scan so a newly copied .s3db appears without restart.
+                contests = live.refresh_contest_catalog()
+                snap = live.snapshot(time.time())
+                ns = snap.get("n1mm_sync") or {}
+                self._send_json(200, {
+                    "contests": contests,
+                    "active_contest": ns.get("active_contest"),
+                    "qso_count": ns.get("qso_count"),
+                })
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
+            else:
+                self._send(404, "text/plain", b"not found")
+
+        def do_POST(self):
+            path = self.path.split("?", 1)[0]
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b"{}"
+            try:
+                body = json.loads(raw.decode("utf-8") or "{}")
+            except json.JSONDecodeError:
+                self._send_json(400, {"ok": False, "error": "invalid JSON"})
+                return
+            if path == "/api/contests/select":
+                # Operator picked a human-listed contest (Status UI). No cryptic CLI.
+                db_path = body.get("db_path")
+                contest_nr = body.get("contest_nr")
+                if not db_path or contest_nr is None:
+                    self._send_json(400, {"ok": False,
+                                          "error": "need db_path and contest_nr"})
+                    return
+                if not Path(db_path).is_file():
+                    self._send_json(400, {"ok": False, "error": "db_path not found"})
+                    return
+                try:
+                    result = live.select_contest(db_path=db_path,
+                                                 contest_nr=int(contest_nr))
+                    self._send_json(200, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/contests/rescan":
+                try:
+                    contests = live.refresh_contest_catalog()
+                    self._send_json(200, {"ok": True, "contests": contests})
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
             else:
                 self._send(404, "text/plain", b"not found")
 
@@ -231,6 +380,10 @@ def main() -> None:
     ap.add_argument("--group", default="224.0.0.73", help="WSJT-X multicast group")
     ap.add_argument("--port", type=int, default=2237, help="WSJT-X UDP port")
     ap.add_argument("--n1mm-port", type=int, default=12060)
+    ap.add_argument("--n1mm-group", default=None,
+                    help="multicast group for N1MM External Broadcast XML "
+                         "(e.g. 224.0.0.73 — same group as WSJT-X is fine; different port). "
+                         "Omit for classic unicast/directed-broadcast to this host:12060")
     ap.add_argument("--refresh", type=float, default=1.0, help="SSE push interval (s)")
     ap.add_argument("--group-by", choices=("instance", "band", "host"), default="instance",
                     help="interlock resource-group scheme until §3.14 profiles wire the real "
@@ -262,32 +415,56 @@ def main() -> None:
     except ipaddress.AddressValueError:
         ap.error(f"invalid --group {args.group!r}: not a valid IPv4 address "
                  f"(WSJT-X default is 224.0.0.73)")
+    if args.n1mm_group:
+        try:
+            if not ipaddress.IPv4Address(args.n1mm_group).is_multicast:
+                ap.error(f"invalid --n1mm-group {args.n1mm_group!r}: not a multicast address "
+                         f"(e.g. 224.0.0.73)")
+        except ipaddress.AddressValueError:
+            ap.error(f"invalid --n1mm-group {args.n1mm_group!r}: not a valid IPv4 address")
 
     live = LiveFleet(grouping=args.group_by, condition=args.condition)
+    live.configure_log_discovery(databases_dir=args.seed_db_dir,
+                                 db_path=args.seed_db)
 
     if not args.no_seed:
-        from wims.integrations.n1mm import logdb
-        seed_path = args.seed_db or logdb.find_contest_db(args.seed_db_dir)
-        if seed_path and Path(seed_path).is_file():
-            try:
-                n = live.seed_from_db(seed_path)
-                print(f"  seeded {n} QSOs from {Path(seed_path).name} "
-                      f"(log copy ready -> roster dupe/mult)")
-            except Exception as e:
-                print(f"  (seed skipped: {e})")
-        else:
-            print("  (no N1MM contest .s3db found to seed; log copy starts empty)")
+        # Auto: scan .s3db files, list contests (June + Sept…), pick latest with QSOs.
+        # Operator can change selection on Status — no ContestNR CLI required.
+        try:
+            result = live.auto_seed()
+            if result.get("ok"):
+                c = result["contest"]
+                print(f"  seeded {result['seeded']} QSOs from {c.get('db_label')} · "
+                      f"{c.get('label')}  (log copy → roster dupe/mult)")
+                others = [x for x in result.get("contests") or []
+                          if not x.get("recommended") and x.get("qso_count", 0) > 0]
+                if others:
+                    print(f"  ({len(others)} other contest log(s) in file(s) — "
+                          f"pick on http://localhost:{args.http_port}/setup)")
+            else:
+                ncat = len(result.get("contests") or [])
+                print(f"  (no contest with QSOs to seed; catalog has {ncat} entry(ies); "
+                      f"copy N1MM .s3db into seed dir or use Setup picker)")
+        except Exception as e:
+            print(f"  (seed skipped: {e})")
+    else:
+        live.refresh_contest_catalog()
     # Open the ingest sockets here (not inside the thread) so a bind failure is
     # reported on the main path and the bound addresses are confirmed deterministically.
     s_wsjt = open_socket(args.iface, args.port, args.group)
     s_n1mm = None
     if args.n1mm_port:
-        # N1MM broadcasts unicast/broadcast XML (not multicast). Bind it to ALL
-        # interfaces regardless of --iface: packets from the N1MM host elsewhere on
-        # the LAN arrive on the LAN interface, so binding to a specific --iface
-        # (e.g. 127.0.0.1) silently drops them — the classic "WIMS can't see N1MM".
+        # N1MM External Broadcast XML is usually unicast/directed to host:12060, but
+        # multi-host fleets can multicast it (e.g. 224.0.0.73:12060 — same group as
+        # WSJT-X, different port). Multicast needs a real interface for IGMP join:
+        # --iface 127.0.0.1 only receives loopback multicasts, not LAN traffic from a VM.
         try:
-            s_n1mm = open_socket("0.0.0.0", args.n1mm_port, None)
+            if args.n1mm_group:
+                s_n1mm = open_socket(args.iface, args.n1mm_port, args.n1mm_group)
+            else:
+                # Unicast/broadcast: bind all interfaces so a LAN N1MM host is not
+                # dropped when --iface is loopback for the WSJT-X emulator path.
+                s_n1mm = open_socket("0.0.0.0", args.n1mm_port, None)
         except OSError as e:
             print(f"  WARNING: N1MM listener could not bind :{args.n1mm_port} ({e}); "
                   f"N1MM ingest disabled")
@@ -295,11 +472,20 @@ def main() -> None:
                      args=(live, s_wsjt, s_n1mm)).start()
 
     httpd = ThreadingHTTPServer(("0.0.0.0", args.http_port), make_handler(live, args.refresh))
-    print(f"WIMS server: http://localhost:{args.http_port}/  (Operate)   "
-          f"http://localhost:{args.http_port}/status  (System status)")
+    print(f"WIMS server: http://localhost:{args.http_port}/       (Operate)")
+    print(f"             http://localhost:{args.http_port}/status  (live health)")
+    print(f"             http://localhost:{args.http_port}/setup   (config / contest log)")
     print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
     if s_n1mm is not None:
-        print(f"  N1MM XML listening on 0.0.0.0:{args.n1mm_port} (all interfaces)")
+        if args.n1mm_group:
+            print(f"  N1MM XML listening on {args.n1mm_group}:{args.n1mm_port} "
+                  f"(multicast join via {args.iface})")
+            if args.iface in ("127.0.0.1", "0.0.0.0"):
+                print("  NOTE: for LAN N1MM multicast set --iface to this host's LAN IP "
+                      f"(e.g. the address on the bridged subnet), not {args.iface}")
+        else:
+            print(f"  N1MM XML listening on 0.0.0.0:{args.n1mm_port} "
+                  f"(unicast/broadcast; use --n1mm-group for multicast)")
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()
