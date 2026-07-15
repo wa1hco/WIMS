@@ -261,9 +261,11 @@ if ($LASTEXITCODE -ne 0) { throw "import failed" }
 Write-Ok "import ok"
 
 Write-Host ""
+$startCmd = Join-Path $launcherDir "Start-WimsServer.cmd"
 Write-Host "Done." -ForegroundColor Green
-Write-Host "  Start:  powershell -ExecutionPolicy Bypass -File `"$launcher`""
-Write-Host "  Or double-click Desktop 'WIMS Server'."
+Write-Host "  Start: double-click Start-WimsServer.cmd"
+if (Test-Path $startCmd) { Write-Host "         $startCmd" }
+Write-Host "  Or Desktop shortcut 'WIMS Server' (if created)."
 Write-Host "  Contest log: copy N1MM .s3db into Documents\N1MM Logger+\Databases then open Setup."
 Write-Host "  Other seats: browser only -> http://<server-ip>:8787/ (no install required)."
 Write-Host ""
