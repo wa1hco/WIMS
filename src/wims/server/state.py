@@ -241,3 +241,50 @@ def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0
         "instances": [_instance(n, now) for n in instances],
         "loggers": [_logger(lg, now) for lg in loggers],
     }
+
+
+def agents_to_dict(agents: dict, now: float, *, stale_after: float = 90.0,
+                   dead_after: float = 180.0) -> list:
+    """Seat agent reports for Status/Setup (plan sec 3.3 / 3.15 / networking sec 12).
+
+    `agents` maps agent_id -> last accepted report dict (must include `ts`).
+    Pruning of dead agents is done by the server store; this only projects age/health.
+    """
+    out = []
+    for aid in sorted(agents):
+        r = agents[aid]
+        ts = r.get("ts")
+        age_s = None if ts is None else round(now - float(ts), 1)
+        if age_s is None:
+            health = "UNKNOWN"
+        elif age_s <= stale_after:
+            health = "ALIVE"
+        elif age_s <= dead_after:
+            health = "STALE"
+        else:
+            health = "DEAD"
+        summary = r.get("summary") or {}
+        host = r.get("host") or {}
+        wx = r.get("wsjtx") or {}
+        apps = r.get("apps") or {}
+        out.append({
+            "agent_id": r.get("agent_id") or aid,
+            "seat_id": r.get("seat_id"),
+            "age": age_s,
+            "health": health,
+            "severity": summary.get("severity") or "unknown",
+            "message": summary.get("message") or "",
+            "hostname": host.get("hostname"),
+            "lan_ips": host.get("lan_ips") or [],
+            "os": host.get("os"),
+            "wsjtx_configs": len(wx.get("configs") or []),
+            "wsjtx_errors": wx.get("error_count") or 0,
+            "wsjtx_warns": wx.get("warn_count") or 0,
+            "wsjtx_running": apps.get("wsjtx_running"),
+            "n1mm_running": apps.get("n1mm_running"),
+            "n1mm_found": (r.get("n1mm") or {}).get("found"),
+            "mode": r.get("mode"),
+            # Full nested report for Setup drill-down (configs + issues).
+            "report": r,
+        })
+    return out

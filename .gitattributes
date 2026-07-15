@@ -3,3 +3,8 @@
 *.png binary
 *.jpg binary
 *.s3db binary
+
+# Windows PowerShell 5.1 here-strings require CRLF; cmd is happier with CRLF too.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf

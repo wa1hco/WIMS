@@ -15,7 +15,8 @@
 | File | What it does |
 |------|----------------|
 | **`Install-Wims.cmd`** | Installs Python/Git (winget), gets/updates the repo, firewall TCP 8787, desktop shortcut. May prompt for UAC (Administrator). |
-| **`Start-WimsServer.cmd`** | Starts the WIMS server (black window stays open). |
+| **`Start-WimsServer.cmd`** | Starts the **site** WIMS server (one per contest LAN). Do **not** run this on every radio seat. |
+| **`Start-WimsAgent.cmd`** | Starts the **seat agent** (local config UI on :8790 + export to site server). Use this on fleet template / radio VMs. |
 
 Steps:
 

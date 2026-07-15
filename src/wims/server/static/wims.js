@@ -28,6 +28,8 @@ function renderSystem(s) {
   const by = (h) => inst.filter(n => n.health === h).length;
   const tx = inst.filter(n => n.transmitting).length;
   const quiet = inst.filter(n => n.quiet).length;
+  const agents = s.agents || [];
+  const aErr = agents.filter(a => a.severity === "error").length;
   el.innerHTML =
     `<span><span class="dot active"></span><b>WIMS server</b> · live</span>` +
     `<span><span class="k">WSJT-X:</span>${inst.length} (` +
@@ -37,7 +39,89 @@ function renderSystem(s) {
       (quiet ? ` · <span class="quiet">${quiet} quiet</span>` : ``) + `)</span>` +
     `<span><span class="k">transmitting:</span>${tx}</span>` +
     `<span><span class="k">N1MM loggers:</span>${(s.loggers||[]).length}</span>` +
+    `<span><span class="k">seat agents:</span>${agents.length}` +
+      (aErr ? ` · <span class="warn">${aErr} error</span>` : ``) + `</span>` +
     `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>`;
+}
+
+function renderAgents(s) {
+  const body = $("agents-body");
+  if (!body) return;
+  const list = s.agents || [];
+  const empty = $("agents-empty");
+  if (empty) empty.style.display = list.length ? "none" : "block";
+  body.innerHTML = "";
+  for (const a of list) {
+    const tr = document.createElement("tr");
+    if (a.severity === "error") tr.className = "overlap";
+    else if (a.severity === "warn") tr.className = "tx";
+    const label = a.seat_id
+      ? `${esc(a.seat_id)} <span class="meta">(${esc(a.agent_id)})</span>`
+      : esc(a.agent_id);
+    const host = [a.hostname, (a.lan_ips || []).join(", ")].filter(Boolean).join(" · ") || "-";
+    const sevCls = a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE");
+    tr.innerHTML =
+      `<td>${label}</td><td>${esc(host)}</td>` +
+      `<td class="${a.health}">${a.health}</td>` +
+      `<td class="${sevCls}">${esc(a.severity)}</td>` +
+      `<td class="num">${age(a.age)}</td>` +
+      `<td class="num">${a.wsjtx_errors || 0}</td>` +
+      `<td style="white-space:normal;max-width:420px">${esc(a.message)}</td>`;
+    body.appendChild(tr);
+  }
+  // Setup page: richer config audit from nested report
+  const setup = $("setup-cfg-audit");
+  const setupHead = $("setup-agents");
+  if (setupHead) {
+    if (!list.length) {
+      setupHead.innerHTML = `<span class="k">No agents reporting — start wims.agent on each seat.</span>`;
+    } else {
+      setupHead.innerHTML =
+        `<span><span class="k">agents:</span><b>${list.length}</b></span>` +
+        list.map(a =>
+          `<span><span class="k">${esc(a.seat_id || a.agent_id)}:</span>` +
+          `<span class="${a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE")}">` +
+          `${esc(a.severity)}</span> · ${age(a.age)}</span>`
+        ).join("");
+    }
+  }
+  if (setup) {
+    if (!list.length) {
+      setup.className = "empty";
+      setup.textContent = "No agent config detail yet.";
+      return;
+    }
+    setup.className = "";
+    let html = "";
+    for (const a of list) {
+      const r = a.report || {};
+      const cfgs = ((r.wsjtx || {}).configs) || [];
+      html += `<div style="margin:8px 0 12px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--panel)">`;
+      html += `<div><b>${esc(a.seat_id || a.agent_id)}</b> · ${esc(a.hostname || "")} · ` +
+        `<span class="${a.health}">${a.health}</span> · ` +
+        `<span class="${a.severity === "error" ? "DEAD" : "ALIVE"}">${esc(a.severity)}</span></div>`;
+      html += `<div class="meta" style="margin:4px 0">${esc(a.message)}</div>`;
+      if (!cfgs.length) {
+        html += `<div class="meta">No WSJT-X configs in last report.</div>`;
+      }
+      for (const c of cfgs) {
+        html += `<div style="margin-top:6px"><code>${esc(c.name)}</code> ` +
+          `UDP ${esc(c.udp_server || "-")}:${esc(c.udp_port || "-")} ` +
+          `iface=${esc(c.udp_iface || "(empty)")}</div>`;
+        for (const iss of (c.issues || [])) {
+          const cls = iss.severity === "error" ? "DEAD" : (iss.severity === "warn" ? "STALE" : "meta");
+          html += `<div class="${cls}" style="margin-left:8px">[${esc(iss.severity)}] ${esc(iss.message)}</div>`;
+        }
+      }
+      const n1 = r.n1mm || {};
+      if (n1.found != null) {
+        html += `<div class="meta" style="margin-top:6px">N1MM found=${n1.found}` +
+          (n1.databases_dir ? ` · db ${esc(n1.databases_dir)}` : "") + `</div>`;
+      }
+      html += `</div>`;
+    }
+    setup.innerHTML = html;
+  }
 }
 
 function renderInstances(s) {
@@ -424,6 +508,7 @@ function rosDraw() {
 function render(s) {
   renderHeader(s);
   renderSystem(s);
+  renderAgents(s);
   renderInterlock(s.interlock);
   renderRoster(s.roster);
   renderInstances(s);

@@ -51,6 +51,7 @@ echo.
 echo Waiting for UAC / elevated install... >> "%LOG%"
 
 REM Write a tiny elev helper with HARD-CODED absolute paths (avoids nested-quote bugs).
+REM Captures child stdout/stderr into the log so parse/runtime failures are visible.
 (
   echo $ErrorActionPreference = 'Stop'
   echo $ps1  = '%PS1%'
@@ -60,8 +61,12 @@ REM Write a tiny elev helper with HARD-CODED absolute paths (avoids nested-quote
   echo "  ps1=$ps1" ^| Out-File -FilePath $log -Append -Encoding utf8
   echo "  repo=$repo" ^| Out-File -FilePath $log -Append -Encoding utf8
   echo if (-not ^(Test-Path -LiteralPath $ps1^)^) { "MISSING ps1" ^| Out-File $log -Append; exit 2 }
-  echo ^& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $ps1 -RepoPath $repo -LogPath $log
-  echo $code = $LASTEXITCODE
+  echo $out = Join-Path $env:TEMP 'wims-elev-ps1-out.txt'
+  echo $err = Join-Path $env:TEMP 'wims-elev-ps1-err.txt'
+  echo $p = Start-Process -FilePath powershell.exe -Wait -PassThru -NoNewWindow -RedirectStandardOutput $out -RedirectStandardError $err -ArgumentList @^('-NoProfile','-ExecutionPolicy','Bypass','-File',$ps1,'-RepoPath',$repo,'-LogPath',$log^)
+  echo $code = $p.ExitCode
+  echo if ^(Test-Path $out^) { Get-Content $out -ErrorAction SilentlyContinue ^| ForEach-Object { $_ ^| Out-File -FilePath $log -Append -Encoding utf8 } }
+  echo if ^(Test-Path $err^) { Get-Content $err -ErrorAction SilentlyContinue ^| ForEach-Object { "STDERR: $_" ^| Out-File -FilePath $log -Append -Encoding utf8 } }
   echo "Elevated helper exit=$code" ^| Out-File -FilePath $log -Append -Encoding utf8
   echo exit $code
 ) > "%ELEV%"

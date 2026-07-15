@@ -74,7 +74,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, drives the emulator live. Remaining: Free Text/Replay, lease gating. |
-| 3.3 | Multi-instance manager | `[ ]` | host agent (fast mute, thumbnail) + setup wizard — not started. Config tool: `integrations/wsjtx_config.py` validates UDP Server + **Outgoing interface** (LAN required; `@Invalid`/loopback = error). |
+| 3.3 | Multi-instance manager | `[~]` | **Seat agent (config/monitor slice):** `wims.agent` local UI :8790 + POST `/api/agents/report`; Status/Setup board. Config tool: `wsjtx_config.py`. Remaining: host fast mute, thumbnails, setup wizard apply, process service install. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. Remaining: fast-mute path, lease gating, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: run/S&P, give-up, geometry, persistent grid memory, grid→WSJT-X for logging. |
 | 3.6 | Logger interface (N1MM) | `[~]` | seed (`integrations/n1mm/logdb.py`) + live `<contactinfo>` + `reconcile()` resync (`state/logstore.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction, operator resync trigger. |
@@ -148,3 +148,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-15** — **Three-page console:** Operate / **Status** (live health & RF) / **Setup**
   (contest log picker, networking checklist, config diagnostics scaffold). Contest log moved off
   Status onto Setup; Status keeps one-line active-log pointer.
+- **2026-07-15** — **Seat agent framework (local-first):** `python -m wims.agent` reads WSJT-X.ini +
+  N1MM folder probe, shows operator report on `http://127.0.0.1:8790/`, optional export to site
+  server `POST /api/agents/report`; state key `agents` on Status/Setup. Windows
+  `Start-WimsAgent.cmd` (template seats). TX/interlock still later.

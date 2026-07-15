@@ -42,7 +42,7 @@ from wims.state.logstore import LogStore  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
-    decodes_to_dict, n1mm_sync_to_dict)
+    decodes_to_dict, n1mm_sync_to_dict, agents_to_dict)
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -80,6 +80,9 @@ class LiveFleet:
         self._seed_db_hint: str | None = None      # optional preferred .s3db path
         self._active_contest: dict | None = None   # ContestInfo.to_dict() currently loaded
         self._contest_catalog: list = []           # all discovered contests for UI
+        # Seat agents (config audit heartbeats) — agent_id -> last report.
+        self._agents: dict[str, dict] = {}
+        self._agent_prune_after = 300.0            # drop silent agents after 5 min
 
     def configure_log_discovery(self, *, databases_dir: str | None = None,
                                 db_path: str | None = None) -> None:
@@ -164,6 +167,49 @@ class LiveFleet:
             active = self._active_contest
         return {"ok": True, "seeded": n, "contest": active}
 
+    def accept_agent_report(self, body: dict, *, now: float | None = None) -> dict:
+        """Ingest a seat agent report (POST /api/agents/report). Local-first agent
+        already validated configs on the station PC; this stores the snapshot for
+        the wrangler Status/Setup board."""
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "body must be a JSON object"}
+        agent_id = (body.get("agent_id") or "").strip()
+        if not agent_id:
+            return {"ok": False, "error": "agent_id required"}
+        ts = now if now is not None else time.time()
+        # Prefer agent clock if plausible; else server receive time.
+        try:
+            agent_ts = float(body.get("ts") or ts)
+        except (TypeError, ValueError):
+            agent_ts = ts
+        if abs(agent_ts - ts) > 600:
+            agent_ts = ts
+        stored = dict(body)
+        stored["agent_id"] = agent_id
+        stored["ts"] = agent_ts
+        stored["received_at"] = ts
+        with self._lock:
+            self._agents[agent_id] = stored
+        summary = (stored.get("summary") or {})
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "severity": summary.get("severity"),
+            "message": summary.get("message"),
+        }
+
+    def list_agents(self, now: float | None = None) -> list:
+        now = time.time() if now is None else now
+        with self._lock:
+            self._prune_agents(now)
+            return agents_to_dict(self._agents, now)
+
+    def _prune_agents(self, now: float) -> None:
+        dead = [aid for aid, r in self._agents.items()
+                if now - float(r.get("ts") or 0) > self._agent_prune_after]
+        for aid in dead:
+            del self._agents[aid]
+
     def group_of(self, instance_id: str) -> str:
         """Map an instance to its resource group per the active scheme. Callers
         hold `self._lock` (ingest + snapshot both do)."""
@@ -246,6 +292,8 @@ class LiveFleet:
                 qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed,
                 active_contest=self._active_contest,
                 contests=self._contest_catalog)
+            self._prune_agents(now)
+            d["agents"] = agents_to_dict(self._agents, now)
             return d
 
 
@@ -307,6 +355,8 @@ def make_handler(live: LiveFleet, refresh: float):
                     "active_contest": ns.get("active_contest"),
                     "qso_count": ns.get("qso_count"),
                 })
+            elif path == "/api/agents":
+                self._send_json(200, {"agents": live.list_agents()})
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
             else:
@@ -342,6 +392,13 @@ def make_handler(live: LiveFleet, refresh: float):
                 try:
                     contests = live.refresh_contest_catalog()
                     self._send_json(200, {"ok": True, "contests": contests})
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/agents/report":
+                try:
+                    result = live.accept_agent_report(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             else:

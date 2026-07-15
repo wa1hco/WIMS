@@ -1,10 +1,15 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
   Install WIMS prerequisites on Windows (Python, optional Git, firewall, launchers).
 
   Always writes a log: scripts\windows\install-log.txt
   Exit 0 only if python.exe is found AND import wims succeeds.
+
+.NOTES
+  Keep this file ASCII-only and CRLF. Windows PowerShell 5.1 reads UTF-8 without BOM
+  as the system ANSI code page; em-dashes/ellipsis then become smart quotes and
+  break parsing. Prefer UTF-8 with BOM if non-ASCII is ever needed.
 #>
 [CmdletBinding()]
 param(
@@ -62,26 +67,36 @@ function Test-PythonExe([string] $Exe) {
     if (-not (Test-Path -LiteralPath $Exe)) { return $null }
     # Reject Windows Store stub
     if ($Exe -match "WindowsApps\\python") { return $null }
+    # IMPORTANT: do not use Start-Process -ArgumentList for python -c.
+    # PS 5.1 mangles quoting, and %d in format strings expands as env vars under cmd.
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
-        $p = Start-Process -FilePath $Exe -ArgumentList @("-c", "import sys; print('%d.%d' % (sys.version_info[0], sys.version_info[1])); print(sys.executable)") `
-            -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wims-py-out.txt" -RedirectStandardError "$env:TEMP\wims-py-err.txt"
-        if ($p.ExitCode -ne 0) { return $null }
-        $lines = Get-Content "$env:TEMP\wims-py-out.txt" -ErrorAction SilentlyContinue
+        $code = "import sys; print('{0}.{1}'.format(sys.version_info[0], sys.version_info[1])); print(sys.executable)"
+        $output = & $Exe -c $code 2>&1
+        if ($LASTEXITCODE -ne 0) { return $null }
+        $lines = @($output | ForEach-Object { "$_" } | Where-Object { $_ -and $_.Trim() })
         if (-not $lines -or $lines.Count -lt 1) { return $null }
         $ver = $lines[0].Trim()
         $parts = $ver.Split(".")
+        if ($parts.Count -lt 2) { return $null }
         if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 10)) { return $null }
         $resolved = $Exe
-        if ($lines.Count -ge 2 -and (Test-Path $lines[1].Trim())) { $resolved = $lines[1].Trim() }
+        if ($lines.Count -ge 2 -and (Test-Path -LiteralPath $lines[1].Trim())) {
+            $resolved = $lines[1].Trim()
+        }
+        if ($resolved -match "WindowsApps\\python") { return $null }
         return @{ Exe = $resolved; Version = $ver }
     } catch {
         return $null
+    } finally {
+        $ErrorActionPreference = $prevEap
     }
 }
 
 function Find-Python {
     Update-SessionPath
-    Log "    Searching for python.exe…"
+    Log "    Searching for python.exe..."
 
     # py -3
     try {
@@ -128,13 +143,17 @@ function Find-Python {
         Get-ChildItem $hive -ErrorAction SilentlyContinue | ForEach-Object {
             $ip = Join-Path $_.PSPath "InstallPath"
             try {
-                $dir = (Get-ItemProperty -LiteralPath $ip -ErrorAction SilentlyContinue).'(default)'
+                $props = Get-ItemProperty -LiteralPath $ip -ErrorAction SilentlyContinue
+                if ($props.ExecutablePath) { $found += $props.ExecutablePath }
+                $dir = $props.'(default)'
                 if ($dir) { $found += (Join-Path $dir "python.exe") }
             } catch { }
         }
     }
 
-    foreach ($c in ($found | Select-Object -Unique)) {
+    # Prefer higher versions when multiple are present
+    $candidates = @($found | Where-Object { $_ } | Select-Object -Unique | Sort-Object -Descending)
+    foreach ($c in $candidates) {
         $info = Test-PythonExe $c
         if ($info) { Log "    found on disk: $($info.Exe)"; return $info }
     }
@@ -148,7 +167,7 @@ function Install-PythonWinget {
         Warn "winget not available"
         return $false
     }
-    Step "Trying winget Python install…"
+    Step "Trying winget Python install..."
     $ids = @("Python.Python.3.12", "Python.Python.3.13", "Python.Python.3.11")
     foreach ($id in $ids) {
         Log "    winget install -e --id $id"
@@ -180,7 +199,7 @@ function Get-PythonInstaller {
         Invoke-WebRequest -Uri $url -OutFile $tmp -UseBasicParsing
     } catch {
         Log "    Invoke-WebRequest failed: $_"
-        Log "    trying bitsadmin…"
+        Log "    trying bitsadmin..."
         & bitsadmin /transfer WimsPython /download /priority foreground $url $tmp
         if (-not (Test-Path $tmp)) { throw "Could not download Python installer: $_" }
     }
@@ -192,7 +211,7 @@ function Get-PythonInstaller {
 }
 
 function Install-PythonOfficial {
-    Step "Installing Python 3.12.8 (official silent installer)…"
+    Step "Installing Python 3.12.8 (official silent installer)..."
     $tmp = Get-PythonInstaller
 
     # Default install dir when InstallAllUsers=1
@@ -220,10 +239,13 @@ function Install-PythonOfficial {
 
     $p = Start-Process -FilePath $tmp -ArgumentList $arg -Wait -PassThru
     Log "    installer exit code: $($p.ExitCode)"
-    # 0 = ok, 3010 = reboot recommended but often still installed
-    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) {
+    # 0 = ok, 3010 = reboot recommended, 1638 = another version already installed
+    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010 -and $p.ExitCode -ne 1638) {
         Fail "Official installer failed with code $($p.ExitCode)"
         return $false
+    }
+    if ($p.ExitCode -eq 1638) {
+        Warn "Installer exit 1638 (product already installed) - will search for existing python.exe"
     }
 
     Update-SessionPath
@@ -248,7 +270,7 @@ function Ensure-Python {
         Ok "Already installed: $($py.Exe) ($($py.Version))"
         return $py
     }
-    Warn "Python not found — installing…"
+    Warn "Python not found - installing..."
 
     if (Install-PythonWinget) {
         $py = Find-Python
@@ -289,7 +311,7 @@ function Ensure-Git {
         Ok "git already present"
         return
     }
-    Step "Installing Git…"
+    Step "Installing Git..."
     $winget = Get-Command winget -ErrorAction SilentlyContinue
     if ($winget) {
         $args = @("install", "-e", "--id", "Git.Git", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
@@ -317,7 +339,7 @@ function Ensure-Git {
 function Set-Firewall8787 {
     Step "Firewall TCP 8787 (inbound)"
     if (-not (Test-IsAdmin)) {
-        Warn "Not admin — cannot change firewall. Other PCs may not reach the console."
+        Warn "Not admin - cannot change firewall. Other PCs may not reach the console."
         Warn "Re-run Install-Wims.cmd and accept UAC, or run as Administrator."
         return $false
     }
@@ -518,13 +540,18 @@ try {
 
     Step "Smoke test"
     $env:PYTHONPATH = Join-Path $RepoPath "src"
-    $p = Start-Process -FilePath $py.Exe -ArgumentList @("-c", "import wims.server.app; print('import ok')") `
-        -Wait -PassThru -NoNewWindow -RedirectStandardOutput "$env:TEMP\wims-smoke.txt" -RedirectStandardError "$env:TEMP\wims-smoke-err.txt"
-    $smokeOut = Get-Content "$env:TEMP\wims-smoke.txt" -Raw -ErrorAction SilentlyContinue
-    $smokeErr = Get-Content "$env:TEMP\wims-smoke-err.txt" -Raw -ErrorAction SilentlyContinue
-    Log "    stdout: $smokeOut"
-    if ($smokeErr) { Log "    stderr: $smokeErr" }
-    if ($p.ExitCode -ne 0) { throw "import wims failed (exit $($p.ExitCode))" }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        $smoke = & $py.Exe -c "import wims.server.app; print('import ok')" 2>&1
+        $smokeCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+    $smokeText = ($smoke | ForEach-Object { "$_" }) -join "`n"
+    Log "    output: $smokeText"
+    if ($smokeCode -ne 0) { throw "import wims failed (exit $smokeCode): $smokeText" }
+    if ($smokeText -notmatch "import ok") { throw "import wims did not print import ok: $smokeText" }
     Ok "import wims.server.app"
 
     Log ""
@@ -532,7 +559,7 @@ try {
     Log "SUCCESS" "Green"
     Log "  Python : $($py.Exe) ($($py.Version))" "Green"
     Log "  Start  : $startCmd" "Green"
-    Log "  Firewall 8787: $(if ($fwOk) { 'OK or already set' } else { 'NOT SET — re-run as Admin' })" $(if ($fwOk) { "Green" } else { "Yellow" })
+    Log "  Firewall 8787: $(if ($fwOk) { 'OK or already set' } else { 'NOT SET - re-run as Admin' })" $(if ($fwOk) { "Green" } else { "Yellow" })
     Log "  Log    : $script:LogFile" "Green"
     Log "Next: double-click Start-WimsServer.cmd" "Green"
     exit 0

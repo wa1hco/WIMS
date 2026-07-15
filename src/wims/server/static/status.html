@@ -27,6 +27,24 @@
   <h2>System · nodes</h2>
   <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
 
+  <h2>Seat agents (config / host audit)</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Reports from <code>wims.agent</code> on each station PC (WSJT-X.ini, N1MM presence).
+    Not live RF — that is the instances table below. Local operator UI on the seat is
+    <code>http://127.0.0.1:8790/</code>.
+  </p>
+  <table id="agents">
+    <thead><tr>
+      <th>Agent / seat</th><th>Host</th><th>Health</th><th>Severity</th>
+      <th class="num">Age</th><th class="num">WSJT err</th><th>Message</th>
+    </tr></thead>
+    <tbody id="agents-body"></tbody>
+  </table>
+  <div id="agents-empty" class="empty">
+    No seat agents reporting. On each station VM run:
+    <code>python -m wims.agent --server http://&lt;this-server&gt;:8787</code>
+  </div>
+
   <h2>WSJT-X instances</h2>
   <table id="inst">
     <thead><tr>

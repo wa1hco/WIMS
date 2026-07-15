@@ -28,6 +28,10 @@ captures/
 # Claude Code local settings (machine-specific paths + permission grants)
 .claude/settings.local.json
 
+# Windows install machine-local artifacts
+scripts/windows/install-log.txt
+scripts/windows/python-path.txt
+
 # Editors / OS
 .vscode/
 .idea/
