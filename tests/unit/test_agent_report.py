@@ -111,12 +111,92 @@ def test_export_report_no_url():
     assert r["ok"] is False
 
 
+def test_n1mm_probe_finds_userdir_databases(tmp_path, monkeypatch=None):
+    """N1MM often keeps .s3db under {UserDir}/Databases, not Documents\\…\\Databases."""
+    from wims.agent import n1mm_probe as N
+
+    user = tmp_path / "User"
+    dbdir = user / "Databases"
+    dbdir.mkdir(parents=True)
+    (dbdir / "N2OY.s3db").write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
+    (dbdir / "N2OY.s3db-wal").write_bytes(b"x" * 50)
+    (dbdir / "N1MM Admin.s3db").write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
+
+    real_user_dir = N._win_user_dir
+    real_user_dirs = N.n1mm_user_dirs
+    N._win_user_dir = lambda: user  # type: ignore
+    N.n1mm_user_dirs = lambda: [user]  # type: ignore
+    try:
+        p = N.probe_n1mm()
+        assert p["found"] is True
+        assert p["databases_dir"]
+        assert "N2OY.s3db" in p["s3db_files"]
+        assert "N2OY.s3db" in (p.get("open_databases") or [])
+        assert not any("No N1MM Databases folder" in (i.get("message") or "")
+                       for i in p["issues"])
+    finally:
+        N._win_user_dir = real_user_dir
+        N.n1mm_user_dirs = real_user_dirs
+
+
+def test_process_match_n1mmlogger_net_via_tasklist_mock():
+    """N1MM Logger+ image is N1MMLogger.net.exe — old exact names missed it."""
+    import subprocess
+    from wims.agent import report as R
+
+    fake = (
+        '"chrome.exe","1","Console","1","1 K"\r\n'
+        '"N1MMLogger.net.exe","6216","Console","1","70 K"\r\n'
+        '"wsjtx.exe","8128","Console","1","100 K"\r\n'
+    )
+    real = subprocess.check_output
+
+    def fake_check_output(cmd, **kwargs):
+        if cmd and cmd[0] == "tasklist":
+            return fake
+        return real(cmd, **kwargs)
+
+    subprocess.check_output = fake_check_output  # type: ignore
+    try:
+        assert R._process_running(
+            ("n1mm logger+.exe",),
+            substrings=("n1mmlogger",),
+        ) is True
+        assert R._process_running(
+            ("n1mmlogger.net.exe", "n1mmlogger.net"),
+        ) is True
+        assert R._process_running(("not-a-real-app.exe",)) is False
+        assert R._process_running(("wsjtx.exe",), substrings=("wsjtx",)) is True
+    finally:
+        subprocess.check_output = real
+
+
 def main():
     test_build_report_shape()
     test_build_report_with_synthetic_ini()
     test_livefleet_accept_agent_and_snapshot()
     test_agents_to_dict_stale()
     test_export_report_no_url()
+    test_process_match_n1mmlogger_net_via_tasklist_mock()
+    import tempfile
+    from pathlib import Path as _P
+    with tempfile.TemporaryDirectory() as td:
+        # inline without pytest monkeypatch fixture
+        from wims.agent import n1mm_probe as N
+        user = _P(td) / "User"
+        dbdir = user / "Databases"
+        dbdir.mkdir(parents=True)
+        (dbdir / "N2OY.s3db").write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
+        (dbdir / "N2OY.s3db-wal").write_bytes(b"x" * 50)
+        real_ud, real_uds = N._win_user_dir, N.n1mm_user_dirs
+        N._win_user_dir = lambda: user  # type: ignore
+        N.n1mm_user_dirs = lambda: [user]  # type: ignore
+        try:
+            p = N.probe_n1mm()
+            assert "N2OY.s3db" in p["s3db_files"]
+        finally:
+            N._win_user_dir = real_ud
+            N.n1mm_user_dirs = real_uds
     print("test_agent_report: OK")
 
 

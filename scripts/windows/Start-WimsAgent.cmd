@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions
-REM Seat agent only — NOT the site server. Local UI + optional export to wrangler.
+REM Seat agent — one-shot config check (default). NOT the site server.
+REM For continuous dashboard reporting, use Start-WimsAgent-Continuous.cmd
 
 cd /d "%~dp0"
 set "ROOT=%~dp0..\.."
@@ -10,32 +11,36 @@ popd
 set "PYTHONPATH=%ROOT%\src"
 cd /d "%ROOT%"
 
-REM Prefer pinned interpreter from full install, else py/python on PATH
-set "PYTHON_EXE="
-if exist "%~dp0python-path.txt" (
-  set /p PYTHON_EXE=<"%~dp0python-path.txt"
-)
-if not defined PYTHON_EXE set "PYTHON_EXE=py"
-where %PYTHON_EXE% >nul 2>&1
-if errorlevel 1 set "PYTHON_EXE=python"
+call "%~dp0_resolve-python.cmd"
 
-REM Site server for export (override before launch or set system env WIMS_SERVER)
-if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+REM Optional: set WIMS_SERVER to also push one report to the site dashboard
+REM if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
 
-REM Optional seat label: set WIMS_SEAT_ID=ROY-222
 set "SEAT_ARGS="
 if defined WIMS_SEAT_ID set "SEAT_ARGS=--seat-id %WIMS_SEAT_ID%"
 if defined WIMS_AGENT_ID set "SEAT_ARGS=%SEAT_ARGS% --agent-id %WIMS_AGENT_ID%"
+set "SRV_ARGS="
+if defined WIMS_SERVER set "SRV_ARGS=--server %WIMS_SERVER%"
 
 echo.
-echo  WIMS Agent (station PC)
+echo  WIMS Agent — one-shot seat check
 echo  Repo:   %ROOT%
 echo  Python: %PYTHON_EXE%
-echo  Local:  http://127.0.0.1:8790/
-echo  Export: %WIMS_SERVER%
+if defined WIMS_SERVER (
+  echo  Export: %WIMS_SERVER%
+) else (
+  echo  Export: ^(local only — set WIMS_SERVER to push to dashboard^)
+)
 echo.
 
-"%PYTHON_EXE%" -m wims.agent --server "%WIMS_SERVER%" %SEAT_ARGS% %*
+"%PYTHON_EXE%" -m wims.agent %SRV_ARGS% %SEAT_ARGS% %*
 set ERR=%ERRORLEVEL%
-if not %ERR%==0 ( echo Exit %ERR% & pause )
+echo.
+if %ERR%==0 (
+  echo  RESULT: OK
+) else (
+  echo  RESULT: problems found ^(exit %ERR%^)
+)
+echo.
+pause
 exit /b %ERR%

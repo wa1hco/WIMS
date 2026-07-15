@@ -49,9 +49,29 @@ def _lan_ips() -> list[str]:
     return sorted(ips)
 
 
-def _process_running(names: tuple[str, ...]) -> bool | None:
-    """Return True/False if we can list processes; None if unknown."""
+def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()) -> bool | None:
+    """Return True/False if we can list processes; None if unknown.
+
+    `names` are exact image names (with or without .exe). `substrings` match if
+    they appear in the process image name (e.g. ``n1mmlogger`` catches
+    N1MMLogger.net.exe on Windows).
+    """
     names_l = {n.lower() for n in names}
+    names_l |= {n if n.endswith(".exe") else n + ".exe" for n in names_l}
+    names_l |= {n[:-4] for n in list(names_l) if n.endswith(".exe")}
+    subs = tuple(s.lower() for s in substrings if s)
+
+    def _match(image: str) -> bool:
+        img = image.lower().strip()
+        if not img:
+            return False
+        if img in names_l:
+            return True
+        stem = img[:-4] if img.endswith(".exe") else img
+        if stem in names_l:
+            return True
+        return any(s in img for s in subs)
+
     try:
         if os.name == "nt":
             out = subprocess.check_output(
@@ -63,8 +83,8 @@ def _process_running(names: tuple[str, ...]) -> bool | None:
             )
             for line in out.splitlines():
                 # "image.exe","pid",...
-                part = line.split(",", 1)[0].strip().strip('"').lower()
-                if part in names_l:
+                part = line.split(",", 1)[0].strip().strip('"')
+                if _match(part):
                     return True
             return False
         out = subprocess.check_output(
@@ -73,8 +93,10 @@ def _process_running(names: tuple[str, ...]) -> bool | None:
             text=True,
             timeout=8,
         )
-        running = {line.strip().lower() for line in out.splitlines() if line.strip()}
-        return any(n in running or n.replace(".exe", "") in running for n in names_l)
+        for line in out.splitlines():
+            if _match(line.strip()):
+                return True
+        return False
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -192,9 +214,19 @@ def build_report(
     apps = {
         "wsjtx_running": _process_running(
             ("wsjtx.exe", "wsjtx", "jt9.exe", "jt9"),
+            substrings=("wsjtx",),
         ),
+        # N1MM Logger+ ships as N1MMLogger.net.exe (not "N1MM Logger+.exe").
         "n1mm_running": _process_running(
-            ("n1mm logger+.exe", "n1mmlogger+.exe", "n1mm logger.exe", "n1mmlogger.exe"),
+            (
+                "n1mmlogger.net.exe",
+                "n1mmlogger.net",
+                "n1mm logger+.exe",
+                "n1mmlogger+.exe",
+                "n1mm logger.exe",
+                "n1mmlogger.exe",
+            ),
+            substrings=("n1mmlogger", "n1mm logger"),
         ),
     }
     summary = _summary(wsjtx, n1mm, apps)
@@ -268,14 +300,20 @@ def format_report_text(report: dict) -> str:
     lines.append("")
     lines.append("N1MM")
     lines.append("-" * 48)
-    lines.append(f"  found={n1.get('found')}  databases={n1.get('databases_dir') or '-'}")
+    lines.append(f"  found={n1.get('found')}  user_dir={n1.get('user_dir') or '-'}")
+    db_dirs = n1.get("databases_dirs") or (
+        [n1["databases_dir"]] if n1.get("databases_dir") else []
+    )
+    lines.append(f"  databases={', '.join(db_dirs) if db_dirs else '-'}")
     if n1.get("s3db_files"):
-        lines.append(f"  s3db: {', '.join(n1['s3db_files'][:8])}")
+        lines.append(f"  contest s3db: {', '.join(n1['s3db_files'][:12])}")
+    if n1.get("open_databases"):
+        lines.append(f"  likely open (WAL): {', '.join(n1['open_databases'][:8])}")
     for iss in n1.get("issues") or []:
         tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
         lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
     if n1.get("ini_files"):
-        lines.append(f"  scanned {len(n1['ini_files'])} ini file(s) with network-related keys")
+        lines.append(f"  ini files scanned: {len(n1['ini_files'])}")
 
     lines.append("")
     lines.append("Operator: fix ERROR/WARN items above, then re-run the agent.")

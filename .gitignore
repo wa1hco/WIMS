@@ -31,6 +31,9 @@ captures/
 # Windows install machine-local artifacts
 scripts/windows/install-log.txt
 scripts/windows/python-path.txt
+scripts/windows/seat-local.cmd
+scripts/windows/seat-startup-log.txt
+scripts/windows/agent-daemon-log.txt
 
 # Editors / OS
 .vscode/

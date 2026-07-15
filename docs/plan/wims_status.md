@@ -152,3 +152,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   N1MM folder probe, shows operator report on `http://127.0.0.1:8790/`, optional export to site
   server `POST /api/agents/report`; state key `agents` on Status/Setup. Windows
   `Start-WimsAgent.cmd` (template seats). TX/interlock still later.
+- **2026-07-15** — Agent default **one-shot**; `--daemon` + `Start-WimsAgent-Continuous.cmd` for
+  continuous export. Seat pack: kill-then-start N1MM/WSJT-X/agent (`Start-WimsSeat.cmd`, Startup
+  install). N1MM process = `N1MMLogger.net.exe`; DBs under registry UserDir\\Databases.
+  Server handoff: [wims_agent_dashboard.md](wims_agent_dashboard.md).

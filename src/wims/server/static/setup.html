@@ -79,8 +79,9 @@
     shows results on that PC (<code>http://127.0.0.1:8790/</code>). The same report is
     POSTed here for the wrangler. Template / fleet:
   </p>
-  <pre class="cmd" style="font-size:12px;padding:8px;overflow:auto">python -m wims.agent --server http://192.168.1.119:8787
-python -m wims.agent --once
+  <pre class="cmd" style="font-size:12px;padding:8px;overflow:auto">python -m wims.agent
+python -m wims.agent --server http://192.168.1.119:8787
+python -m wims.agent --daemon --server http://192.168.1.119:8787
 python src/wims/integrations/wsjtx_config.py --all</pre>
   <div id="setup-agents" class="syncrow"><span class="k">waiting for agent reports…</span></div>
   <div id="setup-cfg-audit" class="empty">No agent config detail yet.</div>

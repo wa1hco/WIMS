@@ -1,10 +1,14 @@
-"""Local agent process: scan configs, show operator page, optional export to server.
+"""Local agent process: scan configs, optional local UI + export to server.
+
+Default is **one-shot** (scan, print, optional export, exit) so operators can
+double-click a check without leaving a process running. Continuous reporting
+for fleet seats uses ``--daemon`` (see Start-WimsAgent-Continuous.cmd).
 
 Run:
   python -m wims.agent
-  python -m wims.agent --once
   python -m wims.agent --server http://192.168.1.119:8787
-  python -m wims.agent --lab --local-port 8790
+  python -m wims.agent --daemon --server http://192.168.1.119:8787
+  python -m wims.agent --lab
 """
 
 from __future__ import annotations
@@ -202,28 +206,42 @@ def _bg_loop(state: AgentState, interval: float, export: bool):
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="WIMS host agent — local seat config check + optional export to site server.",
+        description="WIMS host agent — local seat config check + optional export to site server. "
+                    "Default: one-shot (exit). Use --daemon for continuous report to the server.",
     )
-    ap.add_argument("--once", action="store_true",
-                    help="scan once, print report, optional one-shot export, exit")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--once", action="store_true", default=True,
+        help="scan once, print report, optional export, exit (default)",
+    )
+    mode.add_argument(
+        "--daemon", "--serve", action="store_true", dest="daemon",
+        help="stay running: local UI on --local-port + periodic rescan/export (startup script)",
+    )
     ap.add_argument("--server", default=os_env_server(),
                     help="site server base URL (e.g. http://192.168.1.119:8787); "
                          "also WIMS_SERVER env")
     ap.add_argument("--export", action="store_true",
-                    help="with --once, POST report to --server; in daemon mode, export each cycle")
+                    help="one-shot: POST report when --server is set (also implied if --server given); "
+                         "daemon: force auto-export each cycle")
     ap.add_argument("--no-export", action="store_true",
-                    help="daemon: do not auto-export (local UI only; manual Export button still works)")
+                    help="do not POST (local check only; daemon Export button still works)")
     ap.add_argument("--local-port", type=int, default=8790,
-                    help="local operator UI port (default 8790)")
+                    help="daemon: local operator UI port (default 8790)")
     ap.add_argument("--bind", default="127.0.0.1",
-                    help="local UI bind address (default 127.0.0.1; use 0.0.0.0 for LAN view of agent)")
+                    help="daemon: local UI bind (default 127.0.0.1; 0.0.0.0 for LAN)")
     ap.add_argument("--interval", type=float, default=30.0,
-                    help="rescan / export interval seconds (default 30)")
+                    help="daemon: rescan / export interval seconds (default 30)")
     ap.add_argument("--agent-id", default=None, help="stable agent id (default: hostname)")
     ap.add_argument("--seat-id", default=None, help="contest seat label (e.g. ROY-222)")
     ap.add_argument("--lab", action="store_true",
                     help="lab mode: loopback WSJT-X UDP is warn, not error")
     args = ap.parse_args(argv)
+
+    # --daemon wins over default --once (mutually exclusive group handles flag; if only
+    # default once is True and daemon False, one-shot. argparse with store_true default
+    # True is awkward: use daemon flag as the mode switch.
+    run_daemon = bool(args.daemon)
 
     state = AgentState()
     state.server_url = (args.server or "").strip() or None
@@ -235,9 +253,9 @@ def main(argv: list[str] | None = None) -> int:
     print(format_report_text(rep))
     print()
 
-    if args.once:
-        # One-shot: push to server when --server is set (or --export with server).
-        if state.server_url and (args.export or args.server):
+    if not run_daemon:
+        # One-shot: export when server is set unless --no-export.
+        if state.server_url and not args.no_export:
             result = export_report(rep, state.server_url)
             state.set_export(result)
             if result.get("ok"):
@@ -245,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(f"Export failed: {result}", file=sys.stderr)
                 return 1
+        elif not state.server_url:
+            print("(no --server / WIMS_SERVER — local check only, not sent to dashboard)")
         errors = (rep.get("wsjtx") or {}).get("error_count", 0)
         return 1 if errors else 0
 
@@ -259,12 +279,12 @@ def main(argv: list[str] | None = None) -> int:
     t.start()
 
     httpd = ThreadingHTTPServer((args.bind, args.local_port), make_handler(state))
-    print(f"WIMS agent UI: http://{args.bind}:{args.local_port}/")
+    print(f"WIMS agent UI: http://{args.bind}:{args.local_port}/  (--daemon)")
     if state.server_url:
         print(f"  export -> {state.server_url}/api/agents/report"
               f" ({'auto every ' + str(args.interval) + 's' if auto_export else 'manual only'})")
     else:
-        print("  no --server: local verification only")
+        print("  no --server: local UI only (set WIMS_SERVER or --server to report to dashboard)")
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()

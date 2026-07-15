@@ -16,7 +16,32 @@
 |------|----------------|
 | **`Install-Wims.cmd`** | Installs Python/Git (winget), gets/updates the repo, firewall TCP 8787, desktop shortcut. May prompt for UAC (Administrator). |
 | **`Start-WimsServer.cmd`** | Starts the **site** WIMS server (one per contest LAN). Do **not** run this on every radio seat. |
-| **`Start-WimsAgent.cmd`** | Starts the **seat agent** (local config UI on :8790 + export to site server). Use this on fleet template / radio VMs. |
+| **`Start-WimsAgent.cmd`** | **One-shot** seat config check (prints report, exits). Optional export if `WIMS_SERVER` is set. |
+| **`Start-WimsAgent-Continuous.cmd`** | **Daemon** agent only (UI `:8790` + export). Prefer full seat pack below for fleet VMs. |
+| **`Start-WimsSeat.cmd`** | Start **N1MM → WSJT-X → agent** (staggered). Safe if apps already running. |
+| **`Install-WimsSeatStartup.cmd`** | Put **WIMS Seat** in this user’s **Startup** folder (auto-logon VMs). No admin. |
+| **`Remove-WimsSeatStartup.cmd`** | Remove Startup shortcut. |
+| **`seat-config.example.cmd`** | Template for paths / seat id / which apps to start. |
+| **`seat-local.cmd`** | Machine-specific copy (gitignored) — edit on each clone. |
+
+### Fleet seat auto-start (Win10 template, auto-logon)
+
+This image logs in as the operator with no password. After the desktop appears, Windows runs the user **Startup** folder.
+
+1. Edit `scripts\windows\seat-local.cmd` (created from the example on first install):  
+   `WIMS_SERVER`, `WIMS_SEAT_ID`, exe paths, `START_N1MM` / `START_WSJTX` / `START_AGENT`.
+2. Double-click **`Install-WimsSeatStartup.cmd`** once.
+3. Optional test: **`Start-WimsSeat.cmd`** (does not wait for reboot).
+4. Reboot or sign out/in — N1MM, WSJT-X, and the continuous agent should come up.
+
+Logs: `seat-startup-log.txt`, `agent-daemon-log.txt` next to the scripts.
+
+**Development default:** `START_KILL_EXISTING=1` stops any running N1MM, WSJT-X (`wsjtx`/`jt9`),
+and `wims.agent` before starting again so each logon/run is a clean refresh. Set to `0` later
+if you prefer “don’t touch already-running apps” in production.
+
+Disable auto-start: **`Remove-WimsSeatStartup.cmd`** or delete  
+`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WIMS Seat.lnk`.
 
 Steps:
 
