@@ -8,36 +8,45 @@
 | **Radio seat** (N1MM + WSJT-X) | N1MM / WSJT-X / optional GridTracker; **browser** to the server. WIMS install optional |
 | **Operator laptop** | Browser only → `http://<server-ip>:8787/` |
 
-## Quick install (Win10 template)
+## Quick install (Win10 template) — for operators
 
-1. Open **PowerShell as Administrator** (winget + firewall).
-2. Clone or copy the repo, then:
+**No PowerShell knowledge required.** Double-click:
 
-```powershell
-Set-ExecutionPolicy -Scope Process Bypass -Force
-cd $env:USERPROFILE\src\WIMS   # or wherever the repo is
-.\scripts\windows\Install-Wims.ps1
-```
+| File | What it does |
+|------|----------------|
+| **`Install-Wims.cmd`** | Installs Python/Git (winget), gets/updates the repo, firewall TCP 8787, desktop shortcut. May prompt for UAC (Administrator). |
+| **`Start-WimsServer.cmd`** | Starts the WIMS server (black window stays open). |
 
-Or clone via the installer (git + Python via winget):
+Steps:
 
-```powershell
-# Save Install-Wims.ps1 from the repo, then:
-.\Install-Wims.ps1
-# Default clone: %USERPROFILE%\src\WIMS
-```
+1. Get the repo onto the VM (`git clone https://github.com/wa1hco/WIMS.git` **or** copy a USB tree).
+2. In Explorer open `WIMS\scripts\windows\`.
+3. Double-click **`Install-Wims.cmd`** → follow prompts / allow UAC.
+4. Double-click **`Start-WimsServer.cmd`** (or Desktop **WIMS Server** after install).
+5. Browser: `http://localhost:8787/` · `/status` · `/setup`
+
+The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
 
 ### Offline / USB tree
 
+```text
+Double-click Install-Wims.cmd
+```
+
+Or from an elevated cmd (optional flags passed through to the `.ps1`):
+
+```bat
+Install-Wims.cmd -RepoPath D:\WIMS -SkipClone
+```
+
+### Developers only (PowerShell)
+
 ```powershell
-.\Install-Wims.ps1 -RepoPath D:\WIMS -SkipClone
+.\Install-Wims.ps1
+.\Start-WimsServer.ps1   # generated/updated by install; .cmd is preferred for ops
 ```
 
 ## After install
-
-```powershell
-.\scripts\windows\Start-WimsServer.ps1
-```
 
 - Operate: `http://localhost:8787/`
 - Status:  `http://localhost:8787/status`

@@ -237,10 +237,17 @@ if (-not $SkipShortcut) {
     Write-Step "Desktop shortcut…"
     $desk = [Environment]::GetFolderPath("Desktop")
     $lnkPath = Join-Path $desk "WIMS Server.lnk"
+    $startCmd = Join-Path $launcherDir "Start-WimsServer.cmd"
     $wsh = New-Object -ComObject WScript.Shell
     $lnk = $wsh.CreateShortcut($lnkPath)
-    $lnk.TargetPath = "powershell.exe"
-    $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$launcher`""
+    # Prefer .cmd so operators never see ExecutionPolicy
+    if (Test-Path $startCmd) {
+        $lnk.TargetPath = $startCmd
+        $lnk.Arguments = ""
+    } else {
+        $lnk.TargetPath = "powershell.exe"
+        $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$launcher`""
+    }
     $lnk.WorkingDirectory = $RepoPath
     $lnk.Description = "Start WIMS server"
     $lnk.Save()

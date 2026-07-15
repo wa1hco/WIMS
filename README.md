@@ -87,12 +87,10 @@ Requires **Python ≥ 3.10** (stdlib only; no pip runtime deps). Project docs of
 
 ### Windows 10 (template / lab server)
 
-```powershell
-# Admin PowerShell recommended (winget + firewall TCP 8787)
-Set-ExecutionPolicy -Scope Process Bypass -Force
-.\scripts\windows\Install-Wims.ps1
-.\scripts\windows\Start-WimsServer.ps1
-```
+Double-click (no `Set-ExecutionPolicy`):
+
+1. `scripts\windows\Install-Wims.cmd` — Python/Git, firewall, shortcuts (UAC may prompt)  
+2. `scripts\windows\Start-WimsServer.cmd` — run the server  
 
 Details: [scripts/windows/README.md](scripts/windows/README.md).
 
