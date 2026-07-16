@@ -29,7 +29,15 @@ echo  Export: %WIMS_SERVER%  every ~30s
 echo  Stop:   Ctrl+C
 echo.
 
-"%PYTHON_EXE%" -m wims.agent --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*
+if exist "%ROOT%\scripts\run_agent.py" (
+  "%PYTHON_EXE%" "%ROOT%\scripts\run_agent.py" --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*
+) else (
+  "%PYTHON_EXE%" -m wims.agent --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*
+)
 set ERR=%ERRORLEVEL%
-if not %ERR%==0 ( echo Exit %ERR% & pause )
+if not %ERR%==0 (
+  echo Exit %ERR%
+  echo Tip: PYTHONPATH must include %ROOT%\src for "python -m wims.agent"
+  pause
+)
 exit /b %ERR%

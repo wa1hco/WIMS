@@ -2,6 +2,11 @@
 
 Handoff for the **site server** (e.g. Linux at `192.168.1.119`). Windows seat VMs run the **agent**; this host runs **only** the site server and shows aggregated reports.
 
+**Discovery (plane E):** the site server multicasts a JSON presence beacon on
+`224.0.0.73:8788` ~1 Hz. Agents listen and show **clickable** Operate / Status / Setup links on
+`http://127.0.0.1:8790/` so operators need not remember the server IP. A second `wims.server`
+process hears the beacon and **refuses to start** (see [wims_networking.md](wims_networking.md) §3.1).
+
 ## On the Linux server (do this first)
 
 ```bash
@@ -30,12 +35,17 @@ Browser (from any machine that can reach the server):
 
 SSE state key: **`agents`** (same `/events` feed as the rest of the console).
 
-## API contract (already implemented)
+## API contract (implemented on site server)
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `POST` | `/api/agents/report` | Seat posts full JSON report |
 | `GET` | `/api/agents` | List last report per `agent_id` (with age/health) |
+| SSE | `/events` → `agents` | Same rows pushed to Status/Setup UI |
+
+Ingest stores last report per `agent_id` (5‑minute prune). Status renders the summary table;
+Setup renders the nested WSJT-X.ini + N1MM probe detail. **Note:** Setup must not require
+the Status-only `#agents-body` element (fixed 2026-07-15).
 
 Example one-shot push from a seat (or from the server for a smoke test):
 

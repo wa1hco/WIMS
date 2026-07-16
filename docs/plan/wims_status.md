@@ -33,10 +33,10 @@ python src/wims/server/app.py --iface 127.0.0.1
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
 - **Interlock bench:** `python testbed/interlock_bench.py`
 
-## Tests — **11 suites green** (no pytest dep; run `python tests/unit/test_*.py`)
+## Tests — unit suites green (no pytest dep; run `python tests/unit/test_*.py`)
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
-`test_server_state`
+`test_server_state` · `test_agent_report` · `test_presence`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -86,12 +86,12 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | 3.11 | Config | `[ ]` | scoring weights exist as defaults (`engine/scoring.py`); no Instance-Profile / config files yet. |
 | 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), two pages. Remaining: command endpoints (click-to-work / click-to-point), lease endpoints, published enriched feed. |
 | 3.13 | Override interface | `[ ]` | — |
-| 3.15 | Network discovery & diagnostics | `[~]` | passive fleet discovery + health + expected-vs-actual + N1MM presence from **any** broadcast (`<RadioInfo>`/`<AppInfo>`, no QSO needed) — `discovery/fleet.py`. Remaining: active probes, GridTracker/rotator nodes, topology map. |
+| 3.15 | Network discovery & diagnostics | `[~]` | passive fleet discovery + health + N1MM any-broadcast presence (`discovery/fleet.py`); **site-server presence plane E** (`discovery/presence.py` — dual-server refuse + agent clickable URLs). Remaining: active probes, expected-vs-actual board, topology map. |
 
 **Dashboard panels live (Phase-1):** interlock/overlap · call roster · instances · decode-activity ·
-decode log · N1MM-sync · loggers · system summary.
+decode log · N1MM-sync · loggers · system summary · **seat agents** (Status table + Setup detail).
 **State-contract keys (`server/state.py`):** `instances, loggers, rx, interlock, roster, activity,
-decodes, n1mm_sync`.
+decodes, n1mm_sync, agents`.
 
 **Test bed (§5):** WSJT-X emulator built (`testbed/simulators/emulator.py`, reacts Reply→TX /
 Halt→RX); interlock bench (`testbed/interlock_bench.py`). Remaining: captured-traffic replay, N1MM
@@ -164,3 +164,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `reconcile()` (add/update/delete by ID). Setup **Resync log** button + last-resync line;
   Status N1MM panel shows last resync summary/age. UDP remains live path; resync is safety net
   (copy fresh `.s3db` first if N1MM is remote). Setup contest list is ephemeral (Rescan → pick/cancel).
+- **2026-07-15** — **Seat agent display fix:** Setup never painted agent detail because
+  `renderAgents` returned early when `#agents-body` (Status-only) was missing. Setup now shows
+  full WSJT-X/N1MM config audit; Status table adds process columns. Plan: [wims_agent_dashboard.md](wims_agent_dashboard.md).
+- **2026-07-15** — **Plane E site-server presence (MVP):** multicast announce
+  `224.0.0.73:8788` ~1 Hz (`discovery/presence.py`). Second server listens ~2 s then **refuses**
+  (or demotes if a peer appears later) with peer URL diagnostics. Agents discover and show
+  clickable Operate/Status/Setup on local `:8790` (zero-memory). Flags: `--no-presence`,
+  `--force-server`, agent `--no-discover`. Design: [wims_networking.md](wims_networking.md) §3.1.

@@ -89,7 +89,7 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
 
 ---
 
-## 3. Four planes (do not conflate)
+## 3. Planes (do not conflate)
 
 | Plane | What | Purpose |
 |-------|------|---------|
@@ -97,11 +97,52 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
 | **B. Logger UDP (N1MM external)** | `<contactinfo>`, `<RadioInfo>`, … on **:12060** | WIMS log copy, presence, roster dupe/mult |
 | **C. N1MM peer network (TCP)** | N1MM “Networked Computer” | One **merged** contest log among the four N1MMs |
 | **D. Console unicast** | HTTP/SSE (later TLS/WS) to WIMS | Operators; never the RF data path over the internet |
+| **E. Site-server presence** | WIMS JSON beacon ~1 Hz multicast | Single-primary lockout + zero-memory console discovery |
 
-- WIMS uses **A + B + D**.
+- WIMS uses **A + B + D + E**.
 - **C** is N1MM↔N1MM only (WIMS does not speak that protocol; it inherits the merge via
   `.s3db` seed / resync and live `<contactinfo>`).
 - SSB/CW **10 ms** mute is **not** plane B; it is host-agent peer UDP / CTS (design §3.4.1).
+
+### 3.1 Plane E — site-server presence (MVP)
+
+**Problem:** two `wims.server` processes = two divergent log/roster brains; operators should not
+memorize the server IP.
+
+**Mechanism:**
+
+| | |
+|--|--|
+| Group | `224.0.0.73` (same contest LAN multicast story as WSJT-X) |
+| Port | **8788 UDP** (8787 remains **TCP HTTP** only) |
+| Rate | ~1 Hz JSON beacon while primary |
+| TTL | 3 (contest LAN) |
+| Outgoing iface | `--iface` (contest LAN NIC — same silent-failure rule as WSJT-X) |
+
+**Payload (schema 1):** `kind=wims-server`, `instance_id`, `hostname`, `lan_ips`, `http_port`,
+`console_base`, `urls.{operate,status,setup,healthz}`, `started_ts`, `seq`.
+
+**Server:**
+
+1. On start, **listen ~2 s** for a live peer beacon.
+2. If another `instance_id` is heard → **refuse** to start (exit 2) with a plain-language message
+   naming the peer URL (unless `--force-server` lab override).
+3. If clear → become primary, **announce ~1 Hz**.
+4. Keep listening; if a second primary appears → **demote** (exit 2) with the same diagnostic.
+
+**Agent:**
+
+1. Listen briefly (and periodically in `--daemon`) for presence.
+2. Local UI `http://127.0.0.1:8790/` shows **clickable** Operate / Status / Setup links
+   (zero-memory path: open agent → click).
+3. If `--server` / `WIMS_SERVER` is unset, use discovered `console_base` for export.
+4. If configured URL ≠ discovery, show a warn; export prefers configured, links prefer discovery.
+
+**Not solved by plane E:** internet/Tailscale discovery (still explicit URL); automatic HA
+failover (human stops the wrong host); auth.
+
+**Code:** `src/wims/discovery/presence.py` · server flags `--presence-group/port`, `--no-presence`,
+`--force-server` · agent `--no-discover`, **Find site server** button.
 
 ---
 

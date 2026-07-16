@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import ipaddress
 import json
+import os
 import select
 import socket
 import sys
@@ -533,6 +534,8 @@ def make_handler(live: LiveFleet, refresh: float):
 
 
 def main() -> None:
+    from wims.discovery import presence as P
+
     ap = argparse.ArgumentParser(description="WIMS server (ingest + console).")
     ap.add_argument("--http-port", type=int, default=8787)
     ap.add_argument("--iface", default="0.0.0.0", help="multicast/bind interface (127.0.0.1 for local emulator)")
@@ -557,6 +560,15 @@ def main() -> None:
                     help="dir to auto-find the contest .s3db (default: standard N1MM path)")
     ap.add_argument("--no-seed", action="store_true",
                     help="do not seed from any N1MM .s3db at startup")
+    ap.add_argument("--presence-group", default=P.DEFAULT_GROUP,
+                    help=f"site-server presence multicast group (default {P.DEFAULT_GROUP})")
+    ap.add_argument("--presence-port", type=int, default=P.DEFAULT_PORT,
+                    help=f"site-server presence UDP port (default {P.DEFAULT_PORT}; "
+                         f"HTTP console stays on --http-port)")
+    ap.add_argument("--no-presence", action="store_true",
+                    help="do not announce or listen for other WIMS site servers")
+    ap.add_argument("--force-server", action="store_true",
+                    help="start even if another site server is announcing (lab only; loud)")
     args = ap.parse_args()
 
     # Validate network args up front: a malformed address otherwise only blows up
@@ -581,6 +593,28 @@ def main() -> None:
                          f"(e.g. 224.0.0.73)")
         except ipaddress.AddressValueError:
             ap.error(f"invalid --n1mm-group {args.n1mm_group!r}: not a valid IPv4 address")
+
+    # --- Plane E: single site-server presence (refuse dual-primary) ---------- #
+    instance_id = P.new_instance_id()
+    announcer = None
+    if not args.no_presence:
+        peers = P.listen_for_peers(
+            iface=args.iface,
+            group=args.presence_group,
+            port=args.presence_port,
+            duration_s=P.STARTUP_LISTEN_S,
+            exclude_instance_id=instance_id,
+        )
+        if peers and not args.force_server:
+            print(P.format_conflict_message(peers, self_host=socket.gethostname()),
+                  file=sys.stderr)
+            sys.exit(2)
+        if peers and args.force_server:
+            print("WARNING: --force-server: another WIMS site server is announcing; "
+                  "starting anyway (lab only).", file=sys.stderr)
+            for p in peers:
+                print(f"  peer {p.get('hostname')} {p.get('console_base')}",
+                      file=sys.stderr)
 
     live = LiveFleet(grouping=args.group_by, condition=args.condition)
     live.configure_log_discovery(databases_dir=args.seed_db_dir,
@@ -631,7 +665,9 @@ def main() -> None:
                      args=(live, s_wsjt, s_n1mm)).start()
 
     httpd = ThreadingHTTPServer(("0.0.0.0", args.http_port), make_handler(live, args.refresh))
+    console_ip = P._primary_lan_ip(args.iface)
     print(f"WIMS server: http://localhost:{args.http_port}/       (Operate)")
+    print(f"             http://{console_ip}:{args.http_port}/     (LAN console)")
     print(f"             http://localhost:{args.http_port}/status  (live health)")
     print(f"             http://localhost:{args.http_port}/setup   (config / contest log)")
     print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
@@ -645,11 +681,37 @@ def main() -> None:
         else:
             print(f"  N1MM XML listening on 0.0.0.0:{args.n1mm_port} "
                   f"(unicast/broadcast; use --n1mm-group for multicast)")
+
+    if not args.no_presence:
+        def _on_conflict(peers):
+            print("\n" + P.format_conflict_message(peers), file=sys.stderr)
+            print("Demoting: another site server appeared on the LAN. Exiting.",
+                  file=sys.stderr)
+            # Hard exit from daemon thread — dual primary is worse than a drop.
+            os._exit(2)
+
+        announcer = P.PresenceAnnouncer(
+            iface=args.iface,
+            http_port=args.http_port,
+            instance_id=instance_id,
+            group=args.presence_group,
+            port=args.presence_port,
+            on_conflict=_on_conflict,
+        )
+        announcer.start()
+        print(f"  presence announce {args.presence_group}:{args.presence_port} "
+              f"~1 Hz (plane E; agents discover this URL)")
+    else:
+        print("  presence announce disabled (--no-presence)")
+
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
+    finally:
+        if announcer is not None:
+            announcer.stop()
 
 
 if __name__ == "__main__":

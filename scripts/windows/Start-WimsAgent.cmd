@@ -33,13 +33,24 @@ if defined WIMS_SERVER (
 )
 echo.
 
-"%PYTHON_EXE%" -m wims.agent %SRV_ARGS% %SEAT_ARGS% %*
+REM Prefer scripts\run_agent.py (sets up src path). Falls back to -m with PYTHONPATH.
+if exist "%ROOT%\scripts\run_agent.py" (
+  "%PYTHON_EXE%" "%ROOT%\scripts\run_agent.py" %SRV_ARGS% %SEAT_ARGS% %*
+) else (
+  "%PYTHON_EXE%" -m wims.agent %SRV_ARGS% %SEAT_ARGS% %*
+)
 set ERR=%ERRORLEVEL%
 echo.
 if %ERR%==0 (
   echo  RESULT: OK
+) else if %ERR%==1 (
+  echo  RESULT: WSJT-X config ERROR^(s^) — see !! lines above ^(exit 1 is intentional^)
+) else if %ERR%==2 (
+  echo  RESULT: could not export to site server ^(exit 2^)
 ) else (
-  echo  RESULT: problems found ^(exit %ERR%^)
+  echo  RESULT: failed ^(exit %ERR%^)
+  echo  Tip: use this .cmd, or:  set PYTHONPATH=%ROOT%\src
+  echo        python -m wims.agent
 )
 echo.
 pause

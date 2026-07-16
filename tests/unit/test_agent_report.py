@@ -140,7 +140,12 @@ def test_n1mm_probe_finds_userdir_databases(tmp_path, monkeypatch=None):
 
 
 def test_process_match_n1mmlogger_net_via_tasklist_mock():
-    """N1MM Logger+ image is N1MMLogger.net.exe — old exact names missed it."""
+    """N1MM Logger+ image is N1MMLogger.net.exe — old exact names missed it.
+
+    Force the Windows tasklist branch even on Linux so the mock is exercised
+    portably (seat agents run on Win; CI/dev often runs tests on Linux).
+    """
+    import os
     import subprocess
     from wims.agent import report as R
 
@@ -149,14 +154,16 @@ def test_process_match_n1mmlogger_net_via_tasklist_mock():
         '"N1MMLogger.net.exe","6216","Console","1","70 K"\r\n'
         '"wsjtx.exe","8128","Console","1","100 K"\r\n'
     )
-    real = subprocess.check_output
+    real_out = subprocess.check_output
+    real_name = os.name
 
     def fake_check_output(cmd, **kwargs):
         if cmd and cmd[0] == "tasklist":
             return fake
-        return real(cmd, **kwargs)
+        return real_out(cmd, **kwargs)
 
     subprocess.check_output = fake_check_output  # type: ignore
+    os.name = "nt"  # type: ignore[misc]
     try:
         assert R._process_running(
             ("n1mm logger+.exe",),
@@ -168,7 +175,8 @@ def test_process_match_n1mmlogger_net_via_tasklist_mock():
         assert R._process_running(("not-a-real-app.exe",)) is False
         assert R._process_running(("wsjtx.exe",), substrings=("wsjtx",)) is True
     finally:
-        subprocess.check_output = real
+        subprocess.check_output = real_out
+        os.name = real_name  # type: ignore[misc]
 
 
 def main():

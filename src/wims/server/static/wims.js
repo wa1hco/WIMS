@@ -44,83 +44,138 @@ function renderSystem(s) {
     `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>`;
 }
 
+function _flagOn(v) {
+  if (v === true) return '<span class="ALIVE">yes</span>';
+  if (v === false) return '<span class="DEAD">no</span>';
+  return '<span class="meta">?</span>';
+}
+
 function renderAgents(s) {
-  const body = $("agents-body");
-  if (!body) return;
+  // Status table (#agents-body) and Setup drill-down (#setup-agents / #setup-cfg-audit)
+  // are on different pages — do not early-return when only one is present.
   const list = s.agents || [];
-  const empty = $("agents-empty");
-  if (empty) empty.style.display = list.length ? "none" : "block";
-  body.innerHTML = "";
-  for (const a of list) {
-    const tr = document.createElement("tr");
-    if (a.severity === "error") tr.className = "overlap";
-    else if (a.severity === "warn") tr.className = "tx";
-    const label = a.seat_id
-      ? `${esc(a.seat_id)} <span class="meta">(${esc(a.agent_id)})</span>`
-      : esc(a.agent_id);
-    const host = [a.hostname, (a.lan_ips || []).join(", ")].filter(Boolean).join(" · ") || "-";
-    const sevCls = a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE");
-    tr.innerHTML =
-      `<td>${label}</td><td>${esc(host)}</td>` +
-      `<td class="${a.health}">${a.health}</td>` +
-      `<td class="${sevCls}">${esc(a.severity)}</td>` +
-      `<td class="num">${age(a.age)}</td>` +
-      `<td class="num">${a.wsjtx_errors || 0}</td>` +
-      `<td style="white-space:normal;max-width:420px">${esc(a.message)}</td>`;
-    body.appendChild(tr);
+  const body = $("agents-body");
+  if (body) {
+    const empty = $("agents-empty");
+    if (empty) empty.style.display = list.length ? "none" : "block";
+    body.innerHTML = "";
+    for (const a of list) {
+      const tr = document.createElement("tr");
+      if (a.severity === "error") tr.className = "overlap";
+      else if (a.severity === "warn") tr.className = "tx";
+      const label = a.seat_id
+        ? `${esc(a.seat_id)} <span class="meta">(${esc(a.agent_id)})</span>`
+        : esc(a.agent_id);
+      const host = [a.hostname, (a.lan_ips || []).join(", ")].filter(Boolean).join(" · ") || "-";
+      const sevCls = a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE");
+      const procs = `WSJT ${_flagOn(a.wsjtx_running)} · N1MM ${_flagOn(a.n1mm_running)}`;
+      tr.innerHTML =
+        `<td>${label}</td><td>${esc(host)}</td>` +
+        `<td class="${a.health}">${a.health}</td>` +
+        `<td class="${sevCls}">${esc(a.severity)}</td>` +
+        `<td class="num">${age(a.age)}</td>` +
+        `<td class="num">${a.wsjtx_errors || 0}</td>` +
+        `<td>${procs}</td>` +
+        `<td style="white-space:normal;max-width:420px">${esc(a.message)}</td>`;
+      body.appendChild(tr);
+    }
   }
-  // Setup page: richer config audit from nested report
-  const setup = $("setup-cfg-audit");
+
+  // Setup page: summary strip + nested config audit (plan: wims_agent_dashboard.md)
   const setupHead = $("setup-agents");
   if (setupHead) {
     if (!list.length) {
-      setupHead.innerHTML = `<span class="k">No agents reporting — start wims.agent on each seat.</span>`;
+      setupHead.innerHTML = `<span class="k">No agents reporting — start wims.agent on each seat with --server http://&lt;this-host&gt;:8787</span>`;
     } else {
       setupHead.innerHTML =
         `<span><span class="k">agents:</span><b>${list.length}</b></span>` +
         list.map(a =>
           `<span><span class="k">${esc(a.seat_id || a.agent_id)}:</span>` +
           `<span class="${a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE")}">` +
-          `${esc(a.severity)}</span> · ${age(a.age)}</span>`
+          `${esc(a.severity)}</span> · ${age(a.age)}` +
+          ` · WSJT ${_flagOn(a.wsjtx_running)} N1MM ${_flagOn(a.n1mm_running)}</span>`
         ).join("");
     }
   }
+  const setup = $("setup-cfg-audit");
   if (setup) {
     if (!list.length) {
       setup.className = "empty";
       setup.textContent = "No agent config detail yet.";
-      return;
-    }
-    setup.className = "";
-    let html = "";
-    for (const a of list) {
-      const r = a.report || {};
-      const cfgs = ((r.wsjtx || {}).configs) || [];
-      html += `<div style="margin:8px 0 12px;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--panel)">`;
-      html += `<div><b>${esc(a.seat_id || a.agent_id)}</b> · ${esc(a.hostname || "")} · ` +
-        `<span class="${a.health}">${a.health}</span> · ` +
-        `<span class="${a.severity === "error" ? "DEAD" : "ALIVE"}">${esc(a.severity)}</span></div>`;
-      html += `<div class="meta" style="margin:4px 0">${esc(a.message)}</div>`;
-      if (!cfgs.length) {
-        html += `<div class="meta">No WSJT-X configs in last report.</div>`;
-      }
-      for (const c of cfgs) {
-        html += `<div style="margin-top:6px"><code>${esc(c.name)}</code> ` +
-          `UDP ${esc(c.udp_server || "-")}:${esc(c.udp_port || "-")} ` +
-          `iface=${esc(c.udp_iface || "(empty)")}</div>`;
-        for (const iss of (c.issues || [])) {
+    } else {
+      setup.className = "";
+      let html = "";
+      for (const a of list) {
+        const r = a.report || {};
+        const cfgs = ((r.wsjtx || {}).configs) || [];
+        const n1 = r.n1mm || {};
+        html += `<div style="margin:8px 0 12px;padding:8px;border:1px solid var(--line,#ccc);border-radius:6px;background:var(--panel,#f8f8f8)">`;
+        html += `<div><b>${esc(a.seat_id || a.agent_id)}</b>` +
+          (a.agent_id && a.seat_id ? ` <span class="meta">(${esc(a.agent_id)})</span>` : "") +
+          ` · ${esc(a.hostname || "")}` +
+          ((a.lan_ips && a.lan_ips.length) ? ` · ${esc(a.lan_ips.join(", "))}` : "") +
+          ` · <span class="${a.health}">${a.health}</span>` +
+          ` · <span class="${a.severity === "error" ? "DEAD" : (a.severity === "warn" ? "STALE" : "ALIVE")}">${esc(a.severity)}</span>` +
+          `</div>`;
+        html += `<div class="meta" style="margin:4px 0">${esc(a.message)}</div>`;
+        html += `<div class="meta">Processes: WSJT-X ${_flagOn(a.wsjtx_running)}` +
+          ` · N1MM ${_flagOn(a.n1mm_running)}` +
+          (a.mode ? ` · mode ${esc(a.mode)}` : "") + `</div>`;
+
+        if (!cfgs.length) {
+          html += `<div class="meta" style="margin-top:6px">No WSJT-X configs in last report.</div>`;
+        }
+        for (const c of cfgs) {
+          html += `<div style="margin-top:6px"><b>WSJT-X</b> <code>${esc(c.name)}</code>` +
+            (c.source ? ` <span class="meta">${esc(c.source)}</span>` : "") + `</div>`;
+          html += `<div style="margin-left:8px">UDP Server <code>${esc(c.udp_server || "-")}</code>` +
+            ` port <code>${esc(String(c.udp_port || "-"))}</code>` +
+            ` · Outgoing iface <code>${esc(c.udp_iface || "(empty)")}</code>` +
+            (c.udp_ttl ? ` · TTL ${esc(String(c.udp_ttl))}` : "") +
+            (c.accept_udp != null ? ` · AcceptUDP=${esc(String(c.accept_udp))}` : "") +
+            `</div>`;
+          if (c.my_call || c.my_grid) {
+            html += `<div class="meta" style="margin-left:8px">MyCall ${esc(c.my_call || "-")}` +
+              ` · MyGrid ${esc(c.my_grid || "-")}</div>`;
+          }
+          for (const iss of (c.issues || [])) {
+            const cls = iss.severity === "error" ? "DEAD" : (iss.severity === "warn" ? "STALE" : "meta");
+            html += `<div class="${cls}" style="margin-left:8px">[${esc(iss.severity)}] ${esc(iss.message)}</div>`;
+          }
+        }
+
+        html += `<div style="margin-top:8px"><b>N1MM</b> found=${_flagOn(n1.found)}` +
+          (n1.user_dir ? ` · user ${esc(n1.user_dir)}` : "") +
+          (n1.databases_dir ? ` · Databases ${esc(n1.databases_dir)}` : "") + `</div>`;
+        const opens = n1.open_databases || [];
+        const files = n1.s3db_files || [];
+        if (files.length || opens.length) {
+          html += `<div class="meta" style="margin-left:8px">Contest/system .s3db: ` +
+            esc(files.join(", ") || "—") +
+            (opens.length ? ` · likely open: ${esc(opens.join(", "))}` : "") + `</div>`;
+        }
+        for (const row of (n1.s3db || []).filter(x => x.kind === "contest" || x.likely_open)) {
+          html += `<div class="meta" style="margin-left:8px">` +
+            `<code>${esc(row.name)}</code> ${esc(row.kind || "")}` +
+            (row.likely_open ? " · open(WAL)" : "") +
+            (row.path ? ` · ${esc(row.path)}` : "") + `</div>`;
+        }
+        for (const iss of (n1.issues || [])) {
           const cls = iss.severity === "error" ? "DEAD" : (iss.severity === "warn" ? "STALE" : "meta");
           html += `<div class="${cls}" style="margin-left:8px">[${esc(iss.severity)}] ${esc(iss.message)}</div>`;
         }
+        for (const ini of (n1.ini_files || []).slice(0, 2)) {
+          const hints = (ini.hints || []).filter(h =>
+            /broadcast|wsjt|udp|external/i.test(h)).slice(0, 8);
+          if (hints.length) {
+            html += `<div class="meta" style="margin-left:8px;margin-top:4px">ini ${esc(ini.path || "")}: ` +
+              esc(hints.join(" · ")) + `</div>`;
+          }
+        }
+        html += `</div>`;
       }
-      const n1 = r.n1mm || {};
-      if (n1.found != null) {
-        html += `<div class="meta" style="margin-top:6px">N1MM found=${n1.found}` +
-          (n1.databases_dir ? ` · db ${esc(n1.databases_dir)}` : "") + `</div>`;
-      }
-      html += `</div>`;
+      setup.innerHTML = html;
     }
-    setup.innerHTML = html;
   }
 }
 

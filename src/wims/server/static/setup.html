@@ -79,7 +79,9 @@
     <li>N1MM Broadcast Data → Contacts + Radio → destination WIMS host or <code>224.0.0.73:12060</code></li>
     <li>Each N1MM WSJT reader joins only its band’s stream (avoid double-log)</li>
     <li>Host firewall allows console TCP <b>8787</b> from operator PCs / VMs</li>
+    <li>Site server presence UDP <b>8788</b> (multicast) — second server refuses; agents show clickable console links</li>
     <li>Unique WSJT-X <code>--rig-name</code> / UDP id per instance</li>
+    <li><b>One</b> site server only — seats run agent + N1MM/WSJT-X, not a second <code>wims.server</code></li>
   </ul>
   <div id="setup-net-live" class="syncrow"><span class="k">waiting for live discovery…</span></div>
 
