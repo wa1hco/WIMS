@@ -437,7 +437,28 @@ def make_handler(live: LiveFleet, refresh: float):
             if path in self.PAGES:
                 self._serve_static(self.PAGES[path])
             elif path == "/healthz":
-                self._send(200, "application/json", b'{"ok":true}')
+                # Rich healthz for zero-memory discovery (agent HTTP subnet probe).
+                # Legacy clients only need "ok": true.
+                host_hdr = (self.headers.get("Host") or "").strip()
+                if host_hdr:
+                    base = f"http://{host_hdr}"
+                else:
+                    base = f"http://127.0.0.1:{self.server.server_address[1]}"
+                body = {
+                    "ok": True,
+                    "role": "wims-site-server",
+                    "kind": "wims-server",
+                    "hostname": socket.gethostname(),
+                    "console_base": base,
+                    "http_port": self.server.server_address[1],
+                    "urls": {
+                        "operate": f"{base}/",
+                        "status": f"{base}/status",
+                        "setup": f"{base}/setup",
+                        "healthz": f"{base}/healthz",
+                    },
+                }
+                self._send_json(200, body)
             elif path == "/events":
                 self._stream_events()
             elif path == "/api/contests":
@@ -699,8 +720,14 @@ def main() -> None:
             on_conflict=_on_conflict,
         )
         announcer.start()
+        n_paths = len(P.announce_destinations(
+            group=args.presence_group, port=args.presence_port, iface=args.iface))
         print(f"  presence announce {args.presence_group}:{args.presence_port} "
-              f"~1 Hz (plane E; agents discover this URL)")
+              f"+ broadcast ~1 Hz via {console_ip} "
+              f"({n_paths} send paths; plane E zero-memory discovery)")
+        if args.iface in ("0.0.0.0", "127.0.0.1"):
+            print(f"  NOTE: prefer --iface {console_ip} (contest LAN) so radio UDP "
+                  f"joins the right NIC (presence already multi-homed)")
     else:
         print("  presence announce disabled (--no-presence)")
 

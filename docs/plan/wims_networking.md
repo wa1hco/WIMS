@@ -104,46 +104,45 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
   `.s3db` seed / resync and live `<contactinfo>`).
 - SSB/CW **10 ms** mute is **not** plane B; it is host-agent peer UDP / CTS (design §3.4.1).
 
-### 3.1 Plane E — site-server presence (MVP)
+### 3.1 Plane E — site-server presence (zero-memory discovery)
 
-**Problem:** two `wims.server` processes = two divergent log/roster brains; operators should not
-memorize the server IP.
+**Problem:** two `wims.server` processes = two divergent log/roster brains; operators must not
+memorize or type the server IP.
 
-**Mechanism:**
+**Announce (site server, ~1 Hz, same JSON body on every path):**
 
-| | |
-|--|--|
-| Group | `224.0.0.73` (same contest LAN multicast story as WSJT-X) |
-| Port | **8788 UDP** (8787 remains **TCP HTTP** only) |
-| Rate | ~1 Hz JSON beacon while primary |
-| TTL | 3 (contest LAN) |
-| Outgoing iface | `--iface` (contest LAN NIC — same silent-failure rule as WSJT-X) |
+| Path | Target | Why |
+|------|--------|-----|
+| Multicast | `224.0.0.73:8788` on **each** non-loopback IPv4 NIC | Same LAN story as WSJT-X |
+| Limited broadcast | `255.255.255.255:8788` | Often reaches Windows VMs when mcast is broken |
+| Directed broadcast | e.g. `192.168.1.255:8788` per NIC /24 | Subnet-local flood |
 
-**Payload (schema 1):** `kind=wims-server`, `instance_id`, `hostname`, `lan_ips`, `http_port`,
-`console_base`, `urls.{operate,status,setup,healthz}`, `started_ts`, `seq`.
+TTL 3. Prefer `--iface <contest-LAN-IP>` for radio UDP; presence is multi-homed regardless.
 
-**Server:**
+**Payload (schema 1):** `kind=wims-server`, `role=wims-site-server`, `instance_id`, `hostname`,
+`lan_ips`, `http_port`, `console_base`, `urls.{operate,status,setup,healthz}`, `started_ts`, `seq`.
 
-1. On start, **listen ~2 s** for a live peer beacon.
-2. If another `instance_id` is heard → **refuse** to start (exit 2) with a plain-language message
-   naming the peer URL (unless `--force-server` lab override).
-3. If clear → become primary, **announce ~1 Hz**.
-4. Keep listening; if a second primary appears → **demote** (exit 2) with the same diagnostic.
+**HTTP assist:** `GET /healthz` returns the same identity (`role`, `console_base`, `urls`) so agents
+can find the server even when **all** UDP presence is blocked.
 
-**Agent:**
+**Server dual-primary:**
 
-1. Listen briefly (and periodically in `--daemon`) for presence.
-2. Local UI `http://127.0.0.1:8790/` shows **clickable** Operate / Status / Setup links
-   (zero-memory path: open agent → click).
-3. If `--server` / `WIMS_SERVER` is unset, use discovered `console_base` for export.
-4. If configured URL ≠ discovery, show a warn; export prefers configured, links prefer discovery.
+1. Listen ~2.5 s for a live peer beacon (UDP).
+2. Peer heard → **refuse** start (exit 2) with peer URL (unless `--force-server`).
+3. Else become primary and announce on all paths.
+4. Keep listening; second primary → **demote** (exit 2).
 
-**Not solved by plane E:** internet/Tailscale discovery (still explicit URL); automatic HA
-failover (human stops the wrong host); auth.
+**Agent discover cascade (no operator IP knowledge):**
 
-**Code:** `src/wims/discovery/presence.py` · server flags `--presence-group/port`, `--no-presence`,
-`--force-server` · agent `--no-discover`, **Find site server** button.
+1. UDP listen (multicast join per NIC + broadcast) ~2.5 s.
+2. If none: HTTP probe local /24s on TCP **:8787** `/healthz` (likely hosts first, then full /24).
+3. Print Operate/Status/Setup URLs; local UI `:8790` shows clickable buttons.
+4. `WIMS_SERVER` is an **escape hatch only**, not the normal path.
 
+**Not solved:** internet discovery without a LAN path; automatic HA failover; auth.
+
+**Code:** `src/wims/discovery/presence.py` · server `--presence-*` / `--no-presence` /
+`--force-server` · agent `--no-discover`.
 ---
 
 ## 4. Plane A — WSJT-X multicast (segregated by band)

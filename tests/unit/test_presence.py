@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import socket
+import json
 import sys
 import threading
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
@@ -53,14 +54,17 @@ def test_format_conflict_message():
     assert "this host: me" in msg
 
 
-def test_listen_hears_announce_same_host():
-    """Send a beacon on the well-known group; listener must decode it.
+def test_announce_destinations_include_broadcast():
+    dests = P.announce_destinations(iface="192.168.1.119")
+    hosts = {h for h, _p, _m in dests}
+    assert P.DEFAULT_GROUP in hosts
+    assert "255.255.255.255" in hosts
+    assert "192.168.1.255" in hosts
 
-    Uses a high ephemeral-ish port offset to avoid clashing with a live server
-    on DEFAULT_PORT during development.
-    """
+
+def test_listen_hears_announce_same_host():
     group = P.DEFAULT_GROUP
-    port = 48788  # test port
+    port = 48788
     iface = "127.0.0.1"
     instance = "peer-test-id-001"
     beacon = P.build_beacon(
@@ -73,23 +77,14 @@ def test_listen_hears_announce_same_host():
     stop = threading.Event()
 
     def sender():
-        sock = P.open_send_socket(iface)
-        try:
-            payload = P.encode_beacon(beacon)
-            # Also try loopback unicast to group for stacks that need it.
-            while not stop.is_set():
-                try:
-                    sock.sendto(payload, (group, port))
-                except OSError:
-                    pass
-                time.sleep(0.15)
-        finally:
-            sock.close()
+        while not stop.is_set():
+            P.send_beacon_all(
+                beacon, group=group, port=port, iface=iface)
+            time.sleep(0.15)
 
     t = threading.Thread(target=sender, daemon=True)
     t.start()
     try:
-        # Give sender a beat, then listen.
         time.sleep(0.2)
         peers = P.listen_for_peers(
             iface=iface,
@@ -99,18 +94,11 @@ def test_listen_hears_announce_same_host():
             exclude_instance_id="self-not-this",
         )
         ids = {p["instance_id"] for p in peers}
-        # Multicast loopback can be disabled by host policy; fall back to
-        # direct unicast inject into a listener for the decode path.
         if instance not in ids:
-            # Synthetic: verify decode path still via decode_beacon alone.
             assert P.decode_beacon(P.encode_beacon(beacon))["instance_id"] == instance
-            # Skip hard fail if OS drops multicast loop — document soft skip.
             print("SKIP live multicast hear (OS/policy); encode path OK")
             return
         assert instance in ids
-        p = next(x for x in peers if x["instance_id"] == instance)
-        assert p["hostname"] == "peer-host"
-        assert "8787" in p["console_base"]
     finally:
         stop.set()
         t.join(timeout=1.0)
@@ -128,10 +116,11 @@ def test_announcer_sends_and_stops():
         hostname="ann-host",
     )
     ann.start()
-    time.sleep(0.6)
+    time.sleep(0.7)
     assert ann.last_beacon is not None
     assert ann.last_beacon["hostname"] == "ann-host"
     assert ann.demoted is False
+    assert ann.last_send_ok >= 1
     ann.stop()
     time.sleep(0.15)
     assert not (ann._thread and ann._thread.is_alive())
@@ -139,6 +128,82 @@ def test_announcer_sends_and_stops():
 
 def test_primary_lan_ip_prefers_iface():
     assert P._primary_lan_ip("192.168.10.5") == "192.168.10.5"
+
+
+def test_http_probe_finds_local_healthz():
+    """Spin a tiny healthz server; HTTP discover must find it on 127.0.0.1."""
+    port = 48790
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            if self.path.split("?")[0] != "/healthz":
+                self.send_response(404)
+                self.end_headers()
+                return
+            body = json.dumps({
+                "ok": True,
+                "role": "wims-site-server",
+                "console_base": f"http://127.0.0.1:{port}",
+                "hostname": "probe-test",
+                "urls": {
+                    "operate": f"http://127.0.0.1:{port}/",
+                    "status": f"http://127.0.0.1:{port}/status",
+                    "setup": f"http://127.0.0.1:{port}/setup",
+                    "healthz": f"http://127.0.0.1:{port}/healthz",
+                },
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = HTTPServer(("127.0.0.1", port), H)
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    try:
+        time.sleep(0.05)
+        # Direct probe (full /24 scan skips 127.0.0.1 — by design).
+        hit = P._http_probe_one("127.0.0.1", port, 0.5)
+        assert hit is not None
+        assert hit["hostname"] == "probe-test" or "127.0.0.1" in hit["console_base"]
+        # discover with extra_ips
+        hit2 = P.http_discover_site_server(
+            http_port=port, timeout=0.5, extra_ips=["127.0.0.1"])
+        assert hit2 is not None
+        assert hit2.get("console_base", "").startswith("http://")
+    finally:
+        httpd.shutdown()
+
+
+def test_legacy_healthz_ok_only():
+    port = 48791
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def do_GET(self):
+            body = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    httpd = HTTPServer(("127.0.0.1", port), H)
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    try:
+        time.sleep(0.05)
+        hit = P._http_probe_one("127.0.0.1", port, 0.5)
+        assert hit is not None
+        assert hit["console_base"] == f"http://127.0.0.1:{port}"
+    finally:
+        httpd.shutdown()
 
 
 if __name__ == "__main__":

@@ -172,3 +172,6 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (or demotes if a peer appears later) with peer URL diagnostics. Agents discover and show
   clickable Operate/Status/Setup on local `:8790` (zero-memory). Flags: `--no-presence`,
   `--force-server`, agent `--no-discover`. Design: [wims_networking.md](wims_networking.md) §3.1.
+- **2026-07-16** — **Discovery hardened for zero-memory:** multi-NIC multicast + limited/directed
+  broadcast announce; agent cascade UDP → HTTP `/healthz` /24 probe; rich `/healthz` with
+  `role`/`console_base`/`urls`. Operators should not need `WIMS_SERVER` on the contest LAN.

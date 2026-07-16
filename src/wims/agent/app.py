@@ -90,8 +90,9 @@ class AgentState:
         with self._lock:
             return self.presence
 
-    def discover_server(self, duration_s: float | None = None) -> dict | None:
-        """Listen for site-server presence; update state. Returns beacon or None."""
+    def discover_server(self, duration_s: float | None = None,
+                        *, http_fallback: bool = True) -> dict | None:
+        """UDP presence then HTTP /24 probe; update state. Returns beacon or None."""
         if P is None:
             self.set_presence(None)
             return None
@@ -99,10 +100,11 @@ class AgentState:
             b = P.discover_site_server(
                 iface=self.presence_iface,
                 duration_s=duration_s if duration_s is not None else P.STARTUP_LISTEN_S,
+                http_fallback=http_fallback,
             )
         except Exception as e:
             # Multicast join can fail on locked-down NICs; never crash the agent.
-            print(f"  (presence listen failed: {e})", file=sys.stderr)
+            print(f"  (discovery failed: {e})", file=sys.stderr)
             b = None
         self.set_presence(b)
         return b
@@ -302,9 +304,11 @@ def make_handler(state: AgentState):
 def _bg_loop(state: AgentState, interval: float, export: bool):
     while True:
         try:
-            # Refresh presence so clickable links stay current.
+            # Refresh discovery so clickable links stay current.
+            # UDP first; HTTP fallback only if we have no server yet (scan is heavier).
             if P is not None:
-                state.discover_server(duration_s=1.2)
+                need_http = not state.server_url and not state.get_presence()
+                state.discover_server(duration_s=1.2, http_fallback=need_http)
             rep = state.refresh()
             if export and state.server_url:
                 state.set_export(export_report(rep, state.server_url))
@@ -369,11 +373,14 @@ def main(argv: list[str] | None = None) -> int:
         if P is None:
             print("(presence module not installed — git pull latest; scan still runs)")
         else:
-            print(f"Listening for WIMS site server presence "
-                  f"({P.DEFAULT_GROUP}:{P.DEFAULT_PORT})…")
+            print("Looking for site WIMS server (no IP required)…")
+            print(f"  1) UDP presence {P.DEFAULT_GROUP}:{P.DEFAULT_PORT} "
+                  f"+ LAN broadcast (~{P.STARTUP_LISTEN_S:.0f}s)")
+            print(f"  2) if needed: HTTP probe of local /24s on :{P.DEFAULT_HTTP_PORT}/healthz")
             beacon = state.discover_server()
             if beacon:
-                print(f"  found site server: {beacon.get('hostname')} "
+                via = beacon.get("_via") or "udp"
+                print(f"  FOUND via {via}: {beacon.get('hostname')} "
                       f"{beacon.get('console_base')}")
                 urls = beacon.get("urls") or {}
                 if urls.get("operate"):
@@ -382,11 +389,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  Status:  {urls.get('status')}")
                 if urls.get("setup"):
                     print(f"  Setup:   {urls.get('setup')}")
+                print("  → open those URLs in a browser (or use --daemon → http://127.0.0.1:8790/)")
                 if configured and configured.rstrip("/") != (beacon.get("console_base") or "").rstrip("/"):
                     print(f"  note: --server {configured} differs from discovery "
                           f"(export uses configured URL; UI links use discovery)")
             else:
-                print("  (no site server announce heard — start server or set --server)")
+                print("  NOT FOUND. On the site PC start/restart:")
+                print("    python -m wims.server.app --iface <contest-LAN-IP>")
+                print("  Seat and server must share a LAN (ping the server).")
+                print("  Escape hatch only: set WIMS_SERVER=http://x.x.x.x:8787")
         print()
 
     rep = state.refresh()
@@ -414,14 +425,17 @@ def main(argv: list[str] | None = None) -> int:
                 f"(exit code 1 is intentional for scripts; the agent itself ran fine.)",
                 file=sys.stderr,
             )
+            _print_next_steps(state)
             return 1
         if export_rc:
             print(
                 "\nRESULT: export to site server failed (agent scan OK).",
                 file=sys.stderr,
             )
+            _print_next_steps(state)
             return export_rc
         print("\nRESULT: OK (no WSJT-X config errors)")
+        _print_next_steps(state)
         return 0
 
     # Daemon: local UI + background scan; export each cycle unless --no-export
@@ -452,6 +466,54 @@ def main(argv: list[str] | None = None) -> int:
 
 def os_env_server() -> str | None:
     return os.environ.get("WIMS_SERVER") or None
+
+
+def _print_next_steps(state: AgentState) -> None:
+    """One-shot footer: how to open the site console (not the same as RESULT OK)."""
+    print()
+    print("What this was")
+    print("-------------")
+    print("  Seat config check only (WSJT-X / N1MM on THIS PC).")
+    print("  It is not the site console and does not open a browser by itself.")
+    print()
+    print("Open the site WIMS console (roster / status)")
+    print("-------------------------------------------")
+    p = state.get_presence()
+    base = None
+    if p and p.get("console_base"):
+        base = p["console_base"].rstrip("/")
+    elif state.server_url:
+        base = state.server_url.rstrip("/")
+    if base:
+        print(f"  Operate:  {base}/")
+        print(f"  Status:   {base}/status")
+        print(f"  Setup:    {base}/setup")
+        print("  (paste into a browser on any machine that can reach that host)")
+    else:
+        print("  No server URL yet — presence multicast was not heard and --server")
+        print("  / WIMS_SERVER was not set. On the site PC, start/restart:")
+        print("    python -m wims.server.app --iface <LAN-IP> ...")
+        print("  and confirm it prints: presence announce 224.0.0.73:8788")
+        print("  Or pin the URL on this seat:")
+        print("    set WIMS_SERVER=http://192.168.1.119:8787")
+        print("    python scripts\\run_agent.py")
+        print("  Then open that URL in the browser.")
+    print()
+    print("Clickable links on this seat (zero memory)")
+    print("------------------------------------------")
+    print("  python scripts\\run_agent.py --daemon")
+    print("  then open  http://127.0.0.1:8790/")
+    print("  (local agent page; uses presence or WIMS_SERVER for Operate/Status/Setup)")
+    print()
+    print("Send this seat's report to the wrangler dashboard")
+    print("------------------------------------------------")
+    if state.server_url:
+        print(f"  Export target: {state.server_url}")
+        print("  One-shot already POSTs unless you used --no-export.")
+        print("  Continuous:  scripts\\windows\\Start-WimsAgent-Continuous.cmd")
+    else:
+        print("  Set WIMS_SERVER or wait until presence finds the site server, then re-run")
+        print("  or use --daemon so Status → Seat agents updates.")
 
 
 if __name__ == "__main__":
