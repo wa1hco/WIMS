@@ -5,10 +5,10 @@ A supervised, **human-in-the-loop** operating console for multi-instance VHF con
 cover several digital bands at once, working alongside N1MM+, GridTracker, and a Green Heron
 rotator.
 
-**WIMS is a remote operating position, not an autobot.** Every active transmitter always has a
-human: the local op in the seat, or the WIMS console operator who smoothly takes over a band when
-its seat is empty. WIMS **ranks and recommends; the operator clicks every transmission.** There is
-no automated/unattended TX.
+**WIMS is a remote operating position, not an autobot.** Every active transmitter is always
+controlled by a human: the local op in the seat, or the WIMS console operator who smoothly takes
+over a band when its seat is empty. WIMS **ranks and recommends; the operator clicks every start of
+exchange.** There is no automated/unattended TX.
 
 > Authoritative **requirements & design**: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
 > **build status & milestones**: [docs/plan/wims_status.md](docs/plan/wims_status.md)
@@ -23,6 +23,10 @@ no automated/unattended TX.
   copy of the N1MM log and self-computes prospective new-mults, reconciling to N1MM.
 - **Cross-vehicle console.** One combined roster, per-instance band-activity + health, one merged
   log/dupe-mult view — replacing "anyone there?" over chat.
+- **Multi-operator.** Several operators can share the console, each identifying by callsign + name
+  (no login — the fleet is a cooperative team), each choosing which bands to focus/control while
+  still observing the rest; an operator-status view and unstaffed-band highlighting keep coverage
+  visible. See design §2.7.
 - **Zero TX overlap by construction.** A per-resource-group interlock grants at most one
   transmitter per group; an independent overlap detector watches observed state as defense in depth.
 - **SSB/CW priority.** When an SSB/CW op keys up, no WIMS-managed WSJT-X may transmit on that same
@@ -50,9 +54,9 @@ no automated/unattended TX.
 ```
 
 A **site server** is the single multicast consumer, state authority, and only sender of control to
-WSJT-X; thin **operator consoles** connect over one unicast link (LAN or internet). Per-instance
-**control leases** decide who may TX which instance; no valid lease → that instance is RX-only
-(fail-safe). The time-critical 10 ms SSB/CW mute runs in a **local agent on the radio host**, never
+WSJT-X; thin **operator consoles** connect over one unicast link (LAN or internet). A per-instance
+**soft control claim** decides who may TX which instance — any operator can take over instantly (the
+fleet is a cooperative team), and an instance nobody is steering is RX-only (fail-safe). The time-critical 10 ms SSB/CW mute runs in a **local agent on the radio host**, never
 through the server. Full design in [wims_design.md](docs/plan/wims_design.md) §4 / §4.5.
 
 ## Status

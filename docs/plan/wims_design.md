@@ -121,7 +121,7 @@ band-activity + health, one merged log / dupe-mult view — replacing "anyone th
   takes over** a band when its seat is empty (e.g. 222/432 when nobody's there). WIMS is a
   **remote operating position + force-multiplier** — one console op covers several empty-seat
   bands via the call roster + click-to-work. WIMS **ranks/recommends; the human initiates every
-  TX**. The key UX is **clean handoff** (local ⇄ WIMS op, request/grant/release) with always
+  TX**. The key UX is **clean handoff** (local ⇄ WIMS op, instant claim/takeover, §4.5) with always
   exactly one operator per instance (ties to §3.13, §2.3, scenario S7).
 
 ---
@@ -429,7 +429,7 @@ scoring as the "wanted" engine.
 
 | # | Feature | Contest form | Src | Prio |
 |---|---------|--------------|-----|------|
-| G1 | **Single-click to work** a station → Reply via arbiter + lease | | both | **H** |
+| G1 | **Single-click to work** a station → Reply via arbiter + control claim | | both | **H** |
 | G2 | Per-instance enable/halt, global panic-stop | safety controls | W | H |
 | G3 | Right-click context menu / multiple roster windows | Phase-2 | G | L |
 
@@ -438,6 +438,32 @@ scoring as the "wanted" engine.
 (new-mult alert), G1 (click-to-work). View controls (B1, E1) are cheap (client-side over the
 existing feed); A1/A2 need the decode pipeline to **retain non-CQ decodes with a status**; G1 is
 the command path.
+
+Additional roster detail from the operator notes: color-code rows by **who owns the station
+locally** (fleet-owned / this-operator-controlled vs. everyone else) so an operator sees at a
+glance which decodes are on instances they cover — ties to the band-focus model (§2.7) and the
+control claim (§4.5).
+
+---
+
+### 2.7 Multi-operator console (identity, band focus, coordination)
+
+WIMS supports **several human operators at once**, each in their own browser window, sharing one
+site server. This is the multi-console side of §4.5.
+
+- **Operator identity, no security.** Each operator identifies by **callsign + name** — there is
+  **no login/password**. The fleet is a known, cooperative team, so WIMS **assumes good will**;
+  identity is for coordination and attribution, not access control.
+- **Band focus (choose what you cover).** Each operator selects the band(s) they elect to
+  focus/control; their call roster narrows to those bands. Other bands stay **observable** — an
+  operator can notice an unfocused band going unserviced and take it over. **Bands with no
+  operator are highlighted** so coverage gaps are obvious.
+- **In-console chat.** A **chat window** lets operators coordinate band selection and general
+  organization — moving today's out-of-band vehicle chat into the console.
+- **Operator-status widget** — one entry per open operator window: **callsign + name**, **bands
+  focused vs. observing**, **count of needed stations** in that operator's list, and **time since
+  last action**. Needed-by-band is dimmed when no operator has selected it, and flagged when a band
+  has needed stations but no operator activity.
 
 ---
 
@@ -449,9 +475,9 @@ Build and test each module independently against the test bed (§5) before integ
 | # | Module | Responsibility | Inputs | Outputs |
 |---|--------|----------------|--------|---------|
 | 3.1 | **UDP listener/parser** | Decode WSJT-X (and N1MM) datagrams into typed events; **extract grid** from `CQ CALL GRID` / Tx1 decode text | UDP from all instances | Normalized event stream (incl. grid) |
-| 3.2 | **UDP controller/sender** | Turn an arbiter grant + chosen decode into the actual command: `reply(instance, decode)` / `halt(instance)`, plus Free Text/Replay. Lease-gated (§3.4/§4.5) | Commands from arbiter/engine | UDP to WSJT-X |
+| 3.2 | **UDP controller/sender** | Turn an arbiter grant + chosen decode into the actual command: `reply(instance, decode)` / `halt(instance)`, plus Free Text/Replay. Claim-gated (§3.4/§4.5) | Commands from arbiter/engine | UDP to WSJT-X |
 | 3.3 | **Multi-instance manager** | Track N instances; map **port/ID ↔ band/mode ↔ antenna/direction ↔ rotator**; lifecycle (launch/close incl. warning-window dismissal). Includes a **per-WSJT-X-host local agent** (the §3.4.1 fast TX-audio-mute **Actuator** — OS-specific audio-path control + analog-mute GPIO; also captures a **WSJT-X window/waterfall thumbnail** — windowed screen-grab, downscaled, pushed periodically/on-demand for §2.5 confidence tiles). Also a **setup wizard**: collect each **Instance Profile** (§3.14) via a form, auto-discover what it can, **validate** before on-air, verify connectivity to every WSJT-X/N1MM instance, report loss of comms (§Goals) | Heartbeats, profiles, mute commands | Instance registry, mute actuation, thumbnails, setup/validation status |
-| 3.4 | **Interlock / TX arbiter** | Grant one transmitter **per shared-resource group** (transmitter/antenna/PA chain, §3.14) — *not* one global token; different bands/vehicles TX concurrently by design. Within a group: zero overlap, no interleaving, single-holder **by construction**. An `OverlapDetector` independently watches *observed* TX state as defence-in-depth. Enforces SSB/CW priority two ways: a **preventive gate** (won't initiate a WSJT-X TX on a band where an SSB/CW station is keyed — band-by-band per contest rules) and a **fast reactive halt** (audio-gain mute on the WSJT-X host, §1.1, kills emission inside 10 ms for mid-cycle keying, then PTT-down + Halt Tx cleanup). Full design: §3.4.1. **Constraint:** WIMS must be the *only* TX initiator on a managed instance — no external app (GridTracker click-to-work, JTAlert, etc.) may send Reply/Tx to it, or it bypasses the arbiter and can cause overlap (§4.3). **TX is gated by the operator control lease (§4.5):** only the current lease-holding console can initiate; no valid lease → instance is RX-only (fail-safe) | TX requests, instance states, SSB/CW priority, lease state | TX grant/deny, fast-mute command |
+| 3.4 | **Interlock / TX arbiter** | Grant one transmitter **per shared-resource group** (transmitter/antenna/PA chain, §3.14) — *not* one global token; different bands/vehicles TX concurrently by design. Within a group: zero overlap, no interleaving, single-holder **by construction**. An `OverlapDetector` independently watches *observed* TX state as defence-in-depth. Enforces SSB/CW priority two ways: a **preventive gate** (won't initiate a WSJT-X TX on a band where an SSB/CW station is keyed — band-by-band per contest rules) and a **fast reactive halt** (audio-gain mute on the WSJT-X host, §1.1, kills emission inside 10 ms for mid-cycle keying, then PTT-down + Halt Tx cleanup). Full design: §3.4.1. **Constraint:** WIMS must be the *only* TX initiator on a managed instance — no external app (GridTracker click-to-work, JTAlert, etc.) may send Reply/Tx to it, or it bypasses the arbiter and can cause overlap (§4.3). **TX is gated by the operator control claim (§4.5):** only the current claim-holding console can initiate; nobody steering → instance is RX-only (fail-safe) | TX requests, instance states, SSB/CW priority, claim state | TX grant/deny, fast-mute command |
 | 3.5 | **Decision / recommendation engine** | **Advisory, not autonomous** — ranks & recommends for the WIMS operator, who **initiates every TX by click-to-work**; WIMS never transmits unattended. Suggest next-best station, run vs S&P, needed > dupe, give-up. Maintains a **`call→current-grid` map** (with staleness) so a **rover** reappearing in a new grid is treated as a fresh QSO + candidate mult, ranked high; mult value is per `grid × band`. The grid map is **authoritative grid memory** (accumulated across *all* decodes, GridTracker-style but better-retained) — load-bearing because mult = grid×band and WSJT-X often lacks a station's grid in a given decode (e.g. `CALL CALL +08`); WIMS may **supply the remembered grid to WSJT-X for logging** so the QSO records the correct grid → N1MM computes the right mult (mechanism TBD, Open questions). **N1MM is the multiplier authority:** for *logged* QSOs WIMS defers to N1MM's `ismultiplier`; for *prospective* roster candidates (which N1MM can't judge until logged) WIMS self-computes new-mult with the identical `grid×band` rule and continuously **reconciles** to N1MM's verdicts. **No LoTW/eQSL/award confirmation** — that is general-operating chasing (GridTracker), not contest dupe/mult. Ranks the roster by **expected score gain** via a **scoring model** (§3.11) — QSO points + mult value per the contest. **Geometry-aware** (§3.14): only works/ranks stations a given instance's antenna can actually hear — within a fixed beam's sector, or reachable by a re-point inside the soft az limits. The scoring model is **pluggable + explainable** — score = sum of named weighted **factors** (new_mult, points, snr, cq, rover) with a per-factor **breakdown** the operator sees; strategies swappable by name; **weights vary by band condition** (open/marginal/dead); dupe/non-CQ/unreachable excluded with reason | Decodes+grid, dupe/mult status, scoring model, instance profiles | Ranked + explained reply targets, give-up signals |
 | 3.6 | **Logger interface** (`LogSource` backend; **N1MM = first impl**) | Abstract behind a small **backend interface** so other loggers (DXLog.net, Log4OM, N3FJP, WSJT-X-native…) plug in later — the engine depends only on the normalized `LoggedQso` + interface, never on N1MM specifics. **Minimal portable contract** (because WIMS self-computes dupe/mult): `seed()` snapshot + `live_events()` add/update/delete stream + `resync()`; optional `mult/points` if the backend supplies it (N1MM does, others may not). **No dedicated WIMS N1MM** — since all contest N1MMs are networked and share one merged log, the **server reads from *any* designated networked N1MM** (e.g. the SSB/CW position's). The logger-of-record invariant (one N1MM *ingests* each WSJT-X stream) is independent of which N1MM WIMS *reads*. **N1MM impl:** seed by reading a `DXLOG` `.s3db` read-only, live via `<contactinfo>` broadcasts (12060) from any N1MM, dedup by `ID`. Maintain log copy keyed on `(call, band, grid)`; self-compute dupe + new-mult (grid×band). Logging path stays WSJT-X→logger; WIMS reads, never double-logs; grid from WSJT-X decode | seed snapshot, live log events, WSJT-X grid | Log copy, dupe/mult verdicts, export trigger |
 | 3.7 | **GridTracker interface** | GridTracker is an **optional, parallel read-only viewer** (multicast subscriber, §4.3) — coexists, not in WIMS's control or logging path. WIMS's own roster (§3.12) supersedes its operating role; GridTracker's residual value is its map/viz + ADIF/log-export integrations. Interface = leave the multicast open for it; optionally feed log export | Log, QSO events | (optional) export to GT |
@@ -459,7 +485,7 @@ Build and test each module independently against the test bed (§5) before integ
 | 3.9 | **Safety / watchdog** | Heartbeats, runaway detector, sanity limits, fail-safe (TX off). Detects faults by comparing live behavior to each instance's **fault baselines (§3.14)** (silence, freq drift, stuck rotator, PTT-duty, comm-loss). On any fault, trigger the §3.4 fast mute on every host before slower Halt Tx/PTT-down | All module health, instance baselines | Alerts, kill signals, fast-mute trigger |
 | 3.10 | **State store / logger** | Single source of truth + audit log of every decision; internal log copy + roster keyed on **`(call, band, grid)`** so rovers aren't collapsed into dupes. **Persistence: own `wims.db` (SQLite, stdlib, WAL)** for queryable state (indexed dupe/mult lookups) + **append-only JSONL** for the raw event/decision stream (replay/audit). SQLite is the derived view, rebuildable from JSONL + N1MM seed. WIMS writes only `wims.db`; never N1MM's `.s3db` | All events | Persisted state, logs |
 | 3.11 | **Config** | Per-instance **Instance Profile** (§3.14), strategy/parameter selection, antenna↔rotator map, and the **per-contest scoring model** feeding §3.5 — selects the scoring strategy by name + the per-condition weight sets | Config files / setup form | Runtime config |
-| 3.12 | **Server API / integration hub** (the **server↔console boundary**, §4.5) | The unicast API between the **site server** and **operator consoles** (local or remote): serve live state + accept commands — **call-roster feed + click-to-work** (→ Reply via §3.2, lease-gated), **click-to-point** (→ rotator §3.8), and **lease claim/release/forced-takeover** (§4.5). Also **re-publish WIMS's normalized/enriched event stream** (decodes + grid + dupe/mult + priority) so other apps consume WIMS's annotated feed — integration hub, not a closed monolith. Stdlib HTTP + SSE serving the JSON state contract (`state.py`) → static dashboard | State store, lease state | Feed to consoles §2, roster/point/lease actions, published event feed |
+| 3.12 | **Server API / integration hub** (the **server↔console boundary**, §4.5) | The unicast API between the **site server** and **operator consoles** (local or remote): serve live state + accept commands — **call-roster feed + click-to-work** (→ Reply via §3.2, claim-gated), **click-to-point** (→ rotator §3.8), and **control-claim / instant takeover** (§4.5). Also **re-publish WIMS's normalized/enriched event stream** (decodes + grid + dupe/mult + priority) so other apps consume WIMS's annotated feed — integration hub, not a closed monolith. Stdlib HTTP + SSE serving the JSON state contract (`state.py`) → static dashboard | State store, claim state | Feed to consoles §2, roster/point/claim actions, published event feed |
 | 3.13 | **Override interface** | Let the SSB/CW op or 2nd op supervise/override. The **SSB/CW op's small client app** (§Goals) = a lightweight **console** on the SSB/CW main screen showing WIMS activity on their band (reads the **existing SSB/CW N1MM**, no extra logger). Their **agent** detects keying — **PTT read as the USB-serial CTS line** (§3.4.1 Sensor) — and raises the SSB/CW-priority signal → §3.4.1 fast inhibit, **direct peer-to-peer** (§4.5) | Operator input, priority requests | Commands to arbiter, priority signal |
 | 3.15 | **Network discovery & diagnostics** | Be the **protocol-aware network tool so the operator never opens Wireshark**. Passively enumerate live nodes from the multicast WIMS already joins (WSJT-X instances by id/host/group/port/version, N1MM sources, GridTracker); **register N1MM presence from *any* broadcast** (`<RadioInfo>`/`<AppInfo>` beacons, not just `<contactinfo>`, so the link is verifiable at setup with no QSO — capturing StationName + `mycall` + last-seen). Optional active probes (host ping, N1MM:12060, rotator/CAT reachability). **Diff observed vs the declared Instance Profiles (§3.14)** and name every discrepancy. Feeds the §2.5 topology map / health / Wireshark-lite views and the readiness gate | All UDP, profiles, probe results | Live topology, health, discrepancy list |
 
@@ -591,9 +617,10 @@ Integration of §3 modules into one supervised, fail-safe controller.
   click-to-work (covers an empty seat); WIMS **ranks/recommends**, the operator **clicks every
   TX**. One console op can cover several bands.
 - **Handoff** — transfer of an instance between operators (local⇄WIMS, and **WIMS console⇄WIMS
-  console**) via the **control lease (§4.5)**: request → grant → release, plus **non-cooperative
-  forced takeover** when the holder is gone/idle. Invariant: **exactly one lease-holder per
-  instance**; no holder → instance is RX-only (fail-safe).
+  console**) via the **soft control claim (§4.5)**: claiming is implicit (act on the instance) and
+  takeover is **instant, no release ceremony** (a one-click confirm only if the current controller
+  is mid-cycle); claims auto-expire on inactivity. Invariant: **at most one controller per instance
+  at any instant** (server-serialized); nobody steering → instance is RX-only (fail-safe).
 - *No automated/unattended TX.* WIMS is a remote operating position, not an autobot.
 
 ### 4.3 Cross-cutting
@@ -658,7 +685,7 @@ Integration of §3 modules into one supervised, fail-safe controller.
 
 ---
 
-## 4.5 Client/server architecture & control leases
+## 4.5 Client/server architecture & control claims
 
 **Role:** WIMS is the **digital operating position** ("the WSJT-X wrangler") — one human covering
 ~3 radios / ~6 instances on 6 m so the SSB/CW op can focus on that. In slow spells one op can run
@@ -682,10 +709,10 @@ stays LOCAL to the agent** — the agent detecting the SSB/CW op keying mutes th
 co-located WSJT-X *directly* (hits the 10 ms budget, survives a server/console restart). The server
 plays **no part** in the interlock: it is keyed purely on **band** (same-band only — no cross-band coupling at this station), carried in the announcement, and the trigger is **direct agent-to-agent** (§3.4.1, Layer-2 UDP), never via the server.
 
-**Leases scope control, not view.** Every console *views* all instances (open monitoring); the
-lease only decides **who may TX which instance** — so two consoles can split the fleet (A leases
-instances 1–3, B leases 4–6), or one grabs all, or they rebalance live. Per-instance granularity is
-what enables the split.
+**Claims scope control, not view.** Every console *views* all instances (open monitoring); the
+control claim only decides **who may TX which instance** — so two consoles can split the fleet (A
+claims instances 1–3, B claims 4–6), or one takes all, or they rebalance live. Per-instance
+granularity is what enables the split.
 
 **Remote operation without forwarding multicast.** The server is the only multicast subscriber; a
 remote console receives *normalized* state + thumbnails and sends *commands* — all unicast over a
@@ -694,21 +721,33 @@ never crosses the internet. Latency is irrelevant for digital (15 s FT8 cycles �
 and the safety-critical **10 ms SSB/CW mute stays in the host agent at the site**, never on the
 remote operator's path.
 
-**Control leases (non-cooperative handoff).** A single authoritative server means **no split-brain**
-(never two operators transmitting). Per **instance** (or resource group), the server holds an
-**operator lease**:
-- Exactly one console holds it; only its commands are honored (§3.4).
-- Holder sends a **heartbeat**; if it stops (operator away, sleep, link drop) the lease goes
-  **stale**.
-- A new console **claims** it — instantly if stale, or via **forced takeover** (short on-screen
-  warning/countdown) if live-but-idle. No cooperation from the leaving operator needed.
-- All control flows through the server, which honors only the current lease, so a zombie console's
-  stale commands are rejected → **overlap impossible.**
+**Control model — soft claims, not hard locks (RESOLVED).** The mechanism is a per-**instance** (or
+resource group) **operator claim** the single authoritative server holds — but its *policy* is
+built for a **known, cooperative fleet** (§2.7, "assume good will"), not for defending against
+hostile takeover. The §3.4 arbiter already makes **TX overlap impossible by construction**, so the
+claim governs only *operator* conflict (two people steering one instance), never RF safety — and is
+therefore tuned for **minimum friction**:
+- **Claiming is implicit and instant.** Acting on an instance (click-to-work) makes you its
+  **current controller**, shown fleet-wide (console + operator-status widget, §2.7) with your
+  callsign and last-action time. No explicit "acquire" step, no release ceremony.
+- **Any operator can take over any instance, immediately** — this is the good-will model from the
+  operator notes. No cooperation from the previous controller needed and **no countdown**. Guard
+  rail: if the current controller acted **within the last TX cycle**, the taker gets a one-click
+  *"‹call› is actively working this — take over?"* confirm so mid-QSO snatching is deliberate;
+  otherwise takeover is silent. This removes the "operator took a break and forgot to release" lock
+  a hard lease would risk.
+- **Claims auto-expire on inactivity.** A controller idle past a TTL (heartbeat lost, sleep, link
+  drop) silently stops being shown as controller; the instance is then **unclaimed** and any
+  console picks it up with no prompt.
+- **Server serializes all commands** → **no split-brain.** Control flows only through the one
+  server, applied in arrival order, so even simultaneous clicks resolve to a single well-defined TX
+  and a zombie console's stale commands can't produce a second transmitter.
 
-**Dragon-slayer — fail-safe to RX.** An instance with **no valid lease holder simply does not
-transmit (drops to RX).** So "operator vanished, nobody grabbed control" is *safe*, not dangerous.
-Handoff is therefore only ever about **continuity**, never **safety** — overlap/runaway are
-impossible by construction (this is where "no automated operation" pays off: no operator → no TX).
+**Fail-safe to RX (unchanged).** TX only ever happens on an explicit human click, so an instance
+**nobody is steering simply does not transmit (drops to RX)** — "operator vanished, nobody grabbed
+control" is *safe*, not dangerous. The safety guarantee lives in **"no automated TX" + the §3.4
+arbiter**, independent of who holds the (soft) claim; the claim is only ever about **continuity and
+clarity**, never overlap — overlap/runaway are impossible by construction (no operator → no TX).
 
 **Caveat — single point of failure, NOT solved by consensus.** One authoritative server can die.
 Do **not** use multiple servers + leader election (real dragons). Instead make the server
@@ -893,6 +932,17 @@ Candidate situations worth covering — rename, add, or cut freely:
 ---
 
 ## Open questions / parking lot
+- **Control model — leases vs. open good-will control — RESOLVED (hybrid soft claim, §4.5).** The
+  hard-lease policy (exclusive lock + forced-takeover countdown) and the operator notes' open model
+  (any operator controls any station, no release) conflicted. Resolution: **keep the per-instance
+  claim as the mechanism** (single server, TX-gated, fail-safe-to-RX) but make its **policy soft** —
+  claiming is implicit on action, any operator takes over instantly (one-click confirm only if the
+  current controller is mid-cycle), and claims auto-expire on inactivity. This gives the good-will
+  model's zero-friction takeover *and* kills both failure modes: "forgot to release" (auto-expire +
+  instant takeover, no lock) and silent double-steering (current controller always shown; server
+  serializes commands). RF safety is unaffected — the §3.4 arbiter enforces zero TX overlap
+  regardless, so the claim only governs *operator* conflict. Reversible if the team later wants
+  stricter locks.
 - **"Aurora is 6000"** *(needs clarification)* — from the original notes; meaning unresolved
   (budget? product? propagation note?). Clarify and file under the right section.
 - Confirm exact WSJT-X UDP message IDs/names against the current protocol header.
