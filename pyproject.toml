@@ -2,11 +2,14 @@
 name = "wims"
 version = "0.0.1"
 description = "WSJT-X Instance Management System"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Jeff Millar, WA1HCO", email = "wa1hco@gmail.com" }]
 requires-python = ">=3.10"
 dependencies = []
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

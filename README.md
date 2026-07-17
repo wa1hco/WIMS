@@ -115,4 +115,13 @@ WIMS/
 
 ## License
 
-Not yet licensed — all rights reserved pending a license decision.
+WIMS is free software licensed under the **GNU General Public License v3.0 or
+later** (GPL-3.0-or-later). See [LICENSE](LICENSE) for the full text.
+
+    Copyright (C) 2026 Jeff Millar, WA1HCO
+
+    This program is free software: you can redistribute it and/or modify it
+    under the terms of the GNU General Public License as published by the Free
+    Software Foundation, either version 3 of the License, or (at your option)
+    any later version. It is distributed WITHOUT ANY WARRANTY; see the license
+    for details.
