@@ -39,6 +39,14 @@
   <span class="meta" id="clock" style="margin-left:auto"></span>
 </header>
 <main>
+  <div id="tx-strip" class="txbar">
+    <span id="tx-arm" class="banner alarm">TX DISARMED</span>
+    <button id="tx-arm-btn" class="txbtn arm">Enable TX</button>
+    <button id="tx-cq" class="txbtn" disabled>Call CQ</button>
+    <button id="tx-halt" class="txbtn halt">◼ Halt TX</button>
+    <span class="meta" id="tx-meta"></span>
+  </div>
+
   <h2>Interlock · TX overlap</h2>
   <div id="il-banner" class="banner ok">✓ no overlap</div>
   <div id="il-meta" class="meta" style="margin:6px 0 8px"></div>

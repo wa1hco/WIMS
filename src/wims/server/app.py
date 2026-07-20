@@ -53,7 +53,8 @@ if __package__ in (None, ""):
 from wims.udp import messages as M  # noqa: E402
 from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
-from wims.interlock.arbiter import OverlapDetector  # noqa: E402
+from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
+from wims.udp.controller import TxController  # noqa: E402
 from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
 from wims.engine.roster import RosterBuilder  # noqa: E402
@@ -61,7 +62,7 @@ from wims.state.logstore import LogStore  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
-    decodes_to_dict, n1mm_sync_to_dict, agents_to_dict)
+    decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict)
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -76,11 +77,25 @@ class LiveFleet:
     real shared-resource map: "instance" (each its own group, overlap structurally
     impossible), "band", or "host"."""
 
-    def __init__(self, grouping: str = "instance", condition: str = "open"):
+    def __init__(self, grouping: str = "instance", condition: str = "open",
+                 tx_controller: "TxController | None" = None,
+                 enable_cq_freetext: bool = False):
         self._tracker = FleetTracker()
         self._lock = threading.Lock()
         self._grouping = grouping
         self._overlap = OverlapDetector(group_of=self.group_of)
+        # --- TX control (plan §3.2 / §3.4 / §4.5) -----------------------------
+        # `_tx` actuates Reply/Halt to WSJT-X; None => read-only console (--no-tx).
+        # `_tx_armed` is the human master switch — DEFAULT DISARMED (fail-safe: no
+        # automated/unattended TX, a human always initiates). `_arbiter` enforces
+        # ≤1 transmitter per resource group; for the solo single-instance case it
+        # grants trivially, but the gate is identical when a second instance appears.
+        self._tx = tx_controller
+        self._tx_armed = False
+        self._enable_cq = bool(enable_cq_freetext)
+        self._arbiter = TxArbiter(group_of=self.group_of)
+        self._tx_prev: dict[str, bool] = {}        # per-instance last transmitting (edge)
+        self._last_tx_action: dict | None = None   # last arm/work/halt for the UI
         # Live log copy (in-memory) feeds dupe/new-mult into the roster; kept current
         # from N1MM <contactinfo>. Empty at start => every grid reads as a new mult,
         # flipping to dupe/worked as QSOs are logged (plan §3.6).
@@ -314,6 +329,84 @@ class LiveFleet:
         for aid in dead:
             del self._agents[aid]
 
+    # --- TX control actions (plan §3.2 / §4.5) ------------------------------- #
+
+    def arm(self, armed: bool) -> dict:
+        """Set the human TX master switch. Nothing in WIMS ever arms itself; only
+        an explicit operator action reaches here (honors "a human always initiates")."""
+        with self._lock:
+            self._tx_armed = bool(armed)
+            self._last_tx_action = {"action": "arm", "armed": self._tx_armed,
+                                    "ts": time.time()}
+            return {"ok": True, "armed": self._tx_armed}
+
+    def work_station(self, row_id: str) -> dict:
+        """Answer the station in roster row `row_id` — send Reply to its instance.
+
+        Human-gated (refuses unless armed) and arbiter-gated (refuses if another
+        instance in the same resource group holds TX). The actual `sendto` runs
+        outside the lock so a slow socket never stalls the ingest thread."""
+        if self._tx is None:
+            return {"ok": False, "error": "tx_disabled"}
+        with self._lock:
+            if not self._tx_armed:
+                return {"ok": False, "error": "disarmed"}
+            entry = self._roster.entry_for(row_id)
+            if entry is None:
+                return {"ok": False, "error": "unknown_row"}
+            decode = entry.decode
+            inst = getattr(decode, "id", None) or "?"
+            if not self._arbiter.request(inst):
+                holder = self._arbiter.holder(self._arbiter.group_of(inst))
+                return {"ok": False, "error": "group_busy", "holder": holder}
+            call = (getattr(decode, "dx_call", "") or "").upper()
+            msg_text = getattr(decode, "message", "") or ""
+        try:
+            self._tx.reply(inst, decode)
+        except OSError as e:
+            with self._lock:
+                self._arbiter.release(inst)
+            return {"ok": False, "error": f"send_failed: {e}"}
+        with self._lock:
+            self._last_tx_action = {"action": "work", "instance": inst,
+                                    "call": call, "message": msg_text, "ts": time.time()}
+        return {"ok": True, "sent": "reply", "instance": inst,
+                "call": call, "message": msg_text}
+
+    def halt(self, instance: str | None = None) -> dict:
+        """Stop transmitting — the panic button. **Always allowed**, regardless of
+        arm state (a stop is a safety action). Halts one instance or every live one,
+        and releases the arbiter so the group frees immediately."""
+        if self._tx is None:
+            return {"ok": False, "error": "tx_disabled"}
+        with self._lock:
+            targets = [instance] if instance else [n.id for n in self._tracker.nodes.values()]
+        halted = []
+        for inst in targets:
+            try:
+                self._tx.halt(inst)
+                halted.append(inst)
+            except OSError:
+                pass
+        with self._lock:
+            for inst in halted:
+                self._arbiter.release(inst)
+            self._last_tx_action = {"action": "halt", "instances": halted, "ts": time.time()}
+        return {"ok": True, "halted": halted}
+
+    def call_cq(self, *, mycall: str | None = None, grid: str | None = None) -> dict:
+        """Call CQ. WSJT-X's UDP API has **no native Call CQ** — only Reply to an
+        existing decode. The only UDP route is a one-shot FreeText that WSJT-X will
+        not auto-sequence, so it is gated behind `--enable-cq-freetext` and remains
+        unimplemented pending the live spike (plan P3). Default: instruct the operator
+        to call CQ in WSJT-X directly; WIMS does the (clean) answering."""
+        if not self._enable_cq:
+            return {"ok": False, "error": "cq_not_supported_yet",
+                    "detail": "WSJT-X UDP has no Call CQ; call CQ in WSJT-X directly. "
+                              "Experimental FreeText CQ is gated behind --enable-cq-freetext."}
+        return {"ok": False, "error": "cq_freetext_not_implemented",
+                "detail": "Experimental FreeText CQ path pending live WSJT-X verification (P3)."}
+
     def group_of(self, instance_id: str) -> str:
         """Map an instance to its resource group per the active scheme. Callers
         hold `self._lock` (ingest + snapshot both do)."""
@@ -333,6 +426,12 @@ class LiveFleet:
             self._maps.setdefault(mid, ActivityMap(mid))
             if isinstance(msg, M.Status):
                 self._overlap.observe(mid, msg.transmitting, now)
+                # Free the arbiter grant on the TX→RX edge so the next Work isn't
+                # blocked. Driven by WSJT-X's own Status (not N1MM) — a solo tester
+                # may not run N1MM at all.
+                if self._tx_prev.get(mid, False) and not msg.transmitting:
+                    self._arbiter.release(mid)
+                self._tx_prev[mid] = bool(msg.transmitting)
             elif isinstance(msg, M.Decode):
                 node = self._tracker.nodes.get(mid)
                 self._roster.observe_decode(
@@ -407,6 +506,13 @@ class LiveFleet:
                 last_resync=self._last_resync)
             self._prune_agents(now)
             d["agents"] = agents_to_dict(self._agents, now)
+            d["tx"] = tx_to_dict(
+                armed=self._tx_armed,
+                enabled=self._tx is not None,
+                controller_dest=(self._tx.dest if self._tx else None),
+                holders=self._arbiter.holders(),
+                enable_cq=self._enable_cq,
+                last_action=self._last_tx_action)
             return d
 
 
@@ -543,6 +649,32 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/tx/arm":
+                # Human TX master switch (fail-safe: default disarmed).
+                self._send_json(200, live.arm(bool(body.get("armed"))))
+            elif path == "/api/tx/work":
+                row_id = body.get("row_id")
+                if not row_id:
+                    self._send_json(400, {"ok": False, "error": "need row_id"})
+                    return
+                try:
+                    result = live.work_station(row_id)
+                    code = (200 if result.get("ok")
+                            else 409 if result.get("error") in ("disarmed", "group_busy")
+                            else 400)
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/tx/halt":
+                # Panic stop — always allowed, even while disarmed.
+                try:
+                    result = live.halt(body.get("instance"))
+                    self._send_json(200 if result.get("ok") else 400, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/tx/cq":
+                result = live.call_cq(mycall=body.get("mycall"), grid=body.get("grid"))
+                self._send_json(200 if result.get("ok") else 501, result)
             else:
                 self._send(404, "text/plain", b"not found")
 
@@ -591,6 +723,17 @@ def main() -> None:
                          "shared-resource map (instance = overlap impossible by construction)")
     ap.add_argument("--condition", choices=("open", "marginal", "dead"), default="open",
                     help="band condition -> roster scoring weight set (§3.5)")
+    ap.add_argument("--tx-host", default=None,
+                    help="send WSJT-X control (Reply/Halt) to this unicast host, e.g. "
+                         "127.0.0.1 for solo single-PC. Default: the --group multicast, "
+                         "matching ingest (works for multicast-loopback on one PC).")
+    ap.add_argument("--tx-port", type=int, default=None,
+                    help="WSJT-X control destination port (default: --port, 2237)")
+    ap.add_argument("--no-tx", action="store_true",
+                    help="disable the TX control path entirely (read-only console)")
+    ap.add_argument("--enable-cq-freetext", action="store_true",
+                    help="EXPERIMENTAL: allow Call CQ via one-shot WSJT-X FreeText "
+                         "(no auto-sequence; pending live verify). Off by default.")
     ap.add_argument("--seed-db", default=None,
                     help="N1MM contest .s3db to seed the log copy from (read-only); "
                          "if omitted, auto-find in --seed-db-dir")
@@ -655,7 +798,19 @@ def main() -> None:
                 print(f"  peer {p.get('hostname')} {p.get('console_base')}",
                       file=sys.stderr)
 
-    live = LiveFleet(grouping=args.group_by, condition=args.condition)
+    # TX controller: unicast to --tx-host when given (solo single-PC WSJT-X on
+    # 127.0.0.1), else the same multicast group we ingest (works loopback on one PC).
+    tx_controller = None
+    if not args.no_tx:
+        tx_port = args.tx_port or args.port
+        if args.tx_host:
+            tx_controller = TxController.for_unicast(args.tx_host, tx_port)
+        else:
+            tx_controller = TxController.for_group(args.group, tx_port, iface=args.iface)
+
+    live = LiveFleet(grouping=args.group_by, condition=args.condition,
+                     tx_controller=tx_controller,
+                     enable_cq_freetext=args.enable_cq_freetext)
     live.configure_log_discovery(databases_dir=args.seed_db_dir,
                                  db_path=args.seed_db)
 
@@ -710,6 +865,12 @@ def main() -> None:
     print(f"             http://localhost:{args.http_port}/status  (live health)")
     print(f"             http://localhost:{args.http_port}/setup   (config / contest log)")
     print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
+    if tx_controller is not None:
+        _txd = tx_controller.dest
+        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (DISARMED at start; arm on Operate) "
+              f"{'· CQ-freetext ON' if args.enable_cq_freetext else ''}")
+    else:
+        print("  TX control disabled (--no-tx; read-only console)")
     if s_n1mm is not None:
         if args.n1mm_group:
             print(f"  N1MM XML listening on {args.n1mm_group}:{args.n1mm_port} "

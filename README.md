@@ -1,40 +1,121 @@
 # WIMS — WSJT-X Instance Management System
 
-A supervised, **human-in-the-loop** operating console for multi-instance VHF contesting — the
-"WSJT-X wrangler" position. WIMS gives one console operator cross-vehicle visibility and lets them
-cover several digital bands at once, working alongside N1MM+, GridTracker, and a Green Heron
-rotator.
+Supervised, **human-in-the-loop** console for multi-instance VHF contesting: one operator sees a
+ranked **call roster** across the fleet and **clicks to work** stations (S&P / tailend via WSJT-X
+UDP Reply). Works with N1MM+, optional GridTracker, and rotators. **Not an autobot** — a human
+starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
-**WIMS is a remote operating position, not an autobot.** Every active transmitter is always
-controlled by a human: the local op in the seat, or the WIMS console operator who smoothly takes
-over a band when its seat is empty. WIMS **ranks and recommends; the operator clicks every start of
-exchange.** There is no automated/unattended TX.
+> Design: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
+> Status: [docs/plan/wims_status.md](docs/plan/wims_status.md)
 
-> Authoritative **requirements & design**: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
-> **build status & milestones**: [docs/plan/wims_status.md](docs/plan/wims_status.md)
+## Install & quick start
+
+Full instructions for a **new machine with nothing installed** (except Windows or Linux itself).
+WIMS is **stdlib-only** (no `pip install`); the Windows installer brings in Python/Git/firewall.
+
+### A. Windows — full setup (site server or lab PC)
+
+**Installer:** [`scripts/windows/Install-Wims.cmd`](scripts/windows/Install-Wims.cmd) →
+[`Install-Wims.ps1`](scripts/windows/Install-Wims.ps1). Double-click; allow **UAC**. No
+`Set-ExecutionPolicy` needed.
+
+| If missing, install adds | How |
+|--------------------------|-----|
+| **Python ≥ 3.10** | `winget`, else silent download of python.org **3.12.x** |
+| **Git** | `winget` (when cloning) |
+| **Firewall rule TCP 8787** | so browsers on the LAN can open the console |
+| **Start launchers + desktop shortcut** | pins the real `python.exe` path (PATH not required) |
+
+**Not** installed by WIMS: N1MM Logger+, WSJT-X, GridTracker, radio drivers — install those
+separately if this PC is a radio seat.
+
+#### 1. Get the WIMS tree onto the PC (pick one)
+
+| Method | Steps |
+|--------|--------|
+| **USB / network share** (offline-friendly) | Copy a full `WIMS` folder to e.g. `C:\WIMS` |
+| **GitHub ZIP** | Download [repo ZIP](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip), extract to e.g. `C:\WIMS` |
+| **Git already installed** | `git clone https://github.com/wa1hco/WIMS.git C:\WIMS` |
+
+You only need the folder that contains `src\wims\` and `scripts\windows\`.
+
+#### 2. Run the installer (installs missing prereqs)
+
+1. Open Explorer → `C:\WIMS\scripts\windows\` (or your path).
+2. Double-click **`Install-Wims.cmd`**.
+3. Click **Yes** on the UAC prompt (needed for machine-wide Python and firewall).
+4. Wait until it reports success. Log: `scripts\windows\install-log.txt`.  
+   On failure: re-run Install, or see [scripts/windows/README.md](scripts/windows/README.md)
+   (“If you still see Python not found”).
+
+#### 3. Start the site server
+
+- Double-click **`Start-WimsServer.cmd`**, or Desktop **WIMS Server**.
+- Browser on this PC: [http://localhost:8787/](http://localhost:8787/)  
+  · Status: `/status` · Setup (contest log): `/setup`
+
+Use the **contest LAN IP** for `--iface` when other hosts must reach the server (the Start script
+defaults are lab-oriented; details in [scripts/windows/README.md](scripts/windows/README.md)).
+
+#### 4. Point radios / operators at it
+
+| Role | What to install / do |
+|------|----------------------|
+| **This PC = site server only** | WIMS install above is enough. Optional: copy N1MM contest `.s3db` onto the server for log seed (Setup page). |
+| **Radio seat** (N1MM + WSJT-X) | Install N1MM/WSJT-X yourself. Multicast + **Outgoing interface = LAN**. Browser → `http://<server-ip>:8787/`. Seat agent pack: same `scripts\windows\` folder — see **Full Windows guide** below. |
+| **Operator laptop** | Browser only → `http://<server-ip>:8787/` (no WIMS install). |
+
+**Full Windows guide** (seat auto-start, agent, offline flags, troubleshooting):  
+**[scripts/windows/README.md](scripts/windows/README.md)**
+
+**Fleet networking** (ports, N1MM, WSJT-X settings, readiness):  
+**[docs/plan/wims_networking.md](docs/plan/wims_networking.md)**
+
+### B. Linux — full setup (dev / Linux site server)
+
+There is no Windows-style one-click installer. Install OS packages, then run WIMS.
+
+```bash
+# Debian/Ubuntu example — install prereqs if missing
+sudo apt update
+sudo apt install -y git python3   # ≥ 3.10; 3.12–3.14 fine
+
+git clone https://github.com/wa1hco/WIMS.git
+cd WIMS
+python3 src/wims/server/app.py --iface 127.0.0.1
+# Console: http://localhost:8787/  (use the LAN iface IP for multi-host)
+```
+
+No `pip` packages. Optional smoke test / no-RF fleet:
+
+```bash
+python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
+    --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000
+scripts/validate.sh   # or: for t in tests/unit/test_*.py; do python3 "$t"; done
+```
+
+### C. Already installed — just run
+
+```bash
+# Linux / PATH has python3
+python3 src/wims/server/app.py --iface 127.0.0.1
+
+# Windows (after Install-Wims.cmd)
+scripts\windows\Start-WimsServer.cmd
+```
+
+---
 
 ## What it does
 
-- **Call roster.** Every WSJT-X decode is shown in a ranked roster (à la GridTracker) with source
-  info; the operator clicks a station to have the receiving instance start the contact. Sorted by
-  **expected score gain** — only contest-relevant stations, ordered to grow the score fastest.
-- **Contest scoring.** Pluggable, explainable factors (new-mult `grid × band`, points, SNR, CQ,
-  rover) with a per-row breakdown; **N1MM is the dupe/multiplier authority** — WIMS keeps its own
-  copy of the N1MM log and self-computes prospective new-mults, reconciling to N1MM.
-- **Cross-vehicle console.** One combined roster, per-instance band-activity + health, one merged
-  log/dupe-mult view — replacing "anyone there?" over chat.
-- **Multi-operator.** Several operators can share the console, each identifying by callsign + name
-  (no login — the fleet is a cooperative team), each choosing which bands to focus/control while
-  still observing the rest; an operator-status view and unstaffed-band highlighting keep coverage
-  visible. See design §2.7.
-- **Zero TX overlap by construction.** A per-resource-group interlock grants at most one
-  transmitter per group; an independent overlap detector watches observed state as defense in depth.
-- **SSB/CW priority.** When an SSB/CW op keys up, no WIMS-managed WSJT-X may transmit on that same
-  band: a **preventive gate** (don't start) plus a **10 ms fast halt** (audio-path mute) for the
-  mid-cycle race. See design §3.4.1.
-- **Setup assist & diagnostics.** Verifies connectivity to every WSJT-X and N1MM instance (N1MM
-  presence from any broadcast — no QSO needed), discovers the fleet, names every discrepancy, and
-  is the protocol-aware network view so you never reach for Wireshark.
+- **Call roster** — every decode ranked by expected score; click for **S&P or tailend** (Reply on
+  a retained decode, including **73**). **Run/CQ** is not started from WIMS (design §2.12).
+- **Contest scoring** — explainable factors; **N1MM** is dupe/mult authority; WIMS keeps a log copy.
+- **Cross-vehicle console** — one roster + health instead of chat-only coordination.
+- **Multi-operator** — soft control claims; cooperative team (design §2.7).
+- **Zero TX overlap** per resource group; **SSB/CW priority** with preventive gate + 10 ms mute
+  (design §3.4.1).
+- **Setup assist** — connectivity checks, fleet discovery, plain-language readiness.
 
 ## Architecture at a glance
 
@@ -49,78 +130,35 @@ exchange.** There is no automated/unattended TX.
         └────────────────────────│  - safety / watchdog     │
                                  └───────┬─────────┬────────┘
                                          │         │
-                           N1MM+ (log, ◀┘          └▶ Green Heron (rotator)
+                           N1MM+ (log, ◀┘          └▶ Rotator(s) Yaesu/K3NG
                            dupe/needed)
 ```
 
-A **site server** is the single multicast consumer, state authority, and only sender of control to
-WSJT-X; thin **operator consoles** connect over one unicast link (LAN or internet). A per-instance
-**soft control claim** decides who may TX which instance — any operator can take over instantly (the
-fleet is a cooperative team), and an instance nobody is steering is RX-only (fail-safe). The time-critical 10 ms SSB/CW mute runs in a **local agent on the radio host**, never
-through the server. Full design in [wims_design.md](docs/plan/wims_design.md) §4 / §4.5.
+**Site server** = multicast consumer + console control (Reply / Halt / Free Text — not Call CQ).
+Consoles are browsers. Soft claim who may command TX from the console; local seat **run/CQ**
+(Enable Tx in WSJT-X) is attended by the seat op. 10 ms SSB/CW mute runs on the **radio host
+agent**, not through the server. Design §2.12 / §4 / §4.5.
 
 ## Status
 
-**Phase-1 (developer-oriented) read-only console is live** — fleet/instances, interlock/overlap
-safety panel, ranked call roster, decode-activity heatmaps, decode log, N1MM sync, and loggers, on
-a two-page browser UI (Operate / System status) fed by one SSE state contract. The decision engine
-scores against a log copy seeded from the N1MM `.s3db` at startup and kept current from live
-`<contactinfo>`. Stdlib-only, zero runtime dependencies; tests run without pytest.
-
-See [wims_status.md](docs/plan/wims_status.md) for milestones (M1–M7), the per-module status table,
-and the build log.
-
-## Quick start
-
-```bash
-# Run the server (auto-seeds the N1MM contest log; ingests WSJT-X multicast + N1MM broadcasts)
-python src/wims/server/app.py --iface 127.0.0.1
-#   Operate:  http://localhost:8787/
-#   Status:   http://localhost:8787/status
-#   Setup:    http://localhost:8787/setup
-
-# No-RF test bed: simulate a fleet of WSJT-X instances
-python testbed/simulators/emulator.py --iface 127.0.0.1 \
-    --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000
-
-# Tests (no pytest dependency)
-for t in tests/unit/test_*.py; do python "$t"; done
-```
-
-Requires **Python ≥ 3.10** (stdlib only; no pip runtime deps). Project docs often use 3.12–3.14.
-
-### Windows 10 (template / lab server)
-
-Double-click (no `Set-ExecutionPolicy`):
-
-1. `scripts\windows\Install-Wims.cmd` — Python/Git, firewall, shortcuts (UAC may prompt)  
-2. `scripts\windows\Start-WimsServer.cmd` — run the server  
-
-Details: [scripts/windows/README.md](scripts/windows/README.md).
+**Phase-1 read-only console is live** (roster, interlock, N1MM sync, agents, three-page UI).
+Command path (click-to-work) and later milestones: [wims_status.md](docs/plan/wims_status.md).
 
 ## Repository layout
 
 ```
 WIMS/
-├── docs/plan/            wims_design.md (requirements & design) · wims_status.md (status)
-├── src/wims/
-│   ├── core/             shared domain model (band labels, …)
-│   ├── udp/              §3.1 WSJT-X parser/sink + §3.2 controller + encoder + activity map
-│   ├── interlock/        §3.4 TX arbiter + overlap detector
-│   ├── engine/           §3.5 scoring + roster builder
-│   ├── integrations/n1mm/  §3.6 contactinfo listener, DXLOG seed, LoggedQso
-│   ├── state/            §3.10 SQLite log copy + dupe/mult/resync
-│   ├── discovery/        §3.15 fleet discovery, health, N1MM presence
-│   └── server/           §3.12 stdlib HTTP + SSE state contract + static two-page UI
-├── testbed/              §5 no-RF test bed (WSJT-X emulator, interlock bench)
-├── tests/unit/           per-module unit tests
-└── captures/             local packet captures (gitignored)
+├── docs/plan/            design · status · networking
+├── scripts/windows/      Install-Wims.cmd (prereqs) · Start-WimsServer · seat pack
+├── src/wims/             server, udp, engine, interlock, n1mm, agent, …
+├── testbed/              WSJT-X emulator, interlock bench
+└── tests/unit/           no-pytest unit suites
 ```
 
 ## License
 
-WIMS is free software licensed under the **GNU General Public License v3.0 or
-later** (GPL-3.0-or-later). See [LICENSE](LICENSE) for the full text.
+WIMS is free software licensed under the **GNU General Public License v3.0 or later**
+(**GPL-3.0-or-later**). See [LICENSE](LICENSE) for the full text.
 
     Copyright (C) 2026 Jeff Millar, WA1HCO
 

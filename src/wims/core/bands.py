@@ -35,6 +35,14 @@ _BANDS = [
 ]
 
 
+BAND_ORDER = [name for _, name in _BANDS]   # low -> high frequency (160m … 13cm)
+
+
+def band_sort_key(label: str) -> int:
+    """Frequency-order index for a band label ("6m" < "2m" < "70cm"); unknown last."""
+    return BAND_ORDER.index(label) if label in BAND_ORDER else len(BAND_ORDER)
+
+
 def band_label(freq_hz: float) -> str:
     label = "?"
     for low, name in _BANDS:

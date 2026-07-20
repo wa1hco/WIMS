@@ -42,6 +42,13 @@ def open_send_socket(iface: str = "0.0.0.0", ttl: int = 1) -> socket.socket:
     return s
 
 
+def open_unicast_socket() -> socket.socket:
+    """A bare UDP socket for sending to a plain (unicast/loopback) WSJT-X listener —
+    no multicast options. Used when WSJT-X's 'UDP Server' is an ordinary address such
+    as 127.0.0.1 (the common single-PC / solo case) rather than a multicast group."""
+    return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+
 class TxController:
     """Sends control datagrams. `sock` is a UDP socket; `dest` is (group, port)."""
 
@@ -69,3 +76,9 @@ class TxController:
     @staticmethod
     def for_group(group: str, port: int, iface: str = "0.0.0.0", ttl: int = 1) -> "TxController":
         return TxController(open_send_socket(iface, ttl), (group, port))
+
+    @staticmethod
+    def for_unicast(host: str, port: int) -> "TxController":
+        """Controller that sends to a plain (unicast/loopback) WSJT-X listener, e.g.
+        the solo single-PC case where WSJT-X's UDP Server is 127.0.0.1:2237."""
+        return TxController(open_unicast_socket(), (host, port))

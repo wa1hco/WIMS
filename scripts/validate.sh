@@ -108,8 +108,12 @@ fi
 
 # ---------------------------------------------------------------------------
 hdr "4. Live end-to-end (server + emulator → SSE → JSON)"
+# Single-host loopback smoke test: --no-presence (the plane-E dual-server election
+# is a multi-host feature and, on loopback, its announce on the shared 224.0.0.73
+# group interferes with the WSJT-X multicast ingest). This mirrors how `wims.solo`
+# actually runs on one PC.
 "$PY" src/wims/server/app.py --iface "$IFACE" --http-port "$HTTP_PORT" \
-    --no-seed --refresh 1 > "$LOGDIR/server.log" 2>&1 &
+    --no-seed --no-presence --refresh 1 > "$LOGDIR/server.log" 2>&1 &
 SRV_PID=$!
 "$PY" testbed/simulators/emulator.py --iface "$IFACE" \
     --instances "$INSTANCES" > "$LOGDIR/emulator.log" 2>&1 &

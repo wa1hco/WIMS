@@ -69,6 +69,18 @@ class RosterBuilder:
         for k in dead:
             del self._entries[k]
 
+    def entry_for(self, row_id: str) -> "_Entry | None":
+        """Look up a retained row by its `instance|call|grid` id (see `roster_to_dict`).
+
+        The id mirrors the entry key; `rsplit` from the right so an instance id that
+        itself contains '|' still resolves (call/grid never do). Returns the `_Entry`
+        (carrying the raw `Decode` needed to echo a Reply) or None if aged out / unknown."""
+        parts = row_id.rsplit("|", 2)
+        if len(parts) != 3:
+            return None
+        inst, call, grid = parts
+        return self._entries.get((inst, call.upper(), grid))
+
     def ranked(self, now: float, ctx: S.Context | None = None) -> tuple[list[tuple], int]:
         """Score every retained row against the log. Returns
         `([(ScoredCandidate, _Entry), ...], not_needed_count)`. **All** rows are

@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # WIMS — WSJT-X Instance Management System
 # Copyright (C) 2026 Jeff Millar, WA1HCO
 #
@@ -16,4 +18,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Interfaces to external apps: N1MM+, GridTracker, rotator (Yaesu/K3NG first)."""
+# Solo single-PC WIMS launcher (Linux/macOS). In WSJT-X: Settings -> Reporting ->
+# UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
+set -eu
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export PYTHONPATH="$ROOT/src"
+PY="${PYTHON:-python3}"
+exec "$PY" -m wims.solo "$@"

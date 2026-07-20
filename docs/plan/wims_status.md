@@ -12,11 +12,22 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 ## How to run (current)
 
 ```
+# Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
+python -m wims.solo            # localhost, no presence; opens the browser
+#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
+#   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
+
+# Fleet / multi-host (site server):
 python src/wims/server/app.py --iface 127.0.0.1
-#   Operate:  http://localhost:8787/          (roster / work stations)
+#   Operate:  http://localhost:8787/          (roster / work stations / arm TX)
 #   Status:   http://localhost:8787/status    (live health, RF, decodes)
 #   Setup:    http://localhost:8787/setup     (contest log, networking, config)
 ```
+- **TX control (new):** Operate has a **DISARMED-by-default** master switch; once armed,
+  per-row **Work** answers a station (Reply) and **Halt TX** is an always-on panic stop.
+  Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X, e.g. `127.0.0.1`; default is the
+  multicast group, matching ingest), `--no-tx` (read-only), `--enable-cq-freetext`
+  (experimental, off). **Call CQ is not a native WSJT-X UDP action** — see design §2.12.
 - **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**
   (`ContestInstance` / `ContestNR`), **auto-picks** the latest log with QSOs, and loads only that
   contest (not whole multi-year DXLOG). Status page **Contest log** picker to change / rescan;
@@ -36,7 +47,7 @@ python src/wims/server/app.py --iface 127.0.0.1
 ## Tests — unit suites green (no pytest dep; run `python tests/unit/test_*.py`)
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
-`test_server_state` · `test_agent_report` · `test_presence`
+`test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -47,6 +58,14 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 ---
 
 ## Milestones (design intent: §4 / §4.5)
+
+- [~] **R0 — Solo FT8 tester release.** One PC (N1MM + WSJT-X + WIMS server), single FT8
+  frequency (any band, HF included): watch the ranked roster, verify needed↔dupe by editing
+  the N1MM log, **arm TX** and **Work** a station (Reply). `python -m wims.solo` + Windows/Linux
+  wrappers. **Done in code & bench/emulator-verified:** click-to-work + halt endpoints, DISARMED
+  master switch, arbiter grant/release, `tx` state block, casual (non-contest) seed. **Remaining
+  before shipping:** first bring-up against **real WSJT-X** into a dummy load (echo-exactness of
+  Reply), the **Call CQ spike** (§2.12), and a tester runbook.
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
   dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
@@ -60,11 +79,15 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
   (`engine/roster.py` + `scoring.py`) against a log copy seeded from the N1MM `.s3db` at startup
   and kept current from live `<contactinfo>`; dupe/new-mult per band×grid, verified live (951
   QSOs). Operator **Resync log** (DXLOG re-read) done. Remaining: give-up / run-vs-S&P,
-  geometry-aware
-  reachability (§3.14).
-- [ ] **M4 — multi-instance + rotator + safety.**
-- [ ] **M5 — WIMS op works one band on-air** via roster + click-to-work (one empty seat).
-- [ ] **M6 — WIMS op covers multiple empty-seat bands**, smooth local⇄WIMS handoff (§4.2).
+  geometry-aware reachability (§3.14), **cross-band opportunity factor (C7)** from prior-contest
+  history.
+- [ ] **M4 — multi-instance + rotator + safety.** Rotator: Yaesu/K3NG status + click-to-point
+  from roster Az (§2.10 / §3.8).
+- [ ] **M5 — WIMS op works one band on-air (S&P + tailend)** via roster + click-to-work → Reply
+  echoing retained decode (CQ or **73**; GT2 pattern) on one empty seat; Free Text + optional
+  closing QSY (G4 / §2.8). **Not** Call CQ — run/autorespond is WSJT-X UI (§2.12).
+- [ ] **M6 — WIMS op covers multiple empty-seat bands (S&P + tailend)**, smooth local⇄WIMS handoff
+  (§4.2); local run remains seat/RDP WSJT-X (§2.12).
 - [ ] **M7 — remote + multi-operator** over the internet; non-cooperative lease handoff (§4.5).
 
 ---
@@ -74,24 +97,26 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | § | Module | Status | Built / remaining |
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
-| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, drives the emulator live. Remaining: Free Text/Replay, lease gating. |
-| 3.3 | Multi-instance manager | `[~]` | **Seat agent (config/monitor slice):** `wims.agent` local UI :8790 + POST `/api/agents/report`; Status/Setup board. Config tool: `wsjtx_config.py`. Remaining: host fast mute, thumbnails, setup wizard apply, process service install. |
-| 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. Remaining: fast-mute path, lease gating, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: run/S&P, give-up, geometry, persistent grid memory, grid→WSJT-X for logging. |
-| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction. |
+| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, `for_unicast`/`for_group`. **Now wired into the server**: `/api/tx/arm\|work\|halt\|cq`, **DISARMED-by-default** master switch, click-to-work from the roster (`RosterBuilder.entry_for` recovers the raw Decode to echo), arbiter grant/release. Verified vs emulator (arm→work→halt) + `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**, GT2 pattern — §2.12). **No product Call CQ** (`call_cq` not-supported; gated `--enable-cq-freetext`). Remaining: **real-WSJT-X bring-up**, **Free Text** (closing/QSY §2.8), Replay. |
+| 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
+| 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
+| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
-| 3.8 | Rotator controller | `[ ]` | — |
+| 3.8 | Rotator controller | `[ ]` | **Design:** Yaesu/K3NG; Az ant + Az DX; font while rotating; click-to-point (§2.10). Code not started. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
 | 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
 | 3.11 | Config | `[ ]` | scoring weights exist as defaults (`engine/scoring.py`); no Instance-Profile / config files yet. |
-| 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), two pages. Remaining: command endpoints (click-to-work / click-to-point), lease endpoints, published enriched feed. |
+| 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), three pages. Remaining: **subscribe API (§2.11)**, click-to-work/point, claims; roster contract **`az_ant` / `rotator_moving` / Az DX**; published enriched feed. |
 | 3.13 | Override interface | `[ ]` | — |
 | 3.15 | Network discovery & diagnostics | `[~]` | passive fleet discovery + health + N1MM any-broadcast presence (`discovery/fleet.py`); **site-server presence plane E** (`discovery/presence.py` — dual-server refuse + agent clickable URLs). Remaining: active probes, expected-vs-actual board, topology map. |
 
 **Dashboard panels live (Phase-1):** interlock/overlap · call roster · instances · decode-activity ·
 decode log · N1MM-sync · loggers · system summary · **seat agents** (Status table + Setup detail).
 **State-contract keys (`server/state.py`):** `instances, loggers, rx, interlock, roster, activity,
-decodes, n1mm_sync, agents`.
+decodes, n1mm_sync, agents, tx`. Each roster candidate now carries a stable `id`
+(`instance|call|grid`) for click-to-work; `tx` = `{enabled, armed, can_tx, controller, holders,
+cq_enabled, last_action}`.
 
 **Test bed (§5):** WSJT-X emulator built (`testbed/simulators/emulator.py`, reacts Reply→TX /
 Halt→RX); interlock bench (`testbed/interlock_bench.py`). Remaining: captured-traffic replay, N1MM
@@ -99,6 +124,39 @@ stub, rotator stub, fast-mute harness.
 
 **§2.6 roster feature backlog status:** A4/A5/A6, C1/C2 done; B3, C3, C4, D1, D3, the §3.15 pieces
 partial; everything else missing — see the backlog table in wims_design.md §2.6 for priorities.
+**New (design only):** **C7** / §2.9 cross-band evidence; **G4** / §2.8 QSY free text; **G5** /
+**§2.10** rotator Az ant/Az DX + rotating font; **E1b** / **§2.11** band subscribe → roster;
+**G6** / **§2.12** run vs S&P/tailend (Reply = WIMS incl. 73; run = WSJT-X UI).
+
+### Design / feature todos (not yet coded)
+
+- [ ] **C7 / §2.9 — Cross-band evidence + `cross_band` factor** — ship **structured evidence**
+  (other needed bands, this-contest vs prior-contest source, seat readiness, suggested QSY) on
+  the state contract so the operator can **assess other-band contact ability**; optional rank
+  boost is secondary. History never becomes live dupe. Design: wims_design.md §2.9 / §3.5.
+- [ ] **Prior-contest station history** — seed `call → bands` from multi-contest N1MM `DXLOG`
+  without affecting live dupe/mult. Feeds §2.9 evidence panel + scoring. Design: §3.6.
+- [ ] **G4 / §2.8 — Closing free text / QSY (assess-then-decide)** — Free Text UDP encode + live
+  verify; work/complete dialog shows §2.9 evidence; operator **explicitly chooses** accept
+  suggestion / other band / skip (default plain 73). Never auto-QSY. Claim-gated.
+  Design: wims_design.md §2.8 / §2.9 / §1.1.
+- [ ] **E1b / §2.11 — Subscribe to station/band → call roster** — operator subscription selects
+  which fleet bands’ decodes appear on *their* roster; server still ingests all. Multi-op
+  widget shows subscriptions. Distinct from TX claim. Design: wims_design.md §2.11 / §2.7.
+- [ ] **G5 / §2.10 — Rotator status & control (Yaesu / K3NG)** — K3NG/Yaesu backend; state
+  `rotators` + roster **Az ant** (live antenna az) and **Az DX** (bearing to other station).
+  **Az ant uses a different font while actively rotating** (`rotator_moving`). Click-to-point
+  from Az DX; soft limits; stop/park. Prefer **seat agent** owns serial (§3.3.1). Design:
+  wims_design.md §1.4 / §2.10 / §3.8 / §3.3.1.
+- [ ] **G6 / §2.12 — Run vs S&P + tailend boundary** — design **done** (2026-07-20, revised same
+  day): S&P/tailend = WIMS Reply on retained decode (CQ **and** **73**, GT2 `initiateQso`);
+  run/CQ + pile autorespond = WSJT-X UI only; no product Call CQ. Remaining code/UI: observe
+  `tx_role` / run banner, click-to-work on CQ/73, Tailend label, help text for empty-seat run via
+  seat/RDP. Design: wims_design.md §2.12 / §1.1 / §4.2.
+- [ ] **§3.3.1 — Seat agent capability matrix (beyond config audit)** — per station agent:
+  setup test (**done**); **interlock** sensor (SSB/CW CTS) + fast mute actuator (WSJT-X host);
+  **rotator** status/control (K3NG); thumbnails; process lifecycle; local readiness; watchdog
+  fail-safe. Design: wims_design.md §3.3.1.
 
 ---
 
@@ -175,3 +233,35 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-16** — **Discovery hardened for zero-memory:** multi-NIC multicast + limited/directed
   broadcast announce; agent cascade UDP → HTTP `/healthz` /24 probe; rich `/healthz` with
   `role`/`console_base`/`urls`. Operators should not need `WIMS_SERVER` on the contest LAN.
+- **2026-07-18** — Design only (no code): **closing free text / QSY on final 73** (§2.8, backlog
+  G4) — WIMS supports operator-chosen Free Text (e.g. `QSY 432`) at QSO complete. **Cross-band
+  opportunity (C7 / §2.9):** evidence-first so the operator can **assess other-band contact
+  ability** and **decide** whether to use a QSY suggestion; score boost is secondary, never
+  auto-applied (skip/plain 73 is default). Prior-contest history via §3.6 seed (evidence/scoring
+  only, not live dupes). Scenarios S6b/S6c + open questions. Status todos listed above.
+- **2026-07-18** — Design only: **rotator status & control** (§2.10, G5) — primary backend
+  **Yaesu GS-232 via K3NG**; roster **Az ant** (antenna) + **Az DX** (to other station); **Az ant
+  different font while rotating**; click-to-point from Az DX. **Band/station subscription**
+  (§2.11, E1b) — subscribe populates that operator’s call roster with those bands’ decodes.
+  Scenarios S5c/S5d.
+- **2026-07-20** — Design only: **Run vs S&P / CQ control boundary (§2.12, G6)**. WSJT-X UDP has
+  no usable Call CQ or run-autorespond. **Click-to-work = Reply** echoing retained Decode
+  (GridTracker2 `initiateQso`): not CQ-only — WSJT-X 3.0.1 also auto-TX on **`73 `** (**tailend**).
+  Product path: WIMS **S&P + tailend**; **run** stays in seat WSJT-X UI (or RDP). FreeText CQ
+  lab-only. M5/M6 + scenarios S2/S2a/S2b/S6 updated. **README** aligned (S&P/tailend vs run).
+- **2026-07-18** — Design: **§3.3.1 seat agent matrix** — each station runs an agent for setup
+  test (**built**), interlock (sensor/actuator), rotator I/O, plus thumbnails, process lifecycle,
+  readiness, discovery, fail-safe. Server keeps roster/score/claims/log.
+- **2026-07-20** — **R0 solo-tester TX path (code).** First TX wiring into the server:
+  `/api/tx/arm|work|halt|cq`, **DISARMED-by-default** master switch (fail-safe; a human always
+  initiates), roster **click-to-work** (Reply, `RosterBuilder.entry_for` recovers the raw Decode),
+  always-on **Halt** panic, `TxArbiter` grant on Work / release on Halt + WSJT-X TX→RX edge.
+  `tx` state block + per-row roster `id`; Operate arm/Work/Halt/CQ controls. **`python -m wims.solo`**
+  launcher (localhost, `--no-presence`) + `Start-Wims-Solo.cmd` / `start-wims-solo.sh`;
+  `TxController.for_unicast`; server `--tx-host/--tx-port/--no-tx/--enable-cq-freetext`. **Call CQ is
+  gated off** — no native WSJT-X UDP CQ (design §2.12); pending a live spike. Verified: `test_server_tx`
+  (10), `test_solo_casual` (non-contest "DX" HF seed → needed↔dupe flip on log edit), live emulator
+  arm→work→halt, `validate.sh` 21/21. **Not yet:** first real-WSJT-X bring-up, tester runbook.
+  *Found (pre-existing, not R0):* on **loopback**, the plane-E presence announce on the shared
+  `224.0.0.73` group starves the WSJT-X multicast ingest (0 pkts) — `validate.sh` live check now runs
+  `--no-presence` (single-host); `wims.solo` already defaults `--no-presence`, so solo is unaffected.

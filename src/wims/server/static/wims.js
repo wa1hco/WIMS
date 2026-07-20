@@ -598,6 +598,7 @@ function renderInterlock(il) {
 // and the chosen sort/filter persist across live SSE re-renders (state below).
 const utc = (ts) => new Date(ts*1000).toISOString().substr(11, 8);
 const ROS_COLS = [
+  {key:"_work",         label:"",        cls:"act",       cell:rosWork},
   {key:"call",          label:"DX",      cls:"",          cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
@@ -615,6 +616,14 @@ let _rosData = null;                              // latest roster payload
 let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 
+function rosWork(c) {
+  // Click-to-work: answer this station (server sends Reply). Disabled unless TX is
+  // armed (can_tx) — the button is only a request; the server re-checks arm+arbiter.
+  const on = _txState && _txState.can_tx;
+  const title = on ? "Answer " + esc(c.call) : "arm TX to work stations";
+  return `<button class="txbtn work" data-row="${esc(c.id||"")}"` +
+         `${on ? "" : " disabled"} title="${title}">Work</button>`;
+}
 function rosCall(c) {
   const badges =
     (c.is_new_mult ? '<span class="badge">mult</span>' : '') +
@@ -694,12 +703,81 @@ function rosDraw() {
   }
 }
 
+// -- TX control (arm / work / halt / cq) ------------------------------------ //
+
+let _txState = null;      // latest tx block; rosWork() reads can_tx from it
+let _txWired = false;
+
+async function txPost(url, payload) {
+  try {
+    const r = await fetch(url, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+    txFlash(await r.json().catch(() => ({})), url);
+  } catch (e) { txFlash({ok: false, error: String(e)}, url); }
+}
+
+function txFlash(j, url) {
+  const m = $("tx-meta"); if (!m) return;
+  const label = url.split("/").pop();
+  if (j.ok) {
+    m.className = "meta";
+    m.textContent = j.sent === "reply" ? `→ working ${j.call}`
+      : Array.isArray(j.halted) ? `halted ${j.halted.length}`
+      : label === "arm" ? (j.armed ? "TX armed" : "TX disarmed") : "ok";
+  } else {
+    m.className = "meta warn";
+    m.textContent = `${label}: ${j.detail || j.error || "failed"}`;
+  }
+}
+
+function txWire() {
+  if (_txWired) return;
+  _txWired = true;
+  const arm = $("tx-arm-btn");
+  if (arm) arm.addEventListener("click",
+    () => txPost("/api/tx/arm", {armed: !(_txState && _txState.armed)}));
+  const cq = $("tx-cq");
+  if (cq) cq.addEventListener("click", () => txPost("/api/tx/cq", {}));
+  const halt = $("tx-halt");
+  if (halt) halt.addEventListener("click", () => txPost("/api/tx/halt", {}));
+  // Delegated click-to-work on the roster body (rows are rebuilt every frame).
+  const body = $("ros-body");
+  if (body) body.addEventListener("click", (e) => {
+    const btn = e.target.closest("button.work"); if (!btn || btn.disabled) return;
+    if (btn.dataset.row) txPost("/api/tx/work", {row_id: btn.dataset.row});
+  });
+}
+
+function renderTxArm(tx) {
+  if (!$("tx-arm")) return;                 // not on this page
+  _txState = tx || {enabled: false, armed: false, can_tx: false};
+  txWire();
+  const arm = $("tx-arm"), btn = $("tx-arm-btn"), cq = $("tx-cq"), halt = $("tx-halt");
+  if (!_txState.enabled) {                   // --no-tx: read-only console
+    arm.textContent = "TX OFF (read-only)"; arm.className = "banner";
+    [btn, cq, halt].forEach(b => b && (b.disabled = true));
+    return;
+  }
+  const armed = !!_txState.armed;
+  arm.textContent = armed ? "● TX ARMED" : "TX DISARMED";
+  arm.className = "banner " + (armed ? "tx" : "alarm");
+  if (btn) { btn.textContent = armed ? "Disable TX" : "Enable TX"; btn.disabled = false; }
+  if (halt) halt.disabled = false;           // panic stop always available
+  if (cq) {
+    cq.disabled = !(armed && _txState.cq_enabled);
+    cq.title = _txState.cq_enabled
+      ? (armed ? "Call CQ (experimental one-shot)" : "arm TX first")
+      : "Call CQ from WSJT-X directly — WSJT-X UDP has no Call CQ";
+  }
+}
+
 // -- dispatch + connect ----------------------------------------------------- //
 
 function render(s) {
   renderHeader(s);
   renderSystem(s);
   renderAgents(s);
+  renderTxArm(s.tx);                          // before roster: rosWork() reads can_tx
   renderInterlock(s.interlock);
   renderRoster(s.roster);
   renderInstances(s);

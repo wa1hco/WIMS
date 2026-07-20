@@ -54,6 +54,10 @@ class TxArbiter:
     def holder(self, group: str) -> str | None:
         return self._holder.get(group)
 
+    def holders(self) -> dict[str, str]:
+        """All groups that currently have a granted transmitter (group -> instance)."""
+        return {g: h for g, h in self._holder.items() if h is not None}
+
     def is_granted(self, instance_id: str) -> bool:
         return self._holder.get(self._group_of(instance_id)) == instance_id
 

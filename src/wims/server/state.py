@@ -134,6 +134,7 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         d = e.decode
         freq_hz = (e.dial_hz + d.delta_frequency) if e.dial_hz else None
         cands.append({
+            "id": f"{c.instance_id}|{c.call}|{c.grid or ''}",  # stable row id → click-to-work
             "call": c.call,
             "to_call": d.to_call,                  # "calling" column
             "grid": c.grid,
@@ -162,6 +163,29 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         "needed": sum(1 for x in cands if x["is_needed"]),
         "not_needed": not_needed,
         "candidates": cands,
+    }
+
+
+def tx_to_dict(*, armed: bool, enabled: bool, controller_dest, holders: dict,
+               enable_cq: bool, last_action=None) -> dict:
+    """TX-control state for the Operate console (plan §3.2 / §4.5). Additive block:
+
+      * `enabled`   -> a TX controller is wired (False under --no-tx = read-only),
+      * `armed`     -> the human master switch (fail-safe default False),
+      * `can_tx`    -> enabled AND armed (the UI enables Work buttons on this),
+      * `controller`-> where Reply/Halt are sent (host, port),
+      * `holders`   -> resource-group -> instance currently granted TX (arbiter),
+      * `cq_enabled`-> experimental FreeText Call-CQ path (default off; see P3),
+      * `last_action`-> last arm/work/halt for a one-line UI status."""
+    return {
+        "enabled": bool(enabled),
+        "armed": bool(armed),
+        "can_tx": bool(enabled and armed),
+        "controller": (None if not controller_dest
+                       else {"host": controller_dest[0], "port": controller_dest[1]}),
+        "holders": dict(holders or {}),
+        "cq_enabled": bool(enable_cq),
+        "last_action": last_action,
     }
 
 

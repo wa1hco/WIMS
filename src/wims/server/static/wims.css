@@ -109,3 +109,56 @@ tr.cqrow td:nth-child(5) { color:var(--accent); }
 .dot.none { background:var(--dim); }
 .dot.ALIVE { background:var(--alive); } .dot.STALE { background:var(--stale); }
 .dot.DEAD { background:var(--dead); } .dot.UNKNOWN { background:var(--dim); }
+
+/* -- compact Operate page (WSJT-X-like density) -------------------------- */
+body.dense main { padding:8px 12px; }
+body.dense h2 { margin:12px 0 4px; font-size:11px; }
+.safety { font-weight:bold; font-size:12px; padding:2px 9px; border-radius:5px;
+          letter-spacing:.3px; }
+.safety.ok    { color:var(--alive); background:#dafbe1; border:1px solid #aceebb; }
+.safety.tx    { color:var(--tx);    background:#fff8e6; border:1px solid #f5d9a8; }
+.safety.alarm { color:#fff; background:var(--dead); border:1px solid var(--dead);
+                animation:flash .7s steps(1) infinite; }
+
+.cols { display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap; }
+.op-col { flex:0 0 auto; }
+.ros-col { flex:1 1 520px; min-width:0; }
+
+table.tight { font-size:11px; line-height:1.3; }
+table.tight th, table.tight td { padding:1px 8px; }
+table.tight th { font-size:10px; text-transform:uppercase; letter-spacing:.4px; }
+table.tight tbody tr:hover { background:#eef4fb; }
+.btag { font-weight:bold; }
+
+/* operator panel */
+#ops .call { font-weight:bold; }
+#ops .obs  { color:var(--dim); }
+#ops .need b { color:var(--alive); }
+#ops .z    { color:var(--line); }
+#ops .idle { color:var(--dim); }
+tr.stale-op td { color:var(--dim); }
+tr.stale-op .idle { color:var(--stale); font-weight:bold; }
+.sim { font-size:9px; color:var(--dim); border:1px solid var(--line); border-radius:6px;
+       padding:0 3px; margin-left:6px; vertical-align:middle; }
+
+/* coverage strip next to the Operators heading */
+.cover { font-weight:normal; }
+.chip { display:inline-block; font-size:10px; padding:0 6px; margin-left:5px;
+        border-radius:8px; border:1px solid var(--line); }
+.chip.cov-ok { color:var(--dim); }
+.chip.cov-no { color:#fff; background:var(--dead); border-color:var(--dead); font-weight:bold; }
+
+/* keep the scoring "why" from stretching the roster */
+.ros-col .why { max-width:360px; overflow:hidden; text-overflow:ellipsis; }
+
+/* --- TX control strip + click-to-work buttons (Operate) ------------------- */
+.txbar { display:flex; align-items:center; gap:10px; margin:4px 0 12px; flex-wrap:wrap; }
+.txbtn { font-size:12px; padding:3px 10px; border:1px solid var(--line); border-radius:5px;
+         background:var(--panel); color:var(--text); cursor:pointer; }
+.txbtn:hover:not(:disabled) { background:#eef4fb; }
+.txbtn:disabled { opacity:.45; cursor:not-allowed; }
+.txbtn.arm { font-weight:bold; }
+.txbtn.halt { color:#fff; background:var(--dead); border-color:var(--dead); font-weight:bold; }
+.txbtn.halt:hover:not(:disabled) { background:#a40e26; }
+td.act, th.act { width:1%; white-space:nowrap; }
+.txbtn.work { padding:1px 8px; font-size:11px; }
