@@ -170,13 +170,54 @@ def parse_ini(path: str | Path) -> list[WsjtxConfig]:
     return list(configs.values())
 
 
-def validate(cfg: WsjtxConfig, *, fleet: bool = True) -> list[tuple[str, str]]:
-    """Return [(severity, message)] for a config, for the fleet-networking lens.
+def _validate_solo(cfg: "WsjtxConfig") -> list[tuple[str, str]]:
+    """Single-PC tester lens: N1MM + WSJT-X + WIMS server all on this machine.
+
+    Here traffic *staying on this PC is the point*, so loopback and a blank outgoing
+    interface are not errors (the fleet lens flags them). We only flag what would stop
+    the tester: no UDP output, or 'Accept UDP requests' off (then WIMS can watch but
+    cannot Work/Halt the radio). Messages are plain-language with the exact click path.
+    """
+    issues: list[tuple[str, str]] = []
+    server = cfg.g("UDPServer")
+    if not server:
+        return [("error",
+                 "WSJT-X is not sending decodes over UDP. "
+                 "Settings → Reporting → tick 'UDP Server' (use 224.0.0.73, port 2237).")]
+
+    # Both multicast (224.0.0.73) and loopback/unicast (127.0.0.1) reach a local WIMS.
+    if cfg.iface_unset and cfg.is_multicast:
+        issues.append((
+            "warn",
+            "Outgoing interface is blank. On one PC this usually still reaches WIMS — "
+            "but if the WIMS roster stays empty, set Settings → Reporting → "
+            "'Outgoing interface' to the same network adapter WIMS uses (or Loopback)."))
+
+    if cfg.g("AcceptUDPRequests").lower() != "true":
+        issues.append((
+            "warn",
+            "'Accept UDP requests' is OFF — WIMS can watch decodes but cannot Work or "
+            "Halt this radio. Settings → Reporting → tick 'Accept UDP requests' to transmit."))
+
+    if not cfg.g("MyCall"):
+        issues.append(("warn", "Your callsign is blank in WSJT-X (Settings → General → My Call)."))
+    if not cfg.g("MyGrid"):
+        issues.append(("warn", "Your grid is blank in WSJT-X (Settings → General → My Grid)."))
+    return issues
+
+
+def validate(cfg: WsjtxConfig, *, fleet: bool = True, solo: bool = False) -> list[tuple[str, str]]:
+    """Return [(severity, message)] for a config.
 
     `fleet=True` (default) treats loopback-only / unset LAN interface as **errors** —
-    the contest multi-host and multi-consumer setup. Set `fleet=False` for a
-    single-PC lab where 127.0.0.1 unicast to a local WIMS is intentional.
+    the contest multi-host and multi-consumer setup. `fleet=False` is the single-PC
+    lab lens. `solo=True` is the **single-PC tester** lens (this PC runs N1MM + WSJT-X
+    + the WIMS server together): traffic staying on this PC is *correct*, so loopback
+    and a blank outgoing interface are not errors — see `_validate_solo`. `solo` wins.
     """
+    if solo:
+        return _validate_solo(cfg)
+
     issues: list[tuple[str, str]] = []
     server = cfg.g("UDPServer")
     iface = cfg.g("UDPInterface")

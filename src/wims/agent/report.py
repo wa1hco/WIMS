@@ -119,7 +119,7 @@ def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()
         return None
 
 
-def _wsjtx_section(*, fleet: bool = True) -> dict:
+def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
     paths = W.discover_ini_paths()
     configs: list[dict] = []
     error_count = 0
@@ -137,7 +137,7 @@ def _wsjtx_section(*, fleet: bool = True) -> dict:
             continue
         for c in parsed:
             issues = [{"severity": sev, "message": msg}
-                      for sev, msg in W.validate(c, fleet=fleet)]
+                      for sev, msg in W.validate(c, fleet=fleet, solo=solo)]
             error_count += sum(1 for i in issues if i["severity"] == "error")
             warn_count += sum(1 for i in issues if i["severity"] == "warn")
             configs.append({
@@ -219,15 +219,17 @@ def build_report(
     agent_id: str | None = None,
     seat_id: str | None = None,
     fleet: bool = True,
+    solo: bool = False,
     now: float | None = None,
 ) -> dict:
-    """Full agent report (local UI and server POST body)."""
+    """Full agent report (local UI and server POST body). `solo` = single-PC tester
+    lens (this PC runs N1MM + WSJT-X + the WIMS server)."""
     host_name = _hostname()
     aid = (agent_id or os.environ.get("WIMS_AGENT_ID") or host_name).strip()
     sid = (seat_id or os.environ.get("WIMS_SEAT_ID") or "").strip() or None
     ts = time.time() if now is None else now
 
-    wsjtx = _wsjtx_section(fleet=fleet)
+    wsjtx = _wsjtx_section(fleet=fleet, solo=solo)
     n1mm = probe_n1mm()
     apps = {
         "wsjtx_running": _process_running(
@@ -264,7 +266,7 @@ def build_report(
         "n1mm": n1mm,
         "apps": apps,
         "summary": summary,
-        "mode": "fleet" if fleet else "lab",
+        "mode": "solo" if solo else ("fleet" if fleet else "lab"),
     }
 
 
@@ -337,3 +339,99 @@ def format_report_text(report: dict) -> str:
     lines.append("Operator: fix ERROR/WARN items above, then re-run the agent.")
     lines.append("Export: same report can POST to the site WIMS server dashboard.")
     return "\n".join(lines)
+
+
+OK, WARN, BAD = "[OK]", "[! ]", "[XX]"
+
+
+def _solo_body(report: dict) -> tuple[list[str], int, int]:
+    """Build the ✓/!/✗ body lines and count the (errors, warns) actually shown, so
+    the verdict header always matches the body. Single-PC (solo) lens."""
+    body: list[str] = []
+    err = warn = 0
+
+    def add(marker: str, text: str) -> None:
+        nonlocal err, warn
+        if marker == BAD:
+            err += 1
+        elif marker == WARN:
+            warn += 1
+        body.append(f"  {marker} {text}")
+
+    # --- WSJT-X --------------------------------------------------------------
+    wx = report.get("wsjtx") or {}
+    configs = wx.get("configs") or []
+    body.append("WSJT-X")
+    if not configs:
+        add(BAD, "No WSJT-X settings found on this PC. Is WSJT-X installed here?")
+    for c in configs:
+        if len(configs) > 1:
+            body.append(f"  [{c.get('name')}]")
+        server, port = c.get("udp_server") or "", c.get("udp_port") or "2237"
+        accept = (c.get("accept_udp") or "").lower() == "true"
+        call, grid = c.get("my_call") or "", c.get("my_grid") or ""
+        if server:
+            add(OK, f"Sending decodes to {server}:{port} — WIMS will see them.")
+        else:
+            add(BAD, "Not sending decodes over UDP (Settings → Reporting → tick 'UDP Server').")
+        if accept:
+            add(OK, "'Accept UDP requests' is ON — WIMS can Work/Halt this radio.")
+        else:
+            add(WARN, "'Accept UDP requests' is OFF — WIMS can watch but cannot transmit "
+                      "until you tick it (Settings → Reporting).")
+        if call and grid:
+            add(OK, f"Station: {call} / {grid}")
+        # Any remaining solo-lens issues (blank interface, missing call/grid, …). Skip
+        # the 'no UDP server' error — already shown as the BAD line above.
+        for i in c.get("issues") or []:
+            sev, msg = i["severity"], i["message"]
+            if sev == "error" and not server:
+                continue
+            if "Accept UDP requests" in msg:      # already surfaced above
+                continue
+            add(BAD if sev == "error" else WARN, msg)
+
+    # --- N1MM ----------------------------------------------------------------
+    n1 = report.get("n1mm") or {}
+    body.append("")
+    body.append("N1MM  (for the needed-vs-dupe roster test)")
+    dbs = n1.get("databases_dirs") or ([n1["databases_dir"]] if n1.get("databases_dir") else [])
+    if dbs:
+        add(OK, f"Log folder found: {dbs[0]}")
+        if n1.get("s3db_files"):
+            add(OK, f"Log file present ({len(n1['s3db_files'])} .s3db) — dupe/needed can be tested.")
+        else:
+            add(WARN, "No log file yet — open a log in N1MM so dupe/needed shows in the roster.")
+    else:
+        add(WARN, "N1MM not detected here. Fine to just watch decodes; "
+                  "run N1MM (with a log) to test needed-vs-dupe.")
+    return body, err, warn
+
+
+def _counts(report: dict) -> tuple[int, int]:
+    """(errors, warns) as surfaced by the solo view — drives the verdict + exit code."""
+    _body, err, warn = _solo_body(report)
+    return err, warn
+
+
+def format_report_solo(report: dict) -> str:
+    """Noob-friendly single-PC setup check: a plain-language verdict, then one
+    [OK]/[! ]/[XX] line per thing that matters, each with the exact WSJT-X/N1MM fix.
+    No jargon, no site-server hunt — this PC runs everything."""
+    body, err, warn = _solo_body(report)
+    out = ["WIMS setup check — this PC", "=" * 34]
+    if err:
+        out.append(f"{BAD} {err} thing{'s' if err != 1 else ''} to fix before testing.")
+    elif warn:
+        out.append(f"{WARN} Ready to test — {warn} note{'s' if warn != 1 else ''} below.")
+    else:
+        out.append(f"{OK} Ready to test.")
+    out.append("")
+    out.extend(body)
+    out.append("")
+    if err:
+        out.append("Fix the [XX] item(s) above, then run this check again.")
+    else:
+        out.append("Next: start WIMS (Start-Wims-Solo.cmd, or `python -m wims.solo`)")
+        out.append("      then open  http://localhost:8787/  and watch the roster.")
+    return "\n".join(out)

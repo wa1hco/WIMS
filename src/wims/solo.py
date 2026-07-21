@@ -69,7 +69,19 @@ def main() -> None:
                     help="EXPERIMENTAL Call CQ via WSJT-X FreeText (unverified; off by default)")
     ap.add_argument("--no-open", action="store_true",
                     help="do not open the browser on start")
+    ap.add_argument("--no-check", action="store_true",
+                    help="skip the WSJT-X / N1MM setup check printed before start")
     args = ap.parse_args()
+
+    # Friendly single-PC setup check first, so the tester sees "is my setup OK?"
+    # in plain language before the server output scrolls past.
+    if not args.no_check:
+        try:
+            from wims.agent.report import build_report, format_report_solo
+            print(format_report_solo(build_report(solo=True)))
+            print()
+        except Exception as e:
+            print(f"(setup check skipped: {e})\n")
 
     # Translate to server args — solo = localhost, no fleet presence election.
     argv = ["--http-port", str(args.http_port), "--iface", args.iface, "--no-presence"]

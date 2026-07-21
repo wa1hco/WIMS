@@ -69,6 +69,7 @@ class AgentState:
         self.configured_server: str | None = None  # CLI/env, may differ from discover
         self.presence: dict | None = None          # last plane-E beacon
         self.fleet: bool = True
+        self.solo: bool = False
         self.agent_id: str | None = None
         self.seat_id: str | None = None
         self.presence_iface: str = "0.0.0.0"
@@ -78,6 +79,7 @@ class AgentState:
             agent_id=self.agent_id,
             seat_id=self.seat_id,
             fleet=self.fleet,
+            solo=self.solo,
         )
         with self._lock:
             self.report = r
@@ -371,6 +373,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seat-id", default=None, help="contest seat label (e.g. ROY-222)")
     ap.add_argument("--lab", action="store_true",
                     help="lab mode: loopback WSJT-X UDP is warn, not error")
+    ap.add_argument("--solo", action="store_true",
+                    help="single-PC tester: this PC runs N1MM + WSJT-X + the WIMS server. "
+                         "Plain-language check, no site-server search (implies --no-discover).")
     args = ap.parse_args(argv)
 
     # --daemon wins over default --once (mutually exclusive group handles flag; if only
@@ -382,10 +387,20 @@ def main(argv: list[str] | None = None) -> int:
     configured = (args.server or "").strip() or None
     state.configured_server = configured
     state.server_url = configured
-    state.fleet = not args.lab
+    state.solo = bool(args.solo)
+    state.fleet = not (args.lab or args.solo)
     state.agent_id = args.agent_id
     state.seat_id = args.seat_id
     state.presence_iface = args.presence_iface or "0.0.0.0"
+
+    # Solo = everything on one PC: there is no separate site server to hunt for, and
+    # the whole output is the plain-language single-PC check. Short-circuit here.
+    if args.solo:
+        from wims.agent.report import format_report_solo, _counts
+        rep = state.refresh()
+        print(format_report_solo(rep))
+        errs, _warns = _counts(rep)
+        return 1 if errs else 0
 
     if not args.no_discover:
         if P is None:

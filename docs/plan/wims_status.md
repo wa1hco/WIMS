@@ -13,9 +13,11 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ```
 # Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
-python -m wims.solo            # localhost, no presence; opens the browser
+python -m wims.solo            # localhost, no presence; runs setup check then opens browser
 #   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
+#   Setup check only: python -m wims.agent --solo   (Windows: Check-WimsSetup.cmd)
+#   Tester walkthrough: docs/tester_runbook.md
 
 # Fleet / multi-host (site server):
 python src/wims/server/app.py --iface 127.0.0.1
@@ -265,3 +267,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   *Found (pre-existing, not R0):* on **loopback**, the plane-E presence announce on the shared
   `224.0.0.73` group starves the WSJT-X multicast ingest (0 pkts) — `validate.sh` live check now runs
   `--no-presence` (single-host); `wims.solo` already defaults `--no-presence`, so solo is unaffected.
+- **2026-07-20** — **Agent solo mode (noob-friendly setup check).** `wims.agent --solo` + new
+  single-PC validation lens (`wsjtx_config._validate_solo`): the fleet "blank/@Invalid outgoing
+  interface" **ERROR becomes a friendly note** (traffic staying on one PC is correct), and the
+  site-server discovery is skipped. New `format_report_solo` prints a plain-language verdict
+  (`[OK]/[! ]/[XX]`, ASCII for Windows consoles) with the exact WSJT-X/N1MM click-path per item;
+  header count matches the body. Runs automatically at `wims.solo` startup (before the server) and
+  standalone via `scripts\windows\Check-WimsSetup.cmd`. Windows README gained a "Solo tester" section.
+  Tests: `test_agent_solo` (7). Fleet/lab agent output unchanged.

@@ -8,6 +8,27 @@
 | **Radio seat** (N1MM + WSJT-X) | N1MM / WSJT-X / optional GridTracker; **browser** to the server. WIMS install optional |
 | **Operator laptop** | Browser only → `http://<server-ip>:8787/` |
 
+## Solo tester (everything on one PC) — start here if you're trying WIMS out
+
+For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a single FT8
+frequency (any band). No fleet, no separate server.
+
+1. **`Install-Wims.cmd`** — installs prerequisites (once; may prompt for UAC).
+2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`**, tick
+   **"Accept UDP requests"**.
+3. **`Check-WimsSetup.cmd`** — double-click to see a plain-language **[OK] / [! ] / [XX]**
+   check of your WSJT-X + N1MM setup (starts nothing).
+4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
+   `http://localhost:8787/`. Arm TX, click **Work** on a roster row, **Halt TX** to stop.
+
+| File | What it does |
+|------|----------------|
+| **`Check-WimsSetup.cmd`** | Plain-language single-PC setup check (`wims.agent --solo`). Reports what's wrong and the exact WSJT-X/N1MM fix. Starts nothing. |
+| **`Start-Wims-Solo.cmd`** | Solo console: setup check, then the WIMS server on this PC (`python -m wims.solo`, localhost, no fleet presence). |
+
+To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster row turns to
+*dupe*; delete it → back to *needed*.
+
 ## Quick install (Win10 template) — for operators
 
 **No PowerShell knowledge required.** Double-click:
