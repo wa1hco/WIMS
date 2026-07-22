@@ -85,48 +85,52 @@ in the WSJT-X UI** because the UDP API cannot start a CQ or keep answering calle
 ### Deployment context (current operation)
 
 A **fixed, unlimited multi-multi** entry in the **ARRL June & September VHF** contests —
-stationary, **one grid, no roving on our side**. Vehicles: **"Roy"** (truck) 222 + 432;
-**"Chip"** (truck) 903 + 1296 + up (microwave); **"Trailer"** 50 + 144. Each vehicle runs
-WSJT-X instance(s) for its digital bands plus operators on SSB/CW. Today the vehicles have a
-network between them **but no shared visibility — coordination is by chat only.** WIMS's
-headline value is the **cross-vehicle operations console**: one combined call roster, per-vehicle
-band-activity + health, one merged log / dupe-mult view — replacing "anyone there?" over chat.
+stationary, **one grid, no roving on our side**. Vehicles / sites: **"Roy"** (truck) 222 + 432;
+**"Chip"** (truck) 903 + 1296 + up (microwave); **"Trailer"** 50 + 144; plus possible
+**off-trailer radio sites** (e.g. **TV station** tower for one or more **50 MHz** WSJT-X hosts).
+Today the sites have a network between them **but no shared visibility — coordination is by chat
+only.** WIMS's headline value is the **cross-site operations console**: one combined call roster,
+per-band activity + health, one merged log / dupe-mult view — replacing "anyone there?" over chat.
 
-**Digital fleet (authoritative instance/N1MM counts — networking detail in
+**Digital fleet (authoritative — networking detail in
 [wims_networking.md](wims_networking.md)):**
 
-| Seat | N1MM | WSJT-X |
-|------|------|--------|
-| Trailer 50 | N1MM-50 | **3×** FT8, fixed beams in different directions |
-| Trailer 144 | N1MM-144 | **2×** (FT8 + MSK144, or FT8 + EME) |
-| 222 (e.g. Roy) | N1MM-222 | **1×** FT8 |
-| 432 (e.g. Roy) | N1MM-432 | **1×** FT8 |
+| Band | N1MM (one, logger-of-record) | WSJT-X hosts |
+|------|------------------------------|--------------|
+| **50** | **N1MM-50** (typically trailer / central) | **1–N** FT8 instances: trailer beam PCs **and/or remote** (e.g. **TV station PC + radio**). Remote hosts do **not** run a second N1MM for 50 — they only emit plane A multicast; N1MM-50 is sole reader. |
+| **144** | **N1MM-144** | **Up to two** hosts: separate **radio + PC** for FT8 and for MSK144 (or EME); both use **the same** N1MM-144. |
+| **222** | **N1MM-222** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as the period requires (not always digital). |
+| **432** | **N1MM-432** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as equipped. |
 
-→ **4 N1MMs** (one per band) + **7 WSJT-X**, all N1MMs networked into one contest log. Shorthand
-“band = instance” is **false on Trailer** (multi-instance per band); true on 222/432.
+→ **4 N1MMs** (one per band), all networked into one contest log (plane C). WSJT-X count is
+**variable** (remote 50, optional second 144 PC, 222/432 idle of FT8 during SSB runs). Shorthand
+“band = one PC” is **false** on 50 and often 144; **true** for typical 222/432 seats.
 
-- *Mapping:* **vehicle ≈ host(s)**, **instance = one WSJT-X** (`--rig-name` / UDP id);
-  **band = one TX resource group** (one radiated signal — three 6m beams share `50-signal`).
-  Each seat mixed SSB/CW + digital as equipped.
-- *Network:* single **`192.168.10.0/24`, wired L2 switches** → one broadcast domain, so **WSJT-X
-  multicast works across all vehicles natively**. **Segregate UDP by band** (port or group) so
-  each N1MM is the sole logger for its instances; WIMS joins **all** streams — full map in
-  [wims_networking.md](wims_networking.md). Per-vehicle unicast relay (host agent) is a
+- *Mapping:* **site/vehicle ≈ one or more hosts**, **instance = one WSJT-X** (`--rig-name` / UDP
+  id); **band = one TX resource group** (one radiated signal — all 50 MHz radios, including TV
+  station, share `50-signal`; 144 FT8 + MSK share `144-signal`).
+- *Logger vs radio location:* **N1MM need not co-reside with WSJT-X.** Radio and WSJT-X stay at the
+  antenna site; the band’s N1MM may sit at the trailer and ingest multicast. Full rules:
+  [wims_networking.md](wims_networking.md) §1.1–§1.3.
+- *Network:* single **contest LAN**, **wired L2** across trailer, Roy, and remote 50 (TV site) so
+  **WSJT-X multicast works natively**. **Segregate UDP by band** (port or group) so each N1MM is
+  the sole logger for its band; WIMS joins **all** streams. Per-site unicast relay is a
   **fallback**, not required. *Watch:* managed switches with **IGMP snooping** + no querier can
   prune multicast — verify on plain/unmanaged L2 it floods fine. Internet is **1–2 Starlinks**,
   separate Starlink WiFi for other devices — **out of the WIMS data path** (WIMS radio path is
-  LAN-only; Starlink CGNAT/latency never involved).
+  LAN-only; Starlink CGNAT/latency never involved). Remote 50 **must** be on contest L2, not
+  “over the public internet only.”
 - *Rover dupe still applies:* our position is one fixed grid, but we **work rovers** (others'
   stations moving between grids); each grid×band is a mult, so the `(call, band, grid)` dupe key
   (grid from the WSJT-X decode) stays necessary for worked stations.
 - *Arbiter scope:* multi-multi = multiple simultaneous transmitters by design; zero-overlap is
   enforced **per resource group** (transmitter/antenna/PA chain **or same-band signal**, §3.14)
-  — 50, 144, 222, 432 may TX concurrently; the three Trailer-50 instances contend for one
-  `50-signal` token (§3.4).
+  — 50, 144, 222, 432 may TX concurrently; **all** 50 MHz instances (trailer + remote) contend for
+  one `50-signal` token (§3.4).
 - **Operating model — NO automated operation.** Every active transmitter always has a human
-  operator: either the **local op in the seat**, or the **WIMS console operator** who **smoothly
-  takes over** a band when its seat is empty (e.g. 222/432 when nobody's there). WIMS is a
-  **remote operating position + force-multiplier** — one console op covers several empty-seat
+  operator: either the **local op in the seat / remote site**, or the **WIMS console operator** who
+  **smoothly takes over** a band when its seat is empty (e.g. 222/432 when nobody's there). WIMS is
+  a **remote operating position + force-multiplier** — one console op covers several empty-seat
   bands via the call roster + click-to-work. WIMS **ranks/recommends; the human initiates every
   TX**. The key UX is **clean handoff** (local ⇄ WIMS op, instant claim/takeover, §4.5) with always
   exactly one operator per instance (ties to §3.13, §2.3, scenario S7).

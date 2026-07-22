@@ -563,6 +563,90 @@ def http_discover_site_server(
     return _probe_ip_list(rest, http_port, timeout)
 
 
+@dataclass
+class DiscoverResult:
+    """Structured discovery outcome for agents (beacon + UDP/HTTP diagnostics)."""
+
+    beacon: dict | None = None
+    via: str | None = None          # "udp" | "http" | None
+    udp_heard: bool = False
+    udp_error: str | None = None
+    http_found: bool = False
+    http_error: str | None = None
+    hints: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "found": self.beacon is not None,
+            "via": self.via,
+            "udp_heard": self.udp_heard,
+            "udp_error": self.udp_error,
+            "http_found": self.http_found,
+            "http_error": self.http_error,
+            "console_base": (self.beacon or {}).get("console_base"),
+            "hostname": (self.beacon or {}).get("hostname"),
+            "hints": list(self.hints),
+        }
+
+    def format_operator_report(self) -> str:
+        """Plain-language block for console / agent log."""
+        lines: list[str] = []
+        lines.append("Discovery diagnostics")
+        lines.append("--------------------")
+        if self.udp_heard:
+            lines.append(f"  UDP presence:  OK  (heard on :{DEFAULT_PORT})")
+        elif self.udp_error:
+            lines.append(f"  UDP presence:  FAIL  ({self.udp_error})")
+        else:
+            lines.append(f"  UDP presence:  none heard on :{DEFAULT_PORT} "
+                         f"({DEFAULT_GROUP} + broadcast)")
+        if self.http_found:
+            lines.append(f"  HTTP probe:    OK  (found :{DEFAULT_HTTP_PORT}/healthz)")
+        elif self.http_error:
+            lines.append(f"  HTTP probe:    FAIL  ({self.http_error})")
+        elif self.via == "udp":
+            lines.append("  HTTP probe:    skipped (UDP already found server)")
+        else:
+            lines.append(f"  HTTP probe:    no WIMS on local /24s :{DEFAULT_HTTP_PORT}")
+
+        if self.via == "udp":
+            lines.append("  Result: FOUND via UDP — zero-memory path OK")
+        elif self.via == "http":
+            lines.append("  Result: FOUND via HTTP only — UDP is blocked or not reaching this seat")
+            lines.append("  *** UDP PATH BROKEN (fix so seats do not depend on subnet scan) ***")
+        else:
+            lines.append("  Result: NOT FOUND on UDP or HTTP")
+
+        if self.hints:
+            lines.append("  Fix:")
+            for h in self.hints:
+                lines.append(f"    · {h}")
+        return "\n".join(lines)
+
+
+def _udp_block_hints(*, found_via_http: bool) -> list[str]:
+    hints = [
+        f"On site server: confirm log shows presence announce on {DEFAULT_GROUP}:{DEFAULT_PORT}",
+        "Restart site server with --iface <contest-LAN-IP> (e.g. 192.168.1.119)",
+        f"Firewall: allow UDP {DEFAULT_PORT} (and TCP {DEFAULT_HTTP_PORT}) on server + seat",
+        "Seat VM: use bridged networking on the contest LAN (not host-only if server is elsewhere)",
+        "Same L2: seat must ping the server LAN IP; multicast/broadcast do not cross routers",
+    ]
+    if found_via_http:
+        hints.insert(
+            0,
+            "HTTP works — console is reachable; only UDP discovery failed "
+            f"(check UDP {DEFAULT_PORT} multicast/broadcast path)",
+        )
+    else:
+        hints.insert(
+            0,
+            "Neither UDP nor HTTP found the server — check LAN connectivity first "
+            f"(ping / browser http://<server>:{DEFAULT_HTTP_PORT}/healthz)",
+        )
+    return hints
+
+
 def discover_site_server(
     *,
     iface: str = "0.0.0.0",
@@ -573,14 +657,154 @@ def discover_site_server(
     http_fallback: bool = True,
 ) -> dict | None:
     """Agent discovery cascade: UDP presence, then HTTP subnet probe."""
-    peers = listen_for_peers(
-        iface=iface, group=group, port=port, duration_s=duration_s)
+    return discover_site_server_detailed(
+        iface=iface, group=group, port=port, duration_s=duration_s,
+        http_port=http_port, http_fallback=http_fallback,
+    ).beacon
+
+
+def discover_site_server_detailed(
+    *,
+    iface: str = "0.0.0.0",
+    group: str = DEFAULT_GROUP,
+    port: int = DEFAULT_PORT,
+    duration_s: float = STARTUP_LISTEN_S,
+    http_port: int = DEFAULT_HTTP_PORT,
+    http_fallback: bool = True,
+) -> DiscoverResult:
+    """Like discover_site_server but always returns UDP/HTTP diagnostics."""
+    result = DiscoverResult()
+    try:
+        peers = listen_for_peers(
+            iface=iface, group=group, port=port, duration_s=duration_s)
+    except Exception as e:
+        result.udp_error = str(e)
+        peers = []
     if peers:
         peers.sort(key=lambda p: p.get("_heard_at") or 0.0, reverse=True)
-        return peers[0]
+        result.beacon = peers[0]
+        result.via = "udp"
+        result.udp_heard = True
+        return result
+
+    result.udp_heard = False
     if not http_fallback:
-        return None
-    return http_discover_site_server(http_port=http_port)
+        result.hints = _udp_block_hints(found_via_http=False)
+        return result
+
+    try:
+        hit = http_discover_site_server(http_port=http_port)
+    except Exception as e:
+        result.http_error = str(e)
+        hit = None
+    if hit:
+        result.beacon = hit
+        result.via = "http"
+        result.http_found = True
+        result.hints = _udp_block_hints(found_via_http=True)
+        return result
+
+    result.hints = _udp_block_hints(found_via_http=False)
+    return result
+
+
+def server_udp_self_check(
+    *,
+    instance_id: str,
+    http_port: int,
+    iface: str = "0.0.0.0",
+    group: str = DEFAULT_GROUP,
+    port: int = DEFAULT_PORT,
+    ttl: int = DEFAULT_TTL,
+    wait_s: float = 1.5,
+) -> dict:
+    """Site-server self-test: send one multi-path burst, listen for our own beacon.
+
+    Returns a status dict for logs /api/presence. Does not prove seats can hear us,
+    but fails loudly if this host cannot send/receive on the presence port at all.
+    """
+    lan_ip = _primary_lan_ip(iface)
+    beacon = build_beacon(
+        instance_id=instance_id,
+        http_port=http_port,
+        iface=iface,
+        lan_ip=lan_ip,
+        seq=0,
+    )
+    paths = announce_destinations(group=group, port=port, iface=iface)
+    sent = 0
+    listen_err = None
+    heard_self = False
+    try:
+        listen = open_listen_socket(iface, group, port)
+    except Exception as e:
+        return {
+            "ok": False,
+            "udp_self_hear": False,
+            "send_ok": 0,
+            "paths": len(paths),
+            "error": f"listen bind failed: {e}",
+            "hints": _udp_block_hints(found_via_http=False),
+            "lan_ip": lan_ip,
+            "group": group,
+            "port": port,
+        }
+    try:
+        sent = send_beacon_all(
+            beacon, group=group, port=port, iface=iface, ttl=ttl)
+        deadline = time.time() + wait_s
+        while time.time() < deadline:
+            ready, _, _ = select.select([listen], [], [], 0.2)
+            if not ready:
+                # re-send once mid-wait
+                if time.time() < deadline - 0.5:
+                    send_beacon_all(
+                        beacon, group=group, port=port, iface=iface, ttl=ttl)
+                continue
+            try:
+                data, _ = listen.recvfrom(65535)
+            except OSError:
+                continue
+            b = decode_beacon(data)
+            if b and b.get("instance_id") == instance_id:
+                heard_self = True
+                break
+    except Exception as e:
+        listen_err = str(e)
+    finally:
+        try:
+            listen.close()
+        except OSError:
+            pass
+
+    ok = bool(sent > 0 and heard_self)
+    hints: list[str] = []
+    if not sent:
+        hints.append("send_ok=0 — cannot transmit presence (iface/firewall/permissions)")
+    if sent and not heard_self:
+        hints.append(
+            "sends OK but this host did not hear its own beacon — "
+            "check SO_REUSE / multicast loop / local firewall on UDP "
+            f"{port}"
+        )
+        hints.append(
+            "Seats may still hear broadcast; verify from a seat agent discovery report"
+        )
+    if not ok:
+        hints.extend(_udp_block_hints(found_via_http=False)[:3])
+    return {
+        "ok": ok,
+        "udp_self_hear": heard_self,
+        "send_ok": sent,
+        "paths": len(paths),
+        "error": listen_err,
+        "hints": hints,
+        "lan_ip": lan_ip,
+        "console_base": beacon.get("console_base"),
+        "group": group,
+        "port": port,
+        "instance_id": instance_id,
+    }
 
 
 def new_instance_id() -> str:
@@ -609,6 +833,48 @@ class PresenceAnnouncer:
     demoted: bool = False
     last_beacon: dict | None = None
     last_send_ok: int = 0
+    heard_self_at: float | None = None
+    last_peer_count: int = 0
+    listen_error: str | None = None
+
+    def status_dict(self, now: float | None = None) -> dict:
+        """Snapshot for /api/presence and SSE (server-side UDP health)."""
+        now = time.time() if now is None else now
+        self_age = None if self.heard_self_at is None else round(now - self.heard_self_at, 1)
+        udp_ok = (
+            self.last_send_ok > 0
+            and self.heard_self_at is not None
+            and self_age is not None
+            and self_age < 5.0
+        )
+        hints: list[str] = []
+        if self.demoted:
+            hints.append("Demoted — another site server is primary")
+        elif self.listen_error:
+            hints.append(f"Listen error: {self.listen_error}")
+        elif self.last_send_ok == 0:
+            hints.append("No successful presence sends (check iface / permissions)")
+        elif self.heard_self_at is None:
+            hints.append(
+                f"Not hearing own UDP beacons on :{self.port} — local UDP path broken"
+            )
+        elif self_age is not None and self_age >= 5.0:
+            hints.append("Own beacon gone stale — announcer may have stalled")
+        return {
+            "enabled": True,
+            "ok": udp_ok and not self.demoted,
+            "udp_self_hear": self.heard_self_at is not None and (self_age or 99) < 5,
+            "self_hear_age": self_age,
+            "last_send_ok": self.last_send_ok,
+            "seq": self._seq,
+            "demoted": self.demoted,
+            "group": self.group,
+            "port": self.port,
+            "instance_id": self.instance_id,
+            "console_base": (self.last_beacon or {}).get("console_base"),
+            "lan_ips": (self.last_beacon or {}).get("lan_ips") or [],
+            "hints": hints,
+        }
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -628,7 +894,11 @@ class PresenceAnnouncer:
         time.sleep(random.uniform(0.0, 0.35))
         lan_ip = _primary_lan_ip(self.iface)
         lan_ips = list_lan_ipv4s() or [lan_ip]
-        listen = open_listen_socket(self.iface, self.group, self.port)
+        try:
+            listen = open_listen_socket(self.iface, self.group, self.port)
+        except Exception as e:
+            self.listen_error = str(e)
+            return
         try:
             while not self._stop.is_set():
                 ready, _, _ = select.select([listen], [], [], 0.0)
@@ -639,9 +909,15 @@ class PresenceAnnouncer:
                     except OSError:
                         break
                     b = decode_beacon(data)
-                    if b and b.get("instance_id") != self.instance_id:
-                        peers[b.get("instance_id") or id(b)] = b
+                    if not b:
+                        ready, _, _ = select.select([listen], [], [], 0.0)
+                        continue
+                    if b.get("instance_id") == self.instance_id:
+                        self.heard_self_at = time.time()
+                    elif b.get("instance_id"):
+                        peers[b["instance_id"]] = b
                     ready, _, _ = select.select([listen], [], [], 0.0)
+                self.last_peer_count = len(peers)
                 if peers and not self.demoted:
                     self.demoted = True
                     if self.on_conflict:

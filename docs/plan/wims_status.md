@@ -84,7 +84,12 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
   geometry-aware reachability (§3.14), **cross-band opportunity factor (C7)** from prior-contest
   history.
 - [ ] **M4 — multi-instance + rotator + safety.** Rotator: Yaesu/K3NG status + click-to-point
-  from roster Az (§2.10 / §3.8).
+  from roster Az (§2.10 / §3.8):
+  - [ ] **Show antenna pointing** — live az (and el when present) in the browser (Status / Operate)
+  - [ ] **Command: rotate to azimuth** — operator enters or selects a bearing; WIMS commands the rotator
+  - [ ] **Rotate to WSJT-X / roster DX az** — point at DX azimuth (decode grid / roster `az`);
+    human initiates, never unattended slew
+  - [ ] Backend: Yaesu GS-232 via K3NG (primary design); soft limits; serialize multi-rotator moves
 - [ ] **M5 — WIMS op works one band on-air (S&P + tailend)** via roster + click-to-work → Reply
   echoing retained decode (CQ or **73**; GT2 pattern) on one empty seat; Free Text + optional
   closing QSY (G4 / §2.8). **Not** Call CQ — run/autorespond is WSJT-X UI (§2.12).
@@ -105,11 +110,11 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
 | 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
-| 3.8 | Rotator controller | `[ ]` | **Design:** Yaesu/K3NG; Az ant + Az DX; font while rotating; click-to-point (§2.10). Code not started. |
+| 3.8 | Rotator controller | `[ ]` | **Design (§2.10):** Yaesu/K3NG; Az ant + Az DX; font while rotating; click-to-point; set-az; point to roster DX az. Code not started (M4). |
 | 3.9 | Safety / watchdog | `[ ]` | — |
 | 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
 | 3.11 | Config | `[ ]` | scoring weights exist as defaults (`engine/scoring.py`); no Instance-Profile / config files yet. |
-| 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), three pages. Remaining: **subscribe API (§2.11)**, click-to-work/point, claims; roster contract **`az_ant` / `rotator_moving` / Az DX**; published enriched feed. |
+| 3.12 | Server API / integration hub | `[~]` | stdlib HTTP + SSE state contract (`server/state.py`), three pages. Remaining: **subscribe API (§2.11)**, click-to-work/point/set-az, claims; roster **`az_ant` / `rotator_moving` / Az DX**; published enriched feed. |
 | 3.13 | Override interface | `[ ]` | — |
 | 3.15 | Network discovery & diagnostics | `[~]` | passive fleet discovery + health + N1MM any-broadcast presence (`discovery/fleet.py`); **site-server presence plane E** (`discovery/presence.py` — dual-server refuse + agent clickable URLs). Remaining: active probes, expected-vs-actual board, topology map. |
 
@@ -190,6 +195,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   ([wims_networking.md](wims_networking.md)) — Trailer 50×3 + 144×2, 222×1, 432×1; four N1MMs;
   WSJT-X port-per-band segregation; N1MM external multicast; console unicast. Deployment context
   in wims_design.md updated to match. Server still single-port WSJT-X join in code.
+- **2026-07-16** — Networking layout refined: **50 MHz** may include **remote WSJT-X** (e.g. TV
+  station PC) with **common N1MM-50**; **144** may use **separate PC+radio** for FT8 and MSK but
+  **one N1MM-144**; **222/432** single PC each, **SSB and/or FT8**. Docs: wims_networking §1–2/§8,
+  wims_design deployment context.
 - **2026-07-13** — Design: **resilience & guided setup** (wims_networking.md §12) — contest
   profile, seat bring-up, continuous 🟢/🔴 readiness with plain-language fixes, fail-soft TX,
   MVP build order; §2.5 / S1 cross-links in wims_design.md. Not implemented in code yet.
@@ -235,6 +244,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-16** — **Discovery hardened for zero-memory:** multi-NIC multicast + limited/directed
   broadcast announce; agent cascade UDP → HTTP `/healthz` /24 probe; rich `/healthz` with
   `role`/`console_base`/`urls`. Operators should not need `WIMS_SERVER` on the contest LAN.
+- **2026-07-16** — Networking layout refined: **50 MHz** may include **remote WSJT-X** (e.g. TV
+  station PC) with **common N1MM-50**; **144** may use **separate PC+radio** for FT8 and MSK but
+  **one N1MM-144**; **222/432** single PC each, **SSB and/or FT8**. Docs: wims_networking §1–2/§8,
+  wims_design deployment context. M4 rotator checklist: live az, set-az, point-to-DX az.
 - **2026-07-18** — Design only (no code): **closing free text / QSY on final 73** (§2.8, backlog
   G4) — WIMS supports operator-chosen Free Text (e.g. `QSY 432`) at QSO complete. **Cross-band
   opportunity (C7 / §2.9):** evidence-first so the operator can **assess other-band contact

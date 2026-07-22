@@ -15,43 +15,96 @@ failure (decodes work, WIMS never sees UDP).
 
 ## 1. Station layout (digital)
 
+**Invariant:** one **N1MM per band** is the **logger-of-record** for that band’s WSJT-X stream(s).
+WSJT-X hosts may sit **on a different PC or site** than their N1MM as long as they share the
+**contest LAN** (plane A multicast). N1MM does **not** need to co-reside with every radio.
+
 ```
-TRAILER
-├── N1MM-50
-│   ├── WSJT-X  TRAILER-50-A   FT8   (fixed beam az₁)
-│   ├── WSJT-X  TRAILER-50-B   FT8   (fixed beam az₂)
-│   └── WSJT-X  TRAILER-50-C   FT8   (fixed beam az₃)
+50 MHz (band port 2237) — one common N1MM-50
+├── Host(s) at TRAILER (and/or other on-site PCs)
+│   ├── WSJT-X  TRAILER-50-A   FT8   (e.g. fixed beam az₁)
+│   └── WSJT-X  TRAILER-50-B   FT8   (e.g. fixed beam az₂)   … count may vary
 │
-└── N1MM-144
-    ├── WSJT-X  TRAILER-144-FT8     FT8
-    └── WSJT-X  TRAILER-144-MSK     MSK144  (or EME / Q65)
+└── Host at REMOTE SITE (e.g. TV station tower / separate building)
+    └── WSJT-X  TV-50-C        FT8   (own PC + radio; same band stream)
+        → still logged only by N1MM-50 (not a second N1MM)
 
-222 seat (e.g. Roy)
-└── N1MM-222
-    └── WSJT-X  ROY-222-FT8         FT8
+144 MHz (band port 2238) — one common N1MM-144
+├── PC + radio  WSJT-X  TRAILER-144-FT8    FT8
+└── PC + radio  WSJT-X  TRAILER-144-MSK    MSK144  (or EME / Q65)
+    → separate hosts/radios OK; both join 2238; only N1MM-144 ingests
 
-432 seat (e.g. Roy)
-└── N1MM-432
-    └── WSJT-X  ROY-432-FT8         FT8
+222 MHz (band port 2239) — one N1MM-222 + one seat PC (e.g. Roy)
+└── Same PC may run SSB/CW (N1MM voice/CW) and/or WSJT-X FT8 when digital
+    (not always FT8; mode is operator choice for the period)
+
+432 MHz (band port 2240) — one N1MM-432 + one seat PC (e.g. Roy)
+└── Same pattern as 222: one PC, SSB and/or FT8 as equipped
 ```
 
-| | Count |
+| | Typical count (contest-dependent) |
 |--|------:|
-| Digital bands | 4 (50, 144, 222, 432) |
-| N1MM (one per band) | 4 |
-| WSJT-X instances | 7 (3 + 2 + 1 + 1) |
+| Digital bands with N1MM | 4 (50, 144, 222, 432) |
+| N1MM (one per band) | **4** |
+| WSJT-X on 50 | **1–N** (trailer beams + optional remote site e.g. TV station) |
+| WSJT-X on 144 | **up to 2** (FT8 PC + MSK/EME PC), or one if only one mode is run |
+| WSJT-X on 222 / 432 | **0 or 1** each (SSB-only periods have N1MM only) |
 
 **TX resource groups (one radiated signal per band, multi-multi):**
 
-| Band | Instances | Resource group | Concurrent with other bands? |
-|------|-----------|----------------|------------------------------|
-| 50 | A/B/C | `50-signal` — at most one of A/B/C TX | yes |
-| 144 | FT8 + MSK/EME | `144-signal` — at most one TX | yes |
-| 222 | one FT8 | `222-signal` | yes |
-| 432 | one FT8 | `432-signal` | yes |
+| Band | Instances / radios | Resource group | Notes |
+|------|--------------------|----------------|--------|
+| 50 | All 50 MHz WSJT-X (local + remote) | `50-signal` | At most one of them TX; **includes TV-station radio** if on the air |
+| 144 | FT8 PC + MSK PC (if both live) | `144-signal` | At most one TX even across two PCs |
+| 222 | one seat radio | `222-signal` | SSB or FT8 — same physical chain |
+| 432 | one seat radio | `432-signal` | SSB or FT8 — same physical chain |
 
-Instance ids above are examples; convention is `VEHICLE-BAND[-role]` via WSJT-X `--rig-name`
+Instance ids are examples; convention is `SITE-BAND[-role]` via WSJT-X `--rig-name`
 (unique UDP `id` — required; IP alone is not enough when two instances share a host).
+
+### 1.1 Split site: remote WSJT-X, common N1MM (50 MHz TV station, etc.)
+
+```
+  TV-station PC                    Trailer / central site
+  ┌─────────────────┐              ┌──────────────────────┐
+  │ WSJT-X TV-50-C  │──mcast:2237──│ N1MM-50 (reader)     │
+  │ own radio/PA    │              │ only logger for 50   │
+  └─────────────────┘              │ WIMS joins 2237 too  │
+         ▲                         └──────────────────────┘
+         │ contest LAN (same L2 as trailer)
+         └──── must NOT use a second N1MM on the TV PC for this band
+```
+
+| Rule | Why |
+|------|-----|
+| Remote PC runs **WSJT-X only** for that band (optional local agent / GT viewer) | Avoids double-log |
+| **N1MM-50** (one machine) enables the WSJT UDP reader on **2237** | Sole logger-of-record |
+| Both PCs: UDP Server = fleet multicast, **Outgoing interface = contest LAN NIC** | Silent-failure trap §4.1 |
+| Same **Contest LAN** (wired L2 or equivalent) between TV site and N1MM/WIMS | Multicast does not cross the public internet |
+| Unique `--rig-name` (e.g. `TV-50-C`) | WIMS and N1MM distinguish instances |
+
+If the remote site **cannot** join the contest L2, it is **out of scope for plane A** until a
+relay is designed (not default). Unicast-to-N1MM-only without WIMS is a manual exception, not the
+fleet map.
+
+### 1.2 Dual PC on one band (144 FT8 + MSK144)
+
+```
+  PC-144-FT8 ──WSJT-X──┐
+                       ├── 224.0.0.73:2238 ──► N1MM-144 (only reader)
+  PC-144-MSK ──WSJT-X──┘                    ──► WIMS (observer)
+```
+
+- Separate **radio + PC** per mode is expected; **one N1MM-144** still owns the log.  
+- Interlock / resource group `144-signal` still means at most one radiated TX on 144.  
+- Do **not** run a second N1MM WSJT reader on either 144 PC.
+
+### 1.3 Single-PC seats (222 / 432)
+
+- One host runs **N1MM** for that band and, when digital, **one WSJT-X**.  
+- Periods of **SSB/CW only** are normal: N1MM up, no WSJT-X instance (WIMS shows logger via
+  plane B RadioInfo; no digital instance until FT8 starts).  
+- When FT8 is active, same rules as any other band (multicast + unique id + iface).
 
 Microwave (Chip 903+) is out of scope for this map until those seats are wired the same way.
 
@@ -60,19 +113,16 @@ Microwave (Chip 903+) is out of scope for this map until those seats are wired t
 ## 2. Physical / roles
 
 ```
-                    ┌─────────────────────────────────────┐
-                    │     Contest LAN (one L2 domain)     │
-                    │   e.g. 192.168.10.0/24  wired       │
-                    └─────────────────────────────────────┘
-           │              │              │              │
-      TRAILER          TRAILER         222 seat       432 seat
-      (50 hosts)       (144 hosts)     (e.g. Roy)     (e.g. Roy)
-           │              │              │              │
-    ┌──────┴──────┐ ┌─────┴─────┐   ┌────┴────┐    ┌────┴────┐
-    │ N1MM-50     │ │ N1MM-144  │   │N1MM-222 │    │N1MM-432 │
-    │ 3× WSJT-X   │ │ 2× WSJT-X │   │1× WSJT-X│    │1× WSJT-X│
-    │ (+ GT?)     │ │ (+ GT?)   │   │ (+ GT?) │    │ (+ GT?) │
-    └─────────────┘ └───────────┘   └─────────┘    └─────────┘
+                    ┌──────────────────────────────────────────┐
+                    │   Contest LAN (one L2 domain)            │
+                    │   wired across trailer, Roy, remote 50…  │
+                    └──────────────────────────────────────────┘
+         │              │              │              │              │
+    TRAILER 50       TRAILER 144    TV / remote 50   222 seat      432 seat
+    (N1MM-50 +       (N1MM-144 +    (WSJT-X only     (N1MM-222 +   (N1MM-432 +
+     local WSJT-X)    FT8 PC +       for 50; no        one PC,       one PC,
+                      MSK PC)        second N1MM)      SSB and/or    SSB and/or
+                                                       FT8)          FT8)
 
               ┌──────────────────────────┐
               │  WIMS SERVER (site)      │
@@ -83,6 +133,14 @@ Microwave (Chip 903+) is out of scope for this map until those seats are wired t
               HTTP/SSE (unicast) → operator browsers
               (LAN or Tailscale; no multicast over WAN)
 ```
+
+| Role | Where it runs | Notes |
+|------|---------------|--------|
+| **N1MM-50** | Central/trailer (typical) | Logger for **all** 50 MHz WSJT-X, including TV station |
+| **WSJT-X 50** | Trailer PC(s) and/or TV-station PC | Radio lives with the WSJT-X host |
+| **N1MM-144** | Trailer (typical) | Logger for both 144 FT8 and MSK PCs |
+| **WSJT-X 144** | One PC per radio/mode | May be two hosts |
+| **N1MM+WSJT 222/432** | Same seat PC | SSB and/or FT8 on that radio |
 
 Optional **GridTracker**: any operator PC that wants a map/viewer; **never** click-to-work on
 WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
@@ -281,7 +339,8 @@ LAN NIC (e.g. `enp13s0f1` / `192.168.1.x` segment).
 7. OK → **restart that WSJT-X instance** if the UI does not apply UDP changes live.  
 8. Confirm on WIMS Status / roster within ~15–30 s (heartbeat period).
 
-Repeat for **every** instance on the host (Trailer 50×3 means three Reporting setups).
+Repeat for **every** instance on the host (multi-instance hosts, remote TV-station 50 PC,
+and the second 144 PC each need their own Reporting setup).
 
 #### Multi-homed hosts
 
@@ -346,9 +405,10 @@ understand multicast.
 ### N1MM WSJT-X reader (per band)
 
 - Enable WSJT/JTDX UDP reader  
-- IP/port = **that band only**  
-- Second reader off unless this host also logs another stream  
-- Three 6m instances share one port — distinguished by instance id  
+- IP/port = **that band only** (e.g. N1MM-50 → `224.0.0.73:2237` only)  
+- **One reader for the whole band** — including remote WSJT-X (TV station 50, second 144 PC)  
+- Second reader **off** on every other machine (remote 50 PC must **not** run N1MM as a second logger)  
+- Multiple instances on one port are distinguished by UDP `id` (`--rig-name`)  
 
 ### WIMS server
 
@@ -431,34 +491,38 @@ Remote operators: unicast to the **site server** only. Multicast never crosses t
 
 ## 8. Instance ↔ network quick reference
 
-| Instance id (example) | Band | Mode | TX resource group | Multicast | Logger |
-|-----------------------|------|------|-------------------|-----------|--------|
-| TRAILER-50-A | 50 | FT8 | `50-signal` | `224.0.0.73:2237` | N1MM-50 |
-| TRAILER-50-B | 50 | FT8 | `50-signal` | `224.0.0.73:2237` | N1MM-50 |
-| TRAILER-50-C | 50 | FT8 | `50-signal` | `224.0.0.73:2237` | N1MM-50 |
-| TRAILER-144-FT8 | 144 | FT8 | `144-signal` | `224.0.0.73:2238` | N1MM-144 |
-| TRAILER-144-MSK | 144 | MSK/EME | `144-signal` | `224.0.0.73:2238` | N1MM-144 |
-| ROY-222-FT8 | 222 | FT8 | `222-signal` | `224.0.0.73:2239` | N1MM-222 |
-| ROY-432-FT8 | 432 | FT8 | `432-signal` | `224.0.0.73:2240` | N1MM-432 |
+| Instance id (example) | Host / site | Band | Mode | TX group | Multicast | Logger |
+|-----------------------|-------------|------|------|----------|-----------|--------|
+| TRAILER-50-A | Trailer PC | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** |
+| TRAILER-50-B | Trailer PC | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** |
+| TV-50-C | **TV station PC** (remote) | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** (not on TV PC) |
+| TRAILER-144-FT8 | **144 FT8 PC** + radio | 144 | FT8 | `144-signal` | `:2238` | **N1MM-144** |
+| TRAILER-144-MSK | **144 MSK PC** + radio | 144 | MSK/EME | `144-signal` | `:2238` | **N1MM-144** |
+| ROY-222 | Roy seat PC | 222 | SSB and/or FT8 | `222-signal` | `:2239` when FT8 | **N1MM-222** |
+| ROY-432 | Roy seat PC | 432 | SSB and/or FT8 | `432-signal` | `:2240` when FT8 | **N1MM-432** |
+
+Multicast group for all: `224.0.0.73` (port per band as above).
 
 ---
 
 ## 9. Per-machine checklist
 
-### Each WSJT-X instance
+### Each WSJT-X instance (including remote TV-station 50 and second 144 PC)
 - [ ] Unique `--rig-name` / UDP id  
 - [ ] Multicast group + **band port** from §4  
 - [ ] **§4.1:** Outgoing interface = contest LAN NIC (not blank / `@Invalid` / loopback)  
 - [ ] **§4.1:** UDP Server is fleet multicast, not `127.0.0.1`  
+- [ ] On **same contest L2** as the band’s N1MM and WIMS  
 - [ ] `wsjtx_config.py --all` reports **0 errors** on this host  
 - [ ] WIMS sees this instance’s heartbeat (LAN source IP, not only local decode window)  
-- [ ] Exactly **one** N1MM configured as logger for its stream  
+- [ ] Exactly **one** N1MM (the band’s) is the logger — **no** N1MM WSJT reader on remote/extra PCs  
 
 ### Each N1MM (50 / 144 / 222 / 432)
-- [ ] WSJT UDP reader → **only that band’s** group:port  
+- [ ] WSJT UDP reader → **only that band’s** group:port (covers **all** remote instances on that port)  
 - [ ] External broadcast → `224.0.0.73:12060` (or WIMS LAN IP:12060)  
 - [ ] Networked into the **same** contest with the other three N1MMs  
 - [ ] Station name unique and stable (WIMS logger id)  
+- [ ] 222/432: OK if no WSJT-X this hour (SSB-only); reader can stay enabled for when FT8 starts  
 
 ### WIMS server
 - [ ] Join all WSJT-X ports (2237–2240) on the LAN iface  
@@ -479,12 +543,14 @@ Remote operators: unicast to the **site server** only. Multicast never crosses t
 | Lab (dev / single host) | Full contest |
 |-------------------------|--------------|
 | One N1MM (e.g. Windows VM) | Four N1MMs, networked (plane C) |
-| One stream (`2237`) + emulator or few WSJT-X | Seven instances, four ports (plane A) |
-| Optional GridTracker on the WIMS PC | Optional GT per seat |
+| One stream (`2237`) + emulator or few WSJT-X | Multi-host WSJT-X (trailer + remote 50 + dual 144) on four ports |
+| Optional GridTracker on the WIMS PC | Optional GT per seat / remote PC |
 | WIMS with LAN `--iface` + `--n1mm-group 224.0.0.73` | Same server role; join all band ports |
+| All processes on one machine | N1MM and WSJT-X **may be different machines/sites** on one LAN |
 
 Scale path: start with one group:port and one N1MM; **add a port (or group) per band** when a
-second logger comes online so double-log never becomes possible.
+second logger comes online so double-log never becomes possible. Remote 50 / second 144 PC =
+**same port**, extra hosts, **still one N1MM**.
 
 ---
 
@@ -718,15 +784,15 @@ double-log while red**.
 
 ### 12.7 Simple seats vs complex seats
 
-| | 222 / 432 (simple) | Trailer 50 / 144 (complex) |
-|--|--------------------|----------------------------|
-| Profile | One id, one logger, one port | Multiple ids, shared resource group, geometry |
-| Bring-up | “One band, one radio” wizard | Band captain + multi-instance checks |
-| Training | ~2 minutes + wall card | Experienced digital op |
-| Same engine? | Yes — readiness + faults | Yes — more expected rows |
+| | 222 / 432 (simple) | 50 / 144 (complex) |
+|--|--------------------|---------------------|
+| Profile | One PC, one N1MM, SSB and/or FT8 | Multi-host, shared resource group, remote 50 possible |
+| Bring-up | “One band, one radio” wizard | Band captain + multi-instance + remote-site checks |
+| Training | ~2 minutes + wall card | Experienced digital op; remote 50: no second N1MM |
+| Same engine? | Yes — readiness + faults | Yes — more expected rows / hosts |
 
 **Ship guided setup for simple seats first** — highest ROI for operators who do not know WIMS
-internals. Trailer uses the same lights and fault language so the site has one diagnostic culture.
+internals. Complex bands use the same lights and fault language so the site has one diagnostic culture.
 
 ### 12.8 Make misconfig hard (defaults & packaging)
 
