@@ -31,19 +31,29 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 
 ## Quick install (Win10 template) — for operators
 
-**No PowerShell knowledge required.** Double-click:
+**No PowerShell knowledge required.**
+
+### One place to click (recommended) — fleet radio seats
 
 | File | What it does |
 |------|----------------|
-| **`Install-Wims.cmd`** | Installs Python/Git (winget), gets/updates the repo, firewall TCP 8787, desktop shortcut. May prompt for UAC (Administrator). |
-| **`Start-WimsServer.cmd`** | Starts the **site** WIMS server (one per contest LAN). Do **not** run this on every radio seat. |
-| **`Start-WimsAgent.cmd`** | **One-shot** seat config check (prints report, exits). Optional export if `WIMS_SERVER` is set. |
-| **`Start-WimsAgent-Continuous.cmd`** | **Daemon** agent only (UI `:8790` + export). Prefer full seat pack below for fleet VMs. |
-| **`Start-WimsSeat.cmd`** | Start **N1MM → WSJT-X → agent** (staggered). Safe if apps already running. |
-| **`Install-WimsSeatStartup.cmd`** | Put **WIMS Seat** in this user’s **Startup** folder (auto-logon VMs). No admin. |
-| **`Remove-WimsSeatStartup.cmd`** | Remove Startup shortcut. |
-| **`seat-config.example.cmd`** | Template for paths / seat id / which apps to start. |
-| **`seat-local.cmd`** | Machine-specific copy (gitignored) — edit on each clone. |
+| **`WIMS.cmd`** | **Seat menu** — check agent, continuous agent, seat pack, open pages, desktop/Startup helpers. Finds the install automatically. |
+| **`Install-WIMS-Desktop-Shortcut.cmd`** | Puts **WIMS** on the Desktop (points at the menu). Run once per VM. |
+
+After that, operators only need the Desktop **WIMS** icon.
+
+### Other scripts (menu calls these; rarely opened by hand)
+
+| File | What it does |
+|------|----------------|
+| **`Install-Wims.cmd`** | Installs Python/Git (winget), gets/updates the repo, firewall TCP 8787. May prompt for UAC. |
+| **`Start-WimsServer.cmd`** | **Site** WIMS server only (not for radio seats). |
+| **`Start-WimsAgent.cmd`** | One-shot agent check (also menu option 1). |
+| **`Start-WimsAgent-Continuous.cmd`** | Continuous agent (menu option 2). |
+| **`Start-WimsSeat.cmd`** | N1MM/WSJT if needed + agent (menu option 3). |
+| **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |
+| **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). |
+| **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
 
 ### Fleet seat auto-start (Win10 template, auto-logon)
 
@@ -51,27 +61,27 @@ This image logs in as the operator with no password. After the desktop appears, 
 
 1. Edit `scripts\windows\seat-local.cmd` (created from the example on first install):  
    `WIMS_SERVER`, `WIMS_SEAT_ID`, exe paths, `START_N1MM` / `START_WSJTX` / `START_AGENT`.
-2. Double-click **`Install-WimsSeatStartup.cmd`** once.
-3. Optional test: **`Start-WimsSeat.cmd`** (does not wait for reboot).
+2. Double-click **`Install-WimsSeatStartup.cmd`** once (or menu option 7).
+3. Optional test: **`Start-WimsSeat.cmd`** / menu option 3 (does not wait for reboot).
 4. Reboot or sign out/in — N1MM, WSJT-X, and the continuous agent should come up.
 
 Logs: `seat-startup-log.txt`, `agent-daemon-log.txt` next to the scripts.
 
-**Development default:** `START_KILL_EXISTING=1` stops any running N1MM, WSJT-X (`wsjtx`/`jt9`),
-and `wims.agent` before starting again so each logon/run is a clean refresh. Set to `0` later
-if you prefer “don’t touch already-running apps” in production.
+**App policy:** N1MM and WSJT-X are **only started if missing** (never force-killed — avoids blank
+WSJT dialogs and mid-log disruption). The **agent** defaults to
+`START_AGENT_RESTART=1` (kill old `wims.agent`, start fresh) while the agent is in development.
 
 Disable auto-start: **`Remove-WimsSeatStartup.cmd`** or delete  
 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WIMS Seat.lnk`.
 
-Steps:
+Steps (seat / fleet VM):
 
-1. Get the repo onto the VM (`git clone https://github.com/wa1hco/WIMS.git` **or** copy a USB tree).
-2. In Explorer open `WIMS\scripts\windows\`.
-3. Double-click **`Install-Wims.cmd`** → follow prompts / allow UAC.
-4. Double-click **`Start-WimsServer.cmd`** (or Desktop **WIMS Server** after install).
-5. Browser: `http://localhost:8787/` · `/status` · `/setup`
+1. Get the repo onto the VM (`git clone …` **or** USB tree), e.g. `C:\Users\W2SZ\WIMS`.
+2. Open `WIMS\scripts\windows\` once → double-click **`Install-Wims.cmd`** (Python) if needed.
+3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS**.
+4. After that: only use Desktop **WIMS** (menu). Edit `seat-local.cmd` for seat id / server once per clone.
 
+Site server PC (not seats): **`Start-WimsServer.cmd`** → browser `http://localhost:8787/`.
 The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
 
 ### Offline / USB tree

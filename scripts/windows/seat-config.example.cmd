@@ -33,18 +33,19 @@ set "START_N1MM=1"
 set "START_WSJTX=1"
 set "START_AGENT=1"
 
-REM 1 = kill N1MM / WSJT-X / wims.agent first, then start clean (recommended while developing)
-REM 0 = only start apps that are not already running
-set "START_KILL_EXISTING=1"
+REM N1MM / WSJT-X are never force-killed (only started if missing).
+REM 1 = kill existing wims.agent and start a fresh one (recommended while agent is in dev)
+REM 0 = leave a running agent alone
+set "START_AGENT_RESTART=1"
 
-REM Paths — leave blank to use common defaults on this template image
+REM Paths
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
 set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
 
 REM Optional WSJT-X multi-instance: unique --rig-name (sets UDP id). Blank = default config.
 set "WSJTX_RIG_NAME="
 
-REM Delay between apps (seconds) so N1MM is up before WSJT-X
+REM Delay after starting N1MM before starting WSJT-X (seconds)
 set "START_DELAY_SEC=5"
 
 REM Agent continuous: seconds between config reports

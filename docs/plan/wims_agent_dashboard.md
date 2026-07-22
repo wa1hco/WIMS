@@ -66,12 +66,13 @@ Agents silent for **>5 minutes** are pruned from the server store.
 
 | Script | Role |
 |--------|------|
-| `scripts/windows/Start-WimsSeat.cmd` | Kill stale N1MM/WSJT-X/agent → start fresh → continuous agent |
+| `scripts/windows/WIMS.cmd` | Seat menu (check / agent / seat pack / open pages / Desktop shortcut) |
+| `scripts/windows/Start-WimsSeat.cmd` | Start N1MM/WSJT-X if missing; restart agent only (`START_AGENT_RESTART=1`) |
 | `Install-WimsSeatStartup.cmd` | Auto-run seat pack at logon (auto-login VMs) |
 | `Start-WimsAgent.cmd` | One-shot local check only |
 | `Start-WimsAgent-Continuous.cmd` | Daemon only (`--daemon`) |
 
-Config: `scripts/windows/seat-local.cmd` (gitignored) — `WIMS_SERVER=http://192.168.1.119:8787`, `WIMS_SEAT_ID=…`, `START_KILL_EXISTING=1`.
+Config: `scripts/windows/seat-local.cmd` (gitignored) — `WIMS_SERVER=http://192.168.1.119:8787`, `WIMS_SEAT_ID=…`, `START_AGENT_RESTART=1`.
 
 - Local operator UI on the seat: `http://127.0.0.1:8790/`
 - Continuous agent POSTs to: `http://<server>:8787/api/agents/report`

@@ -54,13 +54,80 @@ WSJT-X hosts may sit **on a different PC or site** than their N1MM as long as th
 
 | Band | Instances / radios | Resource group | Notes |
 |------|--------------------|----------------|--------|
-| 50 | All 50 MHz WSJT-X (local + remote) | `50-signal` | At most one of them TX; **includes TV-station radio** if on the air |
+| 50 | All 50 MHz WSJT-X (local + remote, any dual-RX FT8+MSK pairs) | `50-signal` | At most one of them TX; **includes TV-station radio** if on the air |
 | 144 | FT8 PC + MSK PC (if both live) | `144-signal` | At most one TX even across two PCs |
 | 222 | one seat radio | `222-signal` | SSB or FT8 — same physical chain |
 | 432 | one seat radio | `432-signal` | SSB or FT8 — same physical chain |
 
 Instance ids are examples; convention is `SITE-BAND[-role]` via WSJT-X `--rig-name`
 (unique UDP `id` — required; IP alone is not enough when two instances share a host).
+
+### 1.0 Fleet host seats (typical co-located VMs)
+
+Networking allows split hosts (§1.1); **fleet VMs** are usually named by host/seat and run
+N1MM + that seat’s radios together. After clone: set **hostname** + `WIMS_SEAT_ID` to the seat
+name, then define every WSJT-X **`--rig-name`** (UDP `id`) for instances on that host.
+
+```
+TRAILER-50  (host / N1MM-50)          4 radios
+├── Radio SSB/CW                      (no WSJT-X; later: agent mute peer)
+├── Radio A  fixed az₁  dual-RX       WSJT instance(s) — see dual-RX note
+├── Radio B  fixed az₂  dual-RX       …
+└── Radio C  fixed az₃  dual-RX       …
+
+TRAILER-144 (host / N1MM-144)         3 radios
+├── Radio SSB/CW
+├── Radio WSJT FT8                    one WSJT-X (FT8)
+└── Radio WSJT MSK                    one WSJT-X (MSK144 dedicated)
+
+ROY-222     (host / N1MM-222)         1 radio
+└── Radio shared                      switches SSB/CW ↔ WSJT-X (one instance when digital)
+
+ROY-432     (host / N1MM-432)         1 radio
+└── Radio shared                      switches SSB/CW ↔ WSJT-X (one instance when digital)
+```
+
+#### Recommended `--rig-name` (UDP id) table
+
+Convention: `HOST-ROLE` or `HOST-AZ-MODE` — unique fleet-wide; no spaces.
+
+| Host (VM / seat id) | Physical radios | WSJT-X `--rig-name` (UDP id) | Mode(s) | Notes |
+|---------------------|-----------------|------------------------------|---------|--------|
+| **TRAILER-50** | 1× SSB/CW | — | SSB/CW | Not a WSJT instance; interlock peer later |
+| | 3× WSJT, fixed az, dual-RX | **`TRAILER-50-A`**, **`TRAILER-50-B`**, **`TRAILER-50-C`** | FT8 primary | One instance per radio if single mode |
+| | same 3 radios, dual-RX FT8+MSK | **`TRAILER-50-A-FT8`**, **`TRAILER-50-A-MSK`**, … (×3 radios) | FT8 + MSK144 | Two instances **per radio** if both modes live at once |
+| **TRAILER-144** | 1× SSB/CW | — | SSB/CW | |
+| | 1× WSJT FT8 | **`TRAILER-144-FT8`** | FT8 | |
+| | 1× WSJT MSK | **`TRAILER-144-MSK`** | MSK144 | Dedicated MSK radio |
+| **ROY-222** | 1× shared | **`ROY-222-FT8`** (or `ROY-222`) | FT8 when digital | Same radio as SSB/CW — op/mode switch |
+| **ROY-432** | 1× shared | **`ROY-432-FT8`** (or `ROY-432`) | FT8 when digital | Same radio as SSB/CW |
+| **TV / remote 50** | remote radio | **`TV-50-C`** (example) | FT8 | WSJT only; still logged by **N1MM-50** (§1.1) |
+
+**Dual-RX (50):** if a radio runs FT8 and MSK144 **at the same time**, that is **two WSJT-X processes**
+(two rig-names) sharing one TX resource (one PA/antenna) — arbiter must treat them as one
+resource group for TX (`50-signal`). If the op only ever runs one mode at a time, a **single**
+rig-name per radio is enough and mode is changed inside WSJT-X.
+
+Baseline **instance count** if 50 runs three radios FT8-only + 144 has FT8+MSK + 222 + 432:
+
+| | Count |
+|--|------:|
+| Hosts / N1MM seats (co-located model) | 4 (+ optional remote WSJT-only hosts) |
+| SSB/CW radios | 4 (one per host; 222/432 share the box with digital) |
+| WSJT-X instances (min) | **3 + 2 + 1 + 1 = 7** |
+| WSJT-X if 50 dual-RX both modes live | **6 + 2 + 1 + 1 = 10** |
+
+SSB/CW on 50/144 is a **separate radio** (not in the WSJT instance list) but same-band priority
+still applies for the 10 ms mute path (design §3.4.1). On 222/432, SSB/CW and WSJT share one radio.
+
+#### After cloning a template VM
+
+1. Set **Windows hostname** = seat name (`TRAILER-50`, …).  
+2. Set **`WIMS_SEAT_ID`** in `seat-local.cmd` to the same string.  
+3. Create **desktop/startup shortcuts** (or seat apply later) for each WSJT-X with the
+   **`--rig-name=`** values above — **do this before** relying on the dashboard.  
+4. Each instance: UDP `224.0.0.73`, **band port** (§4), Outgoing interface = LAN.  
+5. N1MM on that host: Station/computer name unique; WSJT reader joins **only that band’s port**.
 
 ### 1.1 Split site: remote WSJT-X, common N1MM (50 MHz TV station, etc.)
 
@@ -201,6 +268,7 @@ can find the server even when **all** UDP presence is blocked.
 
 **Code:** `src/wims/discovery/presence.py` · server `--presence-*` / `--no-presence` /
 `--force-server` · agent `--no-discover`.
+
 ---
 
 ## 4. Plane A — WSJT-X multicast (segregated by band)
@@ -493,13 +561,13 @@ Remote operators: unicast to the **site server** only. Multicast never crosses t
 
 | Instance id (example) | Host / site | Band | Mode | TX group | Multicast | Logger |
 |-----------------------|-------------|------|------|----------|-----------|--------|
-| TRAILER-50-A | Trailer PC | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** |
-| TRAILER-50-B | Trailer PC | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** |
+| TRAILER-50-A (or `-A-FT8` / `-A-MSK`) | TRAILER-50 VM | 50 | FT8 (±MSK dual-RX) | `50-signal` | `:2237` | **N1MM-50** |
+| TRAILER-50-B / TRAILER-50-C | TRAILER-50 VM | 50 | FT8 (±MSK dual-RX) | `50-signal` | `:2237` | **N1MM-50** |
 | TV-50-C | **TV station PC** (remote) | 50 | FT8 | `50-signal` | `:2237` | **N1MM-50** (not on TV PC) |
 | TRAILER-144-FT8 | **144 FT8 PC** + radio | 144 | FT8 | `144-signal` | `:2238` | **N1MM-144** |
 | TRAILER-144-MSK | **144 MSK PC** + radio | 144 | MSK/EME | `144-signal` | `:2238` | **N1MM-144** |
-| ROY-222 | Roy seat PC | 222 | SSB and/or FT8 | `222-signal` | `:2239` when FT8 | **N1MM-222** |
-| ROY-432 | Roy seat PC | 432 | SSB and/or FT8 | `432-signal` | `:2240` when FT8 | **N1MM-432** |
+| ROY-222-FT8 (or `ROY-222`) | Roy seat PC | 222 | SSB and/or FT8 | `222-signal` | `:2239` when FT8 | **N1MM-222** |
+| ROY-432-FT8 (or `ROY-432`) | Roy seat PC | 432 | SSB and/or FT8 | `432-signal` | `:2240` when FT8 | **N1MM-432** |
 
 Multicast group for all: `224.0.0.73` (port per band as above).
 

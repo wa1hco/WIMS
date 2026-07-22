@@ -19,9 +19,12 @@ REM You should have received a copy of the GNU General Public License
 REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 setlocal EnableExtensions EnableDelayedExpansion
-REM Start contest seat apps after auto-logon: kill stale -> N1MM -> WSJT-X -> agent.
-REM Dev-friendly: by default kills existing instances so each start is a clean refresh.
+REM Start contest seat apps after auto-logon: N1MM / WSJT-X if needed, always refresh agent.
 REM Does NOT start the site WIMS server.
+REM
+REM N1MM + WSJT-X: start only if not already running (no force-kill — avoids blank
+REM WSJT dialogs and mid-log disruption).
+REM Agent: kill any existing wims.agent then start fresh (dev-friendly).
 REM
 REM Paths may contain parentheses (Program Files (x86)). Use delayed expansion !VAR!.
 
@@ -44,8 +47,8 @@ set "WIMS_SEAT_ID="
 set "START_N1MM=1"
 set "START_WSJTX=1"
 set "START_AGENT=1"
-REM Default ON for development: always kill then start fresh
-set "START_KILL_EXISTING=1"
+REM Kill only the WIMS agent before restart (not N1MM/WSJT-X)
+set "START_AGENT_RESTART=1"
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
 set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
 set "WSJTX_RIG_NAME="
@@ -58,7 +61,7 @@ if not exist "%HERE%seat-local.cmd" if exist "%HERE%seat-config.example.cmd" cal
 set "LOG=%HERE%seat-startup-log.txt"
 echo [%DATE% %TIME%] Start-WimsSeat begin > "%LOG%"
 echo Repo=%ROOT%>> "%LOG%"
-echo Server=%WIMS_SERVER% seat=%WIMS_SEAT_ID% kill=!START_KILL_EXISTING!>> "%LOG%"
+echo Server=%WIMS_SERVER% seat=%WIMS_SEAT_ID% agent_restart=!START_AGENT_RESTART!>> "%LOG%"
 
 echo.
 echo  WIMS seat startup
@@ -66,58 +69,15 @@ echo  =================
 echo  Repo:   %ROOT%
 echo  Server: %WIMS_SERVER%
 if defined WIMS_SEAT_ID echo  Seat:   %WIMS_SEAT_ID%
-echo  Kill:   !START_KILL_EXISTING!  ^(1=stop old instances first^)
+echo  Apps:   N1MM/WSJT-X start if missing; agent restart=!START_AGENT_RESTART!
 echo  Log:    %LOG%
 echo.
 
-if not "!START_KILL_EXISTING!"=="1" goto after_kill
-echo  Stopping any existing seat processes...
-echo kill phase>> "%LOG%"
-
-REM WIMS agent only (not every python.exe)
-for /f "skip=1 tokens=1" %%P in ('wmic process where "CommandLine like '%%wims.agent%%'" get ProcessId 2^>nul') do (
-  if not "%%P"=="" if not "%%P"=="ProcessId" (
-    echo    kill wims.agent PID %%P
-    taskkill /PID %%P /F >nul 2>&1
-    echo killed agent %%P>> "%LOG%"
-  )
-)
-
-REM WSJT-X + decoder helper
-taskkill /IM wsjtx.exe /F >nul 2>&1
-if not errorlevel 1 (
-  echo    killed wsjtx.exe
-  echo killed wsjtx>> "%LOG%"
-)
-taskkill /IM jt9.exe /F >nul 2>&1
-if not errorlevel 1 (
-  echo    killed jt9.exe
-  echo killed jt9>> "%LOG%"
-)
-
-REM N1MM Logger+
-taskkill /IM N1MMLogger.net.exe /F >nul 2>&1
-if not errorlevel 1 (
-  echo    killed N1MMLogger.net.exe
-  echo killed n1mm>> "%LOG%"
-)
-
-REM Free agent port if something still holds it
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr /R /C:":8790 .*LISTENING"') do (
-  if not "%%P"=="0" (
-    echo    kill PID %%P on port 8790
-    taskkill /PID %%P /F >nul 2>&1
-    echo killed port8790 %%P>> "%LOG%"
-  )
-)
-
-ping -n 3 127.0.0.1 >nul
-echo  Kill phase done.
-echo.
-
-:after_kill
+REM ---- N1MM: start only if not running ----
 if not "!START_N1MM!"=="1" goto skip_n1mm
 if not exist "!N1MM_EXE!" goto n1mm_missing
+tasklist /FI "IMAGENAME eq N1MMLogger.net.exe" 2>nul | find /I "N1MMLogger.net.exe" >nul
+if not errorlevel 1 goto n1mm_running
 echo  Starting N1MM...
 start "N1MM" /MIN "!N1MM_EXE!"
 echo started N1MM>> "%LOG%"
@@ -126,6 +86,11 @@ goto after_n1mm
 :n1mm_missing
 echo  WARN: N1MM not found: !N1MM_EXE!
 echo N1MM missing>> "%LOG%"
+goto after_n1mm
+
+:n1mm_running
+echo  N1MM already running - leave it
+echo N1MM already running>> "%LOG%"
 goto after_n1mm
 
 :skip_n1mm
@@ -138,8 +103,11 @@ echo  Waiting !START_DELAY_SEC!s...
 set /a _PING_N=!START_DELAY_SEC!+1
 ping -n !_PING_N! 127.0.0.1 >nul
 
+REM ---- WSJT-X: start only if not running ----
 if not "!START_WSJTX!"=="1" goto skip_wsjtx
 if not exist "!WSJTX_EXE!" goto wsjtx_missing
+tasklist /FI "IMAGENAME eq wsjtx.exe" 2>nul | find /I "wsjtx.exe" >nul
+if not errorlevel 1 goto wsjtx_running
 echo  Starting WSJT-X...
 if defined WSJTX_RIG_NAME if not "!WSJTX_RIG_NAME!"=="" goto wsjtx_named
 start "WSJTX" "!WSJTX_EXE!"
@@ -156,6 +124,11 @@ echo  WARN: WSJT-X not found: !WSJTX_EXE!
 echo WSJTX missing>> "%LOG%"
 goto after_wsjtx
 
+:wsjtx_running
+echo  WSJT-X already running - leave it
+echo WSJTX already running>> "%LOG%"
+goto after_wsjtx
+
 :skip_wsjtx
 echo  Skip WSJT-X START_WSJTX=0
 echo skip WSJTX>> "%LOG%"
@@ -163,11 +136,52 @@ echo skip WSJTX>> "%LOG%"
 :after_wsjtx
 ping -n 3 127.0.0.1 >nul
 
+REM ---- Agent: optional kill, then start ----
 if not "!START_AGENT!"=="1" goto skip_agent
 if not exist "%HERE%Start-WimsAgent-Continuous.cmd" goto agent_missing
+
+if not "!START_AGENT_RESTART!"=="1" goto agent_maybe_running
+
+echo  Restarting WIMS agent...
+for /f "skip=1 tokens=1" %%P in ('wmic process where "CommandLine like '%%wims.agent%%'" get ProcessId 2^>nul') do (
+  if not "%%P"=="" if not "%%P"=="ProcessId" (
+    echo    kill wims.agent PID %%P
+    taskkill /PID %%P /F >nul 2>&1
+    echo killed agent %%P>> "%LOG%"
+  )
+)
+REM Free port 8790 if a dead listener remains
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr /R /C:":8790 .*LISTENING"') do (
+  if not "%%P"=="0" (
+    taskkill /PID %%P /F >nul 2>&1
+    echo killed port8790 %%P>> "%LOG%"
+  )
+)
+ping -n 2 127.0.0.1 >nul
+goto agent_start
+
+:agent_maybe_running
+wmic process where "CommandLine like '%%wims.agent%%'" get ProcessId 2>nul | findstr /R "[0-9]" >nul
+if not errorlevel 1 goto agent_already
+netstat -ano 2>nul | findstr /R /C:":8790 .*LISTENING" >nul
+if not errorlevel 1 goto agent_port_busy
+
+:agent_start
 echo  Starting WIMS agent continuous - UI http://127.0.0.1:8790/
 start "WIMS Agent" /MIN cmd /c call "%HERE%Start-WimsAgent-Continuous.cmd"
 echo started agent>> "%LOG%"
+goto after_agent
+
+:agent_already
+echo  WIMS agent already running - OK
+echo  Local UI: http://127.0.0.1:8790/
+echo agent already running>> "%LOG%"
+goto after_agent
+
+:agent_port_busy
+echo  WARN: port 8790 in use but no wims.agent found
+echo  Set START_AGENT_RESTART=1 in seat-local.cmd to free it.
+echo agent port busy>> "%LOG%"
 goto after_agent
 
 :agent_missing
@@ -181,7 +195,7 @@ echo skip agent>> "%LOG%"
 
 :after_agent
 echo.
-echo  Seat startup finished ^(fresh instances^).
+echo  Seat startup finished.
 echo  Agent UI: http://127.0.0.1:8790/
 echo  Full log: %LOG%
 echo [%DATE% %TIME%] Start-WimsSeat done>> "%LOG%"
