@@ -617,10 +617,10 @@ let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 
 function rosWork(c) {
-  // Click-to-work: answer this station (server sends Reply). Disabled unless TX is
-  // armed (can_tx) — the button is only a request; the server re-checks arm+arbiter.
+  // Affordance only — primary path is click on the roster *line* (GT2-style).
+  // Disabled only when the console is read-only (--no-tx).
   const on = _txState && _txState.can_tx;
-  const title = on ? "Answer " + esc(c.call) : "arm TX to work stations";
+  const title = on ? "Answer " + esc(c.call) : "TX disabled (read-only console)";
   return `<button class="txbtn work" data-row="${esc(c.id||"")}"` +
          `${on ? "" : " disabled"} title="${title}">Work</button>`;
 }
@@ -694,18 +694,22 @@ function rosDraw() {
     ` · showing ${rows.length} · strategy ${r.strategy} · band ${r.condition}`;
   const body = $("ros-body"); body.innerHTML = "";
   $("ros-empty").style.display = rows.length ? "none" : "block";
+  const canWork = !!( _txState && _txState.can_tx );
   for (const c of rows) {
     const tr = document.createElement("tr");
-    tr.className = (c.is_new_mult ? "mult " : "") + (c.is_needed ? "" : "dupe");
+    tr.className = (c.is_new_mult ? "mult " : "") + (c.is_needed ? "" : "dupe") +
+                   (canWork ? " workable" : "");
+    if (c.id) tr.dataset.row = c.id;
+    if (canWork) tr.title = "Click to work " + (c.call || "");
     tr.innerHTML = ROS_COLS.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
     body.appendChild(tr);
   }
 }
 
-// -- TX control (arm / work / halt / cq) ------------------------------------ //
+// -- TX control (work / halt; no global arm — GT2-style roster click) ------- //
 
-let _txState = null;      // latest tx block; rosWork() reads can_tx from it
+let _txState = null;      // latest tx block; can_tx when controller is wired
 let _txWired = false;
 
 async function txPost(url, payload) {
@@ -722,8 +726,7 @@ function txFlash(j, url) {
   if (j.ok) {
     m.className = "meta";
     m.textContent = j.sent === "reply" ? `→ working ${j.call}`
-      : Array.isArray(j.halted) ? `halted ${j.halted.length}`
-      : label === "arm" ? (j.armed ? "TX armed" : "TX disarmed") : "ok";
+      : Array.isArray(j.halted) ? `halted ${j.halted.length}` : "ok";
   } else {
     m.className = "meta warn";
     m.textContent = `${label}: ${j.detail || j.error || "failed"}`;
@@ -733,42 +736,41 @@ function txFlash(j, url) {
 function txWire() {
   if (_txWired) return;
   _txWired = true;
-  const arm = $("tx-arm-btn");
-  if (arm) arm.addEventListener("click",
-    () => txPost("/api/tx/arm", {armed: !(_txState && _txState.armed)}));
-  const cq = $("tx-cq");
-  if (cq) cq.addEventListener("click", () => txPost("/api/tx/cq", {}));
   const halt = $("tx-halt");
   if (halt) halt.addEventListener("click", () => txPost("/api/tx/halt", {}));
-  // Delegated click-to-work on the roster body (rows are rebuilt every frame).
+  // Click a roster *line* (or the Work button) → Reply. GT2-style; no arm switch.
   const body = $("ros-body");
   if (body) body.addEventListener("click", (e) => {
-    const btn = e.target.closest("button.work"); if (!btn || btn.disabled) return;
-    if (btn.dataset.row) txPost("/api/tx/work", {row_id: btn.dataset.row});
+    if (!(_txState && _txState.can_tx)) return;
+    const btn = e.target.closest("button.work");
+    if (btn) {
+      if (btn.disabled || !btn.dataset.row) return;
+      txPost("/api/tx/work", {row_id: btn.dataset.row});
+      return;
+    }
+    const tr = e.target.closest("tr[data-row]");
+    if (tr && tr.dataset.row) txPost("/api/tx/work", {row_id: tr.dataset.row});
   });
 }
 
-function renderTxArm(tx) {
-  if (!$("tx-arm")) return;                 // not on this page
-  _txState = tx || {enabled: false, armed: false, can_tx: false};
+function renderTxBar(tx) {
+  if (!$("tx-status") && !$("tx-halt")) return;  // not on Operate
+  _txState = tx || {enabled: false, can_tx: false};
   txWire();
-  const arm = $("tx-arm"), btn = $("tx-arm-btn"), cq = $("tx-cq"), halt = $("tx-halt");
-  if (!_txState.enabled) {                   // --no-tx: read-only console
-    arm.textContent = "TX OFF (read-only)"; arm.className = "banner";
-    [btn, cq, halt].forEach(b => b && (b.disabled = true));
+  const status = $("tx-status"), halt = $("tx-halt");
+  if (!_txState.enabled) {
+    if (status) {
+      status.textContent = "TX OFF (read-only console)";
+      status.className = "banner";
+    }
+    if (halt) halt.disabled = true;
     return;
   }
-  const armed = !!_txState.armed;
-  arm.textContent = armed ? "● TX ARMED" : "TX DISARMED";
-  arm.className = "banner " + (armed ? "tx" : "alarm");
-  if (btn) { btn.textContent = armed ? "Disable TX" : "Enable TX"; btn.disabled = false; }
-  if (halt) halt.disabled = false;           // panic stop always available
-  if (cq) {
-    cq.disabled = !(armed && _txState.cq_enabled);
-    cq.title = _txState.cq_enabled
-      ? (armed ? "Call CQ (experimental one-shot)" : "arm TX first")
-      : "Call CQ from WSJT-X directly — WSJT-X UDP has no Call CQ";
+  if (status) {
+    status.textContent = "Click a roster line to work · CQ in WSJT-X";
+    status.className = "banner ok";
   }
+  if (halt) halt.disabled = false;           // panic stop always available
 }
 
 // -- dispatch + connect ----------------------------------------------------- //
@@ -777,7 +779,7 @@ function render(s) {
   renderHeader(s);
   renderSystem(s);
   renderAgents(s);
-  renderTxArm(s.tx);                          // before roster: rosWork() reads can_tx
+  renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
   renderInterlock(s.interlock);
   renderRoster(s.roster);
   renderInstances(s);

@@ -349,10 +349,11 @@ SSB/CW or hand off to a 2nd op.
   **subscription is what fills their call roster** with decodes from those bands (§2.11). Distinct
   from (but related to) TX control claim (§4.5): subscribe = “show me this band”; claim = “I may
   command TX/rotator on it.”
-- **Click-to-work (S&P + tailend)** — operator clicks a roster station → WIMS sends **Reply**
-  echoing that station’s retained decode via the arbiter + control claim (§Goals; §2.12; §3.12).
-  Covers answering **CQ/QRZ** and **tailending** on a **73** (and other lines WSJT-X will accept —
-  §2.12). Primary WIMS-driven TX path. **Not** a substitute for the WSJT-X run/CQ UI.
+- **Click-to-work (S&P + tailend)** — operator **clicks a roster line** (GridTracker2-style; no
+  Enable/Disable TX arm) → WIMS sends **Reply** echoing that station’s retained decode via the
+  arbiter + control claim (§Goals; §2.12; §3.12). Covers answering **CQ/QRZ** and **tailending** on
+  a **73** (and other lines WSJT-X will accept — §2.12). Primary WIMS-driven TX path. **Not** a
+  substitute for the WSJT-X run/CQ UI.
 - **No “Call CQ” console button (product path)** — starting a run is done in the **WSJT-X UI** at
   the seat (or via remote desktop/KVM to that seat). See §2.12. An experimental FreeText CQ API
   may exist for lab spikes only; it must not be presented as run mode.
@@ -844,14 +845,13 @@ UI rules:
   Free Text (close/QSY), Replay; optional later `configure` for generate-messages-only. **No**
   `call_cq` in the supported API surface (lab flag only). Retain full decode fields on the roster
   (time/snr/dt/df/mode/message/…) so Reply can match Band Activity.
-- **TX arm/disarm master switch (RESOLVED).** A single console-global TX enable, **DISARMED by
-  default** and only ever armed by an explicit human click — the concrete expression of "a human
-  initiates every TX / no automated TX." While disarmed, `reply`/`cq` are refused (409) and nothing
-  is sent; **`halt` is always accepted** (a stop is a safety action). It sits *above* the per-instance
-  claim (§4.5) and the arbiter (§3.4): arm = "I intend to transmit from this console," claim = "on
-  this instance," arbiter = "≤1 per resource group." Surfaced on the `tx` state block
-  (`armed`/`can_tx`) and shown loudly on Operate. Fail-safe: a stale/idle console simply stays
-  disarmed → RX. First real-WSJT-X bring-up is arm-gated and dummy-load-first.
+- **No global TX arm / Enable / Disable (RESOLVED — GT2 workflow).** Operate does **not** have a
+  master Enable TX / Disable TX switch. **Human initiation is the roster action itself:** click a
+  call-roster **line** (or its Work control) → WIMS sends Reply — same mental model as
+  **GridTracker2** (select station → work). No automated/unattended TX: nothing transmits until
+  that click. Gates that remain: `--no-tx` read-only, control claim (§4.5), arbiter ≤1 per group
+  (§3.4), readiness fail-soft. **`halt` is always available** (panic stop). State block: `enabled` /
+  `can_tx` (wired controller) — no `armed` flag.
 - **§3.5** — “run vs S&P” is an **advisory recommendation** (conditions open → suggest seat run;
   thin → suggest WIMS S&P/tailend), not an actuator. Give-up still applies to **WIMS-started**
   QSOs. Ranking should value **fresh 73** on needed mults (tailend opportunity), not only CQs.

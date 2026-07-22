@@ -16,9 +16,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Server TX control — arm gating, click-to-work Reply, panic Halt, arbiter release,
-CQ gate, and the read-only (--no-tx) path (plan §3.2 / §4.5). No sockets: a fake
-controller records what would be sent."""
+"""Server TX control — click-to-work Reply (GT2-style, no global arm), panic Halt,
+arbiter release, CQ gate, and the read-only (--no-tx) path (plan §3.2 / §2.12).
+No sockets: a fake controller records what would be sent."""
 
 import sys
 import time
@@ -71,25 +71,19 @@ def test_hf_band_derivation():
     assert _live.snapshot(time.time())["roster"]["candidates"][0]["band"] == "20m"
 
 
-def test_work_refused_while_disarmed():
+def test_work_sends_reply_without_arm():
+    """Roster click is the human gate — no Enable TX master switch (GT2-style)."""
     live, tx, row_id = _fleet_with_cq_decode()
-    assert live.work_station(row_id) == {"ok": False, "error": "disarmed"}
-    assert tx.sent == []                      # fail-safe: nothing transmitted
-
-
-def test_work_sends_reply_when_armed():
-    live, tx, row_id = _fleet_with_cq_decode()
-    assert live.arm(True) == {"ok": True, "armed": True}
     r = live.work_station(row_id)
     assert r["ok"] and r["sent"] == "reply" and r["call"] == "K1ABC"
     assert tx.sent[-1] == ("reply", MID, "CQ K1ABC FN31")   # exact echo of the decode
 
 
-def test_snapshot_tx_block_reflects_arm_and_holder():
+def test_snapshot_tx_block_can_tx_when_enabled():
     live, _tx, row_id = _fleet_with_cq_decode()
     tx0 = live.snapshot(time.time())["tx"]
-    assert tx0["enabled"] and not tx0["armed"] and not tx0["can_tx"]
-    live.arm(True)
+    assert tx0["enabled"] and tx0["can_tx"]
+    assert "armed" not in tx0
     live.work_station(row_id)
     tx1 = live.snapshot(time.time())["tx"]
     assert tx1["can_tx"] and tx1["holders"].get(MID) == MID
@@ -97,7 +91,6 @@ def test_snapshot_tx_block_reflects_arm_and_holder():
 
 def test_arbiter_releases_on_tx_to_rx_edge():
     live, _tx, row_id = _fleet_with_cq_decode()
-    live.arm(True)
     live.work_station(row_id)
     now = time.time()
     live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, transmitting=True)), now, "127.0.0.1")
@@ -105,17 +98,15 @@ def test_arbiter_releases_on_tx_to_rx_edge():
     assert live.snapshot(now)["tx"]["holders"] == {}
 
 
-def test_halt_allowed_even_while_disarmed():
+def test_halt_always_available():
     live, tx, _row_id = _fleet_with_cq_decode()
-    live.arm(False)
     r = live.halt()
     assert r["ok"] and MID in r["halted"]
     assert any(s[0] == "halt" for s in tx.sent)
 
 
-def test_work_unknown_row_when_armed():
+def test_work_unknown_row():
     live, _tx, _row_id = _fleet_with_cq_decode()
-    live.arm(True)
     assert live.work_station("no|such|row") == {"ok": False, "error": "unknown_row"}
 
 
@@ -129,6 +120,7 @@ def test_no_tx_path_is_read_only():
     assert live.work_station("x")["error"] == "tx_disabled"
     assert live.halt()["error"] == "tx_disabled"
     assert live.snapshot(time.time())["tx"]["enabled"] is False
+    assert live.snapshot(time.time())["tx"]["can_tx"] is False
 
 
 if __name__ == "__main__":

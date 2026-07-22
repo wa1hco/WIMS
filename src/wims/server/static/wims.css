@@ -157,7 +157,9 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
 .txbtn:disabled { opacity:.45; cursor:not-allowed; }
-.txbtn.arm { font-weight:bold; }
+/* Roster line clickable for GT2-style Work (no global arm switch). */
+#ros-body tr.workable { cursor: pointer; }
+#ros-body tr.workable:hover { filter: brightness(0.97); }
 .txbtn.halt { color:#fff; background:var(--dead); border-color:var(--dead); font-weight:bold; }
 .txbtn.halt:hover:not(:disabled) { background:#a40e26; }
 td.act, th.act { width:1%; white-space:nowrap; }

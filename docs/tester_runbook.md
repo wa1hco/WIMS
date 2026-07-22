@@ -85,14 +85,13 @@ that's expected and harmless.)
 
 ## 6. Transmitting — answer a station  *(provisional: dummy load / low power first)*
 
-WIMS never transmits on its own. There is a master switch that starts **DISARMED**.
+WIMS never transmits on its own. There is **no Enable/Disable TX arm** — same idea as
+GridTracker2: **click a line on the call roster** to work that station.
 
-1. On the Operate page, click **Enable TX**. The indicator turns to **TX ARMED** (loud).
-2. Each roster row now shows a **Work** button. Click it to answer that station — WSJT-X
-   starts the QSO (it "replies" to that decode exactly as if you'd double-clicked it in
-   WSJT-X).
-3. **Halt TX** is always available — it's the panic stop; click it to stop transmitting.
-4. When done, click **Disable TX** to disarm.
+1. On the Operate page, find a station on the roster.
+2. **Click the roster line** (or its **Work** button). WSJT-X starts the QSO (Reply to that
+   decode, as if you'd double-clicked it in WSJT-X / GT2).
+3. **Halt TX** is always available — the panic stop; click it to stop transmitting.
 
 > First time, run into a **dummy load or at low power** and confirm: (a) WSJT-X actually
 > starts calling the station you clicked, and (b) Halt stops it. Report anything that
@@ -119,7 +118,7 @@ and N1MM keep running normally.
 |---|---|
 | **Roster stays empty** | Re-check step 2 (UDP Server `224.0.0.73`, port `2237`). Re-run `Check-WimsSetup.cmd`. If it mentions the *outgoing interface*, set WSJT-X → Reporting → Outgoing interface to your main network adapter (or Loopback), OK, and restart WSJT-X. |
 | **`[XX]` "not sending decodes over UDP"** | WSJT-X UDP Server box is empty — set it per step 2. |
-| **Work button does nothing** | You must click **Enable TX** first; and WSJT-X → Reporting → "Accept UDP requests" must be checked. |
+| **Work / roster click does nothing** | WSJT-X → Reporting → **"Accept UDP requests"** must be checked; WIMS must not be started with `--no-tx`. |
 | **Everything shows as "new mult"** | Expected on a sparse or non-VHF log — WIMS counts grid×band mults. Not a problem for testing. |
 | **"needed/dupe" doesn't change when I log** | Make sure N1MM's "Broadcast Data" is on (Config → Configure Ports → Broadcast Data) so edits reach WIMS live; or use the **Resync log** button on the Setup page. |
 | **Port 8787 already in use** | Start with a different port: `python -m wims.solo --http-port 8788` (then open that port). |

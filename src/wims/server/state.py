@@ -166,21 +166,22 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
     }
 
 
-def tx_to_dict(*, armed: bool, enabled: bool, controller_dest, holders: dict,
+def tx_to_dict(*, enabled: bool, controller_dest, holders: dict,
                enable_cq: bool, last_action=None) -> dict:
-    """TX-control state for the Operate console (plan §3.2 / §4.5). Additive block:
+    """TX-control state for the Operate console (plan §3.2 / §4.5 / §2.12).
 
       * `enabled`   -> a TX controller is wired (False under --no-tx = read-only),
-      * `armed`     -> the human master switch (fail-safe default False),
-      * `can_tx`    -> enabled AND armed (the UI enables Work buttons on this),
+      * `can_tx`    -> same as enabled (roster click may Work; no global arm switch),
       * `controller`-> where Reply/Halt are sent (host, port),
       * `holders`   -> resource-group -> instance currently granted TX (arbiter),
       * `cq_enabled`-> experimental FreeText Call-CQ path (default off; see P3),
-      * `last_action`-> last arm/work/halt for a one-line UI status."""
+      * `last_action`-> last work/halt for a one-line UI status.
+
+    Human initiation is the roster line click (GridTracker2-style), not a separate
+    Enable/Disable TX master switch."""
     return {
         "enabled": bool(enabled),
-        "armed": bool(armed),
-        "can_tx": bool(enabled and armed),
+        "can_tx": bool(enabled),
         "controller": (None if not controller_dest
                        else {"host": controller_dest[0], "port": controller_dest[1]}),
         "holders": dict(holders or {}),

@@ -21,15 +21,15 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 
 # Fleet / multi-host (site server):
 python src/wims/server/app.py --iface 127.0.0.1
-#   Operate:  http://localhost:8787/          (roster / work stations / arm TX)
+#   Operate:  http://localhost:8787/          (roster click = Work · Halt TX)
 #   Status:   http://localhost:8787/status    (live health, RF, decodes)
 #   Setup:    http://localhost:8787/setup     (contest log, networking, config)
 ```
-- **TX control (new):** Operate has a **DISARMED-by-default** master switch; once armed,
-  per-row **Work** answers a station (Reply) and **Halt TX** is an always-on panic stop.
-  Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X, e.g. `127.0.0.1`; default is the
-  multicast group, matching ingest), `--no-tx` (read-only), `--enable-cq-freetext`
-  (experimental, off). **Call CQ is not a native WSJT-X UDP action** — see design §2.12.
+- **TX control:** **no global arm / Enable TX** — **click a roster line** (or Work) to answer
+  a station via Reply (GridTracker2-style). **Halt TX** is always available. Server flags:
+  `--tx-host`/`--tx-port` (unicast WSJT-X, e.g. `127.0.0.1`; default is the multicast group),
+  `--no-tx` (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ is not a native
+  WSJT-X UDP action** — use WSJT-X for CQ; see design §2.12.
 - **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**
   (`ContestInstance` / `ContestNR`), **auto-picks** the latest log with QSOs, and loads only that
   contest (not whole multi-year DXLOG). Status page **Contest log** picker to change / rescan;
@@ -63,11 +63,10 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 
 - [~] **R0 — Solo FT8 tester release.** One PC (N1MM + WSJT-X + WIMS server), single FT8
   frequency (any band, HF included): watch the ranked roster, verify needed↔dupe by editing
-  the N1MM log, **arm TX** and **Work** a station (Reply). `python -m wims.solo` + Windows/Linux
-  wrappers. **Done in code & bench/emulator-verified:** click-to-work + halt endpoints, DISARMED
-  master switch, arbiter grant/release, `tx` state block, casual (non-contest) seed. **Remaining
-  before shipping:** first bring-up against **real WSJT-X** into a dummy load (echo-exactness of
-  Reply), the **Call CQ spike** (§2.12), and a tester runbook.
+  the N1MM log and **click a roster line** to Work (Reply). `python -m wims.solo` + Windows/Linux
+  wrappers. **Done:** roster-line **Work** (GT2, no global arm) + Halt, arbiter grant/release,
+  `tx` state block, casual (non-contest) seed. **Remaining before shipping:** first bring-up
+  against **real WSJT-X** into a dummy load (echo-exactness of Reply) and a tester runbook.
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
   dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
@@ -104,7 +103,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | § | Module | Status | Built / remaining |
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
-| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`, `for_unicast`/`for_group`. **Now wired into the server**: `/api/tx/arm\|work\|halt\|cq`, **DISARMED-by-default** master switch, click-to-work from the roster (`RosterBuilder.entry_for` recovers the raw Decode to echo), arbiter grant/release. Verified vs emulator (arm→work→halt) + `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**, GT2 pattern — §2.12). **No product Call CQ** (`call_cq` not-supported; gated `--enable-cq-freetext`). Remaining: **real-WSJT-X bring-up**, **Free Text** (closing/QSY §2.8), Replay. |
+| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
@@ -122,7 +121,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 decode log · N1MM-sync · loggers · system summary · **seat agents** (Status table + Setup detail).
 **State-contract keys (`server/state.py`):** `instances, loggers, rx, interlock, roster, activity,
 decodes, n1mm_sync, agents, tx`. Each roster candidate now carries a stable `id`
-(`instance|call|grid`) for click-to-work; `tx` = `{enabled, armed, can_tx, controller, holders,
+(`instance|call|grid`) for click-to-work; `tx` = `{enabled, can_tx, controller, holders,
 cq_enabled, last_action}`.
 
 **Test bed (§5):** WSJT-X emulator built (`testbed/simulators/emulator.py`, reacts Reply→TX /
@@ -268,18 +267,15 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   test (**built**), interlock (sensor/actuator), rotator I/O, plus thumbnails, process lifecycle,
   readiness, discovery, fail-safe. Server keeps roster/score/claims/log.
 - **2026-07-20** — **R0 solo-tester TX path (code).** First TX wiring into the server:
-  `/api/tx/arm|work|halt|cq`, **DISARMED-by-default** master switch (fail-safe; a human always
-  initiates), roster **click-to-work** (Reply, `RosterBuilder.entry_for` recovers the raw Decode),
-  always-on **Halt** panic, `TxArbiter` grant on Work / release on Halt + WSJT-X TX→RX edge.
-  `tx` state block + per-row roster `id`; Operate arm/Work/Halt/CQ controls. **`python -m wims.solo`**
-  launcher (localhost, `--no-presence`) + `Start-Wims-Solo.cmd` / `start-wims-solo.sh`;
-  `TxController.for_unicast`; server `--tx-host/--tx-port/--no-tx/--enable-cq-freetext`. **Call CQ is
-  gated off** — no native WSJT-X UDP CQ (design §2.12); pending a live spike. Verified: `test_server_tx`
-  (10), `test_solo_casual` (non-contest "DX" HF seed → needed↔dupe flip on log edit), live emulator
-  arm→work→halt, `validate.sh` 21/21. **Not yet:** first real-WSJT-X bring-up, tester runbook.
+  roster **click-to-work** (Reply), always-on **Halt**, `TxArbiter` grant/release. Originally
+  shipped with a global arm switch (later removed — GT2 workflow, 2026-07-22).
   *Found (pre-existing, not R0):* on **loopback**, the plane-E presence announce on the shared
   `224.0.0.73` group starves the WSJT-X multicast ingest (0 pkts) — `validate.sh` live check now runs
   `--no-presence` (single-host); `wims.solo` already defaults `--no-presence`, so solo is unaffected.
+- **2026-07-22** — **Remove global TX arm (GT2 workflow).** No Enable/Disable TX on Operate;
+  human initiation = **click roster line** (or Work) → `/api/tx/work`. Dropped `arm` API/state
+  field; `can_tx` follows controller wired. Halt remains. Design §2.12 + runbook + `test_server_tx`
+  updated.
 - **2026-07-20** — **Agent solo mode (noob-friendly setup check).** `wims.agent --solo` + new
   single-PC validation lens (`wsjtx_config._validate_solo`): the fleet "blank/@Invalid outgoing
   interface" **ERROR becomes a friendly note** (traffic staying on one PC is correct), and the

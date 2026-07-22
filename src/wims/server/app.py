@@ -84,18 +84,15 @@ class LiveFleet:
         self._lock = threading.Lock()
         self._grouping = grouping
         self._overlap = OverlapDetector(group_of=self.group_of)
-        # --- TX control (plan §3.2 / §3.4 / §4.5) -----------------------------
+        # --- TX control (plan §3.2 / §3.4 / §4.5 / §2.12) ---------------------
         # `_tx` actuates Reply/Halt to WSJT-X; None => read-only console (--no-tx).
-        # `_tx_armed` is the human master switch — DEFAULT DISARMED (fail-safe: no
-        # automated/unattended TX, a human always initiates). `_arbiter` enforces
-        # ≤1 transmitter per resource group; for the solo single-instance case it
-        # grants trivially, but the gate is identical when a second instance appears.
+        # No global arm/disarm: human initiation is the roster click itself
+        # (GridTracker2-style). `_arbiter` enforces ≤1 TX per resource group.
         self._tx = tx_controller
-        self._tx_armed = False
         self._enable_cq = bool(enable_cq_freetext)
         self._arbiter = TxArbiter(group_of=self.group_of)
         self._tx_prev: dict[str, bool] = {}        # per-instance last transmitting (edge)
-        self._last_tx_action: dict | None = None   # last arm/work/halt for the UI
+        self._last_tx_action: dict | None = None   # last work/halt for the UI
         # Live log copy (in-memory) feeds dupe/new-mult into the roster; kept current
         # from N1MM <contactinfo>. Empty at start => every grid reads as a new mult,
         # flipping to dupe/worked as QSOs are logged (plan §3.6).
@@ -329,28 +326,18 @@ class LiveFleet:
         for aid in dead:
             del self._agents[aid]
 
-    # --- TX control actions (plan §3.2 / §4.5) ------------------------------- #
-
-    def arm(self, armed: bool) -> dict:
-        """Set the human TX master switch. Nothing in WIMS ever arms itself; only
-        an explicit operator action reaches here (honors "a human always initiates")."""
-        with self._lock:
-            self._tx_armed = bool(armed)
-            self._last_tx_action = {"action": "arm", "armed": self._tx_armed,
-                                    "ts": time.time()}
-            return {"ok": True, "armed": self._tx_armed}
+    # --- TX control actions (plan §3.2 / §4.5 / §2.12) ----------------------- #
 
     def work_station(self, row_id: str) -> dict:
         """Answer the station in roster row `row_id` — send Reply to its instance.
 
-        Human-gated (refuses unless armed) and arbiter-gated (refuses if another
-        instance in the same resource group holds TX). The actual `sendto` runs
-        outside the lock so a slow socket never stalls the ingest thread."""
+        Human initiation is the roster click (GridTracker2-style); no separate arm
+        switch. Arbiter-gated (refuses if another instance in the same resource
+        group holds TX). The actual `sendto` runs outside the lock so a slow
+        socket never stalls the ingest thread."""
         if self._tx is None:
             return {"ok": False, "error": "tx_disabled"}
         with self._lock:
-            if not self._tx_armed:
-                return {"ok": False, "error": "disarmed"}
             entry = self._roster.entry_for(row_id)
             if entry is None:
                 return {"ok": False, "error": "unknown_row"}
@@ -374,9 +361,8 @@ class LiveFleet:
                 "call": call, "message": msg_text}
 
     def halt(self, instance: str | None = None) -> dict:
-        """Stop transmitting — the panic button. **Always allowed**, regardless of
-        arm state (a stop is a safety action). Halts one instance or every live one,
-        and releases the arbiter so the group frees immediately."""
+        """Stop transmitting — the panic button. Halts one instance or every live
+        one, and releases the arbiter so the group frees immediately."""
         if self._tx is None:
             return {"ok": False, "error": "tx_disabled"}
         with self._lock:
@@ -507,7 +493,6 @@ class LiveFleet:
             self._prune_agents(now)
             d["agents"] = agents_to_dict(self._agents, now)
             d["tx"] = tx_to_dict(
-                armed=self._tx_armed,
                 enabled=self._tx is not None,
                 controller_dest=(self._tx.dest if self._tx else None),
                 holders=self._arbiter.holders(),
@@ -649,10 +634,8 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
-            elif path == "/api/tx/arm":
-                # Human TX master switch (fail-safe: default disarmed).
-                self._send_json(200, live.arm(bool(body.get("armed"))))
             elif path == "/api/tx/work":
+                # Roster click → Reply (GT2-style; no global arm switch).
                 row_id = body.get("row_id")
                 if not row_id:
                     self._send_json(400, {"ok": False, "error": "need row_id"})
@@ -660,13 +643,13 @@ def make_handler(live: LiveFleet, refresh: float):
                 try:
                     result = live.work_station(row_id)
                     code = (200 if result.get("ok")
-                            else 409 if result.get("error") in ("disarmed", "group_busy")
+                            else 409 if result.get("error") == "group_busy"
                             else 400)
                     self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/tx/halt":
-                # Panic stop — always allowed, even while disarmed.
+                # Panic stop — always available on Operate.
                 try:
                     result = live.halt(body.get("instance"))
                     self._send_json(200 if result.get("ok") else 400, result)
@@ -867,7 +850,7 @@ def main() -> None:
     print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
     if tx_controller is not None:
         _txd = tx_controller.dest
-        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (DISARMED at start; arm on Operate) "
+        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (roster click = Work; Halt always on) "
               f"{'· CQ-freetext ON' if args.enable_cq_freetext else ''}")
     else:
         print("  TX control disabled (--no-tx; read-only console)")
