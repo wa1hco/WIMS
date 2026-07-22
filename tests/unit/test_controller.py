@@ -47,6 +47,15 @@ def test_reply_mirrors_decode_and_addresses_instance():
     assert r.type == M.REPLY and r.id == "SIM-6M"     # addressed to the right instance
 
 
+def test_reply_unicast_and_multicast_dests():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237))
+    c.reply("SIM-6M", d, dests=[("192.168.1.50", 2237), ("224.0.0.73", 2237)])
+    assert [s[1] for s in fs.sent] == [("192.168.1.50", 2237), ("224.0.0.73", 2237)]
+
+
 def test_halt_sends_halt_tx():
     fs = _FakeSock()
     c = TxController(fs, ("224.0.0.73", 2237))

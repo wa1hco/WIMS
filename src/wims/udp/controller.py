@@ -36,9 +36,16 @@ from wims.udp import messages as M
 
 
 def open_send_socket(iface: str = "0.0.0.0", ttl: int = 1) -> socket.socket:
+    """Multicast send socket. ``iface`` should be a real LAN IP when commanding
+    remote WSJT-X (VMs); 0.0.0.0 leaves interface selection to the kernel."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(iface))
-    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+    s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, int(ttl))
+    if iface and iface not in ("0.0.0.0", "::"):
+        try:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF,
+                         socket.inet_aton(iface))
+        except OSError:
+            pass
     return s
 
 
@@ -50,27 +57,60 @@ def open_unicast_socket() -> socket.socket:
 
 
 class TxController:
-    """Sends control datagrams. `sock` is a UDP socket; `dest` is (group, port)."""
+    """Sends control datagrams. `sock` is a UDP socket; `dest` is default (host, port).
+
+    Multi-host: callers should pass ``dests`` with the instance's LAN IP first
+    (unicast), then the multicast group — many Windows WSJT-X setups only act on
+    unicast Reply even when Status/Decode leave via multicast.
+    """
 
     def __init__(self, sock: socket.socket, dest: tuple[str, int]):
         self.sock = sock
         self.dest = dest
 
-    def reply(self, instance_id: str, decode: M.Decode, *, modifiers: int = 0) -> bytes:
-        """Tell `instance_id` to start a QSO with the station in `decode` (a CQ/QRZ)."""
+    def _send_all(self, raw: bytes, dests: list[tuple[str, int]] | None) -> list[tuple[str, int]]:
+        """Send to each destination; return those that did not raise."""
+        targets = list(dests) if dests else [self.dest]
+        # De-dupe while preserving order
+        seen: set[tuple[str, int]] = set()
+        ordered: list[tuple[str, int]] = []
+        for d in targets:
+            if d not in seen:
+                seen.add(d)
+                ordered.append(d)
+        ok: list[tuple[str, int]] = []
+        last_err: OSError | None = None
+        for d in ordered:
+            try:
+                self.sock.sendto(raw, d)
+                ok.append(d)
+            except OSError as e:
+                last_err = e
+        if not ok and last_err is not None:
+            raise last_err
+        return ok
+
+    def reply(self, instance_id: str, decode: M.Decode, *, modifiers: int = 0,
+              dests: list[tuple[str, int]] | None = None) -> bytes:
+        """Tell `instance_id` to start a QSO with the station in `decode` (a CQ/QRZ).
+
+        Echoes the prior Decode fields exactly — WSJT-X will not enable TX / fill DX
+        unless the Reply matches a decode it still holds and Accept UDP is on.
+        """
         raw = E.build_reply(
             instance_id, time_ms=decode.time_ms, snr=decode.snr,
             delta_time=decode.delta_time, delta_frequency=decode.delta_frequency,
             message=decode.message or "", mode=decode.mode or "~",
             low_confidence=decode.low_confidence, modifiers=modifiers,
         )
-        self.sock.sendto(raw, self.dest)
+        self._send_all(raw, dests)
         return raw
 
-    def halt(self, instance_id: str, *, auto_only: bool = False) -> bytes:
+    def halt(self, instance_id: str, *, auto_only: bool = False,
+             dests: list[tuple[str, int]] | None = None) -> bytes:
         """Stop `instance_id` transmitting (immediately, or just unset Auto)."""
         raw = E.build_halt_tx(instance_id, auto_only=auto_only)
-        self.sock.sendto(raw, self.dest)
+        self._send_all(raw, dests)
         return raw
 
     @staticmethod

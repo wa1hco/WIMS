@@ -722,14 +722,29 @@ async function txPost(url, payload) {
 
 function txFlash(j, url) {
   const m = $("tx-meta"); if (!m) return;
-  const label = url.split("/").pop();
   if (j.ok) {
     m.className = "meta";
-    m.textContent = j.sent === "reply" ? `→ working ${j.call}`
-      : Array.isArray(j.halted) ? `halted ${j.halted.length}` : "ok";
+    if (j.sent === "reply") {
+      const dests = j.dests || (j.dest ? [j.dest] : []);
+      const dest = dests.length
+        ? " → " + dests.map(d => Array.isArray(d) ? `${d[0]}:${d[1]}` : d).join(", ")
+        : "";
+      m.textContent = `→ Work ${j.call || "?"} on ${j.instance || "?"}${dest}`
+        + (j.detail ? ` · ${j.detail}` : "");
+    } else if (Array.isArray(j.halted)) {
+      m.textContent = `halted ${j.halted.length}`;
+    } else {
+      m.textContent = "ok";
+    }
   } else {
     m.className = "meta warn";
-    m.textContent = `${label}: ${j.detail || j.error || "failed"}`;
+    const err = j.error || "failed";
+    const hint = {
+      tx_disabled: "Server is --no-tx (read-only)",
+      unknown_row: "Row gone — wait for a new decode",
+      group_busy: "Another radio holds TX — Halt first",
+    }[err];
+    m.textContent = `Work failed: ${j.detail || hint || err}`;
   }
 }
 

@@ -328,37 +328,93 @@ class LiveFleet:
 
     # --- TX control actions (plan §3.2 / §4.5 / §2.12) ----------------------- #
 
+    def _tx_dests_for(self, instance_id: str) -> list[tuple[str, int]]:
+        """Where to send Reply/Halt for this WSJT-X id.
+
+        Prefer **unicast to the host we last heard that instance from** (the Windows
+        VM LAN IP), then the configured default (multicast group or --tx-host).
+        Multicast-only control often fails to enable TX on multi-host fleets even
+        when Status/Decode arrive fine — unicast is what JT-Alert / local tools use.
+        """
+        dests: list[tuple[str, int]] = []
+        port = int(self._tx.dest[1]) if self._tx else 2237
+        node = self._tracker.nodes.get(instance_id)
+        if node and node.host_seen:
+            # Most recently active source IP for this id
+            ip = max(node.host_seen.items(), key=lambda kv: kv[1])[0]
+            if ip:
+                dests.append((ip, port))
+        if self._tx is not None:
+            d = (str(self._tx.dest[0]), int(self._tx.dest[1]))
+            if d not in dests:
+                dests.append(d)
+        return dests
+
     def work_station(self, row_id: str) -> dict:
         """Answer the station in roster row `row_id` — send Reply to its instance.
 
         Human initiation is the roster click (GridTracker2-style); no separate arm
         switch. Arbiter-gated (refuses if another instance in the same resource
         group holds TX). The actual `sendto` runs outside the lock so a slow
-        socket never stalls the ingest thread."""
+        socket never stalls the ingest thread.
+
+        On success WIMS has only *sent* a WSJT-X Reply datagram — if DX Call / Enable
+        Tx do not change in WSJT-X, the packet did not reach that instance (Accept UDP
+        off, wrong host/port, or decode too old in WSJT-X's list).
+        """
         if self._tx is None:
-            return {"ok": False, "error": "tx_disabled"}
+            return {"ok": False, "error": "tx_disabled",
+                    "detail": "Server started with --no-tx (read-only). Restart without --no-tx."}
         with self._lock:
             entry = self._roster.entry_for(row_id)
             if entry is None:
-                return {"ok": False, "error": "unknown_row"}
+                return {"ok": False, "error": "unknown_row",
+                        "detail": "Row aged out or unknown — wait for a fresh decode, then Work again."}
             decode = entry.decode
             inst = getattr(decode, "id", None) or "?"
             if not self._arbiter.request(inst):
                 holder = self._arbiter.holder(self._arbiter.group_of(inst))
-                return {"ok": False, "error": "group_busy", "holder": holder}
+                return {"ok": False, "error": "group_busy", "holder": holder,
+                        "detail": f"Another instance holds TX in this group ({holder}). Halt first."}
             call = (getattr(decode, "dx_call", "") or "").upper()
             msg_text = getattr(decode, "message", "") or ""
+            dests = self._tx_dests_for(inst)
+            age_hint = ""
+            # Warn if decode may be older than WSJT-X keeps (Reply needs a live match).
+            try:
+                age_s = time.time() - float(entry.last_seen)
+                if age_s > 90:
+                    age_hint = (
+                        f" Decode is {age_s:.0f}s old — WSJT-X may have dropped it; "
+                        "Work a *fresh* CQ from the Band Activity window."
+                    )
+            except Exception:
+                pass
         try:
-            self._tx.reply(inst, decode)
+            self._tx.reply(inst, decode, dests=dests)
         except OSError as e:
             with self._lock:
                 self._arbiter.release(inst)
-            return {"ok": False, "error": f"send_failed: {e}"}
+            return {"ok": False, "error": f"send_failed: {e}",
+                    "detail": f"UDP send to {dests} failed — check --tx-host/--iface and firewall."}
+        dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
         with self._lock:
-            self._last_tx_action = {"action": "work", "instance": inst,
-                                    "call": call, "message": msg_text, "ts": time.time()}
-        return {"ok": True, "sent": "reply", "instance": inst,
-                "call": call, "message": msg_text}
+            self._last_tx_action = {
+                "action": "work", "instance": inst, "call": call,
+                "message": msg_text, "dests": dests, "ts": time.time(),
+            }
+        return {
+            "ok": True, "sent": "reply", "instance": inst,
+            "call": call, "message": msg_text, "dest": dests[0] if dests else None,
+            "dests": dests,
+            "detail": (
+                f"Reply sent for {inst} → {call} to [{dest_s}]. "
+                "WSJT-X should fill DX Call/Grid and enable Tx. If not: "
+                "Reporting → Accept UDP requests ON; Work a decode still visible "
+                "in WSJT-X Band Activity; firewall allow UDP from this server."
+                + age_hint
+            ),
+        }
 
     def halt(self, instance: str | None = None) -> dict:
         """Stop transmitting — the panic button. Halts one instance or every live
@@ -367,10 +423,11 @@ class LiveFleet:
             return {"ok": False, "error": "tx_disabled"}
         with self._lock:
             targets = [instance] if instance else [n.id for n in self._tracker.nodes.values()]
+            dest_map = {inst: self._tx_dests_for(inst) for inst in targets}
         halted = []
         for inst in targets:
             try:
-                self._tx.halt(inst)
+                self._tx.halt(inst, dests=dest_map.get(inst))
                 halted.append(inst)
             except OSError:
                 pass
@@ -850,8 +907,12 @@ def main() -> None:
     print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
     if tx_controller is not None:
         _txd = tx_controller.dest
-        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (roster click = Work; Halt always on) "
+        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (roster click = Work; Halt always on; "
+              f"Reply also unicast to each instance source IP) "
               f"{'· CQ-freetext ON' if args.enable_cq_freetext else ''}")
+        if not args.tx_host and args.iface in ("0.0.0.0", "127.0.0.1"):
+            print("  NOTE: multi-host WSJT-X (e.g. Windows VM): set --iface to this "
+                  "machine's contest LAN IP, or --tx-host <wsjtx-host-ip> so Reply reaches it")
     else:
         print("  TX control disabled (--no-tx; read-only console)")
     if s_n1mm is not None:

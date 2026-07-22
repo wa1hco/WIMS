@@ -36,11 +36,14 @@ class _FakeTx:
     def __init__(self):
         self.dest = ("127.0.0.1", 2237)
         self.sent = []
+        self.last_dests = None
 
-    def reply(self, inst, decode, *, modifiers=0):
+    def reply(self, inst, decode, *, modifiers=0, dests=None):
+        self.last_dests = dests
         self.sent.append(("reply", inst, decode.message))
 
-    def halt(self, inst, *, auto_only=False):
+    def halt(self, inst, *, auto_only=False, dests=None):
+        self.last_dests = dests
         self.sent.append(("halt", inst))
 
 
@@ -76,7 +79,22 @@ def test_work_sends_reply_without_arm():
     live, tx, row_id = _fleet_with_cq_decode()
     r = live.work_station(row_id)
     assert r["ok"] and r["sent"] == "reply" and r["call"] == "K1ABC"
+    assert r.get("dest")  # control destination echoed for UI diagnostics
+    # Unicast to last source IP first (here 127.0.0.1), then default dest if different.
+    assert tx.last_dests and tx.last_dests[0] == ("127.0.0.1", 2237)
     assert tx.sent[-1] == ("reply", MID, "CQ K1ABC FN31")   # exact echo of the decode
+
+
+def test_work_prefers_instance_source_host_for_reply():
+    """Multi-host: Reply must go to the VM LAN IP that last sent this instance's UDP."""
+    live, tx, row_id = _fleet_with_cq_decode()
+    # Re-observe from a "VM" address so host_seen prefers it.
+    now = time.time()
+    live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, mode="FT8")), now, "192.168.1.50")
+    r = live.work_station(row_id)
+    assert r["ok"]
+    assert ("192.168.1.50", 2237) in (r.get("dests") or [])
+    assert tx.last_dests[0] == ("192.168.1.50", 2237)
 
 
 def test_snapshot_tx_block_can_tx_when_enabled():
@@ -107,7 +125,8 @@ def test_halt_always_available():
 
 def test_work_unknown_row():
     live, _tx, _row_id = _fleet_with_cq_decode()
-    assert live.work_station("no|such|row") == {"ok": False, "error": "unknown_row"}
+    r = live.work_station("no|such|row")
+    assert r["ok"] is False and r["error"] == "unknown_row"
 
 
 def test_cq_is_gated_off_by_default():

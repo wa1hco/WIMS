@@ -92,6 +92,31 @@ def test_interpret_exchange_to_and_from():
     assert to_call == "WA1HCO"     # who it is calling
 
 
+def test_cq_directed_west_is_not_dx_call():
+    """'CQ WEST AA1ON' — WEST is a directed CQ tag; DX column must be AA1ON."""
+    is_cq, dx_call, to_call, grid = m._interpret_decode("CQ WEST AA1ON")
+    assert is_cq is True
+    assert dx_call == "AA1ON"
+    assert to_call == "CQ"
+    assert grid is None
+
+
+def test_cq_directed_variants():
+    cases = [
+        ("CQ DX K1ABC FN42", "K1ABC", "FN42"),
+        ("CQ NA W1AW FN31", "W1AW", "FN31"),
+        ("CQ POTA K1ABC", "K1ABC", None),
+        ("CQ AA1ON FN42", "AA1ON", "FN42"),  # plain CQ still works
+        ("CQ EAST N1MM", "N1MM", None),
+    ]
+    for msg, want_call, want_grid in cases:
+        is_cq, dx_call, to_call, grid = m._interpret_decode(msg)
+        assert is_cq is True, msg
+        assert dx_call == want_call, msg
+        assert to_call == "CQ", msg
+        assert grid == want_grid, msg
+
+
 def test_non_wsjtx_returns_none():
     assert m.parse(b"not a wsjtx datagram") is None
 

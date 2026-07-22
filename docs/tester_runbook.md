@@ -83,19 +83,71 @@ Add and remove a few and confirm the roster tracks your log both ways. You don't
 contest — any N1MM log works. (On a small/HF log, lots of rows may show as "new mult";
 that's expected and harmless.)
 
-## 6. Transmitting — answer a station  *(provisional: dummy load / low power first)*
+## 6. Transmitting — answer a station  *(dummy load / low power first)*
 
-WIMS never transmits on its own. There is **no Enable/Disable TX arm** — same idea as
-GridTracker2: **click a line on the call roster** to work that station.
+WIMS does **not** key the radio by itself. **Work** sends a WSJT-X **Reply** UDP packet
+(same idea as double‑clicking a decode in WSJT-X). There is **no Enable/Disable TX arm** —
+same idea as GridTracker2: **click a line on the call roster** to work that station.
 
-1. On the Operate page, find a station on the roster.
-2. **Click the roster line** (or its **Work** button). WSJT-X starts the QSO (Reply to that
-   decode, as if you'd double-clicked it in WSJT-X / GT2).
-3. **Halt TX** is always available — the panic stop; click it to stop transmitting.
+### 6a. Pre-flight (must pass before blaming WIMS)
 
-> First time, run into a **dummy load or at low power** and confirm: (a) WSJT-X actually
-> starts calling the station you clicked, and (b) Halt stops it. Report anything that
-> doesn't match — this is the first real-radio test of the TX path.
+| Check | Where | Pass looks like |
+|--------|--------|-----------------|
+| **Accept UDP requests** | WSJT-X → Settings → Reporting | ✅ checked |
+| **UDP Server** | same | Fleet multicast e.g. `224.0.0.73` (not blank) |
+| **UDP port** | same | Same port WIMS is using for that band (solo often `2237`; 2 m may be `2238`) |
+| **Manual double‑click** | WSJT-X Band Activity | Station is called — proves radio + WSJT-X TX path |
+| **Roster sees the CQ** | WIMS Operate | Row for that call (proves decode path *to* WIMS) |
+
+If manual double‑click works but roster click does not, the problem is almost always the
+**control path** (Accept UDP, or WIMS sending Reply to the wrong host/port).
+
+### 6b. Operate steps
+
+1. Confirm the station is on the roster (**fresh** decode — still on WSJT-X Band Activity).
+2. **Click the roster line** (or its **Work** button).
+3. Watch the status line under the TX controls (`tx-meta`):
+   - Success: `→ Work CALL on INSTANCE → host:port, …` plus a short note.
+   - Failure: plain-language reason (unknown row, group busy, `--no-tx`, etc.).
+4. In **WSJT-X**, DX Call/Grid should fill and Enable Tx engage (same as a double‑click).
+5. **Halt TX** = panic stop (always available).
+
+### 6c. Multi-host (WIMS on Linux, WSJT-X in a Windows VM)
+
+**Symptom if control path fails:** Work “succeeds” on Operate, but WSJT-X **DX Call / DX Grid
+stay blank** and **Enable Tx does not turn on** (as if you never double‑clicked).
+
+| Requirement | Why |
+|-------------|-----|
+| **Accept UDP requests** ON | Without it, Reply is ignored; double‑click still works |
+| WIMS `--iface` = **Linux contest LAN IP** | Multicast leave path |
+| Same port as WSJT-X UDP Server | Reply ignored if 2237 vs 2238 mismatch |
+| **Unicast to the VM** | WIMS auto-sends Reply to the **last source IP** of that instance, then also the multicast group. Prefer a **fresh** CQ still visible in WSJT-X Band Activity |
+| Optional: `--tx-host <VM-LAN-IP> --tx-port <port>` | Force control host if auto unicast is wrong |
+| Windows firewall allows UDP from the WIMS host | Else Work ok on WIMS, silence in WSJT-X |
+
+If DX/Enable still do not change after Work: note `tx-meta` destinations (should list the **VM
+IP** first) and confirm the CQ is still on WSJT-X’s Band Activity list (old roster rows can age
+out of WSJT-X while still showing in WIMS for up to 5 min).
+
+Server startup log should show something like:
+
+```text
+TX control -> 224.0.0.73:2237  (roster click = Work; Halt always on; Reply also unicast …)
+```
+
+If you see **TX control disabled (--no-tx)**, Work cannot send at all.
+
+### 6d. What “success” means
+
+| Layer | Pass |
+|-------|------|
+| WIMS | Work returns ok; `tx-meta` shows call + dests |
+| WSJT-X | Begins calling that station (Tx Enable / sequence) |
+| N1MM | QSO logs when the contact completes (same as a manual QSO) |
+
+Manual WSJT-X + N1MM logging **without** WIMS only proves the radio stack. To pass
+the WIMS TX test, roster **Work** must start the QSO without using the WSJT-X double‑click.
 
 ## 7. Calling CQ
 
@@ -119,7 +171,9 @@ and N1MM keep running normally.
 | **Roster stays empty** | Re-check step 2 (UDP Server `224.0.0.73`, port `2237`). Re-run `Check-WimsSetup.cmd`. If it mentions the *outgoing interface*, set WSJT-X → Reporting → Outgoing interface to your main network adapter (or Loopback), OK, and restart WSJT-X. |
 | **`[XX]` "not sending decodes over UDP"** | WSJT-X UDP Server box is empty — set it per step 2. |
 | **Work / roster click does nothing** | WSJT-X → Reporting → **"Accept UDP requests"** must be checked; WIMS must not be started with `--no-tx`. |
-| **Everything shows as "new mult"** | Expected on a sparse or non-VHF log — WIMS counts grid×band mults. Not a problem for testing. |
+| **Work says ok but DX/Enable unchanged in WSJT-X** | Control packet not accepted — Accept UDP, multi-host dest (VM IP in `tx-meta`), fresh decode still on Band Activity (6c). |
+| **TX OFF (read-only)** | Server was started with `--no-tx`. Restart without that flag. |
+| **Manual double‑click works, Work does not** | Control path only — Accept UDP + dest (6a/6c). || **Everything shows as "new mult"** | Expected on a sparse or non-VHF log — WIMS counts grid×band mults. Not a problem for testing. |
 | **"needed/dupe" doesn't change when I log** | Make sure N1MM's "Broadcast Data" is on (Config → Configure Ports → Broadcast Data) so edits reach WIMS live; or use the **Resync log** button on the Setup page. |
 | **Port 8787 already in use** | Start with a different port: `python -m wims.solo --http-port 8788` (then open that port). |
 

@@ -234,9 +234,17 @@ class UnknownMessage(WsjtxMessage):
 # Message-text interpretation (grid + CQ + DX call)
 # --------------------------------------------------------------------------- #
 
-# Directional/qualifier tokens that can follow "CQ" before the actual callsign,
-# e.g. "CQ DX K1ABC FN42", "CQ NA K1ABC", "CQ POTA K1ABC".
-_CQ_QUALIFIERS = {"DX", "NA", "SA", "EU", "AS", "AF", "OC", "TEST", "POTA", "SOTA", "QRP"}
+# Known directed-CQ tokens that can follow "CQ" before the callsign
+# (e.g. "CQ DX K1ABC FN42", "CQ NA K1ABC", "CQ WEST AA1ON", "CQ POTA K1ABC").
+# The callsign heuristic below is the real guard; this set is documentation +
+# a fast path for the common ones.
+_CQ_QUALIFIERS = {
+    "DX", "NA", "SA", "EU", "AS", "AF", "OC",
+    "USA", "US", "VE", "VK", "JA", "HL", "BY", "UA", "G", "F", "I", "DL",
+    "TEST", "TEST1", "TEST2", "TEST3", "TEST4", "TEST5", "TEST6", "TEST7", "TEST8", "TEST9", "TEST0",
+    "EAST", "WEST", "NORTH", "SOUTH",
+    "POTA", "SOTA", "QRP", "TEST", "FD", "WW", "RU",
+}
 
 
 def extract_grid(message: str | None) -> str | None:
@@ -254,6 +262,28 @@ def extract_grid(message: str | None) -> str | None:
     return last.upper() if _GRID_RE.match(last) else None
 
 
+def _looks_like_callsign(token: str | None) -> bool:
+    """True if token is a plausible amateur call (not a CQ tag or grid).
+
+    Directed CQ words like WEST/DX/NA have no digit; callsigns almost always do
+    (and compound calls contain '/'). Maidenhead grids are excluded so FN42 is
+    never treated as the DX call.
+    """
+    if not token:
+        return False
+    t = token.strip().upper()
+    if not t or t in {"CQ", "QRZ", "DE"}:
+        return False
+    if _GRID_RE.match(t):
+        return False
+    if t in _CQ_QUALIFIERS:
+        return False
+    # Standard / portable: at least one letter and one digit (e.g. AA1ON, K1ABC/1).
+    has_letter = any(c.isalpha() for c in t)
+    has_digit = any(c.isdigit() for c in t)
+    return has_letter and has_digit
+
+
 def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None, str | None]:
     """Best-effort (is_cq, dx_call, to_call, grid) from decode text.
 
@@ -267,12 +297,17 @@ def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None
     if not message:
         return False, None, None, grid
     tokens = message.split()
-    if tokens and tokens[0] == "CQ":
-        # Skip an optional qualifier (DX / region / contest tag) after CQ.
-        idx = 1
-        if len(tokens) > 2 and tokens[1].upper() in _CQ_QUALIFIERS:
-            idx = 2
-        dx_call = tokens[idx] if len(tokens) > idx else None
+    if tokens and tokens[0].upper() == "CQ":
+        # CQ [directed...] CALL [GRID] — skip non-callsign tokens after CQ
+        # (WEST, DX, NA, POTA, …) until the real callsign. Fixes roster DX column
+        # showing "WEST" for "CQ WEST AA1ON".
+        dx_call = None
+        for t in tokens[1:]:
+            if _GRID_RE.match(t):
+                break
+            if _looks_like_callsign(t):
+                dx_call = t.upper()
+                break
         return True, dx_call, "CQ", grid
     # Standard exchange "<to> <from> <report/grid>": the caller of interest (the
     # station transmitting) is the 2nd token; the 1st is who it is addressing.
