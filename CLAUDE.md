@@ -21,6 +21,11 @@ module-implementation table, and the build log live separately in
 [`docs/plan/wims_status.md`](docs/plan/wims_status.md)** — update that as *code* lands.
 Keep the two separated: design vs progress.
 
+**Fleet networking (planes A–E, band ports, seat-local CAT, preferred Icom + wfview seat):**
+[`docs/plan/wims_networking.md`](docs/plan/wims_networking.md) — especially **§3 / §3.2 / §3.3 /
+§4**. CAT/PTT is seat-local middleware, not a WIMS server plane; do not conflate with plane A
+UDP.
+
 ## WIMS-specific conventions
 
 - **Python, stdlib-first.** Keep runtime dependencies minimal (currently zero);

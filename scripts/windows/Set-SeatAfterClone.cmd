@@ -5,13 +5,14 @@ REM After cloning the Win10 WIMS template, personalize this guest for one radio 
 REM Usage (elevated recommended for rename):
 REM   Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]
 REM Examples:
+REM   Set-SeatAfterClone.cmd W10VM-50
 REM   Set-SeatAfterClone.cmd IC9700-50 IC9700-50-FT8
-REM   Set-SeatAfterClone.cmd FLEX-8600M FLEX-8600M-FT8
 REM
 REM What it does:
-REM   1) Writes scripts\windows\seat-local.cmd (WIMS_SEAT_ID, optional WSJTX_RIG_NAME)
+REM   1) Writes scripts\windows\seat-local.cmd (WIMS_SEAT_ID + required WSJTX_RIG_NAME)
 REM   2) Renames the computer to SEAT-ID (needs reboot)
 REM   3) Ensures Startup\WIMS Seat.lnk exists
+REM   4) Points Desktop / Start Menu WSJT-X shortcuts at Start-WSJTX.cmd
 REM Does NOT change Proxmox USB/network or radio drivers.
 
 cd /d "%~dp0"
@@ -23,15 +24,19 @@ if "%SEAT%"=="" (
   echo.
   echo  Usage: Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]
   echo  SEAT-ID becomes Windows hostname and WIMS_SEAT_ID.
-  echo  Optional WSJT-RIG-NAME is passed as wsjtx --rig-name=...
+  echo  WSJT-RIG-NAME is passed as wsjtx --rig-name=...
+  echo  If omitted, WSJT-RIG-NAME defaults to SEAT-ID ^(never blank^).
   echo.
   exit /b 1
 )
 
+REM Always set a rig-name ??? default to seat id so bare launch is impossible.
+if "%RIG%"=="" set "RIG=%SEAT%"
+
 REM Sanitize: Windows hostname max 15 chars, no spaces
 set "HOST15=%SEAT%"
 if not "%HOST15:~15,1%"=="" (
-  echo WARN: hostname longer than 15 chars — truncating for Windows NetBIOS
+  echo WARN: hostname longer than 15 chars ??? truncating for Windows NetBIOS
   set "HOST15=%SEAT:~0,15%"
 )
 
@@ -51,18 +56,17 @@ echo.
   echo set "WIMS_SERVER=http://192.168.1.119:8787"
   echo set "WIMS_SEAT_ID=%SEAT%"
   echo.
+  echo set "START_WFVIEW=1"
   echo set "START_N1MM=1"
   echo set "START_WSJTX=1"
   echo set "START_AGENT=1"
   echo set "START_AGENT_RESTART=1"
   echo.
+  echo set "WFVIEW_EXE=C:\Program Files\wfview\wfview.exe"
   echo set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
   echo set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
-  if defined RIG (
-    echo set "WSJTX_RIG_NAME=%RIG%"
-  ) else (
-    echo set "WSJTX_RIG_NAME="
-  )
+  echo REM REQUIRED ??? Start-WimsSeat / Start-WSJTX refuse empty rig-name
+  echo set "WSJTX_RIG_NAME=%RIG%"
   echo.
   echo set "START_DELAY_SEC=5"
   echo set "AGENT_INTERVAL=30"
@@ -75,23 +79,28 @@ if exist "%HERE%Install-WIMS-Desktop-Shortcut.cmd" (
   call "%HERE%Install-WIMS-Desktop-Shortcut.cmd" /nopause
 )
 
+REM Point every common WSJT-X shortcut at the forced-rig-name launcher
+if exist "%HERE%Install-WSJTX-RigNameShortcuts.cmd" (
+  call "%HERE%Install-WSJTX-RigNameShortcuts.cmd" /nopause
+)
+
 REM Logon auto-start
 set "STARTUP=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
 set "LNK=%STARTUP%\WIMS Seat.lnk"
 if not exist "%STARTUP%" mkdir "%STARTUP%" 2>nul
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK%'); $s.TargetPath = '%HERE%Start-WimsSeat.cmd'; $s.Arguments = '/silent'; $s.WorkingDirectory = '%HERE%'; $s.WindowStyle = 7; $s.Description = 'Start N1MM, WSJT-X, WIMS agent at logon'; $s.Save(); Write-Host 'Startup OK'"
+  "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK%'); $s.TargetPath = '%HERE%Start-WimsSeat.cmd'; $s.Arguments = '/silent'; $s.WorkingDirectory = '%HERE%'; $s.WindowStyle = 7; $s.Description = 'Start wfview, N1MM, WSJT-X, WIMS agent at logon'; $s.Save(); Write-Host 'Startup OK'"
 
 REM Rename computer if needed
 for /f "tokens=2 delims==" %%A in ('wmic computersystem get name /value ^| find "="') do set "CUR=%%A"
 if /I "%CUR%"=="%HOST15%" (
-  echo  Hostname already %HOST15% — no rename.
+  echo  Hostname already %HOST15% ??? no rename.
   goto done
 )
 
 echo  Renaming computer %CUR% -^> %HOST15% ...
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "try { Rename-Computer -NewName '%HOST15%' -Force -ErrorAction Stop; Write-Host 'Rename scheduled — reboot required.' } catch { Write-Host ('Rename failed: ' + $_.Exception.Message); Write-Host 'Run this script elevated (Run as administrator).'; exit 1 }"
+  "try { Rename-Computer -NewName '%HOST15%' -Force -ErrorAction Stop; Write-Host 'Rename scheduled ??? reboot required.' } catch { Write-Host ('Rename failed: ' + $_.Exception.Message); Write-Host 'Run this script elevated (Run as administrator).'; exit 1 }"
 if errorlevel 1 exit /b 1
 
 echo.

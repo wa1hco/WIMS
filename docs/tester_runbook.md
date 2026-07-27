@@ -33,12 +33,27 @@ In WSJT-X: **Settings → Reporting**, and set:
 | Setting | Value |
 |---|---|
 | UDP Server | `224.0.0.73` |
-| UDP Server port number | `2237` |
+| UDP Server port number | **Band port** (see table) — solo default often `2237` |
 | Accept UDP requests | ✅ checked |
+
+| Band | Port (must match N1MM WSJT reader **and** WIMS `--port`) |
+|------|----------------------------------------------------------|
+| 50 MHz | **2237** |
+| 144 MHz | **2238** |
+| 222 MHz | **2239** |
+| 432 MHz | **2240** |
+
+Example: 2 m seat already on N1MM `224.0.0.73:2238` → use port **2238** in WSJT-X and start
+WIMS with that port (see step 4). Do not leave WIMS on 2237 while WSJT-X is on 2238 — roster
+stays empty even though the waterfall is full.
 
 Click OK. (The "Accept UDP requests" box is what lets WIMS answer stations for you
 later. Leave "Outgoing interface" alone for now — the setup check in step 3 will tell
 you if it needs attention.)
+
+**Radio CAT** is separate from WIMS UDP. If the seat uses **wfview** (Icom USB), WSJT-X CAT is
+Hamlib NET `127.0.0.1:4533` with RigCtld enabled in wfview — not the radio COM port. Full seat
+recipe: [`docs/plan/wims_networking.md`](plan/wims_networking.md) §3.2–§3.3.
 
 ## 3. Check your setup
 
@@ -51,7 +66,7 @@ WIMS setup check — this PC
 [OK] Ready to test.
 
 WSJT-X
-  [OK] Sending decodes to 224.0.0.73:2237 — WIMS will see them.
+  [OK] Sending decodes to 224.0.0.73:<band-port> — WIMS will see them.
   [OK] 'Accept UDP requests' is ON — WIMS can Work/Halt this radio.
   [OK] Station: <yourcall> / <yourgrid>
 ...
@@ -65,6 +80,15 @@ WSJT-X
 
 Double-click **`scripts\windows\Start-Wims-Solo.cmd`**. It runs the setup check again,
 then starts WIMS and opens your browser to **http://localhost:8787/**.
+
+If your plane A port is **not** 2237 (e.g. 2 m → **2238**), start with an explicit port so
+WIMS joins the same stream as WSJT-X / N1MM:
+
+```bat
+python -m wims.solo --port 2238
+```
+
+(or set the port flag your wrapper passes through to the server — defaults are still 2237).
 
 With WSJT-X decoding, the **Call roster** fills with the stations you're hearing, ranked,
 newest activity and best opportunities near the top. This is the read-only view — nothing
@@ -168,7 +192,8 @@ and N1MM keep running normally.
 
 | Symptom | Fix |
 |---|---|
-| **Roster stays empty** | Re-check step 2 (UDP Server `224.0.0.73`, port `2237`). Re-run `Check-WimsSetup.cmd`. If it mentions the *outgoing interface*, set WSJT-X → Reporting → Outgoing interface to your main network adapter (or Loopback), OK, and restart WSJT-X. |
+| **Roster stays empty** | Re-check step 2: UDP Server `224.0.0.73` and **band port** (e.g. 144 → `2238`). WIMS `--port` must match. Re-run `Check-WimsSetup.cmd`. If it mentions the *outgoing interface*, set WSJT-X → Reporting → Outgoing interface to your main network adapter (or Loopback), OK, and restart WSJT-X. |
+| **Test CAT connection refused** (wfview seats) | Enable **RigCtld** in wfview External Control; confirm `127.0.0.1:4533` LISTENING. See networking §3.3. |
 | **`[XX]` "not sending decodes over UDP"** | WSJT-X UDP Server box is empty — set it per step 2. |
 | **Work / roster click does nothing** | WSJT-X → Reporting → **"Accept UDP requests"** must be checked; WIMS must not be started with `--no-tx`. |
 | **Work says ok but DX/Enable unchanged in WSJT-X** | Control packet not accepted — Accept UDP, multi-host dest (VM IP in `tx-meta`), fresh decode still on Band Activity (6c). |
@@ -192,4 +217,4 @@ scripts/start-wims-solo.sh        # setup check + server, opens the browser
 # or:  PYTHONPATH=src python3 -m wims.solo
 # setup check only:  PYTHONPATH=src python3 -m wims.agent --solo
 ```
-Same WSJT-X settings (UDP Server `224.0.0.73:2237`, Accept UDP requests on).
+Same WSJT-X settings (UDP Server `224.0.0.73` + **band port**, Accept UDP requests on).

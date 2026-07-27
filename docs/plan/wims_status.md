@@ -14,10 +14,13 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 ```
 # Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
 python -m wims.solo            # localhost, no presence; runs setup check then opens browser
-#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
+#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:<band-port>, "Accept UDP requests" ON.
+#   Band ports (wims_networking.md §4): 50→2237, 144→2238, 222→2239, 432→2240
+#   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims.solo --port 2238
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
 #   Setup check only: python -m wims.agent --solo   (Windows: Check-WimsSetup.cmd)
 #   Tester walkthrough: docs/tester_runbook.md
+#   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
 # Fleet / multi-host (site server):
 python src/wims/server/app.py --iface 127.0.0.1
@@ -42,7 +45,9 @@ python src/wims/server/app.py --iface 127.0.0.1
 - **Fleet networking (design):** multi-band layout is **one N1MM + N× WSJT-X per band**,
   streams segregated by port (2237–2240) so each logger is sole owner — full map in
   **[wims_networking.md](wims_networking.md)**. Server multi-port join for 2238–2240 is not
-  wired yet (lab still uses a single WSJT-X port).
+  wired yet (lab still uses a single WSJT-X port — set `--port` to the seat band, e.g. 2238
+  for 144). Seat-local CAT / preferred **Icom + wfview** stack: networking **§3.2–§3.3** (WIMS
+  never owns radio COM; RigCtld must be explicitly enabled in wfview).
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
 - **Interlock bench:** `python testbed/interlock_bench.py`
 

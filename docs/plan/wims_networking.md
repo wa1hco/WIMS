@@ -228,6 +228,9 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
 - **C** is N1MM↔N1MM only (WIMS does not speak that protocol; it inherits the merge via
   `.s3db` seed / resync and live `<contactinfo>`).
 - SSB/CW **10 ms** mute is **not** plane B; it is host-agent peer UDP / CTS (design §3.4.1).
+- **Radio CAT / PTT / USB audio** are **not** WIMS planes. They are **seat-local** under the
+  radio host (see **§3.2** / **§3.3**). WIMS never opens the radio’s COM port and never speaks
+  CI-V or Hamlib to the rig; it talks only to **WSJT-X over plane A** (and N1MM over plane B).
 
 ### 3.1 Plane E — site-server presence (zero-memory discovery)
 
@@ -268,6 +271,180 @@ can find the server even when **all** UDP presence is blocked.
 
 **Code:** `src/wims/discovery/presence.py` · server `--presence-*` / `--no-presence` /
 `--force-server` · agent `--no-discover`.
+
+### 3.2 Seat-local radio control (CAT / PTT / audio) — not a WIMS plane
+
+WIMS treats **WSJT-X as the radio adapter** for digital:
+
+| Direction | Mechanism | Who owns it |
+|-----------|-----------|-------------|
+| **Ingest** | Heartbeat / Status / Decode / QSO Logged (plane A) | WSJT-X → WIMS / N1MM / optional GT |
+| **Control** | Reply / Halt Tx (plane A UDP) | WIMS → WSJT-X only |
+| **CAT / PTT / dial QRG** | Serial, TCP, Hamlib, rigctld, manufacturer middleware | **Seat only** — outside WIMS |
+| **TX audio** | Sound device / radio USB codec | Seat WSJT-X host |
+| **Fast 10 ms mute** (fleet later) | Host-agent audio gain / hardware gate | Seat agent — **not** CAT round-trip |
+
+**Invariant:** one process (or one deliberate middleware stack) **owns** the radio’s exclusive
+COM/USB CI-V path. A second logger or second digital app must **not** open the same COM port
+directly. Sharing is done via **middleware** (wfview, Win4Icom, virtual ports, etc.), not by
+pointing two apps at the same Windows COM device.
+
+**Do not** use N1MM’s built-in **Window → Load WSJT/JTDX** / “DX Lab Suite Commander” rig-proxy
+path on WIMS-managed seats. That path makes N1MM the CAT master for WSJT-X and fights the
+model below (WSJT-X owns digital TX; N1MM owns the log; WIMS owns fleet UDP + arbiter).
+
+**PTT timing vs design §1.1 / §3.4.1:**
+
+- **Slow path (always):** WIMS **Halt Tx** → WSJT-X stops feeding the audio buffer → PTT drops
+  via whatever path WSJT-X uses (CAT through middleware is fine). Dominated by audio drain +
+  PTT release (tens–hundreds of ms), not LAN RTT.
+- **Fast path (SSB/CW priority):** mute **TX audio on the WSJT-X host** (agent), independent of
+  CAT middleware. CTS-based SSB/CW sense is also outside the CAT stack.
+
+**Frequency truth for digital roster:** WIMS uses dial frequency primarily from **WSJT-X Status
+UDP** (plane A). N1MM RadioInfo (plane B) is for logger presence / SSB seats. CAT through
+middleware must keep WSJT-X Status accurate; N1MM poll lag is secondary for FT8 S&P.
+
+### 3.3 Preferred Icom USB seat: wfview
+
+For Icom radios that present dual Silicon Labs COM ports over USB (e.g. **IC-9700**, IC-7300,
+IC-705/7610 family patterns), the preferred seat stack is:
+
+```
+IC-9700 (or other Icom USB)
+   ↑ USB CI-V + USB Audio
+wfview  (only process on real radio COM / LAN control)
+   ├── RigCtld (Hamlib)  127.0.0.1:4533  ──► WSJT-X   (freq + PTT + mode)
+   └── TCP CI-V server   127.0.0.1:<port> ──► N1MM    (frequency / mode poll)
+WSJT-X
+   └── Plane A multicast 224.0.0.73:<band-port> ──► WIMS + N1MM WSJT reader + optional GT
+N1MM
+   └── Plane B XML 224.0.0.73:12060 ──► WIMS
+```
+
+**Roles:**
+
+| Component | Owns | Does not own |
+|-----------|------|----------------|
+| **wfview** | Real USB COM (or radio LAN); optional scope/waterfall | Contest log; Reply/Halt fleet control |
+| **WSJT-X** | Digital TX, Fake It / split, plane A UDP, USB audio codec | Exclusive COM if wfview is in use |
+| **N1MM** | Contest log; plane B; optional CAT **freq** via wfview TCP | Digital TX; plane A Reply; dual COM open |
+| **WIMS** | Plane A join + Reply/Halt; plane B log copy; console | Any direct radio CAT / COM |
+
+This is **consistent** with WIMS design: middleware is a **seat implementation detail** of the
+instance profile “CAT path” (design §3.14), not a WIMS server feature.
+
+#### 3.3.1 Radio menus (IC-9700 pattern; adapt model names)
+
+USB CI-V is **not** the same as the rear **[REMOTE]** jack baud.
+
+| Menu (SET → Connectors → CI-V) | Value | Why |
+|--------------------------------|-------|-----|
+| **CI-V USB Port** | **Unlink from [REMOTE]** | If linked, USB is capped at REMOTE max (often **19200**) |
+| **CI-V USB Baud Rate** | **115200** or **Auto** | Match wfview serial baud |
+| **CI-V Baud Rate** (REMOTE jack) | 19200 OK | Irrelevant to USB CAT when unlinked |
+| **CI-V Transceive** | **ON** | Required for many middleware / polling clients |
+| **CI-V Address** | Default (9700 = **A2h**) | Leave unless fleet-standardized |
+
+Device Manager shows **two** COM ports (A/B). Use **port A** (usually the **lower** number) for
+CAT. Port B is not the primary CI-V path.
+
+#### 3.3.2 wfview
+
+1. Connect to the radio (**Serial/USB** or LAN). Confirm VFO tracks. **Save Settings**.
+2. **Settings → External Control** (wording may vary by version):
+   - **Enable RigCtld** → **ON**, port **4533** (default). **Connection refused** from WSJT-X
+     means this box is off — radio connect alone does **not** start the TCP server.
+   - **Enable TCP server** (raw CI-V for N1MM) → **ON**, port e.g. **1025** or **4537**
+     (**not** 4533; not radio LAN 50001–50003).
+3. Save; restart wfview if the TCP/rigctld options were just enabled; reconnect radio.
+4. Confirm with `netstat` (or equivalent) that **4533** (and the N1MM TCP port) are **LISTENING**.
+
+Only **wfview** may open the radio’s real COM ports. No WSJT-X, N1MM, HRD, or OmniRig on COM3/4
+while wfview is connected.
+
+#### 3.3.3 WSJT-X (digital + plane A)
+
+**Radio tab**
+
+| Setting | Value |
+|---------|--------|
+| Rig | **Hamlib NET rigctl** |
+| Network Server | **`127.0.0.1:4533`** (match RigCtld port) |
+| PTT Method | **CAT** |
+| Mode | **Data/Pkt** (or USB if radio has no data mode) |
+| Split Operation | **Fake It** first; try **Rig** if needed |
+
+Do **not** set Rig to the Icom model + real COM while wfview owns the port.  
+Do **not** set Rig to **DX Lab Suite Commander** (N1MM integration path).  
+Do **not** point Network Server at radio LAN ports (**50001 / 50002 / 50003**).
+
+**Audio:** radio **USB Audio CODEC** (when on USB); DATA MOD = USB on the radio as usual.
+
+**Reporting tab (plane A — band port from §4)**
+
+| Setting | Value |
+|---------|--------|
+| UDP Server | **`224.0.0.73`** |
+| UDP Server port | **Band port** (§4): 50→**2237**, 144→**2238**, 222→**2239**, 432→**2240** |
+| Accept UDP requests | **ON** (WIMS Reply / Halt) |
+| Outgoing interface | Contest LAN NIC (§4.1) — mandatory on multi-homed / fleet seats |
+| Secondary UDP / N1MM Logger+ Broadcasts | **OFF** if N1MM already reads this band’s multicast stream (avoids double-log) |
+
+**`--rig-name`:** unique fleet-wide UDP `id` (e.g. `TRAILER-144-FT8`).
+
+#### 3.3.4 N1MM (logger + optional freq)
+
+| Concern | Setting |
+|---------|---------|
+| **CAT / frequency** | Port type **TCP**, address **`127.0.0.1:<wfview-tcp-port>`**, radio model = actual rig (e.g. IC-9700). Not COM3/4. |
+| **WSJT UDP reader** | **Only this band’s** `224.0.0.73:<band-port>` (e.g. N1MM-144 → **2238**) |
+| **Broadcast Data** | Contacts + Radio → **`224.0.0.73:12060`** (plane B for WIMS) |
+| **Load WSJT/JTDX** | **Do not use** on WIMS-managed digital seats |
+
+Leave CW/PTT on N1MM’s radio port off when WSJT-X owns digi TX via CAT.
+
+#### 3.3.5 WIMS and GridTracker on a wfview seat
+
+| App | Join | Notes |
+|-----|------|--------|
+| **WIMS server** | `--group 224.0.0.73 --port <band-port>` | Solo 2 m example: **`--port 2238`**. Default CLI port is 2237 — wrong for 144 if left unchanged. Multi-port join (2237–2240) is design intent; until implemented, match the seat’s band port or run one process per port. |
+| **GridTracker** | Same group:port as the band being watched | **Viewer only** on managed instances — no click-to-work (bypasses TX arbiter, design §1.2 / §4.3) |
+
+#### 3.3.6 Start order
+
+1. **wfview** — connected; RigCtld ON; TCP server ON  
+2. **WSJT-X** — Test CAT green; decoding; plane A settings applied  
+3. **N1MM** — freq tracks; WSJT reader on band port  
+4. **WIMS** — roster fills; `--port` matches WSJT-X  
+5. **GridTracker** (optional) — view-only  
+
+#### 3.3.7 Instance profile fields (CAT stack — design §3.14)
+
+Record middleware explicitly so seat clones and readiness checks do not assume “direct COM”:
+
+| Profile field | Example (IC-9700 + wfview) |
+|---------------|----------------------------|
+| Rig model | IC-9700 |
+| CAT middleware | **wfview** (owns USB COM A) |
+| WSJT-X CAT | Hamlib NET `127.0.0.1:4533` (RigCtld enabled) |
+| N1MM CAT | TCP `127.0.0.1:<tcp>` (freq only) |
+| PTT method | CAT (via wfview) |
+| Forbidden | Second app on real COM; N1MM Load WSJT rig proxy |
+
+Other valid CAT path enums for profiles: `direct-com` · `wfview-rigctld` · `win4icom` ·
+`win4yaesu` · `lp-bridge` · `flex-smartsdr-cat` · `vspe-pair` · `other-middleware`.
+
+#### 3.3.8 Quick faults (wfview seats)
+
+| Symptom | Likely cause |
+|---------|----------------|
+| WSJT-X Test CAT “connection refused” | RigCtld not enabled / not LISTENING on 4533 |
+| Test CAT fails; using `:50002` | Radio LAN port — use **`127.0.0.1:4533`** only |
+| Radio “only offers 19200 baud” | Looking at REMOTE **CI-V Baud Rate**; set **Unlink** + **CI-V USB Baud Rate** |
+| N1MM cannot open radio | Pointed at COM while wfview holds it — use wfview **TCP** |
+| WIMS roster empty; waterfall full | Plane A port mismatch (e.g. WSJT-X **2238**, WIMS still **2237**) or §4.1 outgoing iface |
+| Double QSOs in N1MM | Multicast reader **and** Secondary UDP 2333 both logging |
 
 ---
 
@@ -584,6 +761,14 @@ Multicast group for all: `224.0.0.73` (port per band as above).
 - [ ] `wsjtx_config.py --all` reports **0 errors** on this host  
 - [ ] WIMS sees this instance’s heartbeat (LAN source IP, not only local decode window)  
 - [ ] Exactly **one** N1MM (the band’s) is the logger — **no** N1MM WSJT reader on remote/extra PCs  
+- [ ] **§3.2 / §3.3:** CAT path documented (e.g. `wfview-rigctld`); Test CAT green; not dual-open on radio COM  
+
+### Each Icom USB seat using wfview (§3.3)
+- [ ] Radio: **CI-V USB Port = Unlink from [REMOTE]**; USB baud matches wfview  
+- [ ] wfview owns real COM; **Enable RigCtld** (4533 LISTENING); TCP server ON for N1MM  
+- [ ] WSJT-X: Hamlib NET **`127.0.0.1:4533`** — not Icom+COM, not `:50002`  
+- [ ] N1MM: **TCP** to wfview — not COM3/4; no **Load WSJT/JTDX**  
+- [ ] Plane A port = band table (e.g. 144 → **2238**); Secondary UDP 2333 off if N1MM reads multicast  
 
 ### Each N1MM (50 / 144 / 222 / 432)
 - [ ] WSJT UDP reader → **only that band’s** group:port (covers **all** remote instances on that port)  
@@ -591,9 +776,11 @@ Multicast group for all: `224.0.0.73` (port per band as above).
 - [ ] Networked into the **same** contest with the other three N1MMs  
 - [ ] Station name unique and stable (WIMS logger id)  
 - [ ] 222/432: OK if no WSJT-X this hour (SSB-only); reader can stay enabled for when FT8 starts  
+- [ ] If CAT used: seat middleware path only (§3.2) — not competing with wfview for COM  
 
 ### WIMS server
-- [ ] Join all WSJT-X ports (2237–2240) on the LAN iface  
+- [ ] Join all WSJT-X ports (2237–2240) on the LAN iface (or match seat band port until multi-port join is wired)  
+- [ ] Solo/lab: `--port` matches the seat’s plane A port (e.g. **2238** for 144)  
 - [ ] N1MM XML on :12060 (multicast group if used)  
 - [ ] No second app sending Reply on managed instances  
 
@@ -611,7 +798,8 @@ Multicast group for all: `224.0.0.73` (port per band as above).
 | Lab (dev / single host) | Full contest |
 |-------------------------|--------------|
 | One N1MM (e.g. Windows VM) | Four N1MMs, networked (plane C) |
-| One stream (`2237`) + emulator or few WSJT-X | Multi-host WSJT-X (trailer + remote 50 + dual 144) on four ports |
+| One stream (band port, often `2237` or `2238` for 2 m) + emulator or few WSJT-X | Multi-host WSJT-X (trailer + remote 50 + dual 144) on four ports |
+| Optional wfview + Hamlib NET on the radio PC (§3.3) | Same seat pattern per Icom USB radio |
 | Optional GridTracker on the WIMS PC | Optional GT per seat / remote PC |
 | WIMS with LAN `--iface` + `--n1mm-group 224.0.0.73` | Same server role; join all band ports |
 | All processes on one machine | N1MM and WSJT-X **may be different machines/sites** on one LAN |
@@ -630,6 +818,8 @@ second logger comes online so double-log never becomes possible. Remote 50 / sec
 4. **No unattended TX** — human click + valid lease; else RX-only.  
 5. **One signal per band** — multi-instance same band share one resource group.  
 6. **Server is site-local for radio UDP** — remote consoles are unicast only.  
+7. **CAT is seat-local** — WIMS never owns radio COM/CI-V/Hamlib; middleware (e.g. wfview) is allowed; one owner of the wire (§3.2–§3.3).  
+8. **Band stream port match** — WSJT-X, N1MM WSJT reader, and WIMS `--port` use the same §4 port (e.g. 144 → 2238).  
 
 Core idea in one line:
 

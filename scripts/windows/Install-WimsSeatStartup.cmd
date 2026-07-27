@@ -51,7 +51,7 @@ if not exist "%HERE%seat-local.cmd" (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK%'); $s.TargetPath = '%SEAT%'; $s.Arguments = '/silent'; $s.WorkingDirectory = '%HERE%'; $s.WindowStyle = 7; $s.Description = 'Start N1MM, WSJT-X, WIMS agent at logon'; $s.Save(); Write-Host 'Shortcut written.'"
+  "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK%'); $s.TargetPath = '%SEAT%'; $s.Arguments = '/silent'; $s.WorkingDirectory = '%HERE%'; $s.WindowStyle = 7; $s.Description = 'Start wfview, N1MM, WSJT-X, WIMS agent at logon'; $s.Save(); Write-Host 'Shortcut written.'"
 
 if not exist "%LNK%" (
   echo ERROR: could not create Startup shortcut

@@ -50,9 +50,11 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WimsServer.cmd`** | **Site** WIMS server only (not for radio seats). |
 | **`Start-WimsAgent.cmd`** | One-shot agent check (also menu option 1). |
 | **`Start-WimsAgent-Continuous.cmd`** | Continuous agent (menu option 2). |
-| **`Start-WimsSeat.cmd`** | N1MM/WSJT if needed + agent (menu option 3). |
+| **`Start-WimsSeat.cmd`** | wfview → N1MM/WSJT if needed + agent (menu option 3). |
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |
-| **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). |
+| **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). **`WSJTX_RIG_NAME` is required** (never blank). |
+| **`Start-WSJTX.cmd`** | Only safe way to start WSJT-X — always adds `--rig-name=` from `seat-local`. |
+| **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
 | **`Start-WSJTX-50.cmd`** | Start (or no-op if already up) the 6 m WSJT-X instance `--rig-name=WSJTX-50`. |
 | **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write `seat-local.cmd`, hostname, Startup link. |
@@ -71,14 +73,15 @@ After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** insi
 This image logs in as the operator with no password. After the desktop appears, Windows runs the user **Startup** folder.
 
 1. Edit `scripts\windows\seat-local.cmd` (created from the example on first install):  
-   `WIMS_SERVER`, `WIMS_SEAT_ID`, exe paths, `START_N1MM` / `START_WSJTX` / `START_AGENT`.
+   `WIMS_SERVER`, `WIMS_SEAT_ID`, exe paths, `START_WFVIEW` / `START_N1MM` / `START_WSJTX` / `START_AGENT`.
 2. Double-click **`Install-WimsSeatStartup.cmd`** once (or menu option 7).
 3. Optional test: **`Start-WimsSeat.cmd`** / menu option 3 (does not wait for reboot).
-4. Reboot or sign out/in — N1MM, WSJT-X, and the continuous agent should come up.
+4. Reboot or sign out/in — wfview, N1MM, WSJT-X, and the continuous agent should come up.
 
 Logs: `seat-startup-log.txt`, `agent-daemon-log.txt` next to the scripts.
 
-**App policy:** N1MM and WSJT-X are **only started if missing** (never force-killed — avoids blank
+**App policy:** **wfview** starts first (Icom CAT / RigCtld), then N1MM, then WSJT-X.
+wfview, N1MM, and WSJT-X are **only started if missing** (never force-killed — avoids blank
 WSJT dialogs and mid-log disruption). The **agent** defaults to
 `START_AGENT_RESTART=1` (kill old `wims.agent`, start fresh) while the agent is in development.
 

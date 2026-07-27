@@ -93,7 +93,11 @@ only.** WIMS's headline value is the **cross-site operations console**: one comb
 per-band activity + health, one merged log / dupe-mult view — replacing "anyone there?" over chat.
 
 **Digital fleet (authoritative — networking detail in
-[wims_networking.md](wims_networking.md)):**
+[wims_networking.md](wims_networking.md)).** Plane map, seat-local CAT (not a WIMS plane), and
+the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networking.md) §3 /
+§3.2 / §3.3**.
+
+**Digital fleet summary:**
 
 | Band | N1MM (one, logger-of-record) | WSJT-X hosts |
 |------|------------------------------|--------------|
@@ -184,11 +188,13 @@ bed (§5).
   audio line; sub-ms, deterministic — the only *guaranteed* 10 ms option. Use a ~2–5 ms cosine/RC
   ramp, never a hard cut (key-click splatter). The mute must run **on the WSJT-X host** (local
   agent, §3.3); the LAN (~1 ms) stays out of the critical path. (Sensor / trigger / actuator breakdown + the two stop layers: §3.4.1.)
-- **Multicast vs unicast** — this station uses **multicast `224.0.0.73:2237`** (TTL 3), so WIMS
-  joins the group and receives alongside GridTracker/N1MM, non-disruptively. `BroadcastToN1MM=false`
-  (N1MM is not fed by WSJT-X's direct unicast — it consumes the multicast). Config:
-  `AppData/Roaming/WSJT-X/WSJT-X.ini` (Windows) or `~/.config/WSJT-X*.ini` (Linux, including
-  `WSJT-X - <rig-name>.ini`).
+- **Multicast vs unicast** — this station uses **multicast `224.0.0.73` + band port** (TTL 3;
+  ports 2237–2240 per [wims_networking.md](wims_networking.md) §4 — e.g. 144 MHz → **2238**),
+  so WIMS joins the group and receives alongside GridTracker/N1MM, non-disruptively.
+  `BroadcastToN1MM=false` (N1MM is not fed by WSJT-X's direct unicast — it consumes the
+  multicast). Config: `AppData/Roaming/WSJT-X/WSJT-X.ini` (Windows) or `~/.config/WSJT-X*.ini`
+  (Linux, including `WSJT-X - <rig-name>.ini`). Seat CAT (wfview, etc.) is orthogonal — §1.1
+  is UDP only; see networking **§3.2–§3.3**.
 - **Outgoing interface is mandatory** — Settings → Reporting → **Outgoing interface** must be the
   **contest LAN NIC**. Blank / Qt `@Invalid()` / loopback is a **silent failure mode**: WSJT-X
   still decodes, but Heartbeat/Status/Decode never reach WIMS or other hosts (observed: one
@@ -1015,9 +1021,19 @@ rig); prompt for what we can't (antenna geometry, intended limits).
 - **Operating** — band; mode(s) + submode/**period length** (FT8 15 s, MSK144 15 s, Q65
   15/30/60/120 s — drives interlock windows & fault timeouts); dial freq; **RX-only vs
   TX-capable**; role (run / S&P / monitor); priority weight.
-- **Radio / TX path** — rig model; CAT path; **PTT method** (CAT / VOX / RTS / DTR — affects halt
-  behavior); TX audio device; **fast-mute mechanism** (volume API / virtual cable / analog-GPIO
-  pin, §1.1); PA/amp id + power.
+- **Radio / TX path** — rig model; **CAT path** (middleware enum + endpoints — not “COM only”);
+  **PTT method** (CAT / VOX / RTS / DTR — affects halt behavior); TX audio device; **fast-mute
+  mechanism** (volume API / virtual cable / analog-GPIO pin, §1.1); PA/amp id + power.
+  - CAT is **seat-local**, not a WIMS plane: WIMS never opens the radio COM port or speaks CI-V /
+    Hamlib to the rig. It only drives WSJT-X over UDP (Reply / Halt). See
+    **[wims_networking.md](wims_networking.md) §3.2**.
+  - **Preferred Icom USB seat:** **wfview** owns USB COM; WSJT-X = Hamlib NET
+    `127.0.0.1:4533` (RigCtld **must** be enabled); N1MM = TCP to wfview for frequency only —
+    never N1MM **Load WSJT/JTDX** / DX Lab Suite Commander proxy on managed seats. Full recipe:
+    **[wims_networking.md](wims_networking.md) §3.3**.
+  - Profile `cat_path` examples: `direct-com` · `wfview-rigctld` · `win4icom` · `win4yaesu` ·
+    `lp-bridge` · `flex-smartsdr-cat` · `vspe-pair` · `other-middleware`. Record host endpoints
+    (e.g. rigctld port, N1MM TCP port) so clones and readiness checks can verify LISTENING.
 - **Antenna geometry** —
   - *type:* **fixed** or **rotatable**.
   - *fixed:* **bearing (°)**, **beamwidth (°)**, gain, fixed elevation. (Engine must know the

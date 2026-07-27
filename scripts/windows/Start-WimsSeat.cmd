@@ -19,11 +19,14 @@ REM You should have received a copy of the GNU General Public License
 REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 setlocal EnableExtensions EnableDelayedExpansion
-REM Start contest seat apps after auto-logon: N1MM / WSJT-X if needed, always refresh agent.
-REM Does NOT start the site WIMS server.
+REM Start contest seat apps after auto-logon: wfview first (CAT), then N1MM / WSJT-X
+REM if needed, always refresh agent. Does NOT start the site WIMS server.
 REM
-REM N1MM + WSJT-X: start only if not already running (no force-kill — avoids blank
-REM WSJT dialogs and mid-log disruption).
+REM Order: wfview → delay → N1MM → delay → WSJT-X → agent
+REM   wfview owns radio COM and must be up (RigCtld/TCP) before N1MM/WSJT-X CAT.
+REM
+REM wfview + N1MM + WSJT-X: start only if not already running (no force-kill —
+REM avoids blank WSJT dialogs and mid-log disruption).
 REM Agent: kill any existing wims.agent then start fresh (dev-friendly).
 REM
 REM Paths may contain parentheses (Program Files (x86)). Use delayed expansion !VAR!.
@@ -44,13 +47,16 @@ cd /d "%ROOT%"
 
 set "WIMS_SERVER=http://192.168.1.119:8787"
 set "WIMS_SEAT_ID="
+set "START_WFVIEW=1"
 set "START_N1MM=1"
 set "START_WSJTX=1"
 set "START_AGENT=1"
-REM Kill only the WIMS agent before restart (not N1MM/WSJT-X)
+REM Kill only the WIMS agent before restart (not wfview/N1MM/WSJT-X)
 set "START_AGENT_RESTART=1"
+set "WFVIEW_EXE=C:\Program Files\wfview\wfview.exe"
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
 set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
+REM Overridden by seat-local.cmd — must be non-empty or WSJT-X is refused.
 set "WSJTX_RIG_NAME="
 set "START_DELAY_SEC=5"
 set "AGENT_INTERVAL=30"
@@ -69,10 +75,43 @@ echo  =================
 echo  Repo:   %ROOT%
 echo  Server: %WIMS_SERVER%
 if defined WIMS_SEAT_ID echo  Seat:   %WIMS_SEAT_ID%
-echo  Apps:   N1MM/WSJT-X start if missing; agent restart=!START_AGENT_RESTART!
+echo  Apps:   wfview/N1MM/WSJT-X start if missing; agent restart=!START_AGENT_RESTART!
 echo  Log:    %LOG%
 echo.
 
+if "!START_DELAY_SEC!"=="" set "START_DELAY_SEC=5"
+
+REM ---- wfview FIRST: owns radio COM; RigCtld/TCP must be up before N1MM/WSJT CAT ----
+if not "!START_WFVIEW!"=="1" goto skip_wfview
+if not exist "!WFVIEW_EXE!" goto wfview_missing
+tasklist /FI "IMAGENAME eq wfview.exe" 2>nul | find /I "wfview.exe" >nul
+if not errorlevel 1 goto wfview_running
+echo  Starting wfview...
+start "wfview" "!WFVIEW_EXE!"
+echo started wfview>> "%LOG%"
+goto after_wfview_start
+
+:wfview_missing
+echo  WARN: wfview not found: !WFVIEW_EXE!
+echo wfview missing>> "%LOG%"
+goto after_wfview
+
+:wfview_running
+echo  wfview already running - leave it
+echo wfview already running>> "%LOG%"
+goto after_wfview
+
+:skip_wfview
+echo  Skip wfview START_WFVIEW=0
+echo skip wfview>> "%LOG%"
+goto after_wfview
+
+:after_wfview_start
+echo  Waiting !START_DELAY_SEC!s for wfview / RigCtld...
+set /a _PING_N=!START_DELAY_SEC!+1
+ping -n !_PING_N! 127.0.0.1 >nul
+
+:after_wfview
 REM ---- N1MM: start only if not running ----
 if not "!START_N1MM!"=="1" goto skip_n1mm
 if not exist "!N1MM_EXE!" goto n1mm_missing
@@ -98,25 +137,45 @@ echo  Skip N1MM START_N1MM=0
 echo skip N1MM>> "%LOG%"
 
 :after_n1mm
-if "!START_DELAY_SEC!"=="" set "START_DELAY_SEC=5"
 echo  Waiting !START_DELAY_SEC!s...
 set /a _PING_N=!START_DELAY_SEC!+1
 ping -n !_PING_N! 127.0.0.1 >nul
 
-REM ---- WSJT-X: start only if not running ----
+REM ---- WSJT-X: ALWAYS require --rig-name; replace bare (no rig-name) instances ----
 if not "!START_WSJTX!"=="1" goto skip_wsjtx
 if not exist "!WSJTX_EXE!" goto wsjtx_missing
-tasklist /FI "IMAGENAME eq wsjtx.exe" 2>nul | find /I "wsjtx.exe" >nul
-if not errorlevel 1 goto wsjtx_running
-echo  Starting WSJT-X...
-if defined WSJTX_RIG_NAME if not "!WSJTX_RIG_NAME!"=="" goto wsjtx_named
-start "WSJTX" "!WSJTX_EXE!"
-echo started WSJTX default>> "%LOG%"
-goto after_wsjtx
+if not defined WSJTX_RIG_NAME goto wsjtx_no_rig
+if "!WSJTX_RIG_NAME!"=="" goto wsjtx_no_rig
 
-:wsjtx_named
+REM If any wsjtx is running WITHOUT our --rig-name, stop it so we do not keep a default id.
+set "WSJTX_HAS_NAMED="
+set "WSJTX_HAS_ANY="
+for /f "skip=1 tokens=*" %%L in ('wmic process where "name='wsjtx.exe'" get CommandLine /value 2^>nul') do (
+  set "CL=%%L"
+  if /I "!CL:~0,12!"=="CommandLine=" (
+    set "WSJTX_HAS_ANY=1"
+    echo !CL! | find /I "--rig-name=!WSJTX_RIG_NAME!" >nul
+    if not errorlevel 1 set "WSJTX_HAS_NAMED=1"
+  )
+)
+if defined WSJTX_HAS_NAMED goto wsjtx_running
+if defined WSJTX_HAS_ANY (
+  echo  WSJT-X running without --rig-name=!WSJTX_RIG_NAME! — restarting correctly...
+  taskkill /IM jt9.exe /F >nul 2>&1
+  taskkill /IM wsjtx.exe /F >nul 2>&1
+  ping -n 2 127.0.0.1 >nul
+  echo killed bare/wrong WSJTX>> "%LOG%"
+)
+
+echo  Starting WSJT-X --rig-name=!WSJTX_RIG_NAME!...
 start "WSJTX" "!WSJTX_EXE!" --rig-name=!WSJTX_RIG_NAME!
 echo started WSJTX rig=!WSJTX_RIG_NAME!>> "%LOG%"
+goto after_wsjtx
+
+:wsjtx_no_rig
+echo  ERROR: WSJTX_RIG_NAME is empty — refusing to start WSJT-X without --rig-name.
+echo  Set it in seat-local.cmd ^(e.g. set "WSJTX_RIG_NAME=W10VM-50"^).
+echo WSJTX refused: empty WSJTX_RIG_NAME>> "%LOG%"
 goto after_wsjtx
 
 :wsjtx_missing
@@ -125,8 +184,8 @@ echo WSJTX missing>> "%LOG%"
 goto after_wsjtx
 
 :wsjtx_running
-echo  WSJT-X already running - leave it
-echo WSJTX already running>> "%LOG%"
+echo  WSJT-X already running with --rig-name=!WSJTX_RIG_NAME!
+echo WSJTX already running named>> "%LOG%"
 goto after_wsjtx
 
 :skip_wsjtx

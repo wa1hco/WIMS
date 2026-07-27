@@ -29,23 +29,27 @@ set "WIMS_SEAT_ID=TEMPLATE-01"
 REM set "WIMS_AGENT_ID=win10-template-01"
 
 REM What to start at logon (1=yes, 0=skip)
+REM Order: wfview first (Icom CAT middleware), then N1MM, then WSJT-X, then agent.
+set "START_WFVIEW=1"
 set "START_N1MM=1"
 set "START_WSJTX=1"
 set "START_AGENT=1"
 
-REM N1MM / WSJT-X are never force-killed (only started if missing).
+REM wfview / N1MM / WSJT-X are never force-killed (only started if missing).
 REM 1 = kill existing wims.agent and start a fresh one (recommended while agent is in dev)
 REM 0 = leave a running agent alone
 set "START_AGENT_RESTART=1"
 
 REM Paths
+set "WFVIEW_EXE=C:\Program Files\wfview\wfview.exe"
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
 set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
 
-REM Optional WSJT-X multi-instance: unique --rig-name (sets UDP id). Blank = default config.
-set "WSJTX_RIG_NAME="
+REM REQUIRED unique --rig-name (UDP id). Never leave blank — bare launch is refused.
+REM Example: set "WSJTX_RIG_NAME=W10VM-50"
+set "WSJTX_RIG_NAME=SEAT-CHANGE-ME"
 
-REM Delay after starting N1MM before starting WSJT-X (seconds)
+REM Delay after wfview (for RigCtld) and after N1MM before WSJT-X (seconds)
 set "START_DELAY_SEC=5"
 
 REM Agent continuous: seconds between config reports
