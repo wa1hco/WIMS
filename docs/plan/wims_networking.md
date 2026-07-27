@@ -632,7 +632,74 @@ Also: unique `--rig-name` → unique UDP `id`; do **not** use GridTracker as a r
 
 **Note:** N1MM may open **extra UDP sockets** that do not appear as labeled “SO2R port” fields in
 Configurer (runtime bind ≠ UI label). WIMS readiness should detect **port owners** (process
-name) when a stream bind fails, not only the SO2R page.
+name) when a stream bind fails, not only the SO2R page. Full write-up: **§4.9**.
+
+### 4.9 Runtime port ownership conflicts (e.g. `:2240` held by N1MM)
+
+This is **not** the same as “operator forgot SO2R port 2240 in Configurer.” It is a **runtime
+socket ownership** problem that the Band Stream Registry and readiness checks must handle.
+
+#### 4.9.1 Lab observation (W10VM-50 / N1MM+, 2026-07)
+
+| Fact | Detail |
+|------|--------|
+| **Symptom** | WIMS server stderr: `WSJT-X port 224.0.0.73:2240 bind failed ([WinError 10013] …); skipping` |
+| **Owner of UDP :2240** | `N1MMLogger.net.exe` (verified with `Get-NetUDPEndpoint` / `netstat -ano -p udp`) |
+| **Also held by same N1MM** | UDP **2237** (primary digi reader) plus multi-computer **12070/12080**, multi-user **130xx**, ephemeral high ports |
+| **Configurer UI** | Operator may see **no SO2R / no second-reader / no “2240”** field set |
+| **`N1MM Logger.ini`** | Often only `[ExternalProgramInput] EnableWSJTJTDXUDPReader=True` + `WSJTJTDXUDPIP=…` — **port number may be omitted** from that section |
+| **Admin DB defaults** | May list default digi ports (e.g. 2237 / 2239) that **do not match** live binds |
+| **Conclusion** | **Runtime bind ≠ SO2R page labels.** Treat process→port as ground truth. |
+
+Same class of issue can hit **any** registry port (2237, 2241, …), not only 2240. **2240** is just the
+default Scheme A port for **432 MHz**, so a collision there steals the 432 stream from WIMS while
+leaving 50/144/222 fine.
+
+#### 4.9.2 Why this breaks (and what it does *not* break)
+
+| Effect | Severity |
+|--------|----------|
+| WIMS cannot join stream \(S_{432}\) if default port 2240 is taken | **432 digi roster empty** for WIMS; server should **keep running** |
+| N1MM still logs its own digi path on ports it owns | Logging may be fine for the band N1MM intends |
+| Browser “● disconnected” | **Unrelated** — means HTTP/SSE to `:8787` died (process exit, Defender, dual-primary demote) |
+| Double-log | Only if **two N1MMs** both enable readers on the **same** stream — not the same as WIMS failing to bind |
+
+Design rule (already in §4.4): **bind failure → loud Status warning + skip that port; do not kill the server** if at least one stream binds.
+
+#### 4.9.3 Operator diagnosis (no Wireshark)
+
+```text
+# Who owns a port? (Windows)
+netstat -ano -p udp | findstr ":2240"
+Get-NetUDPEndpoint -LocalPort 2240 | Format-List OwningProcess, LocalAddress
+# then: Get-Process -Id <pid>
+
+# Free test: fully exit N1MM → recheck port → if free, N1MM was the owner
+```
+
+Do **not** require the operator to find “2240” under SO2R before believing the conflict.
+
+#### 4.9.4 Mitigations (design + ops)
+
+| Approach | When | Notes |
+|----------|------|--------|
+| **A. Skip the port in WIMS** | Band not used / temporary | `--ports 2237,2238,2239` or registry without 432 until free |
+| **B. Reassign stream port in registry** | Want 432 digi in WIMS while N1MM keeps 2240 for unknown reason | New free port for \(S_{432}\) (e.g. 2250); update **all** WSJT-X on 432 + N1MM-432 reader + WIMS join list |
+| **C. Free the port in N1MM** | N1MM should not need it | Exit N1MM; if port frees, restart N1MM after clearing **both** WSJT reader slots / closing Decode List windows; re-check live binds |
+| **D. Readiness UI** | Always | Status/Setup: “UDP :2240 owned by N1MMLogger.net — WIMS stream 432 skipped” with deep link to this section |
+
+**WIMS must not** assume Configurer text fields are complete. **Agent / server readiness** should:
+
+1. Attempt bind (or query OS for listeners) on each registry port.  
+2. On failure, resolve **owning process name + path**.  
+3. Surface band, intended consumer (WIMS join vs N1MM logger), and one-click remedies A–C.  
+4. Never require sequential ports after a reassignment (registry is authoritative).
+
+#### 4.9.5 Relation to dual-consumer model
+
+- **N1MM holding 2237** while WIMS also joins 2237 is **often OK** if the OS allows shared multicast bind (`SO_REUSEADDR` / platform equivalent) — both are intended consumers of \(S_{50}\).  
+- **N1MM holding 2240** when **no** N1MM-432 reader is intended is **accidental ownership** — it still blocks WIMS from using that port as \(S_{432}\) if exclusive bind fails.  
+- Fix is **registry + readiness**, not “document that SO2R must show 2240.”
 
 ### 4.8 Contest LAN interface (WSJT-X “Outgoing interface”)
 

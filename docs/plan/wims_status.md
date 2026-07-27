@@ -287,8 +287,13 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-23** — **Rotator Phase‑2 start (M4).** Registry + sim + Yaesu helpers; roster **Az ant**
   / **Δaz** / moving font; click **Az DX** → point; Stop on rotator table; agent report can carry
   `rotators[]`. Lab: `--sim-rotator ROT-6M:45:WSJT-X`. No live K3NG serial yet.
+- **2026-07-26** — **Doc: UDP :2240 / unlabeled N1MM binds.** Lab: `N1MMLogger.net` can own
+  **:2240** (and :2237) while Configurer SO2R shows no “2240”. WIMS warns and skips bind — not
+  fatal. Design + diagnosis + mitigations: **[wims_networking.md §4.9](wims_networking.md)**.
+  Readiness must use process→port ownership, not SO2R labels alone.
 - **2026-07-23** — **Multi-band WSJT-X ports:** server joins **2237–2240 by default** (no CLI
   memory). Solo still 2237-only. Escape hatch `--ports`.
+
 - **2026-07-23** — **Station agent desktop launcher:** `Install-WimsAgent-Desktop-Shortcut.cmd`
   + green `assets/wims-agent.ico`; install also creates **WIMS Agent** + **WIMS Server**
   shortcuts. Continuous agent opens local UI `http://127.0.0.1:8790/`.
