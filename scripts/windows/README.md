@@ -54,6 +54,17 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |
 | **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
+| **`Start-WSJTX-50.cmd`** | Start (or no-op if already up) the 6 m WSJT-X instance `--rig-name=WSJTX-50`. |
+| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write `seat-local.cmd`, hostname, Startup link. |
+
+### Lab: Proxmox seat clones (optional)
+
+| File | What it does |
+|------|----------------|
+| **`proxmox-clone-wims-seats.sh`** | On the **Proxmox host**: template the golden Win10 guest, clone IC-9700 + Flex seats. |
+| **`_pve_api.py`** / **`_pve_spawn_seats.py`** | Optional API helpers (password via CLI arg only — never commit secrets). Lab defaults (host/VMIDs) are in-file; edit for your cluster. |
+
+After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming).
 
 ### Fleet seat auto-start (Win10 template, auto-logon)
 
