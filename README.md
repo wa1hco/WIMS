@@ -10,6 +10,9 @@ starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
 ## Install & quick start
 
+**Testers / home evaluation (recommended entry):**  
+**[docs/tester_quickstart.md](docs/tester_quickstart.md)** — tracks from *no radio apps* → WSJT-X only → WSJT-X+N1MM → optional multi-PC.
+
 Full instructions for a **new machine with nothing installed** (except Windows or Linux itself).
 WIMS is **stdlib-only** (no `pip install`); the Windows installer brings in Python/Git/firewall.
 

@@ -1,5 +1,9 @@
 # WIMS — Solo Tester Runbook
 
+> **Start here for most people:** [tester_quickstart.md](tester_quickstart.md)  
+> (install-only · WSJT-X only · WSJT-X+N1MM · optional multi-PC).  
+> This runbook is the **deep solo path** (WSJT-X + N1MM on one PC).
+
 **Try WIMS on one PC, on a single FT8 frequency (any band).** You already run WSJT-X
 and N1MM; WIMS adds a browser console that ranks the stations you're hearing, shows
 which are *needed* vs *worked*, and lets you answer one with a click.

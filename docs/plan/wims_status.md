@@ -299,6 +299,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-23** — **Station agent desktop launcher:** `Install-WimsAgent-Desktop-Shortcut.cmd`
   + green `assets/wims-agent.ico`; install also creates **WIMS Agent** + **WIMS Server**
   shortcuts. Continuous agent opens local UI `http://127.0.0.1:8790/`.
+- **2026-07-27** — **Tester quick start:** `docs/tester_quickstart.md` — layered tracks A–D
+  (no radio apps → WSJT only → N1MM+WSJT → optional multi-PC). Linked from README + runbook.
 - **2026-07-20** — **Agent solo mode (noob-friendly setup check).** `wims.agent --solo` + new
   single-PC validation lens (`wsjtx_config._validate_solo`): the fleet "blank/@Invalid outgoing
   interface" **ERROR becomes a friendly note** (traffic staying on one PC is correct), and the

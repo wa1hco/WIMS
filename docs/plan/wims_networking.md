@@ -222,7 +222,7 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
 
 | Plane | What | Purpose |
 |-------|------|---------|
-| **A. Radio UDP (multicast)** | WSJT-X Heartbeat / Status / Decode / QSO Logged | Decodes, status, N1MM logging of digital QSOs |
+| **A. WSJT-X UDP (multicast)** | WSJT-X Heartbeat / Status / Decode / QSO Logged | Decodes, status, N1MM logging of digital QSOs |
 | **B. Logger UDP (N1MM external)** | `<contactinfo>`, `<RadioInfo>`, … on **:12060** | WIMS log copy, presence, roster dupe/mult |
 | **C. N1MM peer network (TCP)** | N1MM “Networked Computer” | One **merged** contest log among the four N1MMs |
 | **D. Console unicast** | HTTP/SSE (later TLS/WS) to WIMS | Operators; never the RF data path over the internet |

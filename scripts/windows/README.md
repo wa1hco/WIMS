@@ -10,6 +10,9 @@
 
 ## Solo tester (everything on one PC) — start here if you're trying WIMS out
 
+**Full tracks (no apps → WSJT only → N1MM+WSJT → multi-PC):**  
+[docs/tester_quickstart.md](../../docs/tester_quickstart.md)
+
 For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a single FT8
 frequency (any band). No fleet, no separate server.
 
