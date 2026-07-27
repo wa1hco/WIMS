@@ -45,6 +45,9 @@ import threading
 import time
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+# Client went away mid-request (browser refresh, agent kill, firewall). Not a server bug.
+_CLIENT_GONE = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError)
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -939,6 +942,21 @@ def make_handler(live: LiveFleet, refresh: float):
     return Handler
 
 
+class _QuietThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer that does not dump a full traceback when the peer aborts."""
+
+    def handle_error(self, request, client_address):
+        exc = sys.exc_info()[1]
+        if isinstance(exc, _CLIENT_GONE) or (
+            isinstance(exc, OSError)
+            and getattr(exc, "winerror", None) in (10053, 10054, 10038)
+        ):
+            # WinError 10053 = aborted by host software; 10054 = reset by peer
+            return
+        # Real bugs: keep default logging behavior
+        super().handle_error(request, client_address)
+
+
 def main() -> None:
     from wims.discovery import presence as P
 
@@ -1145,7 +1163,9 @@ def main() -> None:
     threading.Thread(target=ingest_loop, daemon=True,
                      args=(live, s_wsjt_list, s_n1mm)).start()
 
-    httpd = ThreadingHTTPServer(("0.0.0.0", args.http_port), make_handler(live, args.refresh))
+    httpd = _QuietThreadingHTTPServer(
+        ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
+    )
     console_ip = P._primary_lan_ip(args.iface)
     print(f"WIMS server: http://localhost:{args.http_port}/       (Operate)")
     print(f"             http://{console_ip}:{args.http_port}/     (LAN console)")
