@@ -1,10 +1,11 @@
 @echo off
 setlocal EnableExtensions
-REM Creates Desktop\WIMS.lnk -> WIMS.cmd menu (no paths to remember).
+REM Desktop "WIMS" shortcut -> seat menu (WIMS.cmd). Uses assets\wims.ico when present.
 
 cd /d "%~dp0"
 set "HERE=%~dp0"
 set "MENU=%~dp0WIMS.cmd"
+set "ICON=%~dp0assets\wims.ico"
 set "DESK=%USERPROFILE%\Desktop"
 if not exist "%DESK%" set "DESK=%USERPROFILE%\OneDrive\Desktop"
 set "LNK=%DESK%\WIMS.lnk"
@@ -16,7 +17,14 @@ if not exist "%MENU%" (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%LNK%'); $s.TargetPath = '%MENU%'; $s.WorkingDirectory = '%HERE%'; $s.WindowStyle = 1; $s.Description = 'WIMS Seat menu — check agent, start seat, open dashboards'; $s.Save(); Write-Host 'Created:' '%LNK%'"
+  "$ws = New-Object -ComObject WScript.Shell; " ^
+  "$s = $ws.CreateShortcut('%LNK%'); " ^
+  "$s.TargetPath = '%MENU%'; " ^
+  "$s.WorkingDirectory = '%HERE%'; " ^
+  "$s.WindowStyle = 1; " ^
+  "$s.Description = 'WIMS Seat menu — check agent, start seat, open dashboards'; " ^
+  "if (Test-Path -LiteralPath '%ICON%') { $s.IconLocation = '%ICON%,0' }; " ^
+  "$s.Save(); Write-Host 'Created:' '%LNK%'"
 
 if not exist "%LNK%" (
   echo ERROR: could not create Desktop shortcut
@@ -27,6 +35,11 @@ if not exist "%LNK%" (
 echo.
 echo  Desktop shortcut ready: WIMS
 echo  Double-click "WIMS" on the Desktop for the seat menu.
+if exist "%ICON%" (echo  Icon: assets\wims.ico)
 echo.
+REM Also offer the dedicated agent launcher (stations often only need the agent).
+if exist "%HERE%Install-WimsAgent-Desktop-Shortcut.cmd" (
+  call "%HERE%Install-WimsAgent-Desktop-Shortcut.cmd" /nopause
+)
 if /I not "%~1"=="/nopause" pause
 exit /b 0

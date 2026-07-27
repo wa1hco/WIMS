@@ -78,6 +78,19 @@
   </table>
   <div id="inst-empty" class="empty">waiting for WSJT-X traffic…</div>
 
+  <h2>Rotators (Az ant)</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Live antenna heading from seat agent or <code>--sim-rotator</code>. Click-to-point on Operate (Az DX).
+  </p>
+  <table id="rot">
+    <thead><tr>
+      <th>Rotator</th><th class="num">Az</th><th class="num">Target</th>
+      <th>Motion</th><th>Health</th><th>Instances</th><th>Source</th>
+    </tr></thead>
+    <tbody id="rot-body"></tbody>
+  </table>
+  <div id="rot-empty" class="empty">No rotators reporting.</div>
+
   <h2>N1MM sync (live UDP + file resync)</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 4px 0">
     Live feed = Contacts UDP. Full rebuild from the N1MM <code>.s3db</code> is

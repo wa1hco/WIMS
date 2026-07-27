@@ -40,13 +40,18 @@ if defined WIMS_SEAT_ID set "SEAT_ARGS=--seat-id %WIMS_SEAT_ID%"
 if defined WIMS_AGENT_ID set "SEAT_ARGS=%SEAT_ARGS% --agent-id %WIMS_AGENT_ID%"
 
 echo.
-echo  WIMS Agent — CONTINUOUS ^(reports to site server^)
+echo  WIMS Agent — CONTINUOUS ^(station seat^)
 echo  Repo:   %ROOT%
 echo  Python: %PYTHON_EXE%
 echo  Local:  http://127.0.0.1:8790/
 echo  Export: %WIMS_SERVER%  every ~30s
 echo  Stop:   Ctrl+C
 echo.
+
+REM Open local agent page once (browser may show waiting until the server binds).
+if /I not "%WIMS_AGENT_NO_BROWSER%"=="1" (
+  start "" "http://127.0.0.1:8790/"
+)
 
 if exist "%ROOT%\scripts\run_agent.py" (
   "%PYTHON_EXE%" "%ROOT%\scripts\run_agent.py" --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*

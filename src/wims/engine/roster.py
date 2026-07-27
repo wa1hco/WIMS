@@ -81,6 +81,38 @@ class RosterBuilder:
         inst, call, grid = parts
         return self._entries.get((inst, call.upper(), grid))
 
+    def reband_unknown(self, instance_id: str, band: str) -> int:
+        """Assign `band` to rows for this instance that were tagged ``?`` (decode
+        arrived before the first Status). Does not drop anything.
+        """
+        if not instance_id or not band or band == "?":
+            return 0
+        n = 0
+        for k, e in self._entries.items():
+            if k[0] != instance_id:
+                continue
+            if e.band in ("?", "", None):
+                e.band = band
+                n += 1
+        return n
+
+    def drop_other_bands(self, instance_id: str, band: str) -> int:
+        """Drop retained rows for `instance_id` that are not on `band`.
+
+        Call only on a **real QSY** (known old band → different known new band).
+        Do not use on every Status — provisional ``?`` rows should be rebanded, not
+        dropped. Returns how many rows were removed.
+        """
+        if not instance_id or not band or band == "?":
+            return 0
+        dead = [k for k, e in self._entries.items()
+                if k[0] == instance_id
+                and e.band and e.band not in ("?", "")
+                and e.band != band]
+        for k in dead:
+            del self._entries[k]
+        return len(dead)
+
     def ranked(self, now: float, ctx: S.Context | None = None) -> tuple[list[tuple], int]:
         """Score every retained row against the log. Returns
         `([(ScoredCandidate, _Entry), ...], not_needed_count)`. **All** rows are

@@ -39,11 +39,15 @@ set "IFACE=0.0.0.0"
 for /f "usebackq delims=" %%I in (powershell -NoProfile -ExecutionPolicy Bypass -Command "try { (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress } catch { '0.0.0.0' }") do set "IFACE=%%I"
 
 echo.
-echo  WIMS: %ROOT%
+echo  WIMS site server
+echo  Root:  %ROOT%
 echo  Python: %PYTHON_EXE%
-echo  iface=%IFACE%  http://localhost:8787/
+echo  LAN:   %IFACE%
+echo  Console: http://localhost:8787/   (also http://%IFACE%:8787/)
+echo  Bands: 50/144/222/432 ports 2237-2240  ^(no flags to remember^)
 echo.
 
+REM Defaults join all band ports + N1MM mcast. Override only for lab: %*
 "%PYTHON_EXE%" -m wims.server.app --iface %IFACE% --n1mm-group 224.0.0.73 --http-port 8787 %*
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )

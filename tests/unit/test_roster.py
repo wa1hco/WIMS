@@ -82,6 +82,32 @@ def test_stale_entries_age_out():
     assert scored == []
 
 
+def test_drop_other_bands_on_qsy():
+    """QSY must drop other-band rows for that instance only (wrong-band Work risk)."""
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("SIM-A", "CQ K1ABC FN42"), "20m", now=10.0)
+    rb.observe_decode(_decode("SIM-A", "CQ W1XYZ FN31"), "6m", now=10.0)
+    rb.observe_decode(_decode("SIM-B", "CQ N1NEW FN20"), "20m", now=10.0)  # other instance
+    n = rb.drop_other_bands("SIM-A", "6m")
+    assert n == 1
+    rows, _ = rb.ranked(now=10.0)
+    calls = {(s.candidate.instance_id, s.candidate.call, s.candidate.band)
+             for s, _ in rows}
+    assert ("SIM-A", "W1XYZ", "6m") in calls
+    assert ("SIM-B", "N1NEW", "20m") in calls
+    assert not any(c[1] == "K1ABC" for c in calls)
+
+
+def test_drop_other_bands_keeps_unknown_band_rows():
+    """Provisional '?' rows are not dropped (reband handles them)."""
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("SIM-A", "CQ K1ABC FN42"), "?", now=10.0)
+    assert rb.drop_other_bands("SIM-A", "6m") == 0
+    assert rb.entry_for("SIM-A|K1ABC|FN42") is not None
+    assert rb.reband_unknown("SIM-A", "6m") == 1
+    assert rb.entry_for("SIM-A|K1ABC|FN42").band == "6m"
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

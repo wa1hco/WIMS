@@ -42,27 +42,29 @@ echo    2.  Start continuous agent     ^(reports to server, stays running^)
 echo    3.  Start seat pack            ^(N1MM / WSJT-X if needed + agent^)
 echo    4.  Open local agent page      ^(http://127.0.0.1:8790/^)
 echo    5.  Open server Status page    ^(%WIMS_SERVER%/status^)
-echo    6.  Put WIMS on Desktop        ^(shortcut to this menu^)
-echo    7.  Auto-start at logon        ^(install Startup for seat pack^)
-echo    8.  Remove auto-start
+echo    6.  Put WIMS on Desktop        ^(menu + Agent icons^)
+echo    7.  Desktop: WIMS Agent only   ^(green agent icon^)
+echo    8.  Auto-start at logon        ^(install Startup for seat pack^)
+echo    9.  Remove auto-start
 echo.
 echo    0.  Exit
 echo.
 echo  ============================================================
 echo.
-choice /C 123456780 /N /M "  Choose 0-8: "
+choice /C 1234567890 /N /M "  Choose 0-9: "
 set "SEL=%ERRORLEVEL%"
 
-REM choice returns 1 for first char, so 1->1 ... 8->8, 0 is 9th option -> 9
-if "%SEL%"=="9" goto end
+REM choice: 1..9 then 0 is 10th option
+if "%SEL%"=="10" goto end
 if "%SEL%"=="1" goto do_check
 if "%SEL%"=="2" goto do_agent
 if "%SEL%"=="3" goto do_seat
 if "%SEL%"=="4" goto do_local_ui
 if "%SEL%"=="5" goto do_server_ui
 if "%SEL%"=="6" goto do_desktop
-if "%SEL%"=="7" goto do_startup_on
-if "%SEL%"=="8" goto do_startup_off
+if "%SEL%"=="7" goto do_desktop_agent
+if "%SEL%"=="8" goto do_startup_on
+if "%SEL%"=="9" goto do_startup_off
 goto menu
 
 :do_check
@@ -108,6 +110,12 @@ goto menu
 
 :do_desktop
 call "%HERE%Install-WIMS-Desktop-Shortcut.cmd" /nopause
+echo.
+pause
+goto menu
+
+:do_desktop_agent
+call "%HERE%Install-WimsAgent-Desktop-Shortcut.cmd" /nopause
 echo.
 pause
 goto menu

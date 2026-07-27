@@ -38,7 +38,9 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 | File | What it does |
 |------|----------------|
 | **`WIMS.cmd`** | **Seat menu** — check agent, continuous agent, seat pack, open pages, desktop/Startup helpers. Finds the install automatically. |
-| **`Install-WIMS-Desktop-Shortcut.cmd`** | Puts **WIMS** on the Desktop (points at the menu). Run once per VM. |
+| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (seat menu, blue icon) **+** **WIMS Agent** (green). Run once per seat VM. |
+| **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (green icon → continuous agent). |
+| **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
 After that, operators only need the Desktop **WIMS** icon.
 
@@ -50,7 +52,11 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WimsServer.cmd`** | **Site** WIMS server only (not for radio seats). |
 | **`Start-WimsAgent.cmd`** | One-shot agent check (also menu option 1). |
 | **`Start-WimsAgent-Continuous.cmd`** | Continuous agent (menu option 2). |
+<<<<<<< HEAD
+| **`Start-WimsSeat.cmd`** | N1MM/WSJT if needed + agent (menu option 3). |
+| **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + `seat-local.cmd` `--rig-name`. |
 | **`Start-WimsSeat.cmd`** | wfview → N1MM/WSJT if needed + agent (menu option 3). |
+| **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + `seat-local.cmd` `--rig-name`. |
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |
 | **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). **`WSJTX_RIG_NAME` is required** (never blank). |
 | **`Start-WSJTX.cmd`** | Only safe way to start WSJT-X — always adds `--rig-name=` from `seat-local`. |
@@ -92,10 +98,18 @@ Steps (seat / fleet VM):
 
 1. Get the repo onto the VM (`git clone …` **or** USB tree), e.g. `C:\Users\W2SZ\WIMS`.
 2. Open `WIMS\scripts\windows\` once → double-click **`Install-Wims.cmd`** (Python) if needed.
-3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS**.
-4. After that: only use Desktop **WIMS** (menu). Edit `seat-local.cmd` for seat id / server once per clone.
+3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** (blue menu)
+   and **WIMS Agent** (green continuous agent).
+4. Day-to-day on a radio seat: double-click **WIMS Agent**. Full menu: **WIMS**.
+   Edit `seat-local.cmd` once per clone for seat id / server URL.
+5. **Unique WSJT-X UDP id:** set `WSJTX_RIG_NAME=` in `seat-local.cmd` **and** fix every
+   Desktop/Startup shortcut that starts `wsjtx.exe`:
+   `Find-And-Set-WsjtxRigName.cmd` (list) then  
+   `Find-And-Set-WsjtxRigName.cmd -RigName W10VM-144 -Apply` (2m) or `W10VM-50` (6m).  
+   Exit all `wsjtx.exe` and reboot. If another Startup entry starts WSJT without
+   `--rig-name` first, WIMS seat pack will not re-launch it with the right name.
 
-Site server PC (not seats): **`Start-WimsServer.cmd`** → browser `http://localhost:8787/`.
+Site server PC (not seats): **`Start-WimsServer.cmd`** / **WIMS Server** → `http://localhost:8787/`.
 The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
 
 ### Offline / USB tree

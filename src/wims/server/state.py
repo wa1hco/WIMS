@@ -26,7 +26,10 @@ contract — and everything behind it — stays put. Keep it additive and versio
 
 from __future__ import annotations
 
-from wims.engine.geo import bearing as _bearing
+from wims.engine.geo import (
+    bearing as _bearing, distance_km as _distance_km, base_call as _base_call,
+    delta_az as _delta_az,
+)
 
 API_VERSION = 1
 
@@ -37,13 +40,19 @@ def _instance(n, now: float) -> dict:
     collide = (n.id_collision_at(now) if hasattr(n, "id_collision_at")
                else n.id_collision)
     recent = sorted(n.hosts_recent(now)) if hasattr(n, "hosts_recent") else sorted(n.hosts)
+    ctrl = getattr(n, "control_addr", None)
     return {
         "id": n.id,
         "host": n.host,
         "hosts": recent,   # live sources (debug / multi-host collision UI)
+        # Ephemeral MessageClient port for Reply/Halt (ip:port from last recvfrom)
+        "control": (None if not ctrl else {"host": ctrl[0], "port": int(ctrl[1])}),
         "band": n.band,
         "mode": n.mode,
         "dial_hz": n.dial_hz,
+        "de_call": getattr(n, "de_call", None),
+        "dx_call": getattr(n, "dx_call", None),
+        "tx_enabled": bool(getattr(n, "tx_enabled", False)),
         "state": "TX" if n.transmitting else ("DEC" if n.decoding else "RX"),
         "transmitting": n.transmitting,
         "decodes_per_period": round(n.decodes_per_period(now), 1),
@@ -57,10 +66,13 @@ def _instance(n, now: float) -> dict:
 
 
 def _logger(lg, now: float) -> dict:
+    aliases = sorted(getattr(lg, "aliases", None) or [])
     return {
         "id": lg.id,
         "kind": lg.kind,
         "host": lg.host,
+        "hosts": sorted(getattr(lg, "hosts", None) or []),
+        "aliases": aliases,  # NetBIOS / merged prior ids (one PC, one logger)
         "mycall": lg.mycall,
         "qso_count": lg.qso_count,
         "last_call": lg.last_call,
@@ -117,22 +129,46 @@ def interlock_to_dict(detector, group_of, grouping: str,
 
 
 def roster_to_dict(scored_rows, not_needed: int, now: float,
-                   *, condition: str, strategy: str) -> dict:
+                   *, condition: str, strategy: str,
+                   nodes: dict | None = None,
+                   rotators=None) -> dict:
     """Snapshot the GridTracker-style call roster (plan §3.5 / §2.2) for the console.
 
-    `scored_rows` is `[(ScoredCandidate, entry), ...]` from `RosterBuilder.ranked` —
-    **every** retained station (needed and already-worked), each carrying its per-factor
-    score breakdown (the explainability is the point) plus the fields for the console
-    columns: `to_call` (who they're calling), RF `freq_hz` (instance dial + decode df),
-    `az` (great-circle bearing from the instance's own grid to the DX grid — pointing),
-    and `is_needed` (not a dupe per the N1MM log copy) so the console can toggle needed /
-    all and filter by band. `operator_call` (who manages that band) is stubbed until the
-    §3.14 fleet profile is wired. `not_needed` counts already-worked (dupe) rows."""
+    Columns include **Az DX** (`az`), **Az ant** / **Δaz** when a rotator maps to the
+    row's instance, **distance_km**, **is_calling_us**, **is_armed**. `rotators` is a
+    `RotatorRegistry` (optional).
+    """
     cands = []
     for sc, e in scored_rows:
         c = sc.candidate
         d = e.decode
         freq_hz = (e.dial_hz + d.delta_frequency) if e.dial_hz else None
+        dist = _distance_km(e.de_grid, c.grid)
+        az_dx = _bearing(e.de_grid, c.grid)
+        node = (nodes or {}).get(c.instance_id) if nodes is not None else None
+        de = getattr(node, "de_call", None) if node else None
+        to = getattr(d, "to_call", None)
+        # Calling us: exchange addressed to our call (not CQ). Base-call match.
+        is_calling_us = bool(
+            de and to and str(to).upper() not in ("CQ", "QRZ", "DE")
+            and _base_call(to) == _base_call(de)
+        )
+        # Armed: WSJT-X Enable Tx with DX Call set to this row's station.
+        is_armed = bool(
+            node and getattr(node, "tx_enabled", False)
+            and getattr(node, "dx_call", None)
+            and _base_call(node.dx_call) == _base_call(c.call)
+        )
+        az_ant = None
+        rotator_moving = False
+        rotator_id = None
+        if rotators is not None:
+            rst = rotators.for_instance(c.instance_id)
+            if rst is not None and rst.az is not None:
+                az_ant = round(float(rst.az))
+                rotator_moving = bool(rst.moving)
+                rotator_id = rst.id
+        daz = _delta_az(az_ant, az_dx)
         cands.append({
             "id": f"{c.instance_id}|{c.call}|{c.grid or ''}",  # stable row id → click-to-work
             "call": c.call,
@@ -144,14 +180,21 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "operator_call": None,                 # §3.14 profile stub (band manager)
             "snr": c.snr,
             "freq_hz": freq_hz,
-            "az": None if (a := _bearing(e.de_grid, c.grid)) is None else round(a),
+            "az": None if az_dx is None else round(az_dx),           # Az DX
+            "az_ant": az_ant,                                         # live antenna
+            "delta_az": None if daz is None else round(daz),
+            "rotator_moving": rotator_moving,
+            "rotator_id": rotator_id,
+            "distance_km": None if dist is None else round(dist, 1),
             "score": round(sc.total, 1),
             "is_needed": not c.is_dupe,
             "is_cq": c.is_cq,
             "is_dupe": c.is_dupe,
             "is_new_mult": c.is_new_mult,
             "is_rover": c.is_rover,
-            "ts": e.last_seen,                     # epoch -> console formats UTC
+            "is_calling_us": is_calling_us,
+            "is_armed": is_armed,
+            "ts": e.last_seen,                     # epoch (Age shown in UI; UTC column dropped)
             "age": round(now - e.last_seen, 1),
             "factors": [{"name": f.name, "contribution": round(f.contribution, 1),
                          "detail": f.detail} for f in sc.factors],
@@ -164,6 +207,33 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         "not_needed": not_needed,
         "candidates": cands,
     }
+
+
+def rotators_to_dict(registry, now: float) -> list:
+    """Status / Operate `rotators` block (plan §2.10)."""
+    if registry is None:
+        return []
+    registry.refresh_health(now)
+    out = []
+    for st in sorted(registry.all(), key=lambda s: s.id):
+        age = None if not st.ts else round(now - st.ts, 1)
+        out.append({
+            "id": st.id,
+            "label": st.label or st.id,
+            "az": None if st.az is None else round(float(st.az)),
+            "el": None if st.el is None else round(float(st.el)),
+            "target_az": None if st.target_az is None else round(float(st.target_az)),
+            "moving": bool(st.moving),
+            "health": st.health,
+            "link_ok": bool(st.link_ok),
+            "instances": list(st.instances or []),
+            "source": st.source,
+            "agent_id": st.agent_id,
+            "soft_min": st.soft_min,
+            "soft_max": st.soft_max,
+            "age": age,
+        })
+    return out
 
 
 def tx_to_dict(*, enabled: bool, controller_dest, holders: dict,

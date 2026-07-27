@@ -29,6 +29,7 @@ Time is injected (``now``) so it is testable and replayable.
 
 from __future__ import annotations
 
+import ipaddress
 import sys
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -60,11 +61,20 @@ class NodeState:
     id: str
     # source IP -> last time a datagram arrived from that IP (for collision + host)
     host_seen: dict[str, float] = field(default_factory=dict)
+    # Per-host band from Status — two VMs with the same UDP id must not look like QSY.
+    band_by_host: dict[str, str] = field(default_factory=dict)
+    last_status_host: str | None = None
+    # Last UDP *source* (ip, port) from recvfrom — MessageClient binds an
+    # ephemeral port and only receives Reply/Halt there (not on UDP Server port).
+    control_addr: tuple[str, int] | None = None
     version: str | None = None
     band: str | None = None
     mode: str | None = None
     dial_hz: int = 0
     de_grid: str | None = None      # this instance's own grid (Status.de_grid) — az reference
+    de_call: str | None = None      # our call on this instance (Status.de_call) — calling-us
+    dx_call: str | None = None      # WSJT-X DX Call box (Status.dx_call)
+    tx_enabled: bool = False        # Enable Tx (armed for dx_call even if not keying)
     transmitting: bool = False
     decoding: bool = False
     config_name: str | None = None
@@ -75,9 +85,12 @@ class NodeState:
     decode_times: list[float] = field(default_factory=list)
     first_seen: float = 0.0
 
-    def note_host(self, src_ip: str | None, now: float) -> None:
+    def note_host(self, src_ip: str | None, now: float,
+                  src_port: int | None = None) -> None:
         if src_ip:
             self.host_seen[src_ip] = now
+            if src_port is not None and int(src_port) > 0:
+                self.control_addr = (src_ip, int(src_port))
 
     def hosts_recent(self, now: float, window: float = 4 * PULSE) -> set[str]:
         """IPs that still look live for this id (drops stale sources so a move
@@ -143,11 +156,16 @@ class LoggerNode:
     established by ANY N1MM broadcast — `<RadioInfo>`/`<AppInfo>` beacons arrive
     periodically (no QSO needed), so `last_seen` is real liveness usable for setup
     verification; `last_qso` (from `<contactinfo>`) is specifically the last logged QSO.
+
+    One physical PC often emits both ``StationName`` and Windows ``NetBiosName``;
+    we merge those aliases by source IP so the console shows one logger per host.
     """
 
-    id: str                      # N1MM StationName / NetBiosName
+    id: str                      # preferred: N1MM StationName
     kind: str = "N1MM"
     hosts: set[str] = field(default_factory=set)
+    host_seen: dict[str, float] = field(default_factory=dict)  # IP -> last packet
+    aliases: set[str] = field(default_factory=set)  # NetBIOS / prior ids merged here
     last_seen: float | None = None   # any N1MM broadcast (presence / liveness)
     last_qso: float | None = None    # last <contactinfo> (a logged QSO)
     qso_count: int = 0
@@ -158,6 +176,9 @@ class LoggerNode:
 
     @property
     def host(self) -> str | None:
+        """Most recently heard source IP."""
+        if self.host_seen:
+            return max(self.host_seen.items(), key=lambda kv: kv[1])[0]
         return sorted(self.hosts)[0] if self.hosts else None
 
 
@@ -184,6 +205,104 @@ class FleetTracker:
         self.nodes: dict[str, NodeState] = {}
         self.loggers: dict[str, LoggerNode] = {}
 
+    @staticmethod
+    def _is_ip_like(s: str) -> bool:
+        try:
+            ipaddress.ip_address(s)
+            return True
+        except ValueError:
+            return False
+
+    def _absorb_logger(self, keep: "LoggerNode", other: "LoggerNode") -> None:
+        """Fold `other` into `keep` (same physical host / process)."""
+        if keep is other:
+            return
+        keep.hosts |= other.hosts
+        keep.host_seen.update(other.host_seen)
+        keep.aliases.add(other.id)
+        keep.aliases |= set(other.aliases or [])
+        if other.mycall and not keep.mycall:
+            keep.mycall = other.mycall
+        if other.last_seen is not None and (
+                keep.last_seen is None or other.last_seen >= keep.last_seen):
+            keep.last_seen = other.last_seen
+        # Prefer the richer QSO stats (don't sum — that double-counts after re-merge).
+        if other.last_qso is not None and (
+                keep.last_qso is None or other.last_qso >= keep.last_qso):
+            keep.last_qso = other.last_qso
+            keep.last_call = other.last_call or keep.last_call
+            keep.last_band = other.last_band or keep.last_band
+        keep.qso_count = max(keep.qso_count, other.qso_count)
+        if other.first_seen and (
+                not keep.first_seen or other.first_seen < keep.first_seen):
+            keep.first_seen = other.first_seen
+
+    def consolidate_loggers(self) -> None:
+        """Collapse multiple logger rows that share a source IP into one.
+
+        Handles StationName vs NetBIOS vs bare-IP keys for the same N1MM PC.
+        Preferred id: StationName-like (not an IP address).
+        """
+        # ip -> set of logger ids claiming that host
+        by_ip: dict[str, set[str]] = {}
+        for lid, lg in self.loggers.items():
+            ips = set(lg.hosts) | set(lg.host_seen)
+            if self._is_ip_like(lid):
+                ips.add(lid)
+            for ip in ips:
+                by_ip.setdefault(ip, set()).add(lid)
+
+        for ip, lids in by_ip.items():
+            present = [self.loggers[i] for i in lids if i in self.loggers]
+            if len(present) < 2:
+                continue
+            # Prefer non-IP id; among those, prefer the one with StationName style
+            # (already preferred when created) then oldest first_seen.
+            present.sort(key=lambda lg: (
+                1 if self._is_ip_like(lg.id) else 0,
+                lg.first_seen or 0.0,
+                lg.id,
+            ))
+            keep = present[0]
+            for other in present[1:]:
+                if other.id not in self.loggers:
+                    continue
+                self._absorb_logger(keep, other)
+                del self.loggers[other.id]
+            # Ensure keep is keyed by keep.id
+            if keep.id not in self.loggers:
+                self.loggers[keep.id] = keep
+
+    def _logger_for_n1mm(self, *, station: str, netbios: str, src_ip: str | None,
+                         now: float, app: str) -> "LoggerNode":
+        """Resolve one LoggerNode for this packet — merge StationName / NetBIOS / IP."""
+        preferred = station or netbios or (src_ip or "?")
+        # Prefer an existing logger on this host over creating preferred-as-IP.
+        node = None
+        if preferred in self.loggers:
+            node = self.loggers[preferred]
+        if node is None and src_ip:
+            for lid, lg in list(self.loggers.items()):
+                if src_ip in lg.hosts or src_ip in lg.host_seen or lid == src_ip:
+                    node = lg
+                    break
+        if node is None:
+            node = LoggerNode(id=preferred, kind=(app or "N1MM"), first_seen=now)
+            self.loggers[preferred] = node
+        # Upgrade key from IP/NetBIOS → StationName when we learn it.
+        if station and node.id != station:
+            old = node.id
+            if old in self.loggers:
+                del self.loggers[old]
+            node.aliases.add(old)
+            node.id = station
+            self.loggers[station] = node
+        if netbios and netbios != node.id:
+            node.aliases.add(netbios)
+        if preferred != node.id:
+            node.aliases.add(preferred)
+        return node
+
     def observe_n1mm_xml(self, xml_text: str, now: float, src_ip: str | None = None) -> None:
         """Register an N1MM instance from ANY of its broadcasts. `<contactinfo>` is a
         logged QSO; `<RadioInfo>`/`<AppInfo>`/... are periodic presence beacons that
@@ -197,14 +316,18 @@ class FleetTracker:
         tag = root.tag.lower()
         if tag not in _N1MM_ROOTS and not f.get("app"):
             return                       # not an N1MM datagram we recognize
-        name = f.get("stationname") or f.get("netbiosname") or src_ip or "?"
-        node = self.loggers.get(name)
-        if node is None:
-            node = LoggerNode(id=name, kind=(f.get("app") or "N1MM"), first_seen=now)
-            self.loggers[name] = node
+        station = f.get("stationname") or ""
+        # NetBiosName / ComputerName = Windows hostname (often differs from StationName).
+        netbios = f.get("netbiosname") or f.get("computername") or ""
+        node = self._logger_for_n1mm(
+            station=station, netbios=netbios, src_ip=src_ip, now=now,
+            app=f.get("app") or "N1MM")
         if src_ip:
             node.hosts.add(src_ip)
+            node.host_seen[src_ip] = now
         node.last_seen = now             # presence from any broadcast
+        if f.get("app"):
+            node.kind = f["app"]
         if f.get("mycall"):
             node.mycall = f["mycall"].upper()
         if tag == "contactinfo":         # ...and a logged QSO specifically
@@ -215,8 +338,21 @@ class FleetTracker:
                 node.last_band = band_label_mhz(float(f.get("band")))
             except (TypeError, ValueError):
                 node.last_band = None
+        # Collapse StationName / NetBIOS / bare-IP rows for this host.
+        self.consolidate_loggers()
 
-    def observe(self, msg, now: float, src_ip: str | None = None) -> None:
+    def prune_loggers(self, now: float, after: float = DEFAULT_PRUNE_AFTER) -> list[str]:
+        """Drop N1MM loggers silent longer than `after` seconds."""
+        self.consolidate_loggers()
+        dead = []
+        for lid, lg in list(self.loggers.items()):
+            if lg.last_seen is None or (now - lg.last_seen) > after:
+                dead.append(lid)
+                del self.loggers[lid]
+        return dead
+
+    def observe(self, msg, now: float, src_ip: str | None = None,
+                src_port: int | None = None) -> None:
         if not isinstance(msg, M.WsjtxMessage):
             return
         mid = msg.id or "?"
@@ -224,7 +360,7 @@ class FleetTracker:
         if n is None:
             n = NodeState(id=mid, first_seen=now)
             self.nodes[mid] = n
-        n.note_host(src_ip, now)
+        n.note_host(src_ip, now, src_port=src_port)
         if isinstance(msg, M.Heartbeat):
             n.last_heartbeat = now
             if msg.version:
@@ -232,10 +368,19 @@ class FleetTracker:
         elif isinstance(msg, M.Status):
             n.last_status = now
             n.dial_hz = msg.dial_frequency
-            n.band = band_label(msg.dial_frequency)
+            bl = band_label(msg.dial_frequency)
+            n.band = bl
+            if src_ip:
+                n.band_by_host[src_ip] = bl
+                n.last_status_host = src_ip
             n.mode = msg.mode
             if msg.de_grid:
                 n.de_grid = msg.de_grid.upper()
+            if msg.de_call:
+                n.de_call = msg.de_call.upper()
+            # Empty DX Call clears armed highlight when operator clears the box.
+            n.dx_call = (msg.dx_call or "").upper() or None
+            n.tx_enabled = bool(msg.tx_enabled)
             n.transmitting = msg.transmitting
             n.decoding = msg.decoding
             n.config_name = msg.config_name
@@ -375,7 +520,7 @@ def _main() -> None:
                     wsjt_pkts += 1
                     msg = M.parse(data)
                     if msg is not None:
-                        tracker.observe(msg, now, src_ip=addr[0])
+                        tracker.observe(msg, now, src_ip=addr[0], src_port=addr[1])
                 else:
                     n1mm_pkts += 1
                     tracker.observe_n1mm_xml(data.decode("utf-8", "replace"), now, src_ip=addr[0])

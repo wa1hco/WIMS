@@ -543,17 +543,36 @@ try {
     }
 
     if (-not $SkipShortcut) {
-        Step "Desktop shortcut"
+        Step "Desktop shortcuts"
         try {
             $desk = [Environment]::GetFolderPath("Desktop")
-            $lnkPath = Join-Path $desk "WIMS Server.lnk"
             $wsh = New-Object -ComObject WScript.Shell
+            $assets = Join-Path $launcherDir "assets"
+            $icoServer = Join-Path $assets "wims.ico"
+            $icoAgent = Join-Path $assets "wims-agent.ico"
+
+            # Site server (this PC may be the console host)
+            $lnkPath = Join-Path $desk "WIMS Server.lnk"
             $lnk = $wsh.CreateShortcut($lnkPath)
             $lnk.TargetPath = $startCmd
             $lnk.WorkingDirectory = $RepoPath
-            $lnk.Description = "Start WIMS server"
+            $lnk.Description = "Start WIMS site server"
+            if (Test-Path -LiteralPath $icoServer) { $lnk.IconLocation = "$icoServer,0" }
             $lnk.Save()
             Ok $lnkPath
+
+            # Seat agent — stations double-click this
+            $agentCmd = Join-Path $launcherDir "Start-WimsAgent-Continuous.cmd"
+            if (Test-Path -LiteralPath $agentCmd) {
+                $lnkA = Join-Path $desk "WIMS Agent.lnk"
+                $la = $wsh.CreateShortcut($lnkA)
+                $la.TargetPath = $agentCmd
+                $la.WorkingDirectory = $launcherDir
+                $la.Description = "WIMS seat agent — reports to site server; UI http://127.0.0.1:8790/"
+                if (Test-Path -LiteralPath $icoAgent) { $la.IconLocation = "$icoAgent,0" }
+                $la.Save()
+                Ok $lnkA
+            }
         } catch { Warn "Shortcut failed: $_" }
     }
 

@@ -55,6 +55,7 @@ from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
 from wims.udp.controller import TxController  # noqa: E402
+from wims.integrations.rotator import RotatorRegistry  # noqa: E402
 from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
 from wims.engine.roster import RosterBuilder  # noqa: E402
@@ -62,7 +63,8 @@ from wims.state.logstore import LogStore  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
-    decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict)
+    decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict,
+    rotators_to_dict)
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -115,6 +117,11 @@ class LiveFleet:
         # Seat agents (config audit heartbeats) — agent_id -> last report.
         self._agents: dict[str, dict] = {}
         self._agent_prune_after = 300.0            # drop silent agents after 5 min
+        # Rotators (plan §2.10 / §3.8) — sim and/or agent-reported status.
+        self._rotators = RotatorRegistry()
+        self._last_rot_action: dict | None = None
+        # Rate-limit id-collision warnings (two VMs same --rig-name / UDP id).
+        self._id_collision_warn_ts: dict[str, float] = {}
 
     def configure_log_discovery(self, *, databases_dir: str | None = None,
                                 db_path: str | None = None) -> None:
@@ -306,12 +313,16 @@ class LiveFleet:
         stored["received_at"] = ts
         with self._lock:
             self._agents[agent_id] = stored
+            # Optional rotators[] on the agent report → live Az ant on roster.
+            n_rot = self._rotators.ingest_report(
+                stored.get("rotators"), agent_id=agent_id, now=ts)
         summary = (stored.get("summary") or {})
         return {
             "ok": True,
             "agent_id": agent_id,
             "severity": summary.get("severity"),
             "message": summary.get("message"),
+            "rotators_ingested": n_rot,
         }
 
     def list_agents(self, now: float | None = None) -> list:
@@ -331,19 +342,25 @@ class LiveFleet:
     def _tx_dests_for(self, instance_id: str) -> list[tuple[str, int]]:
         """Where to send Reply/Halt for this WSJT-X id.
 
-        Prefer **unicast to the host we last heard that instance from** (the Windows
-        VM LAN IP), then the configured default (multicast group or --tx-host).
-        Multicast-only control often fails to enable TX on multi-host fleets even
-        when Status/Decode arrive fine — unicast is what JT-Alert / local tools use.
+        **Primary:** unicast to the last ``recvfrom`` source ``(ip, port)`` for that
+        instance. WSJT-X MessageClient binds an *ephemeral* port and only receives
+        control there — **not** on the configured UDP Server port (e.g. 2237).
+        Sending Reply to ``host:2237`` reaches the group/listener, not MessageClient.
+
+        **Fallback:** host IP + configured TX port (if we never saw a source port).
+        **Secondary:** configured default (multicast group or ``--tx-host``).
         """
         dests: list[tuple[str, int]] = []
         port = int(self._tx.dest[1]) if self._tx else 2237
         node = self._tracker.nodes.get(instance_id)
-        if node and node.host_seen:
-            # Most recently active source IP for this id
-            ip = max(node.host_seen.items(), key=lambda kv: kv[1])[0]
-            if ip:
-                dests.append((ip, port))
+        if node is not None:
+            ctrl = getattr(node, "control_addr", None)
+            if ctrl and ctrl[0] and int(ctrl[1]) > 0:
+                dests.append((str(ctrl[0]), int(ctrl[1])))
+            elif node.host_seen:
+                ip = max(node.host_seen.items(), key=lambda kv: kv[1])[0]
+                if ip:
+                    dests.append((ip, port))
         if self._tx is not None:
             d = (str(self._tx.dest[0]), int(self._tx.dest[1]))
             if d not in dests:
@@ -359,8 +376,8 @@ class LiveFleet:
         socket never stalls the ingest thread.
 
         On success WIMS has only *sent* a WSJT-X Reply datagram — if DX Call / Enable
-        Tx do not change in WSJT-X, the packet did not reach that instance (Accept UDP
-        off, wrong host/port, or decode too old in WSJT-X's list).
+        Tx do not change in WSJT-X, the packet did not reach MessageClient (Accept UDP
+        off, firewall, wrong dest, or decode too old in Band Activity).
         """
         if self._tx is None:
             return {"ok": False, "error": "tx_disabled",
@@ -372,12 +389,46 @@ class LiveFleet:
                         "detail": "Row aged out or unknown — wait for a fresh decode, then Work again."}
             decode = entry.decode
             inst = getattr(decode, "id", None) or "?"
+            node = self._tracker.nodes.get(inst)
+            # Safety: never Reply a decode from another band/dial — WSJT-X would Enable
+            # Tx on the *current* VFO and call the station on the wrong RF.
+            cur_band = (node.band if node else None) or ""
+            row_band = entry.band or ""
+            if (cur_band and row_band and cur_band != "?" and row_band != "?"
+                    and cur_band != row_band):
+                return {
+                    "ok": False, "error": "band_mismatch",
+                    "band_row": row_band, "band_now": cur_band,
+                    "detail": (
+                        f"Row is {row_band} but {inst!r} is on {cur_band}. "
+                        "Work only same-band lines (or QSY WSJT-X back first)."
+                    ),
+                }
+            cur_dial = int(node.dial_hz) if node and node.dial_hz else 0
+            row_dial = int(entry.dial_hz or 0)
+            # ~3 kHz: same FT8 footprint; larger = instance dialed away within the band.
+            if cur_dial and row_dial and abs(cur_dial - row_dial) > 3000:
+                return {
+                    "ok": False, "error": "dial_mismatch",
+                    "dial_row": row_dial, "dial_now": cur_dial,
+                    "detail": (
+                        f"Decode was at dial {row_dial} Hz; instance is now {cur_dial} Hz. "
+                        "Work a line heard on the current dial."
+                    ),
+                }
             if not self._arbiter.request(inst):
                 holder = self._arbiter.holder(self._arbiter.group_of(inst))
                 return {"ok": False, "error": "group_busy", "holder": holder,
                         "detail": f"Another instance holds TX in this group ({holder}). Halt first."}
             call = (getattr(decode, "dx_call", "") or "").upper()
+            grid = (getattr(decode, "grid", "") or "") or ""
             msg_text = getattr(decode, "message", "") or ""
+            df = int(getattr(decode, "delta_frequency", 0) or 0)
+            schema = int(getattr(decode, "schema", None) or 2)
+            # CQ / QRZ / 73 → Reply alone sets double-click + Enable Tx.
+            # Mid-exchange lines need Configure to force DX Call/Grid fill, and
+            # Hold Tx Freq (in WSJT-X) for Reply to Enable Tx (replyToCQ rules).
+            auto_tx = M.reply_auto_tx_eligible(msg_text)
             dests = self._tx_dests_for(inst)
             age_hint = ""
             # Warn if decode may be older than WSJT-X keeps (Reply needs a live match).
@@ -386,33 +437,51 @@ class LiveFleet:
                 if age_s > 90:
                     age_hint = (
                         f" Decode is {age_s:.0f}s old — WSJT-X may have dropped it; "
-                        "Work a *fresh* CQ from the Band Activity window."
+                        "Work a *fresh* line still on Band Activity."
                     )
             except Exception:
                 pass
+        sent_parts = ["reply"]
         try:
             self._tx.reply(inst, decode, dests=dests)
+            if not auto_tx and call:
+                # GT2 secondary path: Configure fills DX/grid + Gen Std Msgs without
+                # inventing a synthetic CQ (design: no fake CQ over UDP).
+                self._tx.configure(
+                    inst, dx_call=call, dx_grid=grid,
+                    rx_df=(df if df > 0 else None),
+                    generate_messages=True, schema=schema, dests=dests,
+                )
+                sent_parts.append("configure")
         except OSError as e:
             with self._lock:
                 self._arbiter.release(inst)
+            print(f"TX Work FAIL {inst} {call} dests={dests}: {e}", flush=True)
             return {"ok": False, "error": f"send_failed: {e}",
                     "detail": f"UDP send to {dests} failed — check --tx-host/--iface and firewall."}
         dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
+        print(f"TX Work ok {inst!r} {call!r} msg={msg_text!r} "
+              f"via={'+'.join(sent_parts)} → [{dest_s}]", flush=True)
+        mid_hint = ""
+        if not auto_tx:
+            mid_hint = (
+                " Non-CQ line: Configure filled DX Call/Grid + Gen Msgs; "
+                "Enable Tx from Reply needs WSJT-X **Hold Tx Freq** checked "
+                "(or Work a CQ/73 line)."
+            )
         with self._lock:
             self._last_tx_action = {
                 "action": "work", "instance": inst, "call": call,
-                "message": msg_text, "dests": dests, "ts": time.time(),
+                "message": msg_text, "dests": dests, "sent": sent_parts,
+                "ts": time.time(),
             }
         return {
-            "ok": True, "sent": "reply", "instance": inst,
+            "ok": True, "sent": "+".join(sent_parts), "instance": inst,
             "call": call, "message": msg_text, "dest": dests[0] if dests else None,
-            "dests": dests,
+            "dests": dests, "auto_tx_eligible": auto_tx,
             "detail": (
-                f"Reply sent for {inst} → {call} to [{dest_s}]. "
-                "WSJT-X should fill DX Call/Grid and enable Tx. If not: "
-                "Reporting → Accept UDP requests ON; Work a decode still visible "
-                "in WSJT-X Band Activity; firewall allow UDP from this server."
-                + age_hint
+                f"Work {call} on id={inst!r} via {'+'.join(sent_parts)} → [{dest_s}]."
+                + mid_hint + age_hint
             ),
         }
 
@@ -459,11 +528,17 @@ class LiveFleet:
             return val or "?"
         return instance_id
 
-    def observe_wsjtx(self, msg, now, src_ip):
+    def observe_wsjtx(self, msg, now, src_ip, src_port=None):
         with self._lock:
             self.wsjt_pkts += 1
-            self._tracker.observe(msg, now, src_ip=src_ip)
             mid = getattr(msg, "id", None) or "?"
+            # Per-host band before Status — QSY only if *this* host changed band.
+            old_band_here = None
+            if isinstance(msg, M.Status) and src_ip:
+                n_prev = self._tracker.nodes.get(mid)
+                if n_prev is not None:
+                    old_band_here = (n_prev.band_by_host or {}).get(src_ip)
+            self._tracker.observe(msg, now, src_ip=src_ip, src_port=src_port)
             # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
             # Status), not only after the first Decode — quiet bands still get a frame.
             self._maps.setdefault(mid, ActivityMap(mid))
@@ -475,10 +550,44 @@ class LiveFleet:
                 if self._tx_prev.get(mid, False) and not msg.transmitting:
                     self._arbiter.release(mid)
                 self._tx_prev[mid] = bool(msg.transmitting)
+                node = self._tracker.nodes.get(mid)
+                new_band = node.band if node else None
+                # Fill in rows that were heard before the first Status (band was "?").
+                if new_band and new_band != "?":
+                    self._roster.reband_unknown(mid, new_band)
+                # Two hosts sharing one UDP id (default "WSJT-X" on both VMs) alternate
+                # Status 6m/2m — that is NOT a QSY. Never drop roster for that case.
+                multi = bool(node and node.id_collision_at(now))
+                if multi:
+                    last = self._id_collision_warn_ts.get(mid, 0.0)
+                    if now - last > 60.0:
+                        self._id_collision_warn_ts[mid] = now
+                        hosts = sorted(node.hosts_recent(now)) if node else []
+                        print(
+                            f"roster: id {mid!r} from multiple hosts {hosts} — "
+                            f"set unique WSJT-X --rig-name on each VM "
+                            f"(not a band QSY; roster not cleared)",
+                            flush=True,
+                        )
+                elif (old_band_here and old_band_here != "?"
+                      and new_band and new_band != "?"
+                      and old_band_here != new_band):
+                    # Same host really QSYed.
+                    n_drop = self._roster.drop_other_bands(mid, new_band)
+                    print(f"roster: QSY {mid!r} from {src_ip} "
+                          f"{old_band_here}→{new_band} "
+                          f"dropped {n_drop} other-band row(s)", flush=True)
             elif isinstance(msg, M.Decode):
                 node = self._tracker.nodes.get(mid)
+                # Prefer this host's last known band when the same id is shared.
+                band = "?"
+                if node is not None:
+                    if src_ip and (node.band_by_host or {}).get(src_ip):
+                        band = node.band_by_host[src_ip]
+                    elif node.band:
+                        band = node.band
                 self._roster.observe_decode(
-                    msg, (node.band if node else None) or "?", now,
+                    msg, band, now,
                     dial_hz=(node.dial_hz if node else 0),
                     de_grid=(node.de_grid if node else None))
                 self._maps[mid].add(msg)
@@ -524,6 +633,7 @@ class LiveFleet:
             # Drop instances that stopped sending (killed WSJT-X / moved host).
             for mid in self._tracker.prune(now):
                 self._maps.pop(mid, None)
+            self._tracker.prune_loggers(now)
             d = fleet_to_dict(self._tracker, now,
                               wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts)
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
@@ -532,9 +642,12 @@ class LiveFleet:
                 list(self._tracker.nodes), tx_ids, now)
             ctx = S.Context(weights=S.weights_for(self._condition), condition=self._condition)
             rows, not_needed = self._roster.ranked(now, ctx)
+            self._rotators.tick_sims(now)
             d["roster"] = roster_to_dict(rows, not_needed, now,
                                          condition=self._condition,
-                                         strategy=self._roster.strategy.name)
+                                         strategy=self._roster.strategy.name,
+                                         nodes=self._tracker.nodes,
+                                         rotators=self._rotators)
             # One activity tile per live instance (including empty / no decodes).
             live_ids = set(self._tracker.nodes)
             d["activity"] = [activity_to_dict(self._maps[mid], now=now)
@@ -555,11 +668,73 @@ class LiveFleet:
                 holders=self._arbiter.holders(),
                 enable_cq=self._enable_cq,
                 last_action=self._last_tx_action)
+            d["rotators"] = rotators_to_dict(self._rotators, now)
+            d["rotator_last_action"] = self._last_rot_action
             return d
 
+    def point_rotator(self, *, rotator_id: str | None = None,
+                      instance: str | None = None,
+                      az: float | None = None,
+                      row_id: str | None = None) -> dict:
+        """Human click-to-point: set rotator to az, or to roster row Az DX."""
+        from wims.engine.geo import bearing
+        with self._lock:
+            rid = (rotator_id or "").strip() or None
+            if row_id:
+                entry = self._roster.entry_for(row_id)
+                if entry is None:
+                    return {"ok": False, "error": "unknown_row",
+                            "detail": "Roster row gone — pick a fresh line."}
+                inst = getattr(entry.decode, "id", None) or "?"
+                grid = getattr(entry.decode, "grid", None)
+                az_dx = bearing(entry.de_grid, grid)
+                if az_dx is None:
+                    return {"ok": False, "error": "no_bearing",
+                            "detail": "Need de_grid + DX grid for Az DX."}
+                az = az_dx
+                if not rid:
+                    rst = self._rotators.for_instance(inst)
+                    rid = rst.id if rst else None
+                    if not rid:
+                        return {"ok": False, "error": "no_rotator",
+                                "detail": f"No rotator mapped to instance {inst!r}."}
+            elif instance and not rid:
+                rst = self._rotators.for_instance(instance)
+                rid = rst.id if rst else None
+                if not rid:
+                    return {"ok": False, "error": "no_rotator",
+                            "detail": f"No rotator mapped to instance {instance!r}."}
+            if rid is None:
+                return {"ok": False, "error": "need_rotator",
+                        "detail": "Provide rotator_id, instance, or row_id."}
+            if az is None:
+                return {"ok": False, "error": "need_az",
+                        "detail": "Provide az degrees or a row_id with Az DX."}
+            result = self._rotators.point(rid, float(az))
+            if result.get("ok"):
+                self._last_rot_action = {
+                    "action": "point", "rotator": rid, "az": result.get("az"),
+                    "ts": time.time(),
+                }
+            return result
 
-def ingest_loop(live: LiveFleet, s_wsjt: socket.socket, s_n1mm: socket.socket | None):
-    socks = [s for s in (s_wsjt, s_n1mm) if s is not None]
+    def stop_rotator(self, rotator_id: str | None = None) -> dict:
+        with self._lock:
+            result = self._rotators.stop(rotator_id)
+            self._last_rot_action = {
+                "action": "stop", "halted": result.get("halted"), "ts": time.time(),
+            }
+            return result
+
+
+def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None):
+    """Ingest WSJT-X on one or more band ports (2237–2240) plus optional N1MM."""
+    if not isinstance(wsjt_socks, (list, tuple)):
+        wsjt_socks = [wsjt_socks]
+    wsjt_set = {s for s in wsjt_socks if s is not None}
+    socks = list(wsjt_set)
+    if s_n1mm is not None:
+        socks.append(s_n1mm)
     while True:
         ready, _, _ = select.select(socks, [], [], 1.0)
         now = time.time()
@@ -568,10 +743,11 @@ def ingest_loop(live: LiveFleet, s_wsjt: socket.socket, s_n1mm: socket.socket | 
                 data, addr = s.recvfrom(65535)
             except OSError:
                 continue
-            if s is s_wsjt:
+            if s in wsjt_set:
                 msg = M.parse(data)
                 if msg is not None:
-                    live.observe_wsjtx(msg, now, addr[0])
+                    # addr[1] is MessageClient's ephemeral control port — required for Reply.
+                    live.observe_wsjtx(msg, now, addr[0], addr[1])
             else:
                 live.observe_n1mm(data.decode("utf-8", "replace"), now, addr[0])
 
@@ -715,6 +891,25 @@ def make_handler(live: LiveFleet, refresh: float):
             elif path == "/api/tx/cq":
                 result = live.call_cq(mycall=body.get("mycall"), grid=body.get("grid"))
                 self._send_json(200 if result.get("ok") else 501, result)
+            elif path == "/api/rotator/point":
+                # Click-to-point: {row_id} or {rotator_id|instance, az}
+                try:
+                    result = live.point_rotator(
+                        rotator_id=body.get("rotator_id") or body.get("id"),
+                        instance=body.get("instance"),
+                        az=body.get("az"),
+                        row_id=body.get("row_id"),
+                    )
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/rotator/stop":
+                try:
+                    result = live.stop_rotator(body.get("rotator_id") or body.get("id"))
+                    self._send_json(200, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
             else:
                 self._send(404, "text/plain", b"not found")
 
@@ -748,10 +943,19 @@ def main() -> None:
     from wims.discovery import presence as P
 
     ap = argparse.ArgumentParser(description="WIMS server (ingest + console).")
+    # Fleet defaults: join all band ports, no operator memorization (wims_networking §4).
+    # Solo launcher overrides to 2237 only. Escape hatch: --ports 2237 or --port 2237 --ports.
+    FLEET_WSJT_PORTS = "2237,2238,2239,2240"  # 50 / 144 / 222 / 432
     ap.add_argument("--http-port", type=int, default=8787)
-    ap.add_argument("--iface", default="0.0.0.0", help="multicast/bind interface (127.0.0.1 for local emulator)")
+    ap.add_argument("--iface", default="0.0.0.0",
+                    help="multicast join interface (use contest LAN IP for VMs; "
+                         "Start-WimsServer.cmd auto-picks one — you rarely need this)")
     ap.add_argument("--group", default="224.0.0.73", help="WSJT-X multicast group")
-    ap.add_argument("--port", type=int, default=2237, help="WSJT-X UDP port")
+    ap.add_argument("--port", type=int, default=2237,
+                    help=argparse.SUPPRESS)  # legacy; prefer --ports
+    ap.add_argument("--ports", default=FLEET_WSJT_PORTS,
+                    help=f"WSJT-X band ports (default {FLEET_WSJT_PORTS} = all VHF bands). "
+                         "Only change for lab; seats never need this.")
     ap.add_argument("--n1mm-port", type=int, default=12060)
     ap.add_argument("--n1mm-group", default=None,
                     help="multicast group for N1MM External Broadcast XML "
@@ -791,6 +995,9 @@ def main() -> None:
                     help="do not announce or listen for other WIMS site servers")
     ap.add_argument("--force-server", action="store_true",
                     help="start even if another site server is announcing (lab only; loud)")
+    ap.add_argument("--sim-rotator", action="append", default=[], metavar="SPEC",
+                    help="lab simulator: id[:az][:instance,...]  e.g. ROT-6M:45:WSJT-X "
+                         "(repeatable). Enables Az ant / Δaz / click-to-point without K3NG.")
     args = ap.parse_args()
 
     # Validate network args up front: a malformed address otherwise only blows up
@@ -853,6 +1060,21 @@ def main() -> None:
                      enable_cq_freetext=args.enable_cq_freetext)
     live.configure_log_discovery(databases_dir=args.seed_db_dir,
                                  db_path=args.seed_db)
+    # Lab rotators: --sim-rotator id[:az][:inst1,inst2]
+    for spec in (args.sim_rotator or []):
+        parts = str(spec).split(":")
+        rid = (parts[0] or "SIM-ROT").strip()
+        az0 = 0.0
+        insts: list[str] = []
+        if len(parts) >= 2 and parts[1].strip():
+            try:
+                az0 = float(parts[1])
+            except ValueError:
+                insts = [x.strip() for x in parts[1].split(",") if x.strip()]
+        if len(parts) >= 3 and parts[2].strip():
+            insts = [x.strip() for x in parts[2].split(",") if x.strip()]
+        live._rotators.ensure_sim(rid, az=az0, instances=insts, label=rid)
+        print(f"  sim rotator {rid} az={az0:g} instances={insts or '[]'}")
 
     if not args.no_seed:
         # Auto: scan .s3db files, list contests (June + Sept…), pick latest with QSOs.
@@ -878,7 +1100,30 @@ def main() -> None:
         live.refresh_contest_catalog()
     # Open the ingest sockets here (not inside the thread) so a bind failure is
     # reported on the main path and the bound addresses are confirmed deterministically.
-    s_wsjt = open_socket(args.iface, args.port, args.group)
+    try:
+        wsjt_ports = [int(p.strip()) for p in str(args.ports).split(",") if p.strip()]
+    except ValueError:
+        ap.error(f"invalid --ports {args.ports!r}: use comma-separated integers "
+                 f"(e.g. 2237,2238)")
+    if not wsjt_ports:
+        # Legacy: bare --port with empty --ports edge case
+        wsjt_ports = [int(args.port)]
+    # Resolve 0.0.0.0 → contest LAN for IGMP join (else remote WSJT-X never arrives).
+    mcast_iface = args.iface
+    if mcast_iface in ("0.0.0.0", "::", ""):
+        mcast_iface = P._primary_lan_ip("0.0.0.0")
+        if mcast_iface and mcast_iface not in ("127.0.0.1",):
+            print(f"  multicast join iface auto: {mcast_iface}  "
+                  f"(pass --iface explicitly to override)")
+    s_wsjt_list: list = []
+    for p in wsjt_ports:
+        try:
+            s_wsjt_list.append(open_socket(mcast_iface, p, args.group))
+        except OSError as e:
+            print(f"  WARNING: WSJT-X port {args.group}:{p} bind failed ({e}); skipping",
+                  file=sys.stderr)
+    if not s_wsjt_list:
+        ap.error("no WSJT-X UDP ports could be bound — check --ports / --iface")
     s_n1mm = None
     if args.n1mm_port:
         # N1MM External Broadcast XML is usually unicast/directed to host:12060, but
@@ -896,7 +1141,7 @@ def main() -> None:
             print(f"  WARNING: N1MM listener could not bind :{args.n1mm_port} ({e}); "
                   f"N1MM ingest disabled")
     threading.Thread(target=ingest_loop, daemon=True,
-                     args=(live, s_wsjt, s_n1mm)).start()
+                     args=(live, s_wsjt_list, s_n1mm)).start()
 
     httpd = ThreadingHTTPServer(("0.0.0.0", args.http_port), make_handler(live, args.refresh))
     console_ip = P._primary_lan_ip(args.iface)
@@ -904,7 +1149,9 @@ def main() -> None:
     print(f"             http://{console_ip}:{args.http_port}/     (LAN console)")
     print(f"             http://localhost:{args.http_port}/status  (live health)")
     print(f"             http://localhost:{args.http_port}/setup   (config / contest log)")
-    print(f"  ingesting WSJT-X {args.group}:{args.port} on {args.iface}")
+    ports_s = ",".join(str(p) for p in wsjt_ports)
+    print(f"  ingesting WSJT-X {args.group}:[{ports_s}] join={mcast_iface}  "
+          f"({len(s_wsjt_list)} socket(s))")
     if tx_controller is not None:
         _txd = tx_controller.dest
         print(f"  TX control -> {_txd[0]}:{_txd[1]}  (roster click = Work; Halt always on; "
@@ -915,6 +1162,9 @@ def main() -> None:
                   "machine's contest LAN IP, or --tx-host <wsjtx-host-ip> so Reply reaches it")
     else:
         print("  TX control disabled (--no-tx; read-only console)")
+    if live._rotators.all():
+        print(f"  rotators: {len(live._rotators.all())}  "
+              f"(point: POST /api/rotator/point · stop: /api/rotator/stop)")
     if s_n1mm is not None:
         if args.n1mm_group:
             print(f"  N1MM XML listening on {args.n1mm_group}:{args.n1mm_port} "

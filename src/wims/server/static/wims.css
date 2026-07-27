@@ -70,9 +70,22 @@ tr.overlap td { font-weight:bold; }
 td.score { font-weight:bold; font-variant-numeric:tabular-nums; }
 tr.mult { background:#eaf6ee; }
 tr.mult td.score { color:var(--alive); }
+/* Calling us (WSJT-X-style red) — highest roster highlight priority */
+/* Same WSJT-X UDP id on two PCs (must rename --rig-name) */
+tr.id-collide { background:#fff8e0; }
+tr.id-collide td:first-child { font-weight:600; }
+.warn { color:#9a6700; font-weight:600; }
+tr.calling-us { background:#ffd6d6; }
+tr.calling-us td { font-weight:600; }
+tr.calling-us td.score { color:#a40e26; }
+/* Enable Tx armed for this DX (not necessarily keying yet) */
+tr.armed { background:#e3f5e8; box-shadow: inset 3px 0 0 #1a7f37; }
+tr.armed td.score { color:var(--alive); }
 .badge { display:inline-block; padding:0 6px; border-radius:8px; font-size:11px;
          margin-left:5px; background:#ddf4ff; color:var(--accent); }
 .badge.rover { background:#fff1e5; color:var(--quiet); }
+.badge.callus { background:#ffcccc; color:#a40e26; font-weight:bold; }
+.badge.armed { background:#dafbe1; color:#1a7f37; font-weight:bold; }
 .controls { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:4px 0 6px; }
 .controls label { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
 .controls select { font:inherit; font-size:12px; padding:1px 4px; }
@@ -157,10 +170,16 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
 .txbtn:disabled { opacity:.45; cursor:not-allowed; }
-/* Roster line clickable for GT2-style Work (no global arm switch). */
+/* Roster line clickable for GT2-style Work (no Work button column). */
 #ros-body tr.workable { cursor: pointer; }
 #ros-body tr.workable:hover { filter: brightness(0.97); }
+#ros-body tr.calling-us.workable:hover { filter: brightness(0.96); }
+#ros-body tr.armed.workable:hover { filter: brightness(0.97); }
 .txbtn.halt { color:#fff; background:var(--dead); border-color:var(--dead); font-weight:bold; }
 .txbtn.halt:hover:not(:disabled) { background:#a40e26; }
-td.act, th.act { width:1%; white-space:nowrap; }
-.txbtn.work { padding:1px 8px; font-size:11px; }
+/* Rotator: Az ant italic while slewing; Az DX click-to-point button */
+.az-moving { font-style: italic; font-family: ui-monospace, Menlo, Consolas, monospace;
+             color: var(--quiet); }
+button.azbtn { font: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--line);
+               border-radius: 4px; background: var(--panel); color: var(--accent); cursor: pointer; }
+button.azbtn:hover { background: #eef4fb; }

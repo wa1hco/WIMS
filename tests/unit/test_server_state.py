@@ -136,14 +136,14 @@ def test_livefleet_roster_lists_all_decodes():
     # Status gives the instance a band + grid; all decodes populate the roster, scored.
     live = LiveFleet()
     live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8",
-                                              de_grid="FN31", decoding=True)),
+                                              de_call="WA1HCO", de_grid="FN31", decoding=True)),
                        now=1.0, src_ip="192.168.10.21")
     live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-3, delta_time=0.1,
                                               delta_frequency=1500, message="CQ K1ABC FN42")),
                        now=1.1, src_ip="192.168.10.21")
     live.observe_wsjtx(M.parse(E.build_decode("SIM-6M", time_ms=0, snr=-1, delta_time=0.1,
                                               delta_frequency=1600, message="WA1HCO W2XYZ FN20")),
-                       now=1.1, src_ip="192.168.10.21")  # a mid-exchange decode, still listed
+                       now=1.1, src_ip="192.168.10.21")  # directed at us
     r = live.snapshot(2.0)["roster"]
     assert r["strategy"] == "vhf-default" and r["condition"] == "open"
     by = {c["call"]: c for c in r["candidates"]}
@@ -153,7 +153,24 @@ def test_livefleet_roster_lists_all_decodes():
     assert any(f["name"] == "new_mult" for f in by["K1ABC"]["factors"])   # breakdown present
     assert by["K1ABC"]["freq_hz"] == 50_313_000 + 1500      # RF = dial + decode df
     assert by["K1ABC"]["az"] is not None and 0 <= by["K1ABC"]["az"] < 360  # FN31 -> FN42
+    assert by["K1ABC"]["distance_km"] is not None and by["K1ABC"]["distance_km"] > 0
+    assert by["K1ABC"]["is_calling_us"] is False
     assert by["W2XYZ"]["is_cq"] is False and by["W2XYZ"]["to_call"] == "WA1HCO"
+    assert by["W2XYZ"]["is_calling_us"] is True              # WA1HCO is de_call
+    assert by["W2XYZ"]["is_armed"] is False
+
+
+def test_livefleet_roster_armed_when_tx_enabled_for_dx():
+    """Enable Tx + DX Call matching a row → is_armed (green highlight)."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status(
+        "SIM-6M", 50_313_000, mode="FT8", de_call="WA1HCO", de_grid="FN31",
+        dx_call="K1ABC", tx_enabled=True)), now=1.0, src_ip="10.0.0.1")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-6M", time_ms=0, snr=-3, delta_time=0.1, delta_frequency=1500,
+        message="CQ K1ABC FN42")), now=1.1, src_ip="10.0.0.1")
+    k = next(c for c in live.snapshot(2.0)["roster"]["candidates"] if c["call"] == "K1ABC")
+    assert k["is_armed"] is True and k["is_calling_us"] is False
 
 
 def test_livefleet_logged_qso_marks_dupe():

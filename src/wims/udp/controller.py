@@ -20,14 +20,20 @@
 
 The actuator side: turn an arbiter grant + a chosen decode into the actual UDP
 command. A Reply must exactly echo a prior CQ/QRZ decode for WSJT-X to act on it,
-so `reply()` takes the parsed `Decode` and mirrors its fields. Sends to the same
-multicast group WSJT-X listens on; addressed per-instance by the WSJT-X `id`.
+so `reply()` takes the parsed `Decode` and mirrors its fields.
+
+**Multi-host note:** Status/Decode often arrive via multicast, but control (Reply)
+must be **unicast to the packet source IP:port** — WSJT-X MessageClient binds an
+ephemeral port and only receives there (not on the UDP Server port). Typical
+dest list: ``[(vm_ip, ephemeral), (224.x.x.x, 2237)]`` — unicast socket for hosts,
+multicast socket for groups.
 
 Lease/arbiter gating lives above this (§3.4/§4.5) — this layer just sends.
 """
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import struct
 
@@ -35,9 +41,18 @@ from wims.udp import encode as E
 from wims.udp import messages as M
 
 
-def open_send_socket(iface: str = "0.0.0.0", ttl: int = 1) -> socket.socket:
+def _is_multicast(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_multicast
+    except ValueError:
+        return False
+
+
+def open_send_socket(iface: str = "0.0.0.0", ttl: int = 3) -> socket.socket:
     """Multicast send socket. ``iface`` should be a real LAN IP when commanding
-    remote WSJT-X (VMs); 0.0.0.0 leaves interface selection to the kernel."""
+    remote WSJT-X (VMs); 0.0.0.0 leaves interface selection to the kernel.
+
+    Default TTL=3 matches contest-LAN practice (cross-switch multi-host)."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, int(ttl))
     if iface and iface not in ("0.0.0.0", "::"):
@@ -57,21 +72,26 @@ def open_unicast_socket() -> socket.socket:
 
 
 class TxController:
-    """Sends control datagrams. `sock` is a UDP socket; `dest` is default (host, port).
+    """Sends control datagrams to one or more (host, port) destinations.
 
-    Multi-host: callers should pass ``dests`` with the instance's LAN IP first
-    (unicast), then the multicast group — many Windows WSJT-X setups only act on
-    unicast Reply even when Status/Decode leave via multicast.
+    Holds a **unicast** socket always, and optionally a **multicast** socket for
+    group destinations. Multi-host Work should list the instance source IP first.
     """
 
-    def __init__(self, sock: socket.socket, dest: tuple[str, int]):
-        self.sock = sock
+    def __init__(self, sock: socket.socket, dest: tuple[str, int],
+                 *, mcast_sock: socket.socket | None = None):
+        self.sock = sock              # unicast (and fallback)
+        self.mcast_sock = mcast_sock  # optional dedicated multicast sender
         self.dest = dest
+
+    def _sock_for(self, host: str) -> socket.socket:
+        if _is_multicast(host) and self.mcast_sock is not None:
+            return self.mcast_sock
+        return self.sock
 
     def _send_all(self, raw: bytes, dests: list[tuple[str, int]] | None) -> list[tuple[str, int]]:
         """Send to each destination; return those that did not raise."""
         targets = list(dests) if dests else [self.dest]
-        # De-dupe while preserving order
         seen: set[tuple[str, int]] = set()
         ordered: list[tuple[str, int]] = []
         for d in targets:
@@ -82,7 +102,7 @@ class TxController:
         last_err: OSError | None = None
         for d in ordered:
             try:
-                self.sock.sendto(raw, d)
+                self._sock_for(d[0]).sendto(raw, d)
                 ok.append(d)
             except OSError as e:
                 last_err = e
@@ -94,14 +114,18 @@ class TxController:
               dests: list[tuple[str, int]] | None = None) -> bytes:
         """Tell `instance_id` to start a QSO with the station in `decode` (a CQ/QRZ).
 
-        Echoes the prior Decode fields exactly — WSJT-X will not enable TX / fill DX
-        unless the Reply matches a decode it still holds and Accept UDP is on.
+        Echoes the prior Decode fields exactly (including schema). WSJT-X will not
+        enable TX / fill DX unless the Reply matches a decode it still holds,
+        Accept UDP is on, and the datagram reaches MessageClient's *ephemeral*
+        control port (the source port of Status/Decode packets).
         """
+        schema = int(getattr(decode, "schema", None) or 2)
         raw = E.build_reply(
             instance_id, time_ms=decode.time_ms, snr=decode.snr,
             delta_time=decode.delta_time, delta_frequency=decode.delta_frequency,
             message=decode.message or "", mode=decode.mode or "~",
-            low_confidence=decode.low_confidence, modifiers=modifiers,
+            low_confidence=bool(getattr(decode, "low_confidence", False)),
+            modifiers=modifiers, schema=schema,
         )
         self._send_all(raw, dests)
         return raw
@@ -113,9 +137,27 @@ class TxController:
         self._send_all(raw, dests)
         return raw
 
+    def configure(self, instance_id: str, *, dx_call: str, dx_grid: str = "",
+                  rx_df: int | None = None, generate_messages: bool = True,
+                  mode: str = "", schema: int = 2,
+                  dests: list[tuple[str, int]] | None = None) -> bytes:
+        """Fill DX Call/Grid (and optionally gen Std Msgs). Does not Enable Tx."""
+        raw = E.build_configure(
+            instance_id, mode=mode, rx_df=rx_df,
+            dx_call=dx_call or "", dx_grid=dx_grid or "",
+            generate_messages=generate_messages, schema=schema,
+        )
+        self._send_all(raw, dests)
+        return raw
+
     @staticmethod
-    def for_group(group: str, port: int, iface: str = "0.0.0.0", ttl: int = 1) -> "TxController":
-        return TxController(open_send_socket(iface, ttl), (group, port))
+    def for_group(group: str, port: int, iface: str = "0.0.0.0", ttl: int = 3) -> "TxController":
+        """Default dest = multicast group; also keeps a unicast socket for per-host Reply."""
+        return TxController(
+            open_unicast_socket(),
+            (group, port),
+            mcast_sock=open_send_socket(iface, ttl),
+        )
 
     @staticmethod
     def for_unicast(host: str, port: int) -> "TxController":

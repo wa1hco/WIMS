@@ -22,39 +22,36 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 #   Tester walkthrough: docs/tester_runbook.md
 #   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
-# Fleet / multi-host (site server):
-python src/wims/server/app.py --iface 127.0.0.1
+# Fleet / multi-host (site server) — operators use a double-click launcher, not flags:
+#   Windows: scripts\windows\Start-WimsServer.cmd
+#   Or: python -m wims.server.app   (defaults join all band ports 2237–2240)
 #   Operate:  http://localhost:8787/          (roster click = Work · Halt TX)
-#   Status:   http://localhost:8787/status    (live health, RF, decodes)
-#   Setup:    http://localhost:8787/setup     (contest log, networking, config)
+#   Status:   http://localhost:8787/status
+#   Setup:    http://localhost:8787/setup
 ```
-- **TX control:** **no global arm / Enable TX** — **click a roster line** (or Work) to answer
-  a station via Reply (GridTracker2-style). **Halt TX** is always available. Server flags:
-  `--tx-host`/`--tx-port` (unicast WSJT-X, e.g. `127.0.0.1`; default is the multicast group),
-  `--no-tx` (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ is not a native
-  WSJT-X UDP action** — use WSJT-X for CQ; see design §2.12.
-- **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**
-  (`ContestInstance` / `ContestNR`), **auto-picks** the latest log with QSOs, and loads only that
-  contest (not whole multi-year DXLOG). Status page **Contest log** picker to change / rescan;
-  `POST /api/contests/select`. Optional `--seed-db` / `--seed-db-dir` / `--no-seed` — operators
-  should not need ContestNR. Copy the VM’s contest DB into the seed dir when N1MM is remote.
-- **Ingest (current code):** WSJT-X multicast `224.0.0.73:2237` on `--iface` + N1MM XML on
-  `:12060` (unicast/broadcast by default; `--n1mm-group 224.0.0.73` for multi-host multicast —
-  same group as WSJT-X is fine, port differs). Multicast join uses `--iface` (use the LAN IP,
-  not `127.0.0.1`, for a bridged VM / other host).
-- **Fleet networking (design):** multi-band layout is **one N1MM + N× WSJT-X per band**,
-  streams segregated by port (2237–2240) so each logger is sole owner — full map in
-  **[wims_networking.md](wims_networking.md)**. Server multi-port join for 2238–2240 is not
-  wired yet (lab still uses a single WSJT-X port — set `--port` to the seat band, e.g. 2238
-  for 144). Seat-local CAT / preferred **Icom + wfview** stack: networking **§3.2–§3.3** (WIMS
-  never owns radio COM; RigCtld must be explicitly enabled in wfview).
+- **Zero-memory start:** site server defaults to **all VHF band ports** (2237–2240) and
+  `Start-WimsServer.cmd` auto-picks LAN iface. No `--ports` in contest. Solo still uses
+  `python -m wims.solo` (one port). Lab escapes: `--ports`, `--iface`.
+- **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
+  **Halt TX** always on. Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
+  (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ** is WSJT-X UI only (§2.12).
+- **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**,
+  auto-picks the latest with QSOs, and loads only that contest (not whole multi-year DXLOG).
+  Setup/Status picker + Resync, no ContestNR CLI in normal operation.
+- **Ingest:** multicast `224.0.0.73` on **2237/2238/2239/2240** + N1MM XML on `:12060`
+  (unicast/broadcast by default; `--n1mm-group` optional multicast).
+  Each **N1MM** joins **only its band port**; WIMS joins **all**. Map:
+  **[wims_networking.md](wims_networking.md)**.
+- **Seat CAT stack (design):** preferred **Icom + wfview** path in networking **§3.2–§3.3**
+  (WIMS never owns radio COM; RigCtld must be explicitly enabled in wfview).
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
 - **Interlock bench:** `python testbed/interlock_bench.py`
 
 ## Tests — unit suites green (no pytest dep; run `python tests/unit/test_*.py`)
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
-`test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual`
+`test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual` ·
+`test_rotator`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -114,7 +111,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
 | 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
-| 3.8 | Rotator controller | `[ ]` | **Design (§2.10):** Yaesu/K3NG; Az ant + Az DX; font while rotating; click-to-point; set-az; point to roster DX az. Code not started (M4). |
+| 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
 | 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
 | 3.11 | Config | `[ ]` | scoring weights exist as defaults (`engine/scoring.py`); no Instance-Profile / config files yet. |
@@ -281,6 +278,19 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   human initiation = **click roster line** (or Work) → `/api/tx/work`. Dropped `arm` API/state
   field; `can_tx` follows controller wired. Halt remains. Design §2.12 + runbook + `test_server_tx`
   updated.
+- **2026-07-23** — **Roster Phase‑1 polish.** Drop Work button column + UTC (line click only; Age
+  kept). Columns: **Az DX**, **km** (`distance_km`). Highlights: **calling-us** (red — `to_call`
+  matches instance `de_call`) and **armed** (green edge — Status `tx_enabled` + `dx_call` match
+  row). Contract: `is_calling_us`, `is_armed`, `distance_km`. Status tracks `de_call` / `dx_call` /
+  `tx_enabled`. Rotator Δaz / point-on-Work / beam scoring still M4 (later).
+- **2026-07-23** — **Rotator Phase‑2 start (M4).** Registry + sim + Yaesu helpers; roster **Az ant**
+  / **Δaz** / moving font; click **Az DX** → point; Stop on rotator table; agent report can carry
+  `rotators[]`. Lab: `--sim-rotator ROT-6M:45:WSJT-X`. No live K3NG serial yet.
+- **2026-07-23** — **Multi-band WSJT-X ports:** server joins **2237–2240 by default** (no CLI
+  memory). Solo still 2237-only. Escape hatch `--ports`.
+- **2026-07-23** — **Station agent desktop launcher:** `Install-WimsAgent-Desktop-Shortcut.cmd`
+  + green `assets/wims-agent.ico`; install also creates **WIMS Agent** + **WIMS Server**
+  shortcuts. Continuous agent opens local UI `http://127.0.0.1:8790/`.
 - **2026-07-20** — **Agent solo mode (noob-friendly setup check).** `wims.agent --solo` + new
   single-PC validation lens (`wsjtx_config._validate_solo`): the fleet "blank/@Invalid outgoing
   interface" **ERROR becomes a friendly note** (traffic staying on one PC is correct), and the

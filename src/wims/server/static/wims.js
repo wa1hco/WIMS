@@ -207,11 +207,19 @@ function renderInstances(s) {
   for (const n of s.instances) {
     const tr = document.createElement("tr");
     if (n.transmitting) tr.className = "tx";
+    if (n.id_collision) tr.className = (tr.className ? tr.className + " " : "") + "id-collide";
     const health = n.health + (n.quiet ? " · QUIET" : "");
-    const collide = n.id_collision ? ' <span class="warn">⚠ id</span>' : '';
+    // Same UDP id on 2 PCs (default "WSJT-X") → one row; show ALL hosts.
+    const hosts = (n.hosts && n.hosts.length) ? n.hosts : (n.host ? [n.host] : []);
+    const hostCell = n.id_collision
+      ? `<span class="warn">⚠ shared id</span> ${esc(hosts.join(" · "))}`
+      : esc(hosts.join(", ") || n.host || "-");
+    const collide = n.id_collision
+      ? ' <span class="warn" title="Two PCs use the same WSJT-X name — set unique --rig-name on each">⚠ rename</span>'
+      : "";
     tr.innerHTML =
-      `<td>${n.id}${collide}</td><td>${n.host||"-"}</td><td>${n.band||"-"}</td>` +
-      `<td>${n.mode||"-"}</td><td class="num">${mhz(n.dial_hz)}</td>` +
+      `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(n.band||"-")}</td>` +
+      `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
       `<td class="state-${n.state}">${n.state}</td>` +
       `<td class="num ${n.quiet?'quiet':''}">${n.decodes_per_period.toFixed(1)}</td>` +
       `<td class="num">${age(n.last_decode_age)}</td>` +
@@ -232,11 +240,13 @@ function renderLoggers(s) {
     const seen = l.last_seen_age == null ? "-" : age(l.last_seen_age) + " ago";
     const lastq = l.last_qso_age == null ? "—"
       : `${l.last_call||""} ${l.last_band||""} (${age(l.last_qso_age)} ago)`;
+    const alias = (l.aliases && l.aliases.length)
+      ? ` <span class="meta">aka ${esc(l.aliases.join(", "))}</span>` : "";
     tr.innerHTML =
-      `<td><span class="dot ${fresh?'active':'idle'}"></span>${l.kind} · ${l.id}</td>` +
-      `<td>${l.host||"-"}</td><td>${l.mycall||"-"}</td>` +
+      `<td><span class="dot ${fresh?'active':'idle'}"></span>${esc(l.kind)} · ${esc(l.id)}${alias}</td>` +
+      `<td>${esc(l.host||"-")}</td><td>${esc(l.mycall||"-")}</td>` +
       `<td>${seen}</td><td class="num">${l.qso_count}</td>` +
-      `<td>${lastq}</td>`;
+      `<td>${esc(lastq)}</td>`;
     lb.appendChild(tr);
   }
 }
@@ -596,9 +606,8 @@ function renderInterlock(il) {
 // GridTracker-style call roster: one row per station heard, with the score kept as a
 // column. Rows filter by need (from the N1MM log copy) and band; every header sorts,
 // and the chosen sort/filter persist across live SSE re-renders (state below).
-const utc = (ts) => new Date(ts*1000).toISOString().substr(11, 8);
+// Click the *line* to Work (no Work button). UTC dropped — Age is enough.
 const ROS_COLS = [
-  {key:"_work",         label:"",        cls:"act",       cell:rosWork},
   {key:"call",          label:"DX",      cls:"",          cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
@@ -606,9 +615,11 @@ const ROS_COLS = [
   {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
   {key:"snr",           label:"dB",      cls:"num", num:1, cell:c=>sgn(c.snr)},
   {key:"freq_hz",       label:"Freq",    cls:"num", num:1, cell:c=>c.freq_hz?(c.freq_hz/1e6).toFixed(4):"-"},
-  {key:"az",            label:"Az",      cls:"num", num:1, cell:c=>c.az==null?"-":c.az+"°"},
+  {key:"az",            label:"Az DX",   cls:"num", num:1, cell:rosAzDx},
+  {key:"az_ant",        label:"Az ant",  cls:"num", num:1, cell:rosAzAnt},
+  {key:"delta_az",      label:"Δaz",     cls:"num", num:1, cell:c=>c.delta_az==null?"-":c.delta_az+"°"},
+  {key:"distance_km",   label:"km",      cls:"num", num:1, cell:c=>c.distance_km==null?"-":c.distance_km},
   {key:"age",           label:"Age",     cls:"num", num:1, cell:c=>age(c.age)},
-  {key:"ts",            label:"UTC",     cls:"num", num:1, cell:c=>utc(c.ts)},
   {key:"operator_call", label:"Op",      cls:"",          cell:c=>c.operator_call||"—"},
   {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
 ];
@@ -616,22 +627,30 @@ let _rosData = null;                              // latest roster payload
 let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 
-function rosWork(c) {
-  // Affordance only — primary path is click on the roster *line* (GT2-style).
-  // Disabled only when the console is read-only (--no-tx).
-  const on = _txState && _txState.can_tx;
-  const title = on ? "Answer " + esc(c.call) : "TX disabled (read-only console)";
-  return `<button class="txbtn work" data-row="${esc(c.id||"")}"` +
-         `${on ? "" : " disabled"} title="${title}">Work</button>`;
-}
 function rosCall(c) {
   const badges =
+    (c.is_calling_us ? '<span class="badge callus">us</span>' : '') +
+    (c.is_armed ? '<span class="badge armed">TX</span>' : '') +
     (c.is_new_mult ? '<span class="badge">mult</span>' : '') +
     (c.is_rover ? '<span class="badge rover">R</span>' : '');
   return `${esc(c.call)}${badges}`;
 }
 function rosCalling(c) {
   return c.is_cq ? '<span class="cq">CQ</span>' : esc(c.to_call || "-");
+}
+function rosAzDx(c) {
+  // Clickable when a rotator is mapped — point antenna to this Az DX.
+  if (c.az == null) return "-";
+  if (c.rotator_id) {
+    return `<button type="button" class="azbtn" data-point-row="${esc(c.id||"")}" ` +
+           `title="Point ${esc(c.rotator_id)} to ${c.az}°">${c.az}°</button>`;
+  }
+  return c.az + "°";
+}
+function rosAzAnt(c) {
+  if (c.az_ant == null) return "—";
+  const cls = c.rotator_moving ? "az-moving" : "";
+  return `<span class="${cls}" title="${c.rotator_moving ? "slewing…" : "settled"}">${c.az_ant}°</span>`;
 }
 
 function rosBuildHead() {
@@ -697,10 +716,21 @@ function rosDraw() {
   const canWork = !!( _txState && _txState.can_tx );
   for (const c of rows) {
     const tr = document.createElement("tr");
-    tr.className = (c.is_new_mult ? "mult " : "") + (c.is_needed ? "" : "dupe") +
-                   (canWork ? " workable" : "");
+    // Highlight priority: calling-us (red) > armed (green) > mult (soft green) > dupe dim.
+    const classes = [];
+    if (c.is_calling_us) classes.push("calling-us");
+    else if (c.is_armed) classes.push("armed");
+    else if (c.is_new_mult) classes.push("mult");
+    if (!c.is_needed) classes.push("dupe");
+    if (canWork) classes.push("workable");
+    tr.className = classes.join(" ");
     if (c.id) tr.dataset.row = c.id;
-    if (canWork) tr.title = "Click to work " + (c.call || "");
+    if (canWork) {
+      let tip = "Click to work " + (c.call || "");
+      if (c.is_calling_us) tip = "Calling us — " + tip;
+      else if (c.is_armed) tip = "Enable Tx set for this DX — " + tip;
+      tr.title = tip;
+    }
     tr.innerHTML = ROS_COLS.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
     body.appendChild(tr);
@@ -724,12 +754,13 @@ function txFlash(j, url) {
   const m = $("tx-meta"); if (!m) return;
   if (j.ok) {
     m.className = "meta";
-    if (j.sent === "reply") {
+    if (j.sent && String(j.sent).includes("reply")) {
       const dests = j.dests || (j.dest ? [j.dest] : []);
       const dest = dests.length
         ? " → " + dests.map(d => Array.isArray(d) ? `${d[0]}:${d[1]}` : d).join(", ")
         : "";
-      m.textContent = `→ Work ${j.call || "?"} on ${j.instance || "?"}${dest}`
+      const via = j.sent !== "reply" ? ` (${j.sent})` : "";
+      m.textContent = `→ Work ${j.call || "?"} on ${j.instance || "?"}${via}${dest}`
         + (j.detail ? ` · ${j.detail}` : "");
     } else if (Array.isArray(j.halted)) {
       m.textContent = `halted ${j.halted.length}`;
@@ -753,20 +784,81 @@ function txWire() {
   _txWired = true;
   const halt = $("tx-halt");
   if (halt) halt.addEventListener("click", () => txPost("/api/tx/halt", {}));
-  // Click a roster *line* (or the Work button) → Reply. GT2-style; no arm switch.
+  // Click a roster *line* → Work (GT2-style). No Work button column.
+  // Az DX button → point rotator only (does not TX).
   const body = $("ros-body");
   if (body) body.addEventListener("click", (e) => {
-    if (!(_txState && _txState.can_tx)) return;
-    const btn = e.target.closest("button.work");
-    if (btn) {
-      if (btn.disabled || !btn.dataset.row) return;
-      txPost("/api/tx/work", {row_id: btn.dataset.row});
+    const pointBtn = e.target.closest("button.azbtn[data-point-row]");
+    if (pointBtn) {
+      e.stopPropagation();
+      const rid = pointBtn.dataset.pointRow;
+      if (rid) rotPost("/api/rotator/point", {row_id: rid});
       return;
     }
+    if (!(_txState && _txState.can_tx)) return;
+    if (e.target.closest("a,button,input,select,label")) return;
     const tr = e.target.closest("tr[data-row]");
     if (tr && tr.dataset.row) txPost("/api/tx/work", {row_id: tr.dataset.row});
   });
 }
+
+async function rotPost(url, payload) {
+  try {
+    const r = await fetch(url, {method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+    const j = await r.json().catch(() => ({}));
+    const m = $("tx-meta");
+    if (m) {
+      if (j.ok) {
+        m.className = "meta";
+        m.textContent = j.az != null
+          ? `→ Point ${j.rotator || "?"} to ${j.az}°` + (j.detail ? ` (${j.detail})` : "")
+          : (j.detail || "rotator ok");
+      } else {
+        m.className = "meta warn";
+        m.textContent = `Point failed: ${j.detail || j.error || "failed"}`;
+      }
+    }
+  } catch (e) {
+    const m = $("tx-meta");
+    if (m) { m.className = "meta warn"; m.textContent = String(e); }
+  }
+}
+
+function renderRotators(list) {
+  const body = $("rot-body");
+  if (!body) return;
+  const rows = list || [];
+  const empty = $("rot-empty");
+  if (empty) empty.style.display = rows.length ? "none" : "block";
+  // Operate has Halt/Work strip → show Stop button; Status shows source column.
+  const onOps = !!$("tx-halt");
+  body.innerHTML = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr");
+    const move = r.moving ? '<span class="az-moving">slewing</span>' : "settled";
+    let tail = onOps
+      ? `<td class="act"><button type="button" class="txbtn" data-rot-stop="${esc(r.id)}">Stop</button></td>`
+      : `<td>${esc(r.source || "—")}</td>`;
+    tr.innerHTML =
+      `<td>${esc(r.label || r.id)}</td>` +
+      `<td class="num">${r.az == null ? "—" : r.az + "°"}</td>` +
+      `<td class="num">${r.target_az == null ? "—" : r.target_az + "°"}</td>` +
+      `<td>${move}</td>` +
+      `<td>${esc(r.health || "?")}</td>` +
+      `<td>${esc((r.instances || []).join(", ") || "—")}</td>` +
+      tail;
+    body.appendChild(tr);
+  }
+  if (!_rotWired && onOps) {
+    _rotWired = true;
+    body.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-rot-stop]");
+      if (b) rotPost("/api/rotator/stop", {rotator_id: b.dataset.rotStop});
+    });
+  }
+}
+let _rotWired = false;
 
 function renderTxBar(tx) {
   if (!$("tx-status") && !$("tx-halt")) return;  // not on Operate
@@ -795,6 +887,7 @@ function render(s) {
   renderSystem(s);
   renderAgents(s);
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
+  renderRotators(s.rotators);
   renderInterlock(s.interlock);
   renderRoster(s.roster);
   renderInstances(s);

@@ -214,6 +214,51 @@ def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
     }
 
 
+def _rotators_from_env() -> list[dict]:
+    """Optional rotator status for agent → server (plan §3.3.1 / §2.10).
+
+    ``WIMS_ROTATOR_REPORT`` = JSON list of rotator objects, or a single object.
+    Minimal lab form without K3NG:
+
+      WIMS_ROTATOR_ID=ROT-6M
+      WIMS_ROTATOR_AZ=45
+      WIMS_ROTATOR_INSTANCES=WSJT-X
+
+    Full TCP/serial poll is a later agent step; this ships the status path.
+    """
+    raw = (os.environ.get("WIMS_ROTATOR_REPORT") or "").strip()
+    if raw:
+        try:
+            import json
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                return [data]
+            if isinstance(data, list):
+                return [x for x in data if isinstance(x, dict)]
+        except (json.JSONDecodeError, TypeError):
+            pass
+    rid = (os.environ.get("WIMS_ROTATOR_ID") or "").strip()
+    if not rid:
+        return []
+    az_s = (os.environ.get("WIMS_ROTATOR_AZ") or "").strip()
+    az = None
+    try:
+        az = float(az_s) if az_s else None
+    except ValueError:
+        az = None
+    inst = [x.strip() for x in (os.environ.get("WIMS_ROTATOR_INSTANCES") or "").split(",")
+            if x.strip()]
+    return [{
+        "id": rid,
+        "az": az,
+        "moving": False,
+        "link_ok": True,
+        "health": "OK",
+        "instances": inst,
+        "label": rid,
+    }]
+
+
 def build_report(
     *,
     agent_id: str | None = None,
@@ -250,6 +295,7 @@ def build_report(
         ),
     }
     summary = _summary(wsjtx, n1mm, apps)
+    rotators = _rotators_from_env()
 
     return {
         "schema": SCHEMA,
@@ -265,6 +311,7 @@ def build_report(
         "wsjtx": wsjtx,
         "n1mm": n1mm,
         "apps": apps,
+        "rotators": rotators,
         "summary": summary,
         "mode": "solo" if solo else ("fleet" if fleet else "lab"),
     }

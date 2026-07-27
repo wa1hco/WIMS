@@ -83,8 +83,13 @@ def main() -> None:
         except Exception as e:
             print(f"(setup check skipped: {e})\n")
 
-    # Translate to server args — solo = localhost, no fleet presence election.
-    argv = ["--http-port", str(args.http_port), "--iface", args.iface, "--no-presence"]
+    # Translate to server args — solo = localhost, no fleet presence, one WSJT port.
+    argv = [
+        "--http-port", str(args.http_port),
+        "--iface", args.iface,
+        "--no-presence",
+        "--ports", "2237",  # single-PC default; fleet server joins all band ports
+    ]
     if args.tx_host:
         argv += ["--tx-host", args.tx_host]
     if args.seed_db:

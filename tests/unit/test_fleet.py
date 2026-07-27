@@ -161,6 +161,45 @@ def test_n1mm_radioinfo_presence_without_qso():
     assert n.qso_count == 1 and n.last_qso == 160.0 and n.last_seen == 160.0
 
 
+def test_n1mm_merges_stationname_and_netbios_same_host():
+    """One PC must not appear as two loggers (StationName vs Windows NetBIOS)."""
+    t = FleetTracker()
+    ip = "192.168.1.116"
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><NetBiosName>DESKTOP-ABC</NetBiosName>"
+        "<mycall>W2SZ</mycall></RadioInfo>",
+        now=1.0, src_ip=ip)
+    t.observe_n1mm_xml(
+        "<contactinfo><app>N1MM</app><StationName>TRAILER-50</StationName>"
+        "<call>K1ABC</call><band>50</band></contactinfo>",
+        now=2.0, src_ip=ip)
+    t.observe_n1mm_xml(
+        "<AppInfo><app>N1MM</app><NetBiosName>DESKTOP-ABC</NetBiosName></AppInfo>",
+        now=3.0, src_ip=ip)
+    assert list(t.loggers.keys()) == ["TRAILER-50"]
+    lg = t.loggers["TRAILER-50"]
+    assert "DESKTOP-ABC" in lg.aliases
+    assert lg.host == ip and lg.qso_count == 1
+
+
+def test_n1mm_merges_bare_ip_key_with_stationname():
+    """Live case: some beacons lack names → id=src_ip; later StationName must collapse."""
+    t = FleetTracker()
+    ip = "192.168.1.116"
+    # Minimal / odd beacon that only yields IP as key (no station/netbios tags)
+    t.observe_n1mm_xml(
+        f"<RadioInfo><app>N1MM</app><RadioNr>1</RadioNr></RadioInfo>",
+        now=1.0, src_ip=ip)
+    assert ip in t.loggers
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>W10VM-144</StationName>"
+        "<mycall>WA1HCO</mycall></RadioInfo>",
+        now=2.0, src_ip=ip)
+    assert list(t.loggers.keys()) == ["W10VM-144"]
+    assert ip in t.loggers["W10VM-144"].aliases or ip not in t.loggers
+    assert t.loggers["W10VM-144"].mycall == "WA1HCO"
+
+
 def test_id_collision_detected():
     t = FleetTracker()
     # Same id "WSJT-X" from two different hosts = unresolvable instances.

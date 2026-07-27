@@ -23,7 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from wims.engine.geo import grid_to_latlon, bearing  # noqa: E402
+from wims.engine.geo import grid_to_latlon, bearing, distance_km, base_call, delta_az  # noqa: E402
 
 
 def test_grid_center_4char():
@@ -57,6 +57,30 @@ def test_bearing_due_north():
 def test_bearing_range():
     az = bearing("FN31", "FN42")
     assert 0.0 <= az < 360.0
+
+
+def test_distance_same_grid_near_zero():
+    d = distance_km("FN42", "FN42")
+    assert d is not None and d < 1.0
+
+
+def test_distance_known_order():
+    # Neighbor square should be farther than same-grid and finite.
+    d0 = distance_km("FN42", "FN42")
+    d1 = distance_km("FN42", "FN52")
+    assert d0 is not None and d1 is not None and d1 > d0
+    assert 100 < d1 < 300   # ~2° lon at mid-latitudes ≈ 150–200 km
+
+
+def test_base_call_strips_suffix():
+    assert base_call("wa1hco/r") == "WA1HCO"
+    assert base_call("<K1ABC>") == "K1ABC"
+    assert base_call("CQ") == "CQ"
+
+
+def test_delta_az():
+    assert delta_az(0, 10) == 10
+    assert delta_az(350, 10) == 20
 
 
 if __name__ == "__main__":

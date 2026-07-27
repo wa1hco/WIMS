@@ -18,10 +18,10 @@
 
 """Maidenhead grid geometry — pure helpers for antenna pointing (plan §3.14 / §2.2).
 
-The roster's "az" column is the great-circle **initial bearing** from the receiving
-instance's own grid (WSJT-X `de_grid`) to the DX station's grid. Both come straight off
-the WSJT-X messages, so nothing here needs station config. Keep these pure and
-unit-testable: grid text in, degrees out, `None` when a grid is missing/malformed.
+The roster **Az DX** column is the great-circle **initial bearing** from the receiving
+instance's own grid (WSJT-X `de_grid`) to the DX station's grid. **km** / **Δaz** helpers
+live here too. Keep pure and unit-testable: grid text in, degrees/km out, `None` when
+missing/malformed.
 """
 
 from __future__ import annotations
@@ -64,3 +64,44 @@ def bearing(from_grid: str | None, to_grid: str | None) -> float | None:
     y = math.sin(dlon) * math.cos(lat2)
     x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
     return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
+
+
+def distance_km(from_grid: str | None, to_grid: str | None) -> float | None:
+    """Great-circle distance between grid centers in kilometres, or None if bad grid."""
+    a = grid_to_latlon(from_grid)
+    b = grid_to_latlon(to_grid)
+    if a is None or b is None:
+        return None
+    lat1, lon1 = math.radians(a[0]), math.radians(a[1])
+    lat2, lon2 = math.radians(b[0]), math.radians(b[1])
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    h = (math.sin(dlat / 2) ** 2
+         + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2)
+    return 6371.0 * 2.0 * math.asin(min(1.0, math.sqrt(h)))
+
+
+def base_call(call: str | None) -> str:
+    """Uppercase call with compound suffix stripped (``WA1HCO/R`` → ``WA1HCO``)."""
+    if not call:
+        return ""
+    s = str(call).upper().replace("<", "").replace(">", "").strip()
+    if not s or s in ("CQ", "QRZ", "DE"):
+        return s
+    return s.split("/", 1)[0]
+
+
+def delta_az(az_ant: float | None, az_dx: float | None) -> float | None:
+    """Shortest-arc absolute difference between antenna and DX azimuths, degrees [0, 180].
+
+    Used as roster **Δaz** (how far off the beam is from the station).
+    """
+    if az_ant is None or az_dx is None:
+        return None
+    try:
+        a = float(az_ant) % 360.0
+        b = float(az_dx) % 360.0
+    except (TypeError, ValueError):
+        return None
+    d = abs(a - b) % 360.0
+    return d if d <= 180.0 else 360.0 - d

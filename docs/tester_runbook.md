@@ -138,21 +138,39 @@ If manual double‑click works but roster click does not, the problem is almost 
 
 ### 6c. Multi-host (WIMS on Linux, WSJT-X in a Windows VM)
 
-**Symptom if control path fails:** Work “succeeds” on Operate, but WSJT-X **DX Call / DX Grid
-stay blank** and **Enable Tx does not turn on** (as if you never double‑clicked).
+**Symptom if control path fails:** Work “succeeds” on Operate (or a `TX Reply ok` log line
+appears), but WSJT-X **DX Call / DX Grid stay blank** and **Enable Tx does not turn on**
+(as if you never double‑clicked).
 
 | Requirement | Why |
 |-------------|-----|
-| **Accept UDP requests** ON | Without it, Reply is ignored; double‑click still works |
+| **Accept UDP requests** ON | Necessary; not sufficient alone |
 | WIMS `--iface` = **Linux contest LAN IP** | Multicast leave path |
-| Same port as WSJT-X UDP Server | Reply ignored if 2237 vs 2238 mismatch |
-| **Unicast to the VM** | WIMS auto-sends Reply to the **last source IP** of that instance, then also the multicast group. Prefer a **fresh** CQ still visible in WSJT-X Band Activity |
-| Optional: `--tx-host <VM-LAN-IP> --tx-port <port>` | Force control host if auto unicast is wrong |
-| Windows firewall allows UDP from the WIMS host | Else Work ok on WIMS, silence in WSJT-X |
+| **Unicast to MessageClient** | WSJT-X binds an **ephemeral** control port. WIMS must Reply to the **last `recvfrom` source IP:port** of that instance (not host:2237). `tx-meta` first dest looks like `192.168.x.x:5xxxx` |
+| **Windows firewall** | Allow inbound UDP to **wsjtx.exe** (or from the WIMS host). A rule limited to LocalPort **2237 only is wrong** for control — control arrives on the ephemeral port. Outbound Status/Decode can work while inbound Reply is blocked |
+| Fresh CQ | Decode must still be on WSJT-X Band Activity; WIMS roster keeps rows longer (5 min) |
 
-If DX/Enable still do not change after Work: note `tx-meta` destinations (should list the **VM
-IP** first) and confirm the CQ is still on WSJT-X’s Band Activity list (old roster rows can age
-out of WSJT-X while still showing in WIMS for up to 5 min).
+**Quick Windows firewall test** (on the VM, PowerShell as Admin) — prefer program-based:
+
+```powershell
+# Prefer: any UDP to the WSJT-X process (covers ephemeral control ports)
+New-NetFirewallRule -DisplayName "WSJT-X UDP control (process)" -Direction Inbound `
+  -Program "C:\WSJT\wsjtx\bin\wsjtx.exe" -Protocol UDP -Action Allow -Profile Any
+# Adjust -Program path to your install (e.g. "C:\Program Files\wsjtx\bin\wsjtx.exe")
+```
+
+Then Work again and watch the **WIMS server console** for:
+
+```text
+TX Reply ok 'INSTANCE' 'CALL' msg='CQ …' → [192.168.x.x:54321, 224.0.0.73:2237]
+```
+
+The **first** dest must be the VM IP with a **high/ephemeral port** (not `:2237`). If you still
+see only `host:2237`, restart WIMS after this fix and wait for a fresh Status/Decode so the
+control endpoint is learned.
+
+If that line is missing, the click never reached Work (or server is old). If it is present but
+WSJT-X still ignores DX/Enable: firewall, stale Band Activity line, Accept UDP off, or id mismatch.
 
 Server startup log should show something like:
 

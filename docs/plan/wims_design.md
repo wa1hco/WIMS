@@ -325,23 +325,18 @@ SSB/CW or hand off to a 2nd op.
   only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
   operator’s* roster. Columns: **DX callsign · Calling** (who they address — `CQ` or the worked call)
-  **· Band · Mode · Grid · dB · Freq** (RF = instance dial + decode audio df) **· Az ant** (live
-  antenna heading when the band has a **remote/WIMS-controlled rotator** — §2.10; blank/`—` for fixed
-  beams) **· Az DX** (great-circle bearing **from our receiving instance’s `de_grid` to the DX
-  grid** — direction to point to work them) **· Age · UTC · Op** (callsign managing that band —
-  from the §3.14 fleet profile; **stubbed `—` until wired**) **· Score**. When the antenna is
-  **actively rotating**, **Az ant** is rendered in a **distinct font style** (e.g. italic or mono
-  emphasis — Phase-2 polish locks the exact face) so slewing is obvious at a glance without a
-  separate “moving” badge. **Every header sorts**, and the chosen sort + filters persist across live
-  SSE re-renders. The operator **filters by need** (needed = not a dupe per the N1MM log copy; toggle
-  needed-only / all) within the subscribed set. A **rover** in a **new grid** is a fresh, high-value
-  row (new mult), never collapsed onto its old grid; a worked station is flagged already-worked
-  **per band×grid** from N1MM `<contactinfo>` and dimmed rather than dropped. The durable contract
-  (`server/state.py`) ships the raw per-row facts (`is_needed`, `band`, `az` / `az_dx`, `az_ant`,
-  `rotator_moving`, `freq_hz`, `operator_call`, `score`, `to_call`, `ts`); the console does the
-  filter/sort/font so the frontend stays disposable. Non-CQ rows are listed but not scored (score 0).
-  Azimuth math is a pure helper (`engine/geo.py`: Maidenhead → lat/lon → great-circle bearing).
-  Full rotator + subscription design: §2.10 / §2.11. (Feature backlog: §2.6.)
+  **· Band · Mode · Grid · dB · Freq** (RF = instance dial + decode audio df) **· Az DX**
+  (great-circle bearing **from our receiving instance’s `de_grid` to the DX grid**) **· km**
+  (great-circle distance) **· Age · Op** (band manager — stubbed until §3.14) **· Score**.
+  **UTC column dropped** from the default table (Age is enough; `ts` remains on the wire).
+  **No Work button** — click the **row** to Work (GT2-style). **Highlights:** **calling-us**
+  (red background — station’s `to_call` matches instance `de_call`, like WSJT-X Band Activity
+  red) and **armed** (green edge — Status `tx_enabled` and `dx_call` match this row, even if not
+  yet transmitting). Priority: calling-us > armed > mult. Later (M4 / §2.10): **Az ant**, **Δaz**,
+  rotating font, optional point-on-Work. **Every header sorts**; need/band filters persist.
+  Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
+  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`, scores. Geometry:
+  `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
   broadcast). N1MM has no heartbeat — "no recent packet" means quiet, not a fault.

@@ -28,7 +28,7 @@ from __future__ import annotations
 import struct
 
 from wims.udp.messages import (
-    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, QUINT32_MAX,
+    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, CONFIGURE, QUINT32_MAX,
 )
 
 
@@ -129,4 +129,28 @@ def build_halt_tx(mid: str, *, auto_only: bool = False, schema: int = 2) -> byte
     """Halt Tx (msg 8): stop transmitting (immediately, or just unset Auto)."""
     w = _Writer(schema, HALT_TX, mid)
     w.boolean(auto_only)
+    return w.bytes()
+
+
+def build_configure(mid: str, *, mode: str = "", frequency_tolerance: int | None = None,
+                    submode: str = "", fast_mode: bool = False,
+                    tr_period: int | None = None, rx_df: int | None = None,
+                    dx_call: str = "", dx_grid: str = "",
+                    generate_messages: bool = True, schema: int = 2) -> bytes:
+    """Configure (msg 15): set DX call/grid / Rx DF / generate standard messages.
+
+    Empty utf8 fields = no change; ``None`` for quint32 opts = QUINT32_MAX (no change).
+    Does **not** Enable Tx — use Reply for that (CQ/73 or Hold Tx Freq).
+    """
+    w = _Writer(schema, CONFIGURE, mid)
+    w.utf8(mode)
+    w.u32_opt(frequency_tolerance)
+    w.utf8(submode)
+    w.boolean(fast_mode)
+    w.u32_opt(tr_period)
+    w.u32_opt(rx_df)
+    w.utf8(dx_call)
+    # GT2 uses a single space when grid unknown so the field is non-empty.
+    w.utf8(dx_grid if dx_grid else " ")
+    w.boolean(generate_messages)
     return w.bytes()

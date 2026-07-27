@@ -44,6 +44,11 @@
     <button id="tx-halt" class="txbtn halt">◼ Halt TX</button>
     <span class="meta" id="tx-meta"></span>
   </div>
+  <p class="hint" id="tx-hint" style="font-size:12px;color:var(--dim);margin:4px 0 10px 0">
+    Work: <b>CQ/73</b> → UDP Reply (DX + Enable Tx). <b>Mid-exchange</b> → Reply + Configure
+    (fills DX Call/Grid + Gen Msgs). For Enable Tx on non-CQ, check WSJT-X
+    <b>Hold Tx Freq</b> (same rule as GT2). First dest = ephemeral control port, not <code>:2237</code>.
+  </p>
 
   <h2>Interlock · TX overlap</h2>
   <div id="il-banner" class="banner ok">✓ no overlap</div>
@@ -57,6 +62,22 @@
   <div id="il-empty" class="empty">no instances — all RX</div>
 
   <h2>Call roster · stations heard</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Click a row to Work.
+    <span style="background:#ffd6d6;padding:0 4px">red</span> = calling us ·
+    <span style="background:#e3f5e8;padding:0 4px">green edge</span> = Enable Tx for that DX ·
+    Az DX = bearing · click Az DX° to point rotator · Az ant italic = slewing · Δaz · km.
+  </p>
+  <h2 style="margin-top:10px">Rotators</h2>
+  <table id="rot" class="tight">
+    <thead><tr>
+      <th>Rotator</th><th class="num">Az</th><th class="num">Target</th>
+      <th>Motion</th><th>Health</th><th>Instances</th><th></th>
+    </tr></thead>
+    <tbody id="rot-body"></tbody>
+  </table>
+  <div id="rot-empty" class="empty">No rotators — start server with
+    <code>--sim-rotator ROT-6M:45:WSJT-X</code> or agent <code>WIMS_ROTATOR_*</code> env.</div>
   <div id="ros-controls" class="controls">
     <label><input type="checkbox" id="ros-needed" checked> needed only</label>
     <label>band <select id="ros-band"><option value="all">all</option></select></label>

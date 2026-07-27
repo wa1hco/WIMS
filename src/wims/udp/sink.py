@@ -81,6 +81,19 @@ def peek_wsjtx(data: bytes) -> dict | None:
     return info
 
 
+def _join_iface_ip(host: str) -> str:
+    """Interface address for IP_ADD_MEMBERSHIP. ``0.0.0.0`` is not a valid join
+    iface on Linux — pick the primary contest LAN IP so VMs on the same /24 are heard.
+    """
+    if host and host not in ("0.0.0.0", "::", ""):
+        return host
+    try:
+        from wims.discovery.presence import _primary_lan_ip
+        return _primary_lan_ip("0.0.0.0")
+    except Exception:
+        return "0.0.0.0"
+
+
 def open_socket(host: str, port: int, multicast: str | None) -> socket.socket:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -88,7 +101,8 @@ def open_socket(host: str, port: int, multicast: str | None) -> socket.socket:
     # On Windows a multicast member binds the group address (or "") to receive it.
     sock.bind(("" if multicast else bind_host, port))
     if multicast:
-        mreq = struct.pack("4s4s", socket.inet_aton(multicast), socket.inet_aton(host))
+        join_if = _join_iface_ip(host)
+        mreq = struct.pack("4s4s", socket.inet_aton(multicast), socket.inet_aton(join_if))
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
     return sock
 

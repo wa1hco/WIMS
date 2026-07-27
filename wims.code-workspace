@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../nCAT"
+		},
+		{
+			"path": "../nDAX"
+		},
+		{
+			"path": "../flexclient"
+		},
+		{
+			"path": "../wsjtx-3.0.2-devel"
+		}
+	],
+	"settings": {}
+}

@@ -64,6 +64,23 @@ def test_halt_and_reply_parse_as_known_types():
     assert reply.type == M.REPLY and reply.id == "SIM-6M-1"
 
 
+def test_build_configure_has_configure_type():
+    import struct
+    raw = E.build_configure("SIM-6M-1", dx_call="K1ABC", dx_grid="FN31",
+                            rx_df=1500, generate_messages=True)
+    magic, schema, mtype = struct.unpack_from(">III", raw, 0)
+    assert magic == 0xADBCCBDA and mtype == M.CONFIGURE and schema == 2
+
+
+def test_reply_auto_tx_eligible():
+    assert M.reply_auto_tx_eligible("CQ K1ABC FN31") is True
+    assert M.reply_auto_tx_eligible("QRZ K1ABC FN31") is True
+    assert M.reply_auto_tx_eligible("W9XYZ K1ABC 73") is True
+    assert M.reply_auto_tx_eligible("W9XYZ K1ABC RR73") is True
+    assert M.reply_auto_tx_eligible("W9XYZ K1ABC R-12") is False
+    assert M.reply_auto_tx_eligible("W9XYZ K1ABC FN42") is False
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

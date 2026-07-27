@@ -46,6 +46,7 @@ MAGIC = 0xADBCCBDA
 # Message type numbers (NetworkMessage::Type enum).
 HEARTBEAT, STATUS, DECODE, CLEAR, REPLY, QSO_LOGGED, CLOSE = 0, 1, 2, 3, 4, 5, 6
 REPLAY, HALT_TX, FREE_TEXT, WSPR_DECODE, LOCATION, LOGGED_ADIF = 7, 8, 9, 10, 11, 12
+CONFIGURE = 15
 
 QUINT32_MAX = 0xFFFFFFFF
 
@@ -282,6 +283,24 @@ def _looks_like_callsign(token: str | None) -> bool:
     has_letter = any(c.isalpha() for c in t)
     has_digit = any(c.isdigit() for c in t)
     return has_letter and has_digit
+
+
+def reply_auto_tx_eligible(message: str | None) -> bool:
+    """True if WSJT-X `replyToCQ` will set `m_bDoubleClicked` from message text alone.
+
+    Live WSJT-X 3.0.1 does that for CQ / CQDX / QRZ / ``73`` (or when
+    **Hold Tx Freq** is checked). Mid-exchange lines need Hold Tx Freq for Reply
+    to Enable Tx; without it, processMessage may return before filling DX.
+    """
+    text = (message or "").strip()
+    if not text:
+        return False
+    if text.startswith(("CQ ", "CQDX ", "QRZ ")):
+        return True
+    # replyToCQ uses contains("73 "); also accept trailing 73 / RR73 (common).
+    if "73 " in text:
+        return True
+    return bool(re.search(r"\b(?:RR)?73\b", text))
 
 
 def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None, str | None]:

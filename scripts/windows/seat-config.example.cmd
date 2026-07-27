@@ -24,7 +24,8 @@ REM Loaded by Start-WimsSeat.cmd before launching apps.
 REM Site WIMS server (agent reports here)
 set "WIMS_SERVER=http://192.168.1.119:8787"
 
-REM Seat label on the wrangler dashboard (optional)
+REM Seat label on the wrangler dashboard (use same string as WSJTX_RIG_NAME)
+REM Examples: W10VM-144 (2m) · W10VM-50 (6m) · FLEX-6M · IC9700-2M
 set "WIMS_SEAT_ID=TEMPLATE-01"
 REM set "WIMS_AGENT_ID=win10-template-01"
 
@@ -45,9 +46,16 @@ set "WFVIEW_EXE=C:\Program Files\wfview\wfview.exe"
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
 set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
 
-REM REQUIRED unique --rig-name (UDP id). Never leave blank — bare launch is refused.
-REM Example: set "WSJTX_RIG_NAME=W10VM-50"
+REM REQUIRED for multi-VM fleets: unique --rig-name = WSJT-X UDP id in WIMS.
+REM Blank = id "WSJT-X" on every PC → WIMS merges them (looks like one radio).
+REM Match N1MM Station Name when possible:
+REM   2m seat:  set "WSJTX_RIG_NAME=W10VM-144"
+REM   6m seat:  set "WSJTX_RIG_NAME=W10VM-50"
 set "WSJTX_RIG_NAME=SEAT-CHANGE-ME"
+
+REM IMPORTANT: If WSJT-X is already started by another Startup shortcut WITHOUT
+REM --rig-name, Start-WimsSeat will leave it running. Fix ALL launchers with
+REM Find-And-Set-WsjtxRigName.cmd  (or remove the other Startup shortcut).
 
 REM Delay after wfview (for RigCtld) and after N1MM before WSJT-X (seconds)
 set "START_DELAY_SEC=5"
