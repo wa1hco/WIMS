@@ -93,9 +93,9 @@ def test_delete_by_id_clears_dupe():
 def test_read_dxlog_seed():
     db = logdb.find_contest_db(N1MM_DB_DIR)
     if not db:
-        # Portable: also try the host standard path when the Windows path is absent.
-        db = logdb.find_contest_db(
-            str(Path.home() / "Documents" / "N1MM Logger+" / "Databases"))
+        # Portable: scan UserDir/home/Documents Databases roots (also_standard).
+        dbs = logdb.find_contest_dbs(N1MM_DB_DIR, also_standard=True)
+        db = dbs[0] if dbs else None
     if not db:
         raise Skip("no N1MM contest DB")
     qsos = logdb.read_dxlog(db)

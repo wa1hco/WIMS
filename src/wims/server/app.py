@@ -1001,9 +1001,13 @@ def main() -> None:
     ap.add_argument("--seed-db", default=None,
                     help="N1MM contest .s3db to seed the log copy from (read-only); "
                          "if omitted, auto-find in --seed-db-dir")
+    # Default prefers UserDir\\Databases / home\\Databases when present (many N1MM
+    # installs); also_standard discovery still scans all known roots on Rescan.
+    from wims.integrations.n1mm import logdb as _logdb_cli  # noqa: E402
     ap.add_argument("--seed-db-dir",
-                    default=str(Path.home() / "Documents" / "N1MM Logger+" / "Databases"),
-                    help="dir to auto-find the contest .s3db (default: standard N1MM path)")
+                    default=_logdb_cli.default_seed_db_dir(),
+                    help="dir to auto-find contest .s3db files (default: first existing "
+                         "UserDir/home/Documents N1MM Databases folder)")
     ap.add_argument("--no-seed", action="store_true",
                     help="do not seed from any N1MM .s3db at startup")
     ap.add_argument("--presence-group", default=P.DEFAULT_GROUP,

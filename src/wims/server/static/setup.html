@@ -73,8 +73,10 @@
       <tbody id="contest-body"></tbody>
     </table>
     <div id="contest-empty" class="empty" style="display:none">
-      No contest logs found. Copy an N1MM contest <b>.s3db</b> into
-      <code>~/Documents/N1MM Logger+/Databases</code> on the WIMS host (or the configured seed dir), then Rescan.
+      No contest logs found. Put an N1MM contest <b>.s3db</b> in
+      <code>%USERPROFILE%\Databases</code>, N1MM UserDir\Databases, or
+      <code>Documents\N1MM Logger+\Databases</code> on the WIMS host (or set
+      <code>--seed-db-dir</code>), then Rescan.
     </div>
   </div>
 
@@ -82,8 +84,9 @@
   <div id="setup-server" class="syncrow">
     <span><span class="k">role:</span> site server (ingest + console)</span>
     <span><span class="k">console:</span> this browser → HTTP + SSE <code>/events</code></span>
-    <span><span class="k">default seed dir:</span>
-      <code>~/Documents/N1MM Logger+/Databases</code></span>
+    <span><span class="k">seed dirs:</span>
+      <code>UserDir\Databases</code>, <code>%USERPROFILE%\Databases</code>,
+      <code>Documents\N1MM Logger+\Databases</code></span>
   </div>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:6px 0 0 0">
     Live packet counts and feed age appear on <a href="/status">Status</a> (N1MM sync / System).

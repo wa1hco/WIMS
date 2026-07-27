@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import glob
 import sqlite3
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -48,6 +49,75 @@ _NON_CONTEST = ("admin", "dxlog", "packet spots")
 
 # ContestInstance rows that are not real operating logs.
 _SKIP_NAMES = frozenset({"deletedqs", "dx"})
+
+
+def _win_n1mm_user_dir() -> Path | None:
+    """N1MM Logger+ UserDir from HKCU (where Databases often live)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        import winreg  # type: ignore
+    except ImportError:
+        return None
+    for key_path in (
+        r"Software\N1MM Logger+",
+        r"Software\N1MM Logger",
+    ):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as k:
+                val, _ = winreg.QueryValueEx(k, "UserDir")
+            if val:
+                p = Path(str(val))
+                if p.is_dir():
+                    return p
+        except OSError:
+            continue
+    return None
+
+
+def standard_database_dirs() -> list[Path]:
+    """Candidate N1MM Databases folders that exist on this host.
+
+    Same roots as the agent probe (``n1mm_probe.database_dirs``): many installs
+    put contest ``.s3db`` files under ``UserDir\\Databases`` or
+    ``%USERPROFILE%\\Databases``, not ``Documents\\N1MM Logger+\\Databases``.
+    Order prefers registry UserDir, then home\\Databases, then Documents paths.
+    """
+    dirs: list[Path] = []
+    seen: set[Path] = set()
+    candidates: list[Path] = []
+
+    ud = _win_n1mm_user_dir()
+    if ud is not None:
+        candidates.append(ud / "Databases")
+
+    home = Path.home()
+    candidates.extend([
+        home / "Databases",
+        home / "Documents" / "N1MM Logger+" / "Databases",
+        home / "Documents" / "N1MM Logger" / "Databases",
+        home / "OneDrive" / "Documents" / "N1MM Logger+" / "Databases",
+        home / "OneDrive" / "Documents" / "N1MM Logger" / "Databases",
+    ])
+
+    for d in candidates:
+        try:
+            rp = d.resolve()
+        except OSError:
+            rp = d
+        if rp in seen or not d.is_dir():
+            continue
+        seen.add(rp)
+        dirs.append(d)
+    return dirs
+
+
+def default_seed_db_dir() -> str:
+    """CLI default for ``--seed-db-dir``: first existing standard root, or Documents path."""
+    dirs = standard_database_dirs()
+    if dirs:
+        return str(dirs[0])
+    return str(Path.home() / "Documents" / "N1MM Logger+" / "Databases")
 
 
 @dataclass
@@ -89,15 +159,31 @@ def find_contest_db(databases_dir: str) -> str | None:
 def find_contest_dbs(databases_dir: str, *, also_standard: bool = False) -> list[str]:
     """All candidate contest .s3db files under a directory.
 
-    `also_standard=True` also scans the usual N1MM Databases folder (for auto-seed
-    when the operator did not pass a path). Explicit single-dir lookups leave it off.
+    `also_standard=True` also scans UserDir\\Databases, home\\Databases, and the
+    usual Documents N1MM paths (same roots as the agent probe) for auto-seed when
+    the operator did not pass an explicit file. Explicit single-dir lookups leave
+    it off.
     """
     found: list[str] = []
-    root = Path(databases_dir)
-    search_roots = [root]
-    std = Path.home() / "Documents" / "N1MM Logger+" / "Databases"
-    if also_standard and std != root:
-        search_roots.append(std)
+    search_roots: list[Path] = []
+    seen_roots: set[Path] = set()
+
+    def add_root(p: Path) -> None:
+        try:
+            rp = p.resolve()
+        except OSError:
+            rp = p
+        if rp in seen_roots:
+            return
+        seen_roots.add(rp)
+        search_roots.append(p)
+
+    if databases_dir:
+        add_root(Path(databases_dir))
+    if also_standard:
+        for d in standard_database_dirs():
+            add_root(d)
+
     seen: set[Path] = set()
     for base in search_roots:
         if not base.is_dir():
