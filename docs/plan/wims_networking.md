@@ -44,11 +44,11 @@ WSJT-X hosts may sit **on a different PC or site** than their N1MM as long as th
 
 | | Typical count (contest-dependent) |
 |--|------:|
-| Digital bands with N1MM | 4 (50, 144, 222, 432) |
-| N1MM (one per band) | **4** |
+| Digital bands with N1MM | **6** possible (50, 144, 222, 432, 902, 1296) — sparse OK |
+| N1MM (one per band) | **1 per active digital band** |
 | WSJT-X on 50 | **1–N** (trailer beams + optional remote site e.g. TV station) |
-| WSJT-X on 144 | **up to 2** (FT8 PC + MSK/EME PC), or one if only one mode is run |
-| WSJT-X on 222 / 432 | **0 or 1** each (SSB-only periods have N1MM only) |
+| WSJT-X on 144 | **1–N** (e.g. FT8 PC + MSK/EME PC) |
+| WSJT-X on 222 / 432 / 902 / 1296 | **0 or 1** each (SSB-only periods have N1MM only) |
 
 **TX resource groups (one radiated signal per band, multi-multi):**
 
@@ -173,7 +173,9 @@ fleet map.
   plane B RadioInfo; no digital instance until FT8 starts).  
 - When FT8 is active, same rules as any other band (multicast + unique id + iface).
 
-Microwave (Chip 903+) is out of scope for this map until those seats are wired the same way.
+**Microwave / UHF extend the same pattern:** 902 and 1296 use the same dual-consumer stream model
+as VHF (§4). Seats may be sparse (0–1 WSJT-X) until wired; the stream still exists in the
+registry so WIMS and N1MM config stay uniform.
 
 ---
 
@@ -386,9 +388,9 @@ Do **not** point Network Server at radio LAN ports (**50001 / 50002 / 50003**).
 | Setting | Value |
 |---------|--------|
 | UDP Server | **`224.0.0.73`** |
-| UDP Server port | **Band port** (§4): 50→**2237**, 144→**2238**, 222→**2239**, 432→**2240** |
+| UDP Server port | **Band stream port** (§4.3): 50→**2237** … 1296→**2242** (or registry) |
 | Accept UDP requests | **ON** (WIMS Reply / Halt) |
-| Outgoing interface | Contest LAN NIC (§4.1) — mandatory on multi-homed / fleet seats |
+| Outgoing interface | Contest LAN NIC (§4.8) — mandatory on multi-homed / fleet seats |
 | Secondary UDP / N1MM Logger+ Broadcasts | **OFF** if N1MM already reads this band’s multicast stream (avoids double-log) |
 
 **`--rig-name`:** unique fleet-wide UDP `id` (e.g. `TRAILER-144-FT8`).
@@ -448,79 +450,194 @@ Other valid CAT path enums for profiles: `direct-com` · `wfview-rigctld` · `wi
 
 ---
 
-## 4. Plane A — WSJT-X multicast (segregated by band)
+## 4. Plane A — dual-consumer band streams (WSJT-X → N1MM-band + WIMS)
 
-### Why segregate
+This section is the **normative design** for multi-band digital: *N* WSJT-X instances on a band
+log only through **that band’s N1MM**, while **all** instances still feed **one** WIMS site server
+for decode lists / roster / Reply.
 
-Each band has its own N1MM. If all seven WSJT-X share **one** group:port and every N1MM enables
-the WSJT UDP reader on that stream, more than one N1MM can try to log the same QSO →
-**double-log** (no shared QSO id across N1MMs). Design invariant: **exactly one logger-of-record
-per WSJT-X instance**.
+### 4.0 Problem statement
 
-**Rule:** each N1MM joins **only its band’s** stream; **WIMS joins every stream**.
+| Need | Constraint |
+|------|------------|
+| **N WSJT-X per band** (beams, dual-RX modes, remote site) | Distinct radios / PCs / modes |
+| **Log only to that band’s N1MM** | Exactly **one** logger-of-record per instance (no double-log) |
+| **All decodes → common WIMS** | One site roster / arbiter / console |
+| **Bands 50 → 1296 MHz** | Same rules for sparse microwave seats |
+| **Minimal one-band setup looks familiar** | Defaults should feel like “just turn on FT8” |
+| **Ports are hard to remember** | If WIMS guides or applies config, ports need not be sequential |
 
-### Recommended scheme — same group, port per band
+### 4.1 Dual consumers of one band stream (invariant)
 
-| Band | Multicast group | Port | WSJT-X instances (unique `--rig-name`) | Logger (only) | Read-only joiners |
-|------|-----------------|-----:|----------------------------------------|---------------|-------------------|
-| 50 | `224.0.0.73` | **2237** | TRAILER-50-A/B/C | **N1MM-50** | WIMS; optional GT |
-| 144 | `224.0.0.73` | **2238** | TRAILER-144-FT8, TRAILER-144-MSK (or EME) | **N1MM-144** | WIMS; optional GT |
-| 222 | `224.0.0.73` | **2239** | ROY-222-FT8 | **N1MM-222** | WIMS; optional GT |
-| 432 | `224.0.0.73` | **2240** | ROY-432-FT8 | **N1MM-432** | WIMS; optional GT |
-
-**Alternate:** port always `2237`, groups `224.0.0.50` / `.144` / `.222` / `.432`. Pick one scheme
-and declare it in Instance Profiles (§3.14); do not mix schemes mid-contest.
-
-Many instances may share one group:port; N1MM and WIMS disambiguate by UDP **`id`**. N1MM’s two
-UDP readers are for **two streams** (e.g. two bands on one PC), not a limit of two WSJT-X total.
-
-### Diagram
+For each **band B** there is exactly one **band stream** \(S_B\):
 
 ```
-                    224.0.0.73
-         ┌──────────┬──────────┬──────────┬──────────┐
-         :2237      :2238      :2239      :2240
-         (50)       (144)      (222)      (432)
-           ▲          ▲          ▲          ▲
-           │          │          │          │
-    ┌──────┴───┐ ┌────┴────┐ ┌───┴───┐ ┌───┴───┐
-    │ 50-A/B/C │ │144-FT8  │ │222-FT8│ │432-FT8│
-    │  WSJT-X  │ │144-MSK  │ │WSJT-X │ │WSJT-X │
-    └────┬─────┘ └────┬────┘ └───┬───┘ └───┬───┘
-         │            │          │         │
-         ▼            ▼          ▼         ▼
-    ┌─────────┐  ┌─────────┐ ┌────────┐ ┌────────┐
-    │ N1MM-50 │  │N1MM-144 │ │N1MM-222│ │N1MM-432│  ← each joins ONE port
-    │ (log)   │  │ (log)   │ │ (log)  │ │ (log)  │
-    └─────────┘  └─────────┘ └────────┘ └────────┘
-
-    ┌──────────────────────────────────────────────┐
-    │  WIMS SERVER  joins ALL four ports           │
-    │  (optional GT: join 1+ ports for viewing)    │
-    └──────────────────────────────────────────────┘
+  WSJT-X_B1  ──┐
+  WSJT-X_B2  ──┼──►  Stream S_B  (multicast group + UDP port)
+  WSJT-X_BN  ──┘         │
+                         ├──►  N1MM-B   (logger-of-record only for B)
+                         └──►  WIMS    (read-only join for roster / Reply)
+                              optional GT (viewer only)
 ```
 
-Control path (when command path lands): WIMS → Reply/Halt on the instance’s stream, addressed by
-UDP `id`. Only the **lease holder’s** console commands are honored (design §4.5).
+| Consumer | Joins | Writes contest log? | Notes |
+|----------|-------|---------------------|--------|
+| **N1MM-B** | **Only** \(S_B\) | **Yes** (QSO Logged / digi path) | One N1MM process per band (may co-reside with seats or sit central) |
+| **WIMS site server** | **All** \(S_{50}, S_{144}, …\) | **No** | Ingest Decode/Status; Reply/Halt by UDP `id` |
+| **GridTracker** (optional) | 1+ streams | No | Never click-to-work on WIMS-managed instances |
+| **Other N1MM-*** | Must **not** join \(S_B\) | — | Prevents double-log |
 
-### WSJT-X settings (every instance)
+**Logging path (digital QSO):**  
+WSJT-X (any host on band B) → stream \(S_B\) → **N1MM-B only** → plane C peer merge → WIMS sees
+log via plane B `<contactinfo>` / `.s3db` seed (design §3.6).  
+WIMS does **not** become a second logger.
 
-These are **required**, not optional tips. Details and verification for the interface field:
-**§4.1**.
+**Decode path (roster):**  
+WSJT-X → stream \(S_B\) → WIMS (all bands) → SSE consoles.  
+N1MM Decode List may also show the same stream for the local op; that is optional UX, not a
+second log path if Secondary UDP 2333 stays off when the multicast reader is on.
+
+Many WSJT-X instances may share one stream; disambiguate with unique **`--rig-name` → UDP `id`**.
+N1MM’s two UDP reader slots are for **two streams** (e.g. two bands on one PC), **not** a limit
+of two WSJT-X instances total.
+
+### 4.2 Why segregate by band (not by host)
+
+If all WSJT-X shared **one** group:port and **every** N1MM enabled the WSJT UDP reader on that
+stream, several N1MMs could try to log the same QSO → **double-log** (no shared QSO id across
+N1MMs). Segregation is by **band stream**, not by physical PC:
+
+- Remote TV-station WSJT-X on 50 still uses \(S_{50}\); only **N1MM-50** logs.  
+- Two 144 PCs (FT8 + MSK) both use \(S_{144}\); only **N1MM-144** logs.
+
+### 4.3 Default band → stream map (human-minimal)
+
+**Scheme A (recommended default):** same multicast group, **one UDP port per band**.
+
+Ports are **arbitrary identifiers**. The default numbering is **sequential from 2237** only so a
+**single-band / first seat** matches common WSJT-X + N1MM docs (minimal cognitive load). It is
+**not** a protocol requirement that ports stay sequential if WIMS assigns or guides them (§4.4).
+
+| Band (MHz) | Multicast group | Default port | Typical N1MM | Example WSJT-X ids |
+|------------|-----------------|-------------:|--------------|--------------------|
+| **50** | `224.0.0.73` | **2237** | N1MM-50 | TRAILER-50-A/B/C, TV-50-C |
+| **144** | `224.0.0.73` | **2238** | N1MM-144 | TRAILER-144-FT8, TRAILER-144-MSK |
+| **222** | `224.0.0.73` | **2239** | N1MM-222 | ROY-222-FT8 |
+| **432** | `224.0.0.73` | **2240** | N1MM-432 | ROY-432-FT8 |
+| **902** | `224.0.0.73` | **2241** | N1MM-902 | CHIP-902-FT8 (when wired) |
+| **1296** | `224.0.0.73` | **2242** | N1MM-1296 | CHIP-1296-FT8 (when wired) |
+
+**Reserve / extend:** further microwave bands append **2243+** (or registry-assigned free ports).
+Document the live map in contest Instance Profiles; do not invent a second scheme mid-contest.
+
+**Scheme B (alternate):** fixed port `2237`, group per band (`224.0.0.50`, `.144`, …). Same dual-
+consumer rules. **Do not mix A and B** in one contest.
+
+**TTL:** design baseline **3** (fleet L2). **Outgoing interface** on every WSJT-X: contest LAN
+NIC — **§4.1** (below; most common silent failure).
+
+### 4.4 Band Stream Registry (ports need not stay sequential)
+
+**Problem:** operators must remember “144 = 2238”; N1MM may bind unexpected UDP ports; WIMS must
+join exactly the streams that exist.
+
+**Design:** the **site server** (Setup) owns a **Band Stream Registry** — the single source of
+truth for \(S_B\):
+
+| Field | Example |
+|-------|---------|
+| `band_mhz` | `144` |
+| `group` | `224.0.0.73` |
+| `port` | `2238` (default) or any free UDP port |
+| `n1mm_logger` | seat / host id of N1MM-144 |
+| `wsjt_instances[]` | rig-names assigned to this stream |
+| `scheme` | `group+port` (A) or `group-per-band` (B) |
+
+**Default fill:** on empty registry, seed Scheme A table (§4.3) for 50–1296.  
+**Guided / automatic assignment:**
+
+1. Operator adds a band seat or WSJT instance in Setup (or agent reports a new host).  
+2. WIMS proposes **default port** from §4.3, or **next free port** if default is taken / blocked
+   (e.g. OS exclusion, another app already bound — observed: N1MM may hold extra UDP ports that
+   are **not** labeled “SO2R 2240” in Configurer).  
+3. **Agent apply** (future / partial today): write WSJT-X `.ini` (`UDPServer`, `UDPServerPort`,
+   `UDPInterface`, Accept UDP); print N1MM reader checklist (IP/group + **this stream’s port
+   only**).  
+4. **Readiness gate:** every declared WSJT-X id appears on exactly one stream; each stream has
+   exactly one N1MM reader; WIMS joins all declared streams; no two N1MMs join the same stream.
+
+**Implication:** if the registry is authoritative and agents apply config, **operators do not need
+sequential ports** — only a consistent map. Sequential 2237+ remains the **documented default**
+for hand-configured and single-band bring-up.
+
+**WIMS server join policy:**
+
+| Mode | Behavior |
+|------|----------|
+| **Fleet default** | Join **all ports listed in the registry** (not a hard-coded 2237–2240 only) |
+| **Solo / one band** | Join **one** stream (`wims.solo` / `--ports` for lab) |
+| **Bind failure** | Skip failed port with loud Status warning; do not silent-fail the whole server if ≥1 stream binds |
+
+### 4.5 Diagram (Scheme A defaults)
+
+```
+                         224.0.0.73
+    :2237   :2238   :2239   :2240   :2241   :2242
+     (50)   (144)   (222)   (432)   (902)  (1296)
+       ▲      ▲       ▲       ▲       ▲       ▲
+       │      │       │       │       │       │
+    N×WSJT N×WSJT  0–1 WSJT 0–1 …  0–1 …   0–1 …
+       │      │       │       │       │       │
+       ▼      ▼       ▼       ▼       ▼       ▼
+    N1MM-50 N1MM-144 N1MM-222 N1MM-432 N1MM-902 N1MM-1296
+    (only     (only    (only …)  — each N1MM joins ONE stream
+     this      this
+     port)     port)
+
+    ┌─────────────────────────────────────────────────────┐
+    │  WIMS SERVER  joins ALL registry streams            │
+    │  → roster / arbiter / Reply by UDP id               │
+    │  → log copy via plane B (not by dual N1MM digi)     │
+    └─────────────────────────────────────────────────────┘
+```
+
+Control path: WIMS → Reply/Halt on the instance’s stream, keyed by UDP `id`. Only the **lease
+holder’s** console commands are honored (design §4.5).
+
+### 4.6 WSJT-X settings (every instance)
+
+These are **required**, not optional tips. Details for the interface field: **§4.8**.
 
 | Setting (Settings → Reporting) | Required value |
 |--------------------------------|----------------|
-| UDP Server | Multicast group from table (e.g. `224.0.0.73`) — **not** `127.0.0.1` for fleet |
-| UDP Server port number | Band port from table |
-| **Outgoing interface** | **Contest LAN NIC** — see **§4.1** (never blank / `@Invalid()` / loopback) |
+| UDP Server | Stream **group** from registry / §4.3 (e.g. `224.0.0.73`) — **not** `127.0.0.1` for fleet |
+| UDP Server port number | Stream **port** for **this instance’s band** (registry / §4.3) |
+| **Outgoing interface** | **Contest LAN NIC** — **§4.8** (never blank / `@Invalid()` / loopback) |
 | TTL | Sufficient for the LAN (design baseline: **3**) |
 | Accept UDP requests | **Yes** when WIMS will drive Reply/Halt |
+| Secondary UDP / “Broadcast to N1MM Logger+” (2333) | **OFF** if N1MM already reads this band’s multicast stream (avoids double-log) |
 
-Also: unique `--rig-name` → unique UDP `id`; do **not** use GridTracker as a relay.
+Also: unique `--rig-name` → unique UDP `id`; do **not** use GridTracker as a relay for logging.
 
-### 4.1 Contest LAN interface (WSJT-X “Outgoing interface”)
+### 4.7 N1MM settings (per band logger)
+
+| Setting | Required |
+|---------|----------|
+| WSJT/JTDX UDP reader | **Enabled** for **this band only** |
+| Reader IP / group | Match stream group (e.g. `224.0.0.73`) |
+| Reader **port** | **Exactly** \(S_B\).port — not “all digi ports”, not other bands |
+| Second reader (Port2) | Only if this **same PC** also logs a **second band** stream; otherwise off |
+| Load WSJT/JTDX (CAT proxy) | **Do not use** on WIMS-managed digital seats (§3.3) |
+| Broadcast contacts (plane B) | On → WIMS log copy (`224.0.0.73:12060` or site standard) |
+
+**Note:** N1MM may open **extra UDP sockets** that do not appear as labeled “SO2R port” fields in
+Configurer (runtime bind ≠ UI label). WIMS readiness should detect **port owners** (process
+name) when a stream bind fails, not only the SO2R page.
+
+### 4.8 Contest LAN interface (WSJT-X “Outgoing interface”)
 
 This is the **most common silent networking failure** for multi-instance and multi-host WIMS.
+(Cross-refs in this doc that said “§4.1” for the NIC field mean **this subsection**.)
 
 #### What it is
 

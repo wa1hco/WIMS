@@ -15,7 +15,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 # Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
 python -m wims.solo            # localhost, no presence; runs setup check then opens browser
 #   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:<band-port>, "Accept UDP requests" ON.
-#   Band ports (wims_networking.md §4): 50→2237, 144→2238, 222→2239, 432→2240
+#   Band ports (wims_networking.md §4): 50→2237 … 1296→2242 (defaults; registry may reassign)
 #   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims.solo --port 2238
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
 #   Setup check only: python -m wims.agent --solo   (Windows: Check-WimsSetup.cmd)
@@ -38,10 +38,11 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 - **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**,
   auto-picks the latest with QSOs, and loads only that contest (not whole multi-year DXLOG).
   Setup/Status picker + Resync, no ContestNR CLI in normal operation.
-- **Ingest:** multicast `224.0.0.73` on **2237/2238/2239/2240** + N1MM XML on `:12060`
-  (unicast/broadcast by default; `--n1mm-group` optional multicast).
-  Each **N1MM** joins **only its band port**; WIMS joins **all**. Map:
-  **[wims_networking.md](wims_networking.md)**.
+- **Ingest:** multicast `224.0.0.73` on **band streams** (default **2237–2240** in code today;
+  design registry extends through **2242** for 902/1296 — see networking **§4**).
+  N1MM XML on `:12060` (unicast/broadcast by default; `--n1mm-group` optional multicast).
+  Each **N1MM** joins **only its band stream**; WIMS joins **all** streams. Map:
+  **[wims_networking.md](wims_networking.md) §4** (dual-consumer model + Band Stream Registry).
 - **Seat CAT stack (design):** preferred **Icom + wfview** path in networking **§3.2–§3.3**
   (WIMS never owns radio COM; RigCtld must be explicitly enabled in wfview).
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
