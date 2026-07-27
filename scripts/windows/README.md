@@ -55,9 +55,6 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WimsServer.cmd`** | **Site** WIMS server only (not for radio seats). |
 | **`Start-WimsAgent.cmd`** | One-shot agent check (also menu option 1). |
 | **`Start-WimsAgent-Continuous.cmd`** | Continuous agent (menu option 2). |
-<<<<<<< HEAD
-| **`Start-WimsSeat.cmd`** | N1MM/WSJT if needed + agent (menu option 3). |
-| **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + `seat-local.cmd` `--rig-name`. |
 | **`Start-WimsSeat.cmd`** | wfview → N1MM/WSJT if needed + agent (menu option 3). |
 | **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + `seat-local.cmd` `--rig-name`. |
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |

@@ -192,8 +192,58 @@ def test_multi_contest_list_pick_and_filter():
         assert len(sept) == 2
         disc = logdb.discover(db_path=db)
         assert disc["recommended"]["contest_name"] == "ARRLVHFJUN"
+        assert "scan_dirs" in disc
     finally:
         os.unlink(db)
+
+
+def test_candidate_dirs_and_discover_finds_non_documents_path():
+    """N1MM often keeps logs under UserDir\\Databases, not Documents\\N1MM…"""
+    import os
+    import sqlite3
+    import tempfile
+    from pathlib import Path as P
+
+    root = P(tempfile.mkdtemp(prefix="wims-seed-"))
+    db_dir = root / "Databases"
+    db_dir.mkdir()
+    db = db_dir / "wa1hco.s3db"
+    con = sqlite3.connect(str(db))
+    con.executescript("""
+        CREATE TABLE ContestInstance (
+          ContestID INT, ContestName TEXT, StartDate TEXT, ContestNR INT);
+        CREATE TABLE DXLOG (
+          ID TEXT, Call TEXT, Band TEXT, GridSquare TEXT, Mode TEXT,
+          Points INT, IsMultiplier1 INT, ContestName TEXT, ContestNR INT,
+          TimeStamp TEXT, Operator TEXT);
+    """)
+    con.execute("INSERT INTO ContestInstance VALUES (1,'DX','2024-01-01',1)")
+    con.execute(
+        "INSERT INTO DXLOG VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("a" + "0" * 31, "K1ABC", "50", "FN42", "FT8", 1, 1,
+         "DX", 1, "2024-01-01", "WA1HCO"))
+    con.commit()
+    con.close()
+    try:
+        dirs = logdb.candidate_database_dirs(extra=str(db_dir))
+        assert any(P(d).resolve() == db_dir.resolve() for d in dirs)
+        found = logdb.find_contest_dbs(str(db_dir), also_standard=False)
+        assert any(P(p).name == "wa1hco.s3db" for p in found)
+        # discover() also scans host standard paths; our file must appear among them.
+        disc = logdb.discover(databases_dir=str(db_dir))
+        assert any(P(p).name == "wa1hco.s3db" for p in disc["db_paths"])
+        ours = [c for c in disc["contests"] if c.get("db_label") == "wa1hco.s3db"]
+        assert ours and ours[0]["qso_count"] == 1
+        assert disc["scan_dirs"]
+        assert any(P(d).resolve() == db_dir.resolve() for d in disc["scan_dirs"])
+    finally:
+        try:
+            os.unlink(db)
+            db_dir.rmdir()
+            root.rmdir()
+        except OSError:
+            pass
+
 
 if __name__ == "__main__":
     import traceback

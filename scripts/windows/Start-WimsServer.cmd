@@ -35,9 +35,26 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
+REM Optional: prefer profile Databases when present (W2SZ: C:\Users\W2SZ\Databases).
+REM Server also multi-scans UserDir/Documents. Override: set WIMS_SEED_DB_DIR=...
+if not defined WIMS_SEED_DB_DIR (
+  if exist "%USERPROFILE%\Databases\" set "WIMS_SEED_DB_DIR=%USERPROFILE%\Databases"
+)
+
+REM Optional GridTracker merge (e.g. Linux desktop): set WIMS_GT_FORWARD=192.168.1.50:22370
+REM GT Receive UDP = 22370; WIMS reverse defaults to 22371. See --gt-forward help.
+
 REM Server picks the contest LAN for multicast joins; pass --iface if needed.
 REM Extra args (lab only): %*
-"%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
+if defined WIMS_SEED_DB_DIR if defined WIMS_GT_FORWARD (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --seed-db-dir "%WIMS_SEED_DB_DIR%" --gt-forward %WIMS_GT_FORWARD% %*
+) else if defined WIMS_SEED_DB_DIR (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --seed-db-dir "%WIMS_SEED_DB_DIR%" %*
+) else if defined WIMS_GT_FORWARD (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --gt-forward %WIMS_GT_FORWARD% %*
+) else (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
+)
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )
 exit /b %ERR%

@@ -37,6 +37,7 @@ while N1MM has the DB open is safe (proven for the Settings table).
 from __future__ import annotations
 
 import glob
+import os
 import sqlite3
 import sys
 from dataclasses import asdict, dataclass
@@ -52,7 +53,11 @@ _SKIP_NAMES = frozenset({"deletedqs", "dx"})
 
 
 def _win_n1mm_user_dir() -> Path | None:
-    """N1MM Logger+ UserDir from HKCU (where Databases often live)."""
+    """N1MM Logger+ UserDir from HKCU (where Databases / ini often live).
+
+    Many installs do **not** use Documents\\N1MM Logger+\\Databases — they set
+    UserDir in the registry (e.g. C:\\Users\\… so Databases is C:\\Users\\…\\Databases).
+    """
     if sys.platform != "win32":
         return None
     try:
@@ -75,46 +80,64 @@ def _win_n1mm_user_dir() -> Path | None:
     return None
 
 
-def standard_database_dirs() -> list[Path]:
-    """Candidate N1MM Databases folders that exist on this host.
+def candidate_database_dirs(*, extra: str | Path | None = None) -> list[Path]:
+    """All N1MM Databases folders that exist on this host (seed / rescan).
 
-    Same roots as the agent probe (``n1mm_probe.database_dirs``): many installs
-    put contest ``.s3db`` files under ``UserDir\\Databases`` or
-    ``%USERPROFILE%\\Databases``, not ``Documents\\N1MM Logger+\\Databases``.
-    Order prefers registry UserDir, then home\\Databases, then Documents paths.
+    Order: explicit extra dir, registry UserDir\\Databases, then Documents /
+    OneDrive / profile Databases variants. Same idea as the seat-agent probe —
+    N1MM can see wa1hco.s3db while Documents\\N1MM Logger+\\Databases is empty.
     """
-    dirs: list[Path] = []
+    found: list[Path] = []
     seen: set[Path] = set()
-    candidates: list[Path] = []
+
+    def add(p: Path | None) -> None:
+        if p is None:
+            return
+        try:
+            if not p.is_dir():
+                return
+            rp = p.resolve()
+        except OSError:
+            return
+        if rp in seen:
+            return
+        seen.add(rp)
+        found.append(p)
+
+    if extra:
+        add(Path(extra))
 
     ud = _win_n1mm_user_dir()
     if ud is not None:
-        candidates.append(ud / "Databases")
+        add(ud / "Databases")
 
     home = Path.home()
-    candidates.extend([
-        home / "Databases",
-        home / "Documents" / "N1MM Logger+" / "Databases",
-        home / "Documents" / "N1MM Logger" / "Databases",
-        home / "OneDrive" / "Documents" / "N1MM Logger+" / "Databases",
-        home / "OneDrive" / "Documents" / "N1MM Logger" / "Databases",
-    ])
+    add(home / "Databases")  # common when UserDir is the profile root
+    for name in ("N1MM Logger+", "N1MM Logger", "N1MMLogger+"):
+        add(home / "Documents" / name / "Databases")
+        add(home / "OneDrive" / "Documents" / name / "Databases")
 
-    for d in candidates:
-        try:
-            rp = d.resolve()
-        except OSError:
-            rp = d
-        if rp in seen or not d.is_dir():
+    for env in ("USERPROFILE", "HOME"):
+        base = os.environ.get(env)
+        if not base:
             continue
-        seen.add(rp)
-        dirs.append(d)
-    return dirs
+        bp = Path(base)
+        add(bp / "Databases")
+        for name in ("N1MM Logger+", "N1MM Logger"):
+            add(bp / "Documents" / name / "Databases")
+            add(bp / "OneDrive" / "Documents" / name / "Databases")
+
+    return found
+
+
+def standard_database_dirs() -> list[Path]:
+    """Alias: candidate N1MM Databases folders (no extra path)."""
+    return candidate_database_dirs()
 
 
 def default_seed_db_dir() -> str:
     """CLI default for ``--seed-db-dir``: first existing standard root, or Documents path."""
-    dirs = standard_database_dirs()
+    dirs = candidate_database_dirs()
     if dirs:
         return str(dirs[0])
     return str(Path.home() / "Documents" / "N1MM Logger+" / "Databases")
@@ -156,15 +179,15 @@ def find_contest_db(databases_dir: str) -> str | None:
     return dbs[0] if dbs else None
 
 
-def find_contest_dbs(databases_dir: str, *, also_standard: bool = False) -> list[str]:
-    """All candidate contest .s3db files under a directory.
+def find_contest_dbs(databases_dir: str | None = None,
+                     *, also_standard: bool = False) -> list[str]:
+    """All candidate contest .s3db files under one or more Databases folders.
 
-    `also_standard=True` also scans UserDir\\Databases, home\\Databases, and the
-    usual Documents N1MM paths (same roots as the agent probe) for auto-seed when
-    the operator did not pass an explicit file. Explicit single-dir lookups leave
-    it off.
+    When ``also_standard=True`` (or ``databases_dir`` is None), also scans every
+    path from :func:`candidate_database_dirs` (registry UserDir, Documents,
+    OneDrive, profile Databases). Explicit single-dir lookups leave
+    ``also_standard`` off to stay narrow.
     """
-    found: list[str] = []
     search_roots: list[Path] = []
     seen_roots: set[Path] = set()
 
@@ -175,19 +198,20 @@ def find_contest_dbs(databases_dir: str, *, also_standard: bool = False) -> list
             rp = p
         if rp in seen_roots:
             return
+        if not p.is_dir():
+            return
         seen_roots.add(rp)
         search_roots.append(p)
 
     if databases_dir:
         add_root(Path(databases_dir))
-    if also_standard:
-        for d in standard_database_dirs():
+    if also_standard or not databases_dir:
+        for d in candidate_database_dirs(extra=None):
             add_root(d)
 
+    found: list[str] = []
     seen: set[Path] = set()
     for base in search_roots:
-        if not base.is_dir():
-            continue
         for path in sorted(glob.glob(str(base / "*.s3db"))):
             p = Path(path)
             try:
@@ -298,14 +322,17 @@ def list_contests(db_path: str) -> list[ContestInfo]:
 
 def list_all_contests(databases_dir: str | None = None,
                       db_path: str | None = None) -> list[ContestInfo]:
-    """All contests from one explicit DB and/or every DB under databases_dir."""
+    """All contests from one explicit DB and/or every DB under scan roots.
+
+    Always multi-path (UserDir + Documents + …) so same-VM N1MM logs are found
+    even when Documents\\N1MM Logger+\\Databases is empty or missing.
+    """
     paths: list[str] = []
     if db_path and Path(db_path).is_file():
         paths.append(db_path)
-    if databases_dir:
-        for p in find_contest_dbs(databases_dir, also_standard=True):
-            if p not in paths:
-                paths.append(p)
+    for p in find_contest_dbs(databases_dir, also_standard=True):
+        if p not in paths:
+            paths.append(p)
     out: list[ContestInfo] = []
     for p in paths:
         try:
@@ -366,6 +393,7 @@ def read_dxlog(db_path: str, *, contest_nr: int | None = None,
 def discover(databases_dir: str | None = None,
              db_path: str | None = None) -> dict:
     """Full discovery payload for Status UI / startup: contests + recommendation."""
+    scan_dirs = [str(p) for p in candidate_database_dirs(extra=databases_dir)]
     contests = list_all_contests(databases_dir, db_path)
     choice = pick_contest(contests)
     for c in contests:
@@ -376,4 +404,5 @@ def discover(databases_dir: str | None = None,
         "contests": [c.to_dict() for c in contests],
         "recommended": choice.to_dict() if choice else None,
         "db_paths": sorted({c.db_path for c in contests}),
+        "scan_dirs": scan_dirs,
     }

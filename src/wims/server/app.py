@@ -58,6 +58,9 @@ from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
 from wims.udp.controller import TxController  # noqa: E402
+from wims.udp.gt_bridge import (  # noqa: E402
+    DEFAULT_GT_BRIDGE_PORT, DEFAULT_GT_FORWARD_PORT, GridTrackerBridge,
+    is_loopback_host, parse_host_port)
 from wims.integrations.rotator import RotatorRegistry  # noqa: E402
 from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
@@ -115,6 +118,7 @@ class LiveFleet:
         # Contest log discovery — operators pick by human label, not ContestNR CLI.
         self._seed_db_dir: str | None = None
         self._seed_db_hint: str | None = None      # optional preferred .s3db path
+        self._seed_scan_dirs: list[str] = []       # last multi-path scan roots (UserDir etc.)
         self._active_contest: dict | None = None   # ContestInfo.to_dict() currently loaded
         self._contest_catalog: list = []           # all discovered contests for UI
         # Seat agents (config audit heartbeats) — agent_id -> last report.
@@ -125,6 +129,8 @@ class LiveFleet:
         self._last_rot_action: dict | None = None
         # Rate-limit id-collision warnings (two VMs same --rig-name / UDP id).
         self._id_collision_warn_ts: dict[str, float] = {}
+        # Experimental GridTracker merge bridge (see --gt-forward).
+        self._gt_bridge: GridTrackerBridge | None = None
 
     def configure_log_discovery(self, *, databases_dir: str | None = None,
                                 db_path: str | None = None) -> None:
@@ -138,7 +144,13 @@ class LiveFleet:
         disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
         with self._lock:
             self._contest_catalog = disc["contests"]
+            self._seed_scan_dirs = list(disc.get("scan_dirs") or [])
         return disc["contests"]
+
+    def seed_scan_dirs(self) -> list[str]:
+        """Folders last scanned for N1MM .s3db (empty until first discover)."""
+        with self._lock:
+            return list(self._seed_scan_dirs)
 
     def seed_from_db(self, db_path: str, *, contest_nr: int | None = None,
                      contest_name: str | None = None) -> int:
@@ -193,13 +205,16 @@ class LiveFleet:
         disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
         with self._lock:
             self._contest_catalog = disc["contests"]
+            self._seed_scan_dirs = list(disc.get("scan_dirs") or [])
         rec = disc.get("recommended")
         if not rec:
             return {"ok": False, "reason": "no_contests_with_qsos",
-                    "contests": disc["contests"]}
+                    "contests": disc["contests"],
+                    "scan_dirs": disc.get("scan_dirs") or []}
         n = self.seed_from_db(rec["db_path"], contest_nr=rec["contest_nr"])
         return {"ok": True, "seeded": n, "contest": rec,
-                "contests": disc["contests"]}
+                "contests": disc["contests"],
+                "scan_dirs": disc.get("scan_dirs") or []}
 
     def select_contest(self, *, db_path: str, contest_nr: int) -> dict:
         """Operator picked a contest in the Status UI — reload log copy from DXLOG."""
@@ -662,7 +677,8 @@ class LiveFleet:
                 qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed,
                 active_contest=self._active_contest,
                 contests=self._contest_catalog,
-                last_resync=self._last_resync)
+                last_resync=self._last_resync,
+                scan_dirs=self._seed_scan_dirs)
             self._prune_agents(now)
             d["agents"] = agents_to_dict(self._agents, now)
             d["tx"] = tx_to_dict(
@@ -673,6 +689,8 @@ class LiveFleet:
                 last_action=self._last_tx_action)
             d["rotators"] = rotators_to_dict(self._rotators, now)
             d["rotator_last_action"] = self._last_rot_action
+            d["gt_bridge"] = (
+                self._gt_bridge.status_dict() if self._gt_bridge is not None else None)
             return d
 
     def point_rotator(self, *, rotator_id: str | None = None,
@@ -730,14 +748,18 @@ class LiveFleet:
             return result
 
 
-def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None):
-    """Ingest WSJT-X on one or more band ports (default 2237–2239,2241–2243) plus optional N1MM."""
+def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None,
+                gt_bridge: GridTrackerBridge | None = None):
+    """Ingest WSJT-X on band ports + optional N1MM + optional GridTracker bridge."""
     if not isinstance(wsjt_socks, (list, tuple)):
         wsjt_socks = [wsjt_socks]
     wsjt_set = {s for s in wsjt_socks if s is not None}
     socks = list(wsjt_set)
     if s_n1mm is not None:
         socks.append(s_n1mm)
+    gt_sock = gt_bridge.sock if gt_bridge is not None else None
+    if gt_sock is not None:
+        socks.append(gt_sock)
     while True:
         ready, _, _ = select.select(socks, [], [], 1.0)
         now = time.time()
@@ -746,11 +768,17 @@ def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None)
                 data, addr = s.recvfrom(65535)
             except OSError:
                 continue
-            if s in wsjt_set:
+            if gt_sock is not None and s is gt_sock:
+                # GT Call Roster click (Reply/Halt/…) or other traffic to bridge port.
+                gt_bridge.handle_gt_datagram(data, addr, now=now)
+            elif s in wsjt_set:
                 msg = M.parse(data)
                 if msg is not None:
                     # addr[1] is MessageClient's ephemeral control port — required for Reply.
                     live.observe_wsjtx(msg, now, addr[0], addr[1])
+                # Forward raw bytes even if parse failed (GT may still want them).
+                if gt_bridge is not None and data:
+                    gt_bridge.forward_wsjt(data, now=now)
             else:
                 live.observe_n1mm(data.decode("utf-8", "replace"), now, addr[0])
 
@@ -815,9 +843,17 @@ def make_handler(live: LiveFleet, refresh: float):
                     "contests": contests,
                     "active_contest": ns.get("active_contest"),
                     "qso_count": ns.get("qso_count"),
+                    "scan_dirs": live.seed_scan_dirs(),
                 })
             elif path == "/api/agents":
                 self._send_json(200, {"agents": live.list_agents()})
+            elif path == "/api/gt-bridge":
+                b = live._gt_bridge
+                if b is None:
+                    self._send_json(200, {"ok": False, "enabled": False,
+                                          "detail": "start server with --gt-forward HOST:PORT"})
+                else:
+                    self._send_json(200, {"ok": True, "enabled": True, **b.status_dict()})
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
             else:
@@ -852,7 +888,11 @@ def make_handler(live: LiveFleet, refresh: float):
             elif path == "/api/contests/rescan":
                 try:
                     contests = live.refresh_contest_catalog()
-                    self._send_json(200, {"ok": True, "contests": contests})
+                    self._send_json(200, {
+                        "ok": True,
+                        "contests": contests,
+                        "scan_dirs": live.seed_scan_dirs(),
+                    })
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/log/resync":
@@ -995,12 +1035,26 @@ def main() -> None:
                     help="WSJT-X control destination port (default: --port, 2237)")
     ap.add_argument("--no-tx", action="store_true",
                     help="disable the TX control path entirely (read-only console)")
+    ap.add_argument("--gt-forward", default=None, metavar="HOST:PORT",
+                    help="EXPERIMENTAL: forward every WSJT-X UDP datagram to GridTracker "
+                         f"at HOST:PORT (default port {DEFAULT_GT_FORWARD_PORT}). "
+                         "Example: --gt-forward 127.0.0.1:22370  "
+                         "(GT Receive UDP = that port). "
+                         f"WIMS reverse-bind defaults to {DEFAULT_GT_BRIDGE_PORT} "
+                         "(must differ from GT port on the same host)")
+    ap.add_argument("--gt-bridge-port", type=int, default=DEFAULT_GT_BRIDGE_PORT,
+                    help=f"local UDP port WIMS binds for GT Reply return path "
+                         f"(default {DEFAULT_GT_BRIDGE_PORT}). On same host as GT, "
+                         f"do NOT use the same port as --gt-forward")
+    ap.add_argument("--no-gt-control", action="store_true",
+                    help="with --gt-forward: do not relay GT→WSJT control (Reply/Halt); "
+                         "forward decodes only")
     ap.add_argument("--enable-cq-freetext", action="store_true",
                     help="EXPERIMENTAL: allow Call CQ via one-shot WSJT-X FreeText "
                          "(no auto-sequence; pending live verify). Off by default.")
     ap.add_argument("--seed-db", default=None,
                     help="N1MM contest .s3db to seed the log copy from (read-only); "
-                         "if omitted, auto-find in --seed-db-dir")
+                         "if omitted, auto-find in --seed-db-dir and other known roots")
     # Default prefers UserDir\\Databases / home\\Databases when present (many N1MM
     # installs); also_standard discovery still scans all known roots on Rescan.
     from wims.integrations.n1mm import logdb as _logdb_cli  # noqa: E402
@@ -1123,6 +1177,10 @@ def main() -> None:
                 seed_lines.append(
                     "  Log: no contest with QSOs found — add an N1MM .s3db or open Setup"
                 )
+                scanned = result.get("scan_dirs") or []
+                if scanned:
+                    seed_lines.append("  Log scan: " + "; ".join(scanned[:4])
+                                      + ("…" if len(scanned) > 4 else ""))
         except Exception as e:
             seed_lines.append(f"  Log: seed skipped ({e})")
     else:
@@ -1170,8 +1228,39 @@ def main() -> None:
         except OSError as e:
             print(f"  WARNING: N1MM listener :{args.n1mm_port} bind failed ({e}); "
                   f"N1MM ingest off", file=sys.stderr)
+
+    gt_bridge: GridTrackerBridge | None = None
+    if args.gt_forward:
+        try:
+            gt_host, gt_port = parse_host_port(args.gt_forward)
+        except ValueError as e:
+            ap.error(f"invalid --gt-forward {args.gt_forward!r}: {e}")
+        bind_port = int(args.gt_bridge_port)
+        # Same host + same port → packets loop into WIMS; GT starves (observed live).
+        if gt_port == bind_port and (
+                is_loopback_host(gt_host)
+                or gt_host in ("0.0.0.0", "", P._primary_lan_ip(args.iface) or "")):
+            ap.error(
+                f"--gt-forward port {gt_port} equals --gt-bridge-port {bind_port} "
+                f"on this host: WIMS and GridTracker cannot share one UDP port. "
+                f"Use e.g. --gt-forward 127.0.0.1:{DEFAULT_GT_FORWARD_PORT} "
+                f"--gt-bridge-port {DEFAULT_GT_BRIDGE_PORT} "
+                f"(GT Receive={DEFAULT_GT_FORWARD_PORT}, WIMS reverse={DEFAULT_GT_BRIDGE_PORT})")
+        try:
+            gt_bridge = GridTrackerBridge(
+                gt_host, gt_port,
+                bind_host="0.0.0.0",
+                bind_port=bind_port,
+                control_enabled=not args.no_gt_control,
+                control_addr_for=lambda mid: live._tx_dests_for(mid),
+            )
+            live._gt_bridge = gt_bridge
+        except OSError as e:
+            ap.error(f"GT bridge bind 0.0.0.0:{bind_port} failed: {e} "
+                     f"(is another process using that port?)")
+
     threading.Thread(target=ingest_loop, daemon=True,
-                     args=(live, s_wsjt_list, s_n1mm)).start()
+                     args=(live, s_wsjt_list, s_n1mm, gt_bridge)).start()
 
     httpd = _QuietThreadingHTTPServer(
         ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
@@ -1185,6 +1274,11 @@ def main() -> None:
         print(f"WIMS server  http://localhost:{args.http_port}/")
     for line in seed_lines:
         print(line)
+    if gt_bridge is not None:
+        print(f"  GridTracker bridge → {gt_bridge.gt_dest[0]}:{gt_bridge.gt_dest[1]}  "
+              f"(reverse :{gt_bridge.bind_port}; "
+              f"control {'ON' if gt_bridge.control_enabled else 'OFF'})")
+        print(f"  GT stats: http://localhost:{args.http_port}/api/gt-bridge")
 
     if not args.no_presence:
         def _on_conflict(peers):

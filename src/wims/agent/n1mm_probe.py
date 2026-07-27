@@ -101,38 +101,13 @@ def documents_n1mm_roots() -> list[Path]:
 
 
 def database_dirs() -> list[Path]:
-    """All candidate Databases folders that exist on this host."""
-    dirs: list[Path] = []
-    seen: set[Path] = set()
-    candidates: list[Path] = []
+    """All candidate Databases folders that exist on this host.
 
-    # Prefer registry UserDir\\Databases (this seat: C:\\Users\\…\\Databases).
-    ud = _win_user_dir()
-    if ud is not None:
-        candidates.append(ud / "Databases")
-
-    for root in n1mm_user_dirs():
-        candidates.append(root / "Databases")
-        candidates.append(root / "Documents" / "N1MM Logger+" / "Databases")
-        candidates.append(root / "Documents" / "N1MM Logger" / "Databases")
-
-    home = Path.home()
-    candidates.extend([
-        home / "Databases",
-        home / "Documents" / "N1MM Logger+" / "Databases",
-        home / "Documents" / "N1MM Logger" / "Databases",
-    ])
-
-    for d in candidates:
-        try:
-            rp = d.resolve()
-        except OSError:
-            rp = d
-        if rp in seen or not d.is_dir():
-            continue
-        seen.add(rp)
-        dirs.append(d)
-    return dirs
+    Same multi-path scan the server uses for log seed (registry UserDir\\Databases,
+    Documents, OneDrive, profile Databases).
+    """
+    from wims.integrations.n1mm.logdb import candidate_database_dirs
+    return candidate_database_dirs()
 
 def databases_dir() -> Path | None:
     """Primary Databases folder (first found). Prefer UserDir\\Databases."""

@@ -361,7 +361,7 @@ function hideContestPicker() {
   if (empty) empty.style.display = "none";
 }
 
-function fillContestPicker(list, active) {
+function fillContestPicker(list, active, scanDirs) {
   const body = $("contest-body");
   const empty = $("contest-empty");
   const picker = $("contest-picker");
@@ -372,6 +372,17 @@ function fillContestPicker(list, active) {
   picker.style.display = "block";
   body.innerHTML = "";
   if (empty) empty.style.display = contestPickerList.length ? "none" : "block";
+  const scanEl = $("contest-scan-dirs");
+  if (scanEl) {
+    const dirs = scanDirs || [];
+    scanEl.innerHTML = dirs.length
+      ? `Scanned: <code>${dirs.map(esc).join("</code>; <code>")}</code>`
+      : "Scanned: <i>no Databases folders found on this host</i>";
+  }
+  const hint = $("seed-dir-hint");
+  if (hint && scanDirs && scanDirs.length) {
+    hint.textContent = scanDirs.join(" · ");
+  }
   if (!contestPickerList.length) return;
   const sorted = [...contestPickerList].sort((a, b) =>
     (b.qso_count - a.qso_count) || (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
@@ -433,8 +444,13 @@ function renderContests(n) {
       && Number(prev.contest_nr) === Number(contestPickerActive.contest_nr);
     const bothNone = !prev && !contestPickerActive;
     if (!same && !bothNone) {
-      fillContestPicker(contestPickerList, contestPickerActive);
+      fillContestPicker(contestPickerList, contestPickerActive,
+                        (n && n.scan_dirs) || []);
     }
+  }
+  const hint = $("seed-dir-hint");
+  if (hint && n && n.scan_dirs && n.scan_dirs.length) {
+    hint.textContent = n.scan_dirs.join(" · ");
   }
 }
 
@@ -475,11 +491,11 @@ function wireContestToolbar() {
         }
         const list = j.contests || [];
         // Prefer active from live SSE cache if present; picker works without it.
-        fillContestPicker(list, contestPickerActive);
+        fillContestPicker(list, contestPickerActive, j.scan_dirs || []);
         if (msg) {
           msg.textContent = list.length
             ? `${list.length} contest(s) — select one or Cancel`
-            : "no contests found";
+            : "no contests found (see scanned dirs below)";
         }
       } catch (e) {
         if (msg) msg.textContent = String(e);
@@ -531,6 +547,10 @@ wireContestToolbar();
 
 /** Setup-only live hints (no-op on other pages). */
 function renderSetupExtras(n1mm, s) {
+  const hint = $("seed-dir-hint");
+  if (hint && n1mm && n1mm.scan_dirs && n1mm.scan_dirs.length) {
+    hint.textContent = n1mm.scan_dirs.join(" · ");
+  }
   const net = $("setup-net-live");
   if (net && s) {
     const inst = s.instances || [];

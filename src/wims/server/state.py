@@ -308,7 +308,8 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
                       seed: dict | None = None, stale_after: float = 180.0,
                       active_contest: dict | None = None,
                       contests: list | None = None,
-                      last_resync: dict | None = None) -> dict:
+                      last_resync: dict | None = None,
+                      scan_dirs: list | None = None) -> dict:
     """N1MM feed + log-copy freshness (plan §2.2 / §3.6).
 
     N1MM has **no heartbeat** — it only broadcasts on activity (logged QSO, spot,
@@ -350,6 +351,7 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
         "seed": seed,
         "active_contest": active_contest,
         "contests": contests or [],
+        "scan_dirs": list(scan_dirs or []),
         "last_resync": resync,
         "last_qso": None if not last_qso else {
             "call": last_qso["call"],
