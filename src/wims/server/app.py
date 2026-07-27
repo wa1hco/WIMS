@@ -967,8 +967,8 @@ def main() -> None:
     FLEET_WSJT_PORTS = "2237,2238,2239,2241,2242,2243"  # 50/144/222/432/902/1296; no 2240
     ap.add_argument("--http-port", type=int, default=8787)
     ap.add_argument("--iface", default="0.0.0.0",
-                    help="multicast join interface (use contest LAN IP for VMs; "
-                         "Start-WimsServer.cmd auto-picks one — you rarely need this)")
+                    help="multicast join interface (0.0.0.0 = auto contest LAN IP; "
+                         "set explicitly only if the wrong NIC is chosen)")
     ap.add_argument("--group", default="224.0.0.73", help="WSJT-X multicast group")
     ap.add_argument("--port", type=int, default=2237,
                     help=argparse.SUPPRESS)  # legacy; prefer --ports
@@ -1098,28 +1098,33 @@ def main() -> None:
         if len(parts) >= 3 and parts[2].strip():
             insts = [x.strip() for x in parts[2].split(",") if x.strip()]
         live._rotators.ensure_sim(rid, az=az0, instances=insts, label=rid)
-        print(f"  sim rotator {rid} az={az0:g} instances={insts or '[]'}")
 
+    # Seed before opening sockets so the first browser load already has the log.
+    # Operator-facing lines are printed after the console URL (below).
+    seed_lines: list[str] = []
     if not args.no_seed:
         # Auto: scan .s3db files, list contests (June + Sept…), pick latest with QSOs.
-        # Operator can change selection on Status — no ContestNR CLI required.
+        # Operator can change selection on Setup — no ContestNR CLI required.
         try:
             result = live.auto_seed()
             if result.get("ok"):
                 c = result["contest"]
-                print(f"  seeded {result['seeded']} QSOs from {c.get('db_label')} · "
-                      f"{c.get('label')}  (log copy → roster dupe/mult)")
+                # label() already includes QSO count (e.g. ARRLVHFJUN · date · N QSOs).
+                seed_lines.append(
+                    f"  Log: {c.get('db_label')} · {c.get('label')}"
+                )
                 others = [x for x in result.get("contests") or []
                           if not x.get("recommended") and x.get("qso_count", 0) > 0]
                 if others:
-                    print(f"  ({len(others)} other contest log(s) in file(s) — "
-                          f"pick on http://localhost:{args.http_port}/setup)")
+                    seed_lines.append(
+                        f"  Log: {len(others)} other contest(s) available — pick on Setup"
+                    )
             else:
-                ncat = len(result.get("contests") or [])
-                print(f"  (no contest with QSOs to seed; catalog has {ncat} entry(ies); "
-                      f"copy N1MM .s3db into seed dir or use Setup picker)")
+                seed_lines.append(
+                    "  Log: no contest with QSOs found — add an N1MM .s3db or open Setup"
+                )
         except Exception as e:
-            print(f"  (seed skipped: {e})")
+            seed_lines.append(f"  Log: seed skipped ({e})")
     else:
         live.refresh_contest_catalog()
     # Open the ingest sockets here (not inside the thread) so a bind failure is
@@ -1135,16 +1140,13 @@ def main() -> None:
     # Resolve 0.0.0.0 → contest LAN for IGMP join (else remote WSJT-X never arrives).
     mcast_iface = args.iface
     if mcast_iface in ("0.0.0.0", "::", ""):
-        mcast_iface = P._primary_lan_ip("0.0.0.0")
-        if mcast_iface and mcast_iface not in ("127.0.0.1",):
-            print(f"  multicast join iface auto: {mcast_iface}  "
-                  f"(pass --iface explicitly to override)")
+        mcast_iface = P._primary_lan_ip("0.0.0.0") or "0.0.0.0"
     s_wsjt_list: list = []
     for p in wsjt_ports:
         try:
             s_wsjt_list.append(open_socket(mcast_iface, p, args.group))
         except OSError as e:
-            print(f"  WARNING: WSJT-X port {args.group}:{p} bind failed ({e}); skipping",
+            print(f"  WARNING: WSJT-X UDP {args.group}:{p} bind failed ({e}); skipping",
                   file=sys.stderr)
     if not s_wsjt_list:
         ap.error("no WSJT-X UDP ports could be bound — check --ports / --iface")
@@ -1156,14 +1158,18 @@ def main() -> None:
         # --iface 127.0.0.1 only receives loopback multicasts, not LAN traffic from a VM.
         try:
             if args.n1mm_group:
-                s_n1mm = open_socket(args.iface, args.n1mm_port, args.n1mm_group)
+                # Prefer real LAN IP for IGMP when --iface is all-zeros.
+                n1mm_iface = args.iface
+                if n1mm_iface in ("0.0.0.0", "::", ""):
+                    n1mm_iface = mcast_iface
+                s_n1mm = open_socket(n1mm_iface, args.n1mm_port, args.n1mm_group)
             else:
                 # Unicast/broadcast: bind all interfaces so a LAN N1MM host is not
                 # dropped when --iface is loopback for the WSJT-X emulator path.
                 s_n1mm = open_socket("0.0.0.0", args.n1mm_port, None)
         except OSError as e:
-            print(f"  WARNING: N1MM listener could not bind :{args.n1mm_port} ({e}); "
-                  f"N1MM ingest disabled")
+            print(f"  WARNING: N1MM listener :{args.n1mm_port} bind failed ({e}); "
+                  f"N1MM ingest off", file=sys.stderr)
     threading.Thread(target=ingest_loop, daemon=True,
                      args=(live, s_wsjt_list, s_n1mm)).start()
 
@@ -1171,36 +1177,14 @@ def main() -> None:
         ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
     )
     console_ip = P._primary_lan_ip(args.iface)
-    print(f"WIMS server: http://localhost:{args.http_port}/       (Operate)")
-    print(f"             http://{console_ip}:{args.http_port}/     (LAN console)")
-    print(f"             http://localhost:{args.http_port}/status  (live health)")
-    print(f"             http://localhost:{args.http_port}/setup   (config / contest log)")
-    ports_s = ",".join(str(p) for p in wsjt_ports)
-    print(f"  ingesting WSJT-X {args.group}:[{ports_s}] join={mcast_iface}  "
-          f"({len(s_wsjt_list)} socket(s))")
-    if tx_controller is not None:
-        _txd = tx_controller.dest
-        print(f"  TX control -> {_txd[0]}:{_txd[1]}  (roster click = Work; Halt always on; "
-              f"Reply also unicast to each instance source IP) "
-              f"{'· CQ-freetext ON' if args.enable_cq_freetext else ''}")
-        if not args.tx_host and args.iface in ("0.0.0.0", "127.0.0.1"):
-            print("  NOTE: multi-host WSJT-X (e.g. Windows VM): set --iface to this "
-                  "machine's contest LAN IP, or --tx-host <wsjtx-host-ip> so Reply reaches it")
+    # Operator banner: one URL (open this), log status, how to stop.
+    # Bind/conflict warnings above go to stderr only when something is wrong.
+    if console_ip and console_ip not in ("127.0.0.1", "0.0.0.0"):
+        print(f"WIMS server  http://{console_ip}:{args.http_port}/")
     else:
-        print("  TX control disabled (--no-tx; read-only console)")
-    if live._rotators.all():
-        print(f"  rotators: {len(live._rotators.all())}  "
-              f"(point: POST /api/rotator/point · stop: /api/rotator/stop)")
-    if s_n1mm is not None:
-        if args.n1mm_group:
-            print(f"  N1MM XML listening on {args.n1mm_group}:{args.n1mm_port} "
-                  f"(multicast join via {args.iface})")
-            if args.iface in ("127.0.0.1", "0.0.0.0"):
-                print("  NOTE: for LAN N1MM multicast set --iface to this host's LAN IP "
-                      f"(e.g. the address on the bridged subnet), not {args.iface}")
-        else:
-            print(f"  N1MM XML listening on 0.0.0.0:{args.n1mm_port} "
-                  f"(unicast/broadcast; use --n1mm-group for multicast)")
+        print(f"WIMS server  http://localhost:{args.http_port}/")
+    for line in seed_lines:
+        print(line)
 
     if not args.no_presence:
         def _on_conflict(peers):
@@ -1219,16 +1203,6 @@ def main() -> None:
             on_conflict=_on_conflict,
         )
         announcer.start()
-        n_paths = len(P.announce_destinations(
-            group=args.presence_group, port=args.presence_port, iface=args.iface))
-        print(f"  presence announce {args.presence_group}:{args.presence_port} "
-              f"+ broadcast ~1 Hz via {console_ip} "
-              f"({n_paths} send paths; plane E zero-memory discovery)")
-        if args.iface in ("0.0.0.0", "127.0.0.1"):
-            print(f"  NOTE: prefer --iface {console_ip} (contest LAN) so radio UDP "
-                  f"joins the right NIC (presence already multi-homed)")
-    else:
-        print("  presence announce disabled (--no-presence)")
 
     print("Ctrl-C to stop.")
     try:

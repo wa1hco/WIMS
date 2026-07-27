@@ -436,16 +436,9 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
-set "IFACE=0.0.0.0"
-for /f "usebackq delims=" %%I in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "try { (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { `$_.IPAddress -notlike '127.*' -and `$_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress } catch { '0.0.0.0' }"`) do set "IFACE=%%I"
-
-echo.
-echo  WIMS: %ROOT%
-echo  Python: %PYTHON_EXE%
-echo  iface=%IFACE%  http://localhost:8787/
-echo.
-
-"%PYTHON_EXE%" -m wims.server.app --iface %IFACE% --n1mm-group 224.0.0.73 --http-port 8787 %*
+REM Server picks the contest LAN for multicast joins; pass --iface if needed.
+REM Extra args (lab only): %*
+"%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )
 exit /b %ERR%

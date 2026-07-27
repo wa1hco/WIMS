@@ -35,20 +35,9 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
-set "IFACE=0.0.0.0"
-for /f "usebackq delims=" %%I in (powershell -NoProfile -ExecutionPolicy Bypass -Command "try { (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } | Select-Object -First 1).IPAddress } catch { '0.0.0.0' }") do set "IFACE=%%I"
-
-echo.
-echo  WIMS site server
-echo  Root:  %ROOT%
-echo  Python: %PYTHON_EXE%
-echo  LAN:   %IFACE%
-echo  Console: http://localhost:8787/   (also http://%IFACE%:8787/)
-echo  Bands: 50/144/222/432/902/1296 ports 2237-2239,2241-2243  ^(2240 unused^)
-echo.
-
-REM Defaults join all band ports + N1MM mcast. Override only for lab: %*
-"%PYTHON_EXE%" -m wims.server.app --iface %IFACE% --n1mm-group 224.0.0.73 --http-port 8787 %*
+REM Server picks the contest LAN for multicast joins; pass --iface if needed.
+REM Extra args (lab only): %*
+"%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )
 exit /b %ERR%
