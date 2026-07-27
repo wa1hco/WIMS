@@ -15,7 +15,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 # Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
 python -m wims.solo            # localhost, no presence; runs setup check then opens browser
 #   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:<band-port>, "Accept UDP requests" ON.
-#   Band ports (wims_networking.md §4): 50→2237 … 1296→2242 (defaults; registry may reassign)
+#   Band ports (wims_networking.md §4): 50→2237, 144→2238, 222→2239,
+#     432→2241, 902→2242, 1296→2243  (UDP 2240 unused — N1MM conflict hole)
 #   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims.solo --port 2238
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
 #   Setup check only: python -m wims.agent --solo   (Windows: Check-WimsSetup.cmd)
@@ -24,22 +25,21 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 
 # Fleet / multi-host (site server) — operators use a double-click launcher, not flags:
 #   Windows: scripts\windows\Start-WimsServer.cmd
-#   Or: python -m wims.server.app   (defaults join all band ports 2237–2240)
+#   Or: python -m wims.server.app   (defaults join 2237-2239,2241-2243)
 #   Operate:  http://localhost:8787/          (roster click = Work · Halt TX)
 #   Status:   http://localhost:8787/status
 #   Setup:    http://localhost:8787/setup
 ```
-- **Zero-memory start:** site server defaults to **all VHF band ports** (2237–2240) and
-  `Start-WimsServer.cmd` auto-picks LAN iface. No `--ports` in contest. Solo still uses
-  `python -m wims.solo` (one port). Lab escapes: `--ports`, `--iface`.
+- **Zero-memory start:** site server defaults to **all band streams**
+  (**2237,2238,2239,2241,2242,2243** — **skips 2240**) and `Start-WimsServer.cmd` auto-picks
+  LAN iface. Solo still uses `python -m wims.solo` (one port). Lab escapes: `--ports`, `--iface`.
 - **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
   **Halt TX** always on. Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
   (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ** is WSJT-X UI only (§2.12).
 - **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**,
   auto-picks the latest with QSOs, and loads only that contest (not whole multi-year DXLOG).
   Setup/Status picker + Resync, no ContestNR CLI in normal operation.
-- **Ingest:** multicast `224.0.0.73` on **band streams** (default **2237–2240** in code today;
-  design registry extends through **2242** for 902/1296 — see networking **§4**).
+- **Ingest:** multicast `224.0.0.73` on **band streams** (default ports above; networking **§4**).
   N1MM XML on `:12060` (unicast/broadcast by default; `--n1mm-group` optional multicast).
   Each **N1MM** joins **only its band stream**; WIMS joins **all** streams. Map:
   **[wims_networking.md](wims_networking.md) §4** (dual-consumer model + Band Stream Registry).
@@ -287,12 +287,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-07-23** — **Rotator Phase‑2 start (M4).** Registry + sim + Yaesu helpers; roster **Az ant**
   / **Δaz** / moving font; click **Az DX** → point; Stop on rotator table; agent report can carry
   `rotators[]`. Lab: `--sim-rotator ROT-6M:45:WSJT-X`. No live K3NG serial yet.
+- **2026-07-26** — **Port map: skip 2240; 432→2241, 902→2242, 1296→2243.** Fleet default
+  `FLEET_WSJT_PORTS=2237,2238,2239,2241,2242,2243`. Docs §4.3 / §4.9 updated. Avoids common
+  N1MM bind of unlabeled **:2240**.
 - **2026-07-26** — **Doc: UDP :2240 / unlabeled N1MM binds.** Lab: `N1MMLogger.net` can own
-  **:2240** (and :2237) while Configurer SO2R shows no “2240”. WIMS warns and skips bind — not
-  fatal. Design + diagnosis + mitigations: **[wims_networking.md §4.9](wims_networking.md)**.
-  Readiness must use process→port ownership, not SO2R labels alone.
-- **2026-07-23** — **Multi-band WSJT-X ports:** server joins **2237–2240 by default** (no CLI
-  memory). Solo still 2237-only. Escape hatch `--ports`.
+  **:2240** (and :2237) while Configurer SO2R shows no “2240”. Design + diagnosis:
+  **[wims_networking.md §4.9](wims_networking.md)**.
+- **2026-07-23** — **Multi-band WSJT-X ports:** server joins band ports by default (no CLI
+  memory). Solo still 2237-only. Escape hatch `--ports`. *(Map revised 2026-07-26 — see above.)*
 
 - **2026-07-23** — **Station agent desktop launcher:** `Install-WimsAgent-Desktop-Shortcut.cmd`
   + green `assets/wims-agent.ico`; install also creates **WIMS Agent** + **WIMS Server**

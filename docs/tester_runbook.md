@@ -41,7 +41,9 @@ In WSJT-X: **Settings → Reporting**, and set:
 | 50 MHz | **2237** |
 | 144 MHz | **2238** |
 | 222 MHz | **2239** |
-| 432 MHz | **2240** |
+| 432 MHz | **2241** (UDP **2240** unused — see networking §4.3 / §4.9) |
+| 902 MHz | **2242** |
+| 1296 MHz | **2243** |
 
 Example: 2 m seat already on N1MM `224.0.0.73:2238` → use port **2238** in WSJT-X and start
 WIMS with that port (see step 4). Do not leave WIMS on 2237 while WSJT-X is on 2238 — roster

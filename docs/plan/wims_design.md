@@ -189,12 +189,12 @@ bed (§5).
   ramp, never a hard cut (key-click splatter). The mute must run **on the WSJT-X host** (local
   agent, §3.3); the LAN (~1 ms) stays out of the critical path. (Sensor / trigger / actuator breakdown + the two stop layers: §3.4.1.)
 - **Multicast vs unicast** — this station uses **multicast `224.0.0.73` + one UDP port per band
-  stream** (TTL 3; default ports **2237–2242** for 50→1296 per [wims_networking.md](wims_networking.md)
-  **§4** — e.g. 144 MHz → **2238**). Sequential ports are a **human-minimal default**, not a
-  protocol law: a **Band Stream Registry** (Setup/agent) may assign any free ports and apply
-  WSJT-X / N1MM config. **Dual consumers per stream:** N1MM-band = logger only; WIMS joins
-  **all** streams for decode/roster (never double-logs). `BroadcastToN1MM=false` when N1MM
-  already reads the band multicast. Config: `WSJT-X.ini` (Windows) or `~/.config/WSJT-X*.ini`
+  stream** (TTL 3; defaults **2237–2239, 2241–2243** for 50→1296 — **2240 unused** — per
+  [wims_networking.md](wims_networking.md) **§4**). e.g. 144→**2238**, 432→**2241**. Sequential-
+  from-2237 is a **human-minimal default** with a hole at 2240 for N1MM conflicts; a **Band
+  Stream Registry** may assign any free ports. **Dual consumers per stream:** N1MM-band =
+  logger only; WIMS joins **all** streams (never double-logs). `BroadcastToN1MM=false` when
+  N1MM already reads the band multicast. Config: `WSJT-X.ini` / `~/.config/WSJT-X*.ini`
   (Linux, including `WSJT-X - <rig-name>.ini`). Seat CAT (wfview, etc.) is orthogonal — §1.1
   is UDP only; see networking **§3.2–§3.3**.
 - **Outgoing interface is mandatory** — Settings → Reporting → **Outgoing interface** must be the

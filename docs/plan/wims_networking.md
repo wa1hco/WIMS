@@ -38,8 +38,10 @@ WSJT-X hosts may sit **on a different PC or site** than their N1MM as long as th
 └── Same PC may run SSB/CW (N1MM voice/CW) and/or WSJT-X FT8 when digital
     (not always FT8; mode is operator choice for the period)
 
-432 MHz (band port 2240) — one N1MM-432 + one seat PC (e.g. Roy)
+432 MHz (band port **2241**) — one N1MM-432 + one seat PC (e.g. Roy)
 └── Same pattern as 222: one PC, SSB and/or FT8 as equipped
+
+902 / 1296 (ports **2242** / **2243**) — same dual-consumer pattern when wired
 ```
 
 | | Typical count (contest-dependent) |
@@ -388,7 +390,7 @@ Do **not** point Network Server at radio LAN ports (**50001 / 50002 / 50003**).
 | Setting | Value |
 |---------|--------|
 | UDP Server | **`224.0.0.73`** |
-| UDP Server port | **Band stream port** (§4.3): 50→**2237** … 1296→**2242** (or registry) |
+| UDP Server port | **Band stream port** (§4.3): 50→**2237** … 1296→**2243** (**2240 unused**) |
 | Accept UDP requests | **ON** (WIMS Reply / Halt) |
 | Outgoing interface | Contest LAN NIC (§4.8) — mandatory on multi-homed / fleet seats |
 | Secondary UDP / N1MM Logger+ Broadcasts | **OFF** if N1MM already reads this band’s multicast stream (avoids double-log) |
@@ -410,7 +412,7 @@ Leave CW/PTT on N1MM’s radio port off when WSJT-X owns digi TX via CAT.
 
 | App | Join | Notes |
 |-----|------|--------|
-| **WIMS server** | `--group 224.0.0.73 --port <band-port>` | Solo 2 m example: **`--port 2238`**. Default CLI port is 2237 — wrong for 144 if left unchanged. Multi-port join (2237–2240) is design intent; until implemented, match the seat’s band port or run one process per port. |
+| **WIMS server** | `--group 224.0.0.73 --ports …` | Solo 2 m: **`--ports 2238`**. Fleet default joins **2237–2239,2241–2243** (skips **2240**). |
 | **GridTracker** | Same group:port as the band being watched | **Viewer only** on managed instances — no click-to-work (bypasses TX arbiter, design §1.2 / §4.3) |
 
 #### 3.3.6 Start order
@@ -514,20 +516,22 @@ N1MMs). Segregation is by **band stream**, not by physical PC:
 
 **Scheme A (recommended default):** same multicast group, **one UDP port per band**.
 
-Ports are **arbitrary identifiers**. The default numbering is **sequential from 2237** only so a
-**single-band / first seat** matches common WSJT-X + N1MM docs (minimal cognitive load). It is
-**not** a protocol requirement that ports stay sequential if WIMS assigns or guides them (§4.4).
+Ports are **arbitrary identifiers**. Defaults start at **2237** for a familiar single-band
+bring-up, then step up by band — **except UDP 2240 is intentionally unused** (often held by
+N1MM on Windows even when Configurer does not show “2240”; see §4.9).
 
 | Band (MHz) | Multicast group | Default port | Typical N1MM | Example WSJT-X ids |
 |------------|-----------------|-------------:|--------------|--------------------|
 | **50** | `224.0.0.73` | **2237** | N1MM-50 | TRAILER-50-A/B/C, TV-50-C |
 | **144** | `224.0.0.73` | **2238** | N1MM-144 | TRAILER-144-FT8, TRAILER-144-MSK |
 | **222** | `224.0.0.73` | **2239** | N1MM-222 | ROY-222-FT8 |
-| **432** | `224.0.0.73` | **2240** | N1MM-432 | ROY-432-FT8 |
-| **902** | `224.0.0.73` | **2241** | N1MM-902 | CHIP-902-FT8 (when wired) |
-| **1296** | `224.0.0.73` | **2242** | N1MM-1296 | CHIP-1296-FT8 (when wired) |
+| *(unused)* | — | **2240** | — | **Do not use** for WIMS band streams (N1MM conflict hole) |
+| **432** | `224.0.0.73` | **2241** | N1MM-432 | ROY-432-FT8 |
+| **902 / 903** | `224.0.0.73` | **2242** | N1MM-902 | CHIP-902-FT8 (when wired) |
+| **1296** | `224.0.0.73` | **2243** | N1MM-1296 | CHIP-1296-FT8 (when wired) |
 
-**Reserve / extend:** further microwave bands append **2243+** (or registry-assigned free ports).
+**Fleet server default join list:** `2237,2238,2239,2241,2242,2243` (code: `FLEET_WSJT_PORTS`).  
+**Reserve / extend:** further bands append **2244+** (or registry-assigned free ports).  
 Document the live map in contest Instance Profiles; do not invent a second scheme mid-contest.
 
 **Scheme B (alternate):** fixed port `2237`, group per band (`224.0.0.50`, `.144`, …). Same dual-
@@ -574,7 +578,7 @@ for hand-configured and single-band bring-up.
 
 | Mode | Behavior |
 |------|----------|
-| **Fleet default** | Join **all ports listed in the registry** (not a hard-coded 2237–2240 only) |
+| **Fleet default** | Join **all ports listed in the registry** (code default: 2237–2239 + 2241–2243; never 2240) |
 | **Solo / one band** | Join **one** stream (`wims.solo` / `--ports` for lab) |
 | **Bind failure** | Skip failed port with loud Status warning; do not silent-fail the whole server if ≥1 stream binds |
 
@@ -582,22 +586,19 @@ for hand-configured and single-band bring-up.
 
 ```
                          224.0.0.73
-    :2237   :2238   :2239   :2240   :2241   :2242
-     (50)   (144)   (222)   (432)   (902)  (1296)
-       ▲      ▲       ▲       ▲       ▲       ▲
-       │      │       │       │       │       │
-    N×WSJT N×WSJT  0–1 WSJT 0–1 …  0–1 …   0–1 …
-       │      │       │       │       │       │
-       ▼      ▼       ▼       ▼       ▼       ▼
-    N1MM-50 N1MM-144 N1MM-222 N1MM-432 N1MM-902 N1MM-1296
-    (only     (only    (only …)  — each N1MM joins ONE stream
-     this      this
-     port)     port)
+    :2237   :2238   :2239   (2240 hole)  :2241   :2242   :2243
+     (50)   (144)   (222)    unused       (432)   (902)  (1296)
+       ▲      ▲       ▲                    ▲       ▲       ▲
+       │      │       │                    │       │       │
+    N×WSJT N×WSJT  0–1 WSJT             0–1 …   0–1 …   0–1 …
+       │      │       │                    │       │       │
+       ▼      ▼       ▼                    ▼       ▼       ▼
+    N1MM-50 N1MM-144 N1MM-222           N1MM-432 N1MM-902 N1MM-1296
+    — each N1MM joins ONE stream only —
 
     ┌─────────────────────────────────────────────────────┐
     │  WIMS SERVER  joins ALL registry streams            │
-    │  → roster / arbiter / Reply by UDP id               │
-    │  → log copy via plane B (not by dual N1MM digi)     │
+    │  (default ports skip 2240)                          │
     └─────────────────────────────────────────────────────┘
 ```
 
@@ -639,27 +640,31 @@ name) when a stream bind fails, not only the SO2R page. Full write-up: **§4.9**
 This is **not** the same as “operator forgot SO2R port 2240 in Configurer.” It is a **runtime
 socket ownership** problem that the Band Stream Registry and readiness checks must handle.
 
+**Design decision (2026-07):** Scheme A **no longer uses UDP 2240** for any band stream.
+**432 → 2241**, **902 → 2242**, **1296 → 2243**. WIMS fleet default join list **omits 2240**
+so a common Windows/N1MM bind of `:2240` does not steal the 432 stream. §4.9 remains for
+**other** ports (2237, 2241, …) that may still collide.
+
 #### 4.9.1 Lab observation (W10VM-50 / N1MM+, 2026-07)
 
 | Fact | Detail |
 |------|--------|
-| **Symptom** | WIMS server stderr: `WSJT-X port 224.0.0.73:2240 bind failed ([WinError 10013] …); skipping` |
+| **Symptom (old map)** | WIMS server stderr: `WSJT-X port 224.0.0.73:2240 bind failed ([WinError 10013] …); skipping` when 432 was still on 2240 |
 | **Owner of UDP :2240** | `N1MMLogger.net.exe` (verified with `Get-NetUDPEndpoint` / `netstat -ano -p udp`) |
 | **Also held by same N1MM** | UDP **2237** (primary digi reader) plus multi-computer **12070/12080**, multi-user **130xx**, ephemeral high ports |
 | **Configurer UI** | Operator may see **no SO2R / no second-reader / no “2240”** field set |
 | **`N1MM Logger.ini`** | Often only `[ExternalProgramInput] EnableWSJTJTDXUDPReader=True` + `WSJTJTDXUDPIP=…` — **port number may be omitted** from that section |
 | **Admin DB defaults** | May list default digi ports (e.g. 2237 / 2239) that **do not match** live binds |
-| **Conclusion** | **Runtime bind ≠ SO2R page labels.** Treat process→port as ground truth. |
+| **Conclusion** | **Runtime bind ≠ SO2R page labels.** Treat process→port as ground truth. **Default map avoids 2240.** |
 
-Same class of issue can hit **any** registry port (2237, 2241, …), not only 2240. **2240** is just the
-default Scheme A port for **432 MHz**, so a collision there steals the 432 stream from WIMS while
-leaving 50/144/222 fine.
+Same class of issue can hit **any** registry port (2237, 2241, …).
 
 #### 4.9.2 Why this breaks (and what it does *not* break)
 
 | Effect | Severity |
 |--------|----------|
-| WIMS cannot join stream \(S_{432}\) if default port 2240 is taken | **432 digi roster empty** for WIMS; server should **keep running** |
+| WIMS cannot join a stream if its registry port is taken (e.g. 2241) | **That band’s digi roster empty** for WIMS; server should **keep running** |
+| Old map used 2240 for 432 | Mitigated by **skipping 2240** in defaults (§4.3) |
 | N1MM still logs its own digi path on ports it owns | Logging may be fine for the band N1MM intends |
 | Browser “● disconnected” | **Unrelated** — means HTTP/SSE to `:8787` died (process exit, Defender, dual-primary demote) |
 | Double-log | Only if **two N1MMs** both enable readers on the **same** stream — not the same as WIMS failing to bind |
@@ -683,10 +688,11 @@ Do **not** require the operator to find “2240” under SO2R before believing t
 
 | Approach | When | Notes |
 |----------|------|--------|
-| **A. Skip the port in WIMS** | Band not used / temporary | `--ports 2237,2238,2239` or registry without 432 until free |
-| **B. Reassign stream port in registry** | Want 432 digi in WIMS while N1MM keeps 2240 for unknown reason | New free port for \(S_{432}\) (e.g. 2250); update **all** WSJT-X on 432 + N1MM-432 reader + WIMS join list |
+| **A. Skip the port in WIMS** | Band not used / temporary | `--ports` without that port, or registry omit band |
+| **B. Reassign stream port in registry** | Want band digi while another app holds the default port | New free port for \(S_B\); update **all** WSJT-X on B + N1MM-B reader + WIMS join list |
 | **C. Free the port in N1MM** | N1MM should not need it | Exit N1MM; if port frees, restart N1MM after clearing **both** WSJT reader slots / closing Decode List windows; re-check live binds |
-| **D. Readiness UI** | Always | Status/Setup: “UDP :2240 owned by N1MMLogger.net — WIMS stream 432 skipped” with deep link to this section |
+| **D. Readiness UI** | Always | Status/Setup: “UDP :P owned by N1MMLogger.net — WIMS stream B skipped” with deep link to this section |
+| **E. Default map hole** | **2240** | Never assign a band stream to 2240 in Scheme A defaults (already done) |
 
 **WIMS must not** assume Configurer text fields are complete. **Agent / server readiness** should:
 
@@ -698,8 +704,8 @@ Do **not** require the operator to find “2240” under SO2R before believing t
 #### 4.9.5 Relation to dual-consumer model
 
 - **N1MM holding 2237** while WIMS also joins 2237 is **often OK** if the OS allows shared multicast bind (`SO_REUSEADDR` / platform equivalent) — both are intended consumers of \(S_{50}\).  
-- **N1MM holding 2240** when **no** N1MM-432 reader is intended is **accidental ownership** — it still blocks WIMS from using that port as \(S_{432}\) if exclusive bind fails.  
-- Fix is **registry + readiness**, not “document that SO2R must show 2240.”
+- **N1MM holding 2240** when **no** band stream uses 2240 is **harmless noise** for WIMS (we do not join 2240 by default).  
+- If N1MM holds **2241** (or any live stream port) without being the intentional logger for that stream, treat as accidental ownership — **registry + readiness**, not “document that SO2R must show that port.”
 
 ### 4.8 Contest LAN interface (WSJT-X “Outgoing interface”)
 
@@ -841,7 +847,7 @@ understand multicast.
 
 ### WIMS server
 
-- Join `224.0.0.73` on **2237–2240** (or all four groups if using the alternate scheme)  
+- Join `224.0.0.73` on **2237–2239,2241–2243** (skip **2240**; or all groups if using Scheme B)  
 - `--iface` = site LAN address (not loopback) for real hosts  
 - Observes only; never double-logs  
 
@@ -928,7 +934,7 @@ Remote operators: unicast to the **site server** only. Multicast never crosses t
 | TRAILER-144-FT8 | **144 FT8 PC** + radio | 144 | FT8 | `144-signal` | `:2238` | **N1MM-144** |
 | TRAILER-144-MSK | **144 MSK PC** + radio | 144 | MSK/EME | `144-signal` | `:2238` | **N1MM-144** |
 | ROY-222-FT8 (or `ROY-222`) | Roy seat PC | 222 | SSB and/or FT8 | `222-signal` | `:2239` when FT8 | **N1MM-222** |
-| ROY-432-FT8 (or `ROY-432`) | Roy seat PC | 432 | SSB and/or FT8 | `432-signal` | `:2240` when FT8 | **N1MM-432** |
+| ROY-432-FT8 (or `ROY-432`) | Roy seat PC | 432 | SSB and/or FT8 | `432-signal` | `:2241` when FT8 | **N1MM-432** |
 
 Multicast group for all: `224.0.0.73` (port per band as above).
 
@@ -963,7 +969,7 @@ Multicast group for all: `224.0.0.73` (port per band as above).
 - [ ] If CAT used: seat middleware path only (§3.2) — not competing with wfview for COM  
 
 ### WIMS server
-- [ ] Join all WSJT-X ports (2237–2240) on the LAN iface (or match seat band port until multi-port join is wired)  
+- [ ] Join all WSJT-X ports (**2237–2239,2241–2243**) on the LAN iface (or match seat band port)  
 - [ ] Solo/lab: `--port` matches the seat’s plane A port (e.g. **2238** for 144)  
 - [ ] N1MM XML on :12060 (multicast group if used)  
 - [ ] No second app sending Reply on managed instances  
@@ -1108,7 +1114,7 @@ seat ROY-222:
 seat ROY-432:
   band: 432
   wsjtx_id: ROY-432-FT8
-  multicast: 224.0.0.73:2240
+  multicast: 224.0.0.73:2241
   logger_station_name: N1MM-432
   resource_group: 432-signal
 ```
@@ -1290,9 +1296,8 @@ Aligns with design modules; prefer server-side value before perfect agents:
 | 7 | Start scripts / rig-name shortcuts per seat | Packaging |
 | 8 | Auto-apply config (including interface name from profile), topology map, agent re-scan | Agent §3.3 |
 
-Until multi-port join exists in code (status tracker), lab readiness can still validate a
-**subset** profile (one port); full four-port expected fleet lights up when the server joins
-2237–2240.
+Fleet server already joins **2237–2239,2241–2243** by default. Lab readiness can still validate a
+**subset** profile (one port / one band) before full microwave seats are live.
 
 ### 12.12 Dress rehearsal
 

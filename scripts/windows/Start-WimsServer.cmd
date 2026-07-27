@@ -44,7 +44,7 @@ echo  Root:  %ROOT%
 echo  Python: %PYTHON_EXE%
 echo  LAN:   %IFACE%
 echo  Console: http://localhost:8787/   (also http://%IFACE%:8787/)
-echo  Bands: 50/144/222/432 ports 2237-2240  ^(no flags to remember^)
+echo  Bands: 50/144/222/432/902/1296 ports 2237-2239,2241-2243  ^(2240 unused^)
 echo.
 
 REM Defaults join all band ports + N1MM mcast. Override only for lab: %*
