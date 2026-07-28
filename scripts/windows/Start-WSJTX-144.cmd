@@ -1,15 +1,15 @@
 @echo off
-REM Always start the 6 m (50 MHz) WSJT-X instance (tired-op safe).
-REM Uses a separate named config from 144 MHz (WSJTX-144 / IC-9700).
+REM Always start the 2 m (144 MHz) WSJT-X instance (tired-op safe).
+REM Uses a separate named config from 50 MHz (WSJTX-50 / Flex).
 setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 set "HERE=%~dp0"
 
 set "EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
-set "RIG=WSJTX-50"
+set "RIG=WSJTX-144"
 
 if exist "%HERE%seat-common.cmd" call "%HERE%seat-common.cmd"
-if exist "%HERE%radio-flex50.cmd" call "%HERE%radio-flex50.cmd"
+if exist "%HERE%radio-ic9700-144.cmd" call "%HERE%radio-ic9700-144.cmd"
 if defined WSJTX_EXE set "EXE=!WSJTX_EXE!"
 if defined WSJTX_RIG_NAME set "RIG=!WSJTX_RIG_NAME!"
 

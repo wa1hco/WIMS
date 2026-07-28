@@ -39,32 +39,34 @@ echo  ------------------------------------------------------------
 echo.
 echo    1.  Check this PC now          ^(agent one-shot report^)
 echo    2.  Start continuous agent     ^(reports to server, stays running^)
-echo    3.  Start seat pack            ^(N1MM / WSJT-X if needed + agent^)
-echo    4.  Open local agent page      ^(http://127.0.0.1:8790/^)
-echo    5.  Open server Status page    ^(%WIMS_SERVER%/status^)
-echo    6.  Put WIMS on Desktop        ^(menu + Agent icons^)
-echo    7.  Desktop: WIMS Agent only   ^(green agent icon^)
-echo    8.  Auto-start at logon        ^(install Startup for seat pack^)
-echo    9.  Remove auto-start
+echo    3.  Start Flex 50 MHz pack     ^(SmartSDR + CAT + DAX + N1MM + WSJT-50^)
+echo    4.  Start IC-9700 144 pack     ^(wfview + N1MM + WSJT-144^)
+echo    5.  Open local agent page      ^(http://127.0.0.1:8790/^)
+echo    6.  Open server Status page    ^(%WIMS_SERVER%/status^)
+echo    7.  Put WIMS on Desktop        ^(menu + Agent icons^)
+echo    8.  Desktop: WIMS Agent only   ^(green agent icon^)
+echo    9.  Auto-start at logon        ^(install Startup for a radio pack^)
+echo    A.  Remove auto-start
 echo.
 echo    0.  Exit
 echo.
 echo  ============================================================
 echo.
-choice /C 1234567890 /N /M "  Choose 0-9: "
+choice /C 123456789A0 /N /M "  Choose 0-9 or A: "
 set "SEL=%ERRORLEVEL%"
 
-REM choice: 1..9 then 0 is 10th option
-if "%SEL%"=="10" goto end
+REM choice keys: 1..9, A=10, 0=11
+if "%SEL%"=="11" goto end
 if "%SEL%"=="1" goto do_check
 if "%SEL%"=="2" goto do_agent
-if "%SEL%"=="3" goto do_seat
-if "%SEL%"=="4" goto do_local_ui
-if "%SEL%"=="5" goto do_server_ui
-if "%SEL%"=="6" goto do_desktop
-if "%SEL%"=="7" goto do_desktop_agent
-if "%SEL%"=="8" goto do_startup_on
-if "%SEL%"=="9" goto do_startup_off
+if "%SEL%"=="3" goto do_seat_flex
+if "%SEL%"=="4" goto do_seat_ic
+if "%SEL%"=="5" goto do_local_ui
+if "%SEL%"=="6" goto do_server_ui
+if "%SEL%"=="7" goto do_desktop
+if "%SEL%"=="8" goto do_desktop_agent
+if "%SEL%"=="9" goto do_startup_on
+if "%SEL%"=="10" goto do_startup_off
 goto menu
 
 :do_check
@@ -94,10 +96,16 @@ start "WIMS Agent" cmd /k call "%HERE%Start-WimsAgent-Continuous.cmd"
 ping -n 2 127.0.0.1 >nul
 goto menu
 
-:do_seat
+:do_seat_flex
 echo.
-echo  Running seat pack...
-call "%HERE%Start-WimsSeat.cmd"
+echo  Running Flex 50 MHz seat pack...
+call "%HERE%Start-Seat-Flex50.cmd"
+goto menu
+
+:do_seat_ic
+echo.
+echo  Running IC-9700 144 MHz seat pack...
+call "%HERE%Start-Seat-IC9700-144.cmd"
 goto menu
 
 :do_local_ui

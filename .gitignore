@@ -32,7 +32,12 @@ captures/
 scripts/windows/install-log.txt
 scripts/windows/python-path.txt
 scripts/windows/seat-local.cmd
+scripts/windows/seat-common.cmd
+scripts/windows/radio-flex50.cmd
+scripts/windows/radio-ic9700-144.cmd
 scripts/windows/seat-startup-log.txt
+scripts/windows/seat-startup-flex50-log.txt
+scripts/windows/seat-startup-ic9700-144-log.txt
 scripts/windows/agent-daemon-log.txt
 
 # Editors / OS

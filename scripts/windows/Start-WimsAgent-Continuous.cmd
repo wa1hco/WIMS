@@ -33,6 +33,17 @@ cd /d "%ROOT%"
 
 call "%~dp0_resolve-python.cmd"
 
+REM Shared + default radio config when launched alone (not from a seat pack)
+if exist "%~dp0seat-common.cmd" call "%~dp0seat-common.cmd"
+if not exist "%~dp0seat-common.cmd" if exist "%~dp0seat-local.cmd" call "%~dp0seat-local.cmd"
+if not defined WIMS_SEAT_ID (
+  if /I "%SEAT_DEFAULT_RADIO%"=="ic9700-144" (
+    if exist "%~dp0radio-ic9700-144.cmd" call "%~dp0radio-ic9700-144.cmd"
+  ) else (
+    if exist "%~dp0radio-flex50.cmd" call "%~dp0radio-flex50.cmd"
+  )
+)
+
 if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
 
 set "SEAT_ARGS="

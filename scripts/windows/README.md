@@ -55,15 +55,20 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WimsServer.cmd`** | **Site** WIMS server only (not for radio seats). |
 | **`Start-WimsAgent.cmd`** | One-shot agent check (also menu option 1). |
 | **`Start-WimsAgent-Continuous.cmd`** | Continuous agent (menu option 2). |
-| **`Start-WimsSeat.cmd`** | wfview → N1MM/WSJT if needed + agent (menu option 3). |
-| **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + `seat-local.cmd` `--rig-name`. |
-| **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start for seat pack. |
-| **`seat-config.example.cmd`** / **`seat-local.cmd`** | Seat id, server URL, paths (edit `seat-local` per clone). **`WSJTX_RIG_NAME` is required** (never blank). |
-| **`Start-WSJTX.cmd`** | Only safe way to start WSJT-X — always adds `--rig-name=` from `seat-local`. |
+| **`Start-Seat-Flex50.cmd`** | **Flex 50 MHz pack:** SmartSDR → CAT → DAX → N1MM → WSJT-X (`WSJTX-50`) → agent. |
+| **`Start-Seat-IC9700-144.cmd`** | **IC-9700 144 MHz pack:** wfview → N1MM → WSJT-X (`WSJTX-144`) → agent. |
+| **`Start-WimsSeat.cmd`** | Dispatcher: `flex50` / `ic9700-144`, or menu / `SEAT_DEFAULT_RADIO`. |
+| **`_Start-Seat-Core.cmd`** | Shared engine (N1MM + WSJT + agent); not double-clicked. |
+| **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + radio config `--rig-name`. |
+| **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start: `Install-WimsSeatStartup.cmd flex50` or `ic9700-144`. |
+| **`seat-common.example.cmd`** / **`seat-common.cmd`** | Shared: server URL, N1MM path, agent flags. |
+| **`radio-flex50.example.cmd`** / **`radio-flex50.cmd`** | Flex paths + 50 MHz `WSJTX_RIG_NAME`. |
+| **`radio-ic9700-144.example.cmd`** / **`radio-ic9700-144.cmd`** | wfview path + 144 MHz `WSJTX_RIG_NAME`. |
+| **`Start-WSJTX.cmd`** | Generic launcher with required `--rig-name=` (arg or config). |
+| **`Start-WSJTX-50.cmd`** / **`Start-WSJTX-144.cmd`** | Band-specific WSJT-X only (tired-op safe). |
 | **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
-| **`Start-WSJTX-50.cmd`** | Start (or no-op if already up) the 6 m WSJT-X instance `--rig-name=WSJTX-50`. |
-| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write `seat-local.cmd`, hostname, Startup link. |
+| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup. |
 
 ### Lab: Proxmox seat clones (optional)
 
@@ -74,22 +79,47 @@ After that, operators only need the Desktop **WIMS** icon.
 
 After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming).
 
+### Two radio packs (same PC or separate seats)
+
+| Pack | Script | Middleware | WSJT-X `--rig-name` (default) | Band |
+|------|--------|------------|-------------------------------|------|
+| **Flex 50** | `Start-Seat-Flex50.cmd` | SmartSDR → CAT → DAX | `WSJTX-50` | 50 MHz |
+| **IC-9700 144** | `Start-Seat-IC9700-144.cmd` | wfview (RigCtld) | `WSJTX-144` | 144 MHz |
+
+**N1MM is common** — both packs start it only if missing (one logger process).  
+**WSJT-X is per-band** — each pack uses its own named config under  
+`%LOCALAPPDATA%\WSJT-X - <rig-name>\` (radio, audio, UDP port differ by band).
+
+Config files (gitignored when local):
+
+| File | Scope |
+|------|--------|
+| `seat-common.cmd` | Server URL, N1MM path, agent flags, `SEAT_DEFAULT_RADIO` |
+| `radio-flex50.cmd` | SmartSDR dir, 50 MHz seat id + rig-name |
+| `radio-ic9700-144.cmd` | wfview path, 144 MHz seat id + rig-name |
+
 ### Fleet seat auto-start (Win10 template, auto-logon)
 
 This image logs in as the operator with no password. After the desktop appears, Windows runs the user **Startup** folder.
 
-1. Edit `scripts\windows\seat-local.cmd` (created from the example on first install):  
-   `WIMS_SERVER`, `WIMS_SEAT_ID`, exe paths, `START_WFVIEW` / `START_N1MM` / `START_WSJTX` / `START_AGENT`.
-2. Double-click **`Install-WimsSeatStartup.cmd`** once (or menu option 7).
-3. Optional test: **`Start-WimsSeat.cmd`** / menu option 3 (does not wait for reboot).
-4. Reboot or sign out/in — wfview, N1MM, WSJT-X, and the continuous agent should come up.
+1. Copy examples → local configs and edit:
+   - `seat-common.example.cmd` → `seat-common.cmd`
+   - `radio-flex50.example.cmd` → `radio-flex50.cmd` **or**
+   - `radio-ic9700-144.example.cmd` → `radio-ic9700-144.cmd`
+2. Double-click **`Install-WimsSeatStartup.cmd flex50`** or **`… ic9700-144`** once  
+   (or menu option 9 — picks a pack).
+3. Optional test: **`Start-Seat-Flex50.cmd`** / **`Start-Seat-IC9700-144.cmd`**.
+4. Reboot or sign out/in — that radio’s middleware, N1MM, WSJT-X, and agent come up.
 
-Logs: `seat-startup-log.txt`, `agent-daemon-log.txt` next to the scripts.
+Logs: `seat-startup-flex50-log.txt` / `seat-startup-ic9700-144-log.txt`, `agent-daemon-log.txt`.
 
-**App policy:** **wfview** starts first (Icom CAT / RigCtld), then N1MM, then WSJT-X.
-wfview, N1MM, and WSJT-X are **only started if missing** (never force-killed — avoids blank
-WSJT dialogs and mid-log disruption). The **agent** defaults to
-`START_AGENT_RESTART=1` (kill old `wims.agent`, start fresh) while the agent is in development.
+**Start order (critical for CAT/audio):**
+- **Flex 50:** SmartSDR → wait (`SMARTSDR_DELAY_SEC`) → CAT → DAX → wait → N1MM → WSJT-X-50
+- **IC-9700 144:** wfview → wait (`WFVIEW_DELAY_SEC`) → N1MM → WSJT-X-144  
+
+N1MM / WSJT-X will not open radio COM or DAX correctly if middleware is not up first.
+Middleware, N1MM, and WSJT-X are **only started if missing** (never force-killed).  
+The **agent** defaults to `START_AGENT_RESTART=1` while in development.
 
 Disable auto-start: **`Remove-WimsSeatStartup.cmd`** or delete  
 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WIMS Seat.lnk`.
@@ -100,14 +130,11 @@ Steps (seat / fleet VM):
 2. Open `WIMS\scripts\windows\` once → double-click **`Install-Wims.cmd`** (Python) if needed.
 3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** (blue menu)
    and **WIMS Agent** (green continuous agent).
-4. Day-to-day on a radio seat: double-click **WIMS Agent**. Full menu: **WIMS**.
-   Edit `seat-local.cmd` once per clone for seat id / server URL.
-5. **Unique WSJT-X UDP id:** set `WSJTX_RIG_NAME=` in `seat-local.cmd` **and** fix every
-   Desktop/Startup shortcut that starts `wsjtx.exe`:
-   `Find-And-Set-WsjtxRigName.cmd` (list) then  
-   `Find-And-Set-WsjtxRigName.cmd -RigName W10VM-144 -Apply` (2m) or `W10VM-50` (6m).  
-   Exit all `wsjtx.exe` and reboot. If another Startup entry starts WSJT without
-   `--rig-name` first, WIMS seat pack will not re-launch it with the right name.
+4. Day-to-day: run the pack for the radio in use (`Start-Seat-Flex50` or `…-IC9700-144`),
+   or use the **WIMS** menu. Edit `seat-common.cmd` + the matching `radio-*.cmd`.
+5. **Unique WSJT-X UDP id per band:** set `WSJTX_RIG_NAME` in the radio config **and** fix
+   Desktop shortcuts: `Find-And-Set-WsjtxRigName.cmd -RigName WSJTX-144 -Apply` (2m) or
+   `WSJTX-50` (6m). Prefer `Start-WSJTX-50.cmd` / `Start-WSJTX-144.cmd` over bare `wsjtx.exe`.
 
 Site server PC (not seats): **`Start-WimsServer.cmd`** / **WIMS Server** → `http://localhost:8787/`.
 The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
