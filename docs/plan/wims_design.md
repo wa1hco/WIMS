@@ -16,6 +16,12 @@ when the *design* changes; record *progress* there.
 consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).
 
+**Concept under review (not the current design):**
+**[wims_switchboard_concept.md](wims_switchboard_concept.md)** — "WIMS Switchboard": WIMS as
+the packet router between WSJT-X / N1MM / GridTracker, GridTracker as the operating UI,
+operator band coverage via subscriptions. This file remains authoritative unless/until that
+concept is adopted.
+
 ---
 
 ## WIMS goals
