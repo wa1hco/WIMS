@@ -98,17 +98,27 @@ The one visible trace is presentation, kept outside the TX logic: a status-bar b
 the gate thread. Without the badge an operator would see "Transmitting" with no RF and no
 explanation — the badge is display only, never behavior.
 
-**Hang time (release hysteresis) — implemented in the Key agent, not in WSJT-X.** CW keying
-is a stream of edges milliseconds apart; the inhibit must not chatter — and RF between an
-SSB/CW operator's dits or syllables would still violate the one-signal rule in spirit. The
+**Hang time (release hysteresis) — implemented in the Key agent, not in WSJT-X.** The
 **Key agent** holds the band: it keeps sending `keyed` keepalives until its input has been
-continuously clear for the hang time (default **0.5 s**, range 0.2–5 s, tuned per SSB/CW
-operator style like a VOX delay), then sends `clear`. The WSJT-X gate needs **no hysteresis
-of its own** — it obeys `keyed`/`clear` and expires by TTL, nothing more. This puts the
-per-operator tuning knob at the SSB/CW seat where the operating style is, and keeps WSJT-X
-state-free (per the strict-simplicity rule, §11). Assert is always immediate. The trade is
-unchanged: hang time adds directly to resume latency in puncture mode, and every added
-second of gap spends FT8's measured puncture margin (§2 item 1) — hence a short default.
+continuously clear for the hang time, then sends `clear`. The WSJT-X gate needs **no
+hysteresis of its own** — it obeys `keyed`/`clear` and expires by TTL, nothing more. This
+puts the per-operator tuning at the SSB/CW seat where the operating style is, and keeps
+WSJT-X state-free (per the strict-simplicity rule, §11). Assert is always immediate.
+
+**Sizing rule (why the default is 0.5 s, not smaller):** hang must exceed the longest
+silence *inside* one transmission on the sensed KEY line — in full-QSK CW, the inter-word
+gap of 7 dit-times (1200/WPM ms per dit): 420 ms at 20 WPM, 336 at 25, 280 at 30, 210 at
+40. **0.5 s covers ≥ ~17 WPM with margin.** A shorter hang reopens the gate between every
+word, and the damage is not FT8 decode (chatter-punctures decode fine per the bench) but:
+(a) **the WSJT-X seat's own T/R and amp relays cycle at word rate** — puncture mode drives
+the radio's PTT, so every reopen is a keying cycle, the §4.1.0 relay-wear problem
+self-inflicted; and (b) a momentary dual-signal at each word resume (~10–20 ms of overlap,
+repeatedly). Context: semi break-in and SSB-PTT stations arrive *pre-hung* by the rig
+(§4.1.0), so the agent hang mostly matters for full-QSK operators; it is per-station
+tunable (0.2–5 s — a 35 WPM QSK op can run 0.3 s), and its cost is small (3 % of an FT8
+cycle, well inside the ~1.6 s puncture margin). *Option, not yet committed:* the agent sees
+every KEY edge and could measure dit length, setting hang adaptively (≈ 8 dit-times,
+floor 0.2 s) — the knob disappears and fast senders get faster resumes automatically.
 
 **Fail-safe direction.** Wire/agent failure must not silently un-inhibit *or* permanently kill
 the band; the two failure directions get different treatments per source (§4). The invariant:
