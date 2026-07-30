@@ -16,11 +16,17 @@ when the *design* changes; record *progress* there.
 consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).
 
-**Concept under review (not the current design):**
-**[wims_switchboard_concept.md](wims_switchboard_concept.md)** — "WIMS Switchboard": WIMS as
-the packet router between WSJT-X / N1MM / GridTracker, GridTracker as the operating UI,
-operator band coverage via subscriptions. This file remains authoritative unless/until that
-concept is adopted.
+**Adopted architecture direction (2026-07-30): WIMS Switchboard.**
+**[wims_switchboard_concept.md](wims_switchboard_concept.md)** is now the assumed model: WIMS
+is the application-layer router (switchboard) for the operating flows between WSJT-X, N1MM,
+and GridTracker; operators cover bands via **subscriptions**; the **call roster is either
+WIMS's own browser roster or GridTracker, per operator choice** — both are subscribers of the
+same switchboard flows. Logging never routes through WIMS (direct WSJT-X→N1MM leg; WIMS
+audits). This document is being migrated section-by-section; where older text conflicts with
+the Switchboard model, the concept doc and the function list below govern. Open wiring
+decisions: the F4 logging leg (Option 1 direct-2333 vs Option 2 per-band streams, pending
+bench Q3) and the dedicated-RTS PTT seat standard
+(**[wims_tx_inhibit.md](wims_tx_inhibit.md)** §5.5).
 
 ---
 
@@ -31,12 +37,15 @@ on the same band or on several bands. A station may have several antennas with r
 WSJT-X running to look in different directions. A station may have WSJT-X monitoring for FT8,
 EME, or meteor scatter simultaneously. A station may have several bands receiving simultaneously.
 
-WSJT-X sends each decoded message to WIMS which displays them in a call roster along with
-information about the source. In a manner similar to GridTracker's call roster, the operator can
-click on a retained decode (CQ/QRZ **or a 73 for tailend**, GridTracker2-style) to cause the
-receiving station to start a contact via UDP **Reply**. **Calling CQ and autoresponding to the
-pile** is done in the **WSJT-X UI** at the seat (or remote desktop to that seat) — the UDP API
-cannot run that mode usefully; see **§2.12**.
+WSJT-X sends each decoded message to WIMS — the **switchboard** — which routes a filtered
+decode stream to each operator's **call roster**. The roster is **either WIMS's own browser
+roster or GridTracker**, per operator preference: both are subscribers of the same switchboard
+flows, and the filter (band subscription + Needed status against the live N1MM log copy) is
+applied by WIMS either way. Clicking a retained decode (CQ/QRZ **or a 73 for tailend**,
+GridTracker2-style) in either roster causes the receiving station to start a contact via UDP
+**Reply**, routed through WIMS's TX arbiter. **Calling CQ and autoresponding to the pile** is
+done in the **WSJT-X UI** at the seat (or remote desktop to that seat) — the UDP API cannot
+run that mode usefully; see **§2.12**.
 
 On each completed contact WSJT-X sends a message to N1MM to log the contact information.
 
@@ -78,7 +87,7 @@ In general WIMS runs on a separate computer from the WSJT-X and SSB/CW computers
                            N1MM+ (log, ◀┘          └▶ Rotator(s) Yaesu/K3NG
                            dupe/needed)
                                ▲
-                 GridTracker ──┘  (grid forwarding, log export, packet relay/viz)
+                 GridTracker ──┘  (operator roster option — fed and gated via the switchboard)
 ```
 
 Key constraints carried over from the notes: **zero overlap on transmitters** (*per
@@ -87,6 +96,33 @@ shared-resource group* — see below), **WSJT-X transmissions cannot be interlea
 vs S&P is split by protocol reality (§2.12):** WIMS drives **S&P and tailend** over UDP
 (click-to-work → Reply on a retained decode, including **73**); **run/CQ + pile autorespond stays
 in the WSJT-X UI** because the UDP API cannot start a CQ or keep answering callers.
+
+### WIMS functions and program partitioning (Switchboard baseline, 2026-07-30)
+
+The definitive function list, and where each function runs. The partition principle:
+**time-critical interlock paths never traverse the central server** — WIMS *assigns* those
+paths and monitors them; the packets flow directly between the endpoints. Everything that is
+not time-critical centralizes in one WIMS server.
+
+| # | Function | Lives in |
+|---|----------|----------|
+| 1 | **Switchboard / router / NAT** for packet flows among WSJT-X, N1MM, GridTracker (concept F1–F6) | WIMS server |
+| 2 | **Decode-list → roster filter** — band subscriptions + Needed status computed against the live N1MM log copy | WIMS server |
+| 3 | **Fleet inventory / status dashboard** — discovery, readiness, per-flow liveness | WIMS server |
+| 4 | **Operations control: assign bands to call rosters** (subscriptions + control leases, handoff) | WIMS server |
+| 5 | **Operations control: assign WSJT-X inhibit inputs to SSB/CW Key outputs** — interlock wiring as a routing assignment, pushed to the Key agents | WIMS server (assignment only — not the data path) |
+| 6 | **WIMS call roster** — browser roster as the alternative to GridTracker | WIMS server |
+| 7 | **SSB/CW Key agent** — reads the KEY line (USB-serial CTS), sends key state directly to its assigned WSJT-X inhibit inputs; registers with the fleet dashboard for discovery and assignment | **Standalone program**, one per SSB/CW radio PC |
+| 8 | **WSJT-X inhibit input** — gate thread controlling PTT from UDP inhibit datagrams ([wims_tx_inhibit.md](wims_tx_inhibit.md)) | **Inside WSJT-X** (improved-fork patch) — part of WSJT-X, not of WIMS |
+| 9 | **Seat setup agent** — WSJT-X PC setup, config audit, readiness (existing `wims.agent` role) | Standalone program, one per WSJT-X PC |
+
+GridTracker itself stays third-party and unmodified — a subscriber, never a component.
+
+The former "WIMS server + agent" split survives but sharpens into **one central server + three
+seat-side programs** (Key agent, seat setup agent, and the in-WSJT-X inhibit thread), each
+deliberately small: the Key agent knows only its serial port, its assignment list, and the
+dashboard; the inhibit thread knows only its UDP port and its PTT line; the setup agent knows
+only its own PC.
 
 ### Deployment context (current operation)
 
@@ -214,11 +250,14 @@ bed (§5).
   without collision.
 
 ### 1.2 GridTracker
-> **Role (resolved, §4.3):** with WSJT-X standardized on **multicast**, GridTracker is a
-> **parallel read-only subscriber**, *not* a relay — which sidesteps the forward/grid-drop quirks
-> below. On a WIMS-managed instance GridTracker is a **band viewer only**; it must not initiate TX
-> (that bypasses the arbiter, §3.4). WIMS's own call roster (§Goals / §3.12) is the click-to-work
-> path. So GridTracker is optional per operator preference; go-boxes run none.
+> **Role (revised 2026-07-30, Switchboard baseline):** GridTracker is a **first-class operator
+> roster**, fed exclusively by the WIMS switchboard (concept F2) — never connected to WSJT-X
+> directly on managed instances. **Click-to-work is now permitted** because GridTracker's
+> Reply can only reach WSJT-X through WIMS, where the TX arbiter, lease, and SSB/CW gate are
+> enforced (F3) — the original reason for the viewer-only ban (arbiter bypass) is gone by
+> construction. WIMS's own call roster (§Goals / §3.12) remains the alternative roster; the
+> choice is per operator. *(Superseded earlier stance: parallel read-only multicast
+> subscriber, viewer-only, click-to-work banned.)*
 - **Grid forwarding quirk** — only relevant if GridTracker is in a *relay* path; multicast avoids
   that. Regression note: grid is forwarded to WSJT-X *only* when triggered from the Call Roster;
   any other trigger logs without grid.
@@ -1002,6 +1041,24 @@ the announcement is the entire rule. No conflict map, no server in the path; the
 **Latency budget (Mechanism 2):** CTS edge sub-ms + UDP ~1 ms (cross-host) or ~0 (co-located) +
 actuator ramp 2–5 ms (analog) or 10–30 ms (software audio API). The **actuator is the dominant
 uncertain term**; the analog VCA is the only guaranteed-10 ms path.
+
+**Amendment (2026-07-30) — the reactive path is redesigned in
+[wims_tx_inhibit.md](wims_tx_inhibit.md); that document governs on conflicts.** Key changes:
+
+- **TX Inhibit gate replaces Halt/Enable as the reactive mechanism.** A gate thread inside
+  WSJT-X (improved-fork patch) computes `RTS = intent ∧ ¬inhibit` on a dedicated PTT serial
+  port — ~1–2 ms, deterministic. **Puncture mode:** mid-cycle inhibit masks only the PTT line
+  while the modulator keeps running, so RF resumes mid-waveform *within the same period*
+  (decode impact bench-verified negligible for gaps ≤1.6 s, `testbed/tx_interrupt_bench.py`).
+  The Layer-2 external audio mute above remains the backstop for unpatched/CAT-PTT seats.
+- **Correction:** the UDP Halt path measures **~210–400 ms to PTT-down** (GUI tick + fixed
+  200 ms timer + CAT), not the ~50–200 ms implied above — and there is **no UDP enable
+  message**, so any "halt at key-down, enable at key-up" reading of this section was never
+  implementable. Halt Tx is demoted to cleanup.
+- **Release policy (previously unspecified here):** inhibit release restores the gate and
+  **never initiates TX**; a **hang time** (default 0.5 s) absorbs CW keying trains before the
+  gate reopens; WSJT-X's own sequencer owns resumption; Mechanism 1 keeps declining new TX
+  starts until clear-plus-hang.
 
 ### 3.14 Instance profile (per-WSJT-X config schema)
 

@@ -7,6 +7,18 @@ and keep §Deployment / §4.3 in the design doc in sync at a summary level.
 
 Related: **[wims_status.md](wims_status.md)** for what the server currently binds/joins in code.
 
+> **Adopted direction (2026-07-30):** the **[WIMS Switchboard](wims_switchboard_concept.md)**
+> is now the assumed architecture. This document remains the authoritative layout for the
+> **currently-wired** fleet (per-band streams — concept F4 **Option 2**). Two open decisions
+> will change this map when resolved: (1) single fleet stream + direct WSJT-X→N1MM ADIF
+> logging leg (F4 **Option 1**, pending bench Q3), which would retire the per-band port table
+> in §4; (2) the **dedicated-RTS PTT seat standard**
+> ([wims_tx_inhibit.md](wims_tx_inhibit.md) §5.5), which would replace the `PTT Method = CAT`
+> convention in §3.3. Also note: the current server ships an **experimental GridTracker
+> bridge** not yet reflected below — forwards all plane-A traffic to one GridTracker
+> (`--gt-forward HOST:22370`), reverse click-to-work on **22371**, currently **without
+> arbiter gating** (lab use only; `GET /api/gt-bridge` for stats).
+
 **Critical ops note:** every WSJT-X instance must set **Outgoing interface = contest LAN NIC**
 (§4.1). Multicast address alone is not enough — blank / `@Invalid()` interface is a silent
 failure (decodes work, WIMS never sees UDP).

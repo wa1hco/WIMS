@@ -1,10 +1,11 @@
 # WIMS Switchboard — concept paper for review
 
-**Status: concept for review — not the current build.** This document describes a proposed
-re-partitioning of WIMS (WSJT-X Instance Management System) and is written to stand alone, for
-review by experienced multi-multi VHF operators who have **not** read the rest of the WIMS
-design tree. Comments, objections, and "that will break because…" war stories are exactly what
-we want.
+**Status: adopted design direction (2026-07-30) — not yet the current build; still open for
+review.** This document describes the re-partitioning of WIMS (WSJT-X Instance Management
+System) that the project is now building toward, and is written to stand alone, for review by
+experienced multi-multi VHF operators who have **not** read the rest of the WIMS design tree.
+Comments, objections, and "that will break because…" war stories are exactly what we want —
+the open questions in §11 are live.
 
 The current, implemented WIMS design lives in [wims_design.md](wims_design.md) and
 [wims_networking.md](wims_networking.md); differences from it are called out in §8.

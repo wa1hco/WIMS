@@ -140,6 +140,39 @@ end's USB latency timer — set to 1 ms it is ~3 ms).
 SSB/CW wired directly *and* remote stations announcing over UDP). Each source is visible
 separately in diagnostics.
 
+### 4.4 Fan-out: one Key agent, several WSJT-X inhibit inputs
+
+One SSB/CW Key agent must control the inhibit inputs of every WSJT-X instance on its band
+(three 6 m beam instances, FT8 + MSK pairs, a remote same-band site). Two candidate
+transports:
+
+**Unicast to an assigned list (recommended).** The Key agent holds a list of
+`instance → ip:port` targets and sends each transition (and keepalive) to all of them. The
+list is **assigned on the WIMS operations dashboard** ("assign WSJT-X inhibit inputs to
+SSB/CW Key outputs") and pushed to the agent; the agent persists its last assignment so the
+interlock survives a WIMS outage.
+
+- Keeps the WSJT-X thread maximally dumb: *"obey any valid inhibit datagram arriving on my
+  socket"* — no band logic, no station filtering, no assignment knowledge inside WSJT-X. That
+  directly serves the minimal-states / minimal-misconfiguration requirement: the only way to
+  mis-wire the interlock is in one visible place (the WIMS assignment screen), not in N
+  per-seat configs.
+- Unicast is robust on Windows and immune to IGMP-snooping pruning — the same reasoning that
+  drove the Switchboard's unicast legs.
+- Fan-out cost is nil at this scale (a handful of targets × a few datagrams per second).
+
+**Multicast group (analyzed, not chosen).** All Key agents announce to one group; every
+inhibit thread joins and must then decide which announcements concern it — which forces a
+**band (or key-station) filter into every WSJT-X config**. That is exactly the distributed,
+per-seat, silently-wrong-able configuration this design is trying to eliminate (a 144 SSB
+key-down must not inhibit 50 MHz FT8, so an unfiltered dumb receiver is not an option on a
+multicast transport). Multicast also reintroduces the §4.1-class Windows/IGMP folklore on the
+most safety-critical packet in the system. Revisit only if assignment lists prove unwieldy.
+
+Co-located special case: when the SSB/CW radio and a WSJT-X instance share one PC, the agent
+still sends UDP to 127.0.0.1 — one mechanism, no special path (the loopback hop is
+microseconds).
+
 ## 5. WSJT-X transmit-enable path and patch points
 
 Source review of the improved_PLUS 3.1.0 tree (paths relative to the extracted source;
@@ -403,3 +436,105 @@ appears — there is no UDP enable.
 4. **Design-doc amendments:** §3.4.1 release policy (per §7), Halt/enable correction.
 5. Offer the patch upstream to the improved fork (same channel as the port-2333 letter — it
    is the same story: contest-grade multi-station operation needs a gate, not a message).
+
+## 11. Inhibit-thread implementation plan (for review before coding)
+
+The concrete plan for the in-WSJT-X piece (function #8 of the design-doc partition table).
+Guiding requirement, verbatim: *as basic and simple as possible, minimal states, minimal
+possibility of misconfiguration, no effect on familiar WSJT-X operation if not used —
+regardless of whether it is Enabled.*
+
+### 11.1 States — exactly two
+
+```
+            keyed datagram (any valid sender)
+   OPEN  ───────────────────────────────────►  INHIBITED(deadline)
+    ▲                                                │
+    │  clear datagram + hang time elapsed,           │ every keyed/keepalive datagram
+    │  OR deadline expires (deadman, alarmed)        │ re-arms deadline = now + TTL
+    └────────────────────────────────────────────────┘
+```
+
+No persistent state, nothing survives a restart, no configuration of *who* may inhibit —
+the gate defaults **OPEN**, asserts only on receipt of valid datagrams, and self-clears.
+An Enabled thread that never receives a datagram changes nothing about WSJT-X behavior;
+that is the "no effect if unused" guarantee, held by construction rather than by testing.
+
+### 11.2 Settings — three fields
+
+| Setting (Settings → Reporting, "TX Inhibit" group) | Default | Notes |
+|---|---|---|
+| Enable TX inhibit input | **off** | Off = thread not started, socket not bound, zero code in the TX path |
+| UDP port | **22372** | Clear of band streams 2237–2243, N1MM 12060/2333, WIMS 8787/8788, GT bridge 22370/22371. Per-instance: multi-instance hosts give each instance its own port (22372, 22373, …) — visible in one field, and the assignment screen (§4.4) checks for collisions |
+| Hang time | **0.5 s** | §3; range 0.2–5 s |
+
+The PTT side (dedicated-port RTS method, §5.5) is configured where PTT already lives —
+Settings → Radio → PTT Method — and is a separate decision from the inhibit input: the gate
+thread masks whatever PTT path is in use (RTS directly; CAT seats get the §5.4b fallback).
+
+### 11.3 Datagram format
+
+Compact single-datagram JSON (debuggable with tcpdump/netcat; size is irrelevant at this
+rate, and parsing cost is nanoseconds against a millisecond budget):
+
+```json
+{"wims_inhibit": 1, "state": "keyed", "ttl_ms": 600,
+ "station": "ROY-222-SSB", "band": "222", "seq": 4711}
+```
+
+- `wims_inhibit: 1` — magic + version; anything else is ignored.
+- `state`: `keyed` (assert, re-arm deadline to now + `ttl_ms`) or `clear` (start hang timer).
+- `station`/`band`: diagnostics and UI badge text only — **the thread makes no routing
+  decision on them** (§4.4: routing lives in the Key agent's assignment list).
+- `seq`: duplicate/reorder tolerance in diagnostics; not used for gating (gating is a level).
+
+### 11.4 Discovery ("somehow", resolved)
+
+The thread announces itself in-band on plane A: a new WSJT-X UDP message type
+**InhibitStatus** (proposed type 18, above the current highest = 12–17 range check at build
+time), emitted at heartbeat cadence *only when Enabled*, carrying
+`{inhibit_port, gate_state, source_station (when inhibited), counters}`. Properties:
+
+- WIMS learns *instance → (host, inhibit port, enabled)* passively, the same way it learns
+  everything else about the fleet — no probing, no per-seat registration step. The
+  assignment screen (§4.4) simply lists discovered inhibit inputs.
+- Existing consumers are safe: WSJT-X-protocol servers skip unknown message types (verify on
+  N1MM + GridTracker in the §11.6 bench — regression risk is low but must be shown, not
+  assumed).
+- The same message doubles as live telemetry: the ops dashboard shows gate state per
+  instance in real time, and a `keyed` badge names the SSB/CW station holding the band.
+
+### 11.5 Thread structure inside WSJT-X
+
+One new class (`TxInhibitGate`), one new thread, following the existing worker-thread
+patterns (`m_audioThread`, `transceiver_thread_`):
+
+- Owns: the UDP socket (bound only when Enabled), the deadman/hang QTimers, the INHIBIT
+  atomic, and — when the §5.5 PTT method is selected — the dedicated serial port's RTS line.
+- Emits (queued, to GUI thread): `inhibitChanged(bool, QString source)` for the intent gate
+  (§5.4a), the UI badge, and the InhibitStatus announcements. Nothing on the fast path waits
+  for the GUI.
+- Touches existing code in exactly three places: the one-line intent gate at
+  mainwindow.cpp:7810, the PTT-method routing (new enum value), and the PTT-confirmation
+  handshake (§5.5 point 2). Everything else is additive.
+
+### 11.6 Prototype sequence (test before integrate)
+
+1. **Spike, no WSJT-X (days):** two small standalone programs in the WIMS repo —
+   `key_agent_sim` (reads CTS or keyboard, emits §11.3 datagrams to a target list) and
+   `inhibit_gate_sim` (binds 22372, drives RTS on a second dongle, implements §11.1 exactly).
+   Scope on the two serial lines measures the full UDP path latency distribution and
+   validates the deadman/hang logic against scripted CW keying. The gate logic is written as
+   a pure, WSJT-X-independent module so the patch later transplants it, not reimplements it.
+2. **Fork patch (the prototype for testing):** `TxInhibitGate` + settings + InhibitStatus +
+   intent gate, built in the improved_PLUS tree (build infrastructure already present).
+   Bench: WSJT-X transmitting into a dummy load / audio loopback, `key_agent_sim` firing
+   bursts — verify puncture-and-resume on the air with an SDR, N1MM/GridTracker unaffected
+   by message type 18, and the §9.2 latency numbers on the real thread.
+3. **Real Key agent** (grows from `key_agent_sim` into a `wims.agent` role: CTS watcher +
+   assignment list from the dashboard + persistence), then the WIMS assignment UI (#5 in the
+   design-doc function table).
+
+Order rationale: step 1 de-risks every design decision that does not require WSJT-X (format,
+deadman, hang, latency) with an afternoon's hardware; step 2 is then a mechanical transplant
+whose only new risks are Qt-threading and settings plumbing.
