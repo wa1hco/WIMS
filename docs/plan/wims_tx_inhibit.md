@@ -121,22 +121,66 @@ replacement for the preventive gate at TX-initiate time (Mechanism 1) — WIMS s
 
 ## 4. Inhibit sources and their latency
 
-### 4.1 Local CTS input (SSB/CW PTT wired to a USB-serial control line)
+### 4.1 Local CTS input (SSB/CW KEY wired to the PTT port's CTS pin)
 
-The SSB/CW PTT line (or a relay contact across it) drives the **CTS** pin of a cheap
-USB-serial dongle on the WSJT-X PC. WSJT-X (patched) watches CTS edges.
+The SSB/CW station's KEY/PTT line (via a relay contact or isolated sense — §4.1.2) drives the
+**CTS** pin of a USB-serial port on the WSJT-X PC, and the gate thread watches CTS edges.
 
-Latency facts to design around:
+**Configuration: none — the inhibit input is the PTT port's own CTS pin.** The gate thread
+already owns a serial port (it drives PTT on RTS or DTR, §5.5); a serial port's modem lines
+come in pairs, and the input directions are otherwise unused. So the rule is a convention,
+not a setting: **whenever a DTR/RTS PTT port is configured, that same port's CTS is the
+local KEY-inhibit input.** One cable, one port, one `open()`. Consequences:
+
+- **Zero added settings** (§11.2 stands) and zero discovery: the port is already known.
+- **Fail-safe is automatic and total:** if the dongle is unplugged or dies, the PTT output
+  goes with it — the seat *cannot* transmit, rather than transmitting unprotected. The
+  earlier "watcher death must assert INHIBIT" rule became unnecessary; physics enforces it.
+- **The shared-radio seat (222/432) gets an inherent interlock:** one dongle carries
+  RTS→PTT out and KEY→CTS in, and the radio's own keying line locks WSJT-X out whenever the
+  operator is on SSB/CW — no agent process, no network, no configuration.
+- **What this doesn't cover is the Key agent's job, deliberately.** KEY arriving on a
+  different PC, a seat with CAT PTT (no serial PTT port exists — nothing to pair with),
+  polarity oddities, multiple KEY sources: all of that flexibility lives in the standalone
+  Key agent (§4.2, any port, loopback UDP for the co-located case) — never as WSJT-X
+  settings. Same-port CTS is the zero-config common case, not the universal mechanism.
+
+**Polarity and the floating-pin trap (the one sharp edge):** the convention is **CTS
+asserted = KEY closed = inhibit**. An unwired CTS behind a proper RS-232 transceiver idles
+deasserted (safe); a bare TTL-level breakout may float either way. A wrong-floating pin
+produces a *permanently visible* "TX INHIBITED — local KEY line" badge, never silent loss —
+the failure direction is RX and loud, which is why this stays convention-per-§4.1.2 rather
+than an invert checkbox.
+
+**Hang for a raw KEY line:** unlike §4.2 datagrams (hang already applied by the Key agent),
+CTS carries raw dit-by-dit keying, and re-radiating FT8 between a CW operator's elements
+would violate the one-signal rule in spirit. The gate thread therefore runs the local CTS
+edges through the *same* scheduler logic the Key agent uses (`KeyAgentScheduler`, already
+written and tested), with **fixed, compiled-in defaults** (hang 0.5 s) — behavior without
+configuration, per the strict-simplicity rule.
+
+#### 4.1.1 Latency facts to design around
 
 | Hop | Typical | Notes |
 |-----|--------:|-------|
-| PTT contact → CTS pin | ~0 | Wire |
+| KEY contact → CTS pin | ~0 | Wire |
 | USB-serial reports modem-status change | **1–16 ms** | FTDI parts report status at the *latency timer* interval — **default 16 ms, set to 1 ms** (sysfs `latency_timer` on Linux, FTDI driver property page on Windows). CP210x/CH34x similar ballpark. This is the dominant term and it is configurable. |
-| OS wakes the watcher | <1 ms | Linux: blocking `TIOCMIWAIT` ioctl (edge-triggered wait, no polling). Windows: `WaitCommEvent(EV_CTS)`. Both give an event-driven thread, not a poll loop. |
+| OS wakes the watcher | <1 ms | Linux: blocking `ioctl(TIOCMIWAIT)` (edge-triggered wait, no polling). Windows: `WaitCommEvent(EV_CTS)`. Event-driven, not a poll loop — and it is the gate thread itself waiting, no extra thread. |
 
-Design: a dedicated watcher thread per configured port; assert/release INHIBIT atomically;
-thread death or port disappearance ⇒ **assert INHIBIT + alarm** (fail toward the contest rule;
-a missing wire must be noticed, not operated through).
+#### 4.1.2 The dongle (a build item, not a purchase)
+
+Market reality: RTS→PTT keying cables are commercial commodities, but **KEY→CTS sensing is
+generally unavailable** — the station's existing home-built dongle (RTS→PTT out + KEY→CTS in
+on one USB-serial port) is therefore the **reference design**, and the fleet standard is to
+replicate it. Spec points for the write-up (to be its own short hardware note):
+
+- One USB-serial port per seat: RTS (or DTR) drives the radio PTT input through the usual
+  keying transistor/optocoupler; KEY sense enters CTS through an **optocoupler** — the
+  SSB/CW keying loop may sit at amplifier-relay voltages and must not share ground with the
+  PC casually.
+- Sense polarity per §4.1: key closed ⇒ CTS asserted; include a pull to the deasserted state
+  so an unplugged KEY cable reads open, not floating.
+- FTDI-based, so the 1 ms latency-timer setting applies on both OSes.
 
 ### 4.2 UDP inhibit datagram (agent on the SSB/CW radio's PC)
 
@@ -410,7 +454,7 @@ appears — there is no UDP enable.
 
 | Failure | Behavior | Rationale |
 |---------|----------|-----------|
-| CTS dongle unplugged / watcher dies | INHIBIT asserted + loud alarm | A missing interlock wire must stop TX, not be ignored |
+| PTT/KEY dongle unplugged | **PTT output disappears with the KEY input** (same port, §4.1) — the seat physically cannot transmit; alarm raised | Fail-safe by wiring, not by code: a missing interlock also means a missing PTT |
 | UDP agent crashes while keyed | Keyed state expires after deadman (~600 ms) + alarm | Can't leave the band dead forever on a crash; expiry is visible |
 | UDP agent silent (idle heartbeat lost) | Source marked degraded; TX continues; WIMS status red on that band | Choosing to hold digital is station policy, surfaced not defaulted |
 | WSJT-X patch absent (stock binary on a seat) | §3.4.1 external mute + Halt path unchanged | The patch is an upgrade, not a new dependency |
@@ -492,7 +536,8 @@ setting moved out:
 |---|---|
 | Enable checkbox | **Always on.** The listener binds at startup, costs nothing when silent, and fail direction is safe (inhibit only ever *stops* TX and self-clears by TTL). The only control is a **Hold "TX inhibit test" menu item** that ignores datagrams until restart — for bench testing, never a config state |
 | UDP port | **Auto.** Bind 22372 if free, else an ephemeral port; the actual port is announced in InhibitStatus (§11.4), so nothing and nobody needs to know it in advance. Multi-instance hosts just work — second instance lands on an ephemeral port, announced the same way |
-| Hang time | **Key agent** (§3) — the per-operator knob lives at the SSB/CW seat |
+| Hang time | **Key agent** (§3) — the per-operator knob lives at the SSB/CW seat. The local CTS input uses the same logic with compiled-in defaults (§4.1) |
+| Local KEY input port | **None — it is the PTT port's own CTS pin, by convention** (§4.1). No port to pick, no polarity switch; a seat needing anything fancier runs the Key agent |
 
 Trust model, stated: any LAN host can inhibit any WSJT-X. On a cooperative contest LAN this
 is the same trust already extended to "Accept UDP requests," and the failure direction is
@@ -547,10 +592,10 @@ time), emitted at heartbeat cadence, carrying
 One new class (`TxInhibitGate`), one new thread, following the existing worker-thread
 patterns (`m_audioThread`, `transceiver_thread_`):
 
-- Owns: the UDP socket (always bound — 22372 or ephemeral, §11.2), the deadman QTimer (no
-  hang timer — §3), the INHIBIT atomic, and the serial PTT line: **all DTR/RTS PTT routes
-  through this thread** (§5.5), so it owns the port stock WSJT-X would have handed to
-  hamlib.
+- Owns: the UDP socket (always bound — 22372 or ephemeral, §11.2), the deadman QTimer, the
+  INHIBIT atomic, and the serial PTT port — **all DTR/RTS PTT routes through this thread**
+  (§5.5), so it owns the port stock WSJT-X would have handed to hamlib, including that
+  port's **CTS pin as the local KEY input** (§4.1, fixed-default scheduler logic in-thread).
 - Emits (queued, to GUI thread): `inhibitChanged(bool, QString source)` for the UI badge
   and the InhibitStatus announcements — presentation only, never behavior (§3). Nothing on
   the fast path waits for the GUI.
