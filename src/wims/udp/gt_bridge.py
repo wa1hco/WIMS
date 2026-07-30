@@ -22,9 +22,11 @@ WIMS already joins every band port. This module:
 
 1. **Forward** — re-send every raw WSJT-X NetworkMessage datagram to one
    ``(host, port)`` where GridTracker is listening (typically a Linux desktop).
-2. **Reverse** — listen on a local UDP port for GT → WSJT control (Reply / Halt /
-   FreeText / … from Call Roster click) and unicast the **raw** datagram to the
-   instance's last MessageClient ``control_addr`` (ephemeral source of Status/Decode).
+2. **Reverse** — GT replies to the source port of the forwarded stream (the
+   bridge's own socket, ephemeral by default); treat inbound datagrams as GT →
+   WSJT control (Reply / Halt / FreeText / … from Call Roster click) and unicast
+   the **raw** datagram to the instance's last MessageClient ``control_addr``
+   (ephemeral source of Status/Decode).
 
 Not a logger path. N1MM must keep reading band streams (S_B), not this port.
 Experimental: reverse path is pass-through (human click in GT) without the full
@@ -51,11 +53,13 @@ _CONTROL_TYPES = frozenset({
 })
 
 # Default ports for experiments (avoid 2237–2243 band table).
-# GT listens on FORWARD port; WIMS reverse-bind uses BRIDGE port.
-# Same-host: these **must differ** — if both bind 22370, sendto(127.0.0.1:22370)
-# loops into WIMS (SO_REUSEADDR) and GT never sees traffic.
+# GT listens on FORWARD port. The reverse path needs no well-known number:
+# GT replies to the *source* port of the forwarded stream, so the bridge
+# binds an ephemeral port by default (0). A fixed --gt-bridge-port remains
+# available for firewall determinism; if fixed on the same host as GT it
+# must differ from the forward port (sendto(127.0.0.1:same) would loop).
 DEFAULT_GT_FORWARD_PORT = 22370   # GridTracker Receive UDP
-DEFAULT_GT_BRIDGE_PORT = 22371    # WIMS bind / GT Reply return path
+DEFAULT_GT_BRIDGE_PORT = 0        # ephemeral; GT replies to our source port
 
 
 def parse_host_port(spec: str, *, default_port: int = DEFAULT_GT_FORWARD_PORT
@@ -139,6 +143,7 @@ class GridTrackerBridge:
         except OSError:
             pass
         self.sock.bind((bind_host, self.bind_port))
+        self.bind_port = self.sock.getsockname()[1]   # actual port (ephemeral if 0)
         self.sock.setblocking(False)
         # Separate unicast sender for WSJT control (don't share bind with GT sock).
         self._tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
