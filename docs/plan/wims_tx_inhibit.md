@@ -159,6 +159,36 @@ edges through the *same* scheduler logic the Key agent uses (`KeyAgentScheduler`
 written and tested), with **fixed, compiled-in defaults** (hang 0.5 s) — behavior without
 configuration, per the strict-simplicity rule.
 
+#### 4.1.0 What the KEY line actually looks like (vendor survey)
+
+The Key agent senses the SSB/CW rig's amp-keying output, and its *shape* depends on the
+rig's break-in configuration — which is also how the industry answers "won't full break-in
+beat a relay amp to death?" (verified per vendor, 2026-07):
+
+| Rig | Output | Relay-amp protection | QSK behavior |
+|-----|--------|----------------------|--------------|
+| **Icom** (SEND, RCA) | Solid-state switch to GND — modern rigs ~16 V / 0.5 A max (7300-class); Icom's own app note says use an external buffer relay for legacy high-voltage/AC keying loops | **TX Delay menu** (HF/50M, ~10–25 ms): SEND asserts early, RF delayed so slow relays close first | Full BK-IN follows CW elements. Measured quirk: 7300 SEND can drop **2–3 ms before RF ends** |
+| **Kenwood** (REMOTE DIN, LKY) | +12 V or GND-closure logic, selectable | Per-band **Linear Amplifier Control menu** with added-delay options — the manual names the TL-922 as the "not designed for full break-in, add delay" case | Element-by-element only if configured; also offers a **TX Inhibit input** (menu-assignable — SO2R heritage; verify per model) |
+| **Elecraft** (KEY OUT) | Solid-state | **TX DLY menu** (KEY Out → RF Out per band) | The QSK reference: KPA500 fast quiet relay, **KPA1500 PIN-diode T/R** — silent full break-in by design |
+| **Flex** (TX1/2/3 RCA) | Configurable outputs, per-output delay + global TX DELAY | Practice: output delay 0, **TX DELAY 10–20+ ms** against hot-switching | **Full QSK requires the delays set to zero** — QSK and relay-amp protection are explicitly mutually exclusive settings |
+
+The pattern across all four: **the rig holds KEY per its break-in mode** (PTT/SSB and semi
+break-in produce one closure per over, with the rig's own hang), **TX-delay menus protect
+each closure from hot-switching**, and per-element keying is only ever sent to amps built
+for it (PIN diodes or QSK-rated relays). Consequences for this design:
+
+- In SSB/PTT and semi break-in, the sensed line arrives *pre-hung* by the rig — the Key
+  agent's hang just adds margin (the two compose additively; harmless).
+- In full QSK with a PIN-switched amp, the line is dit-by-dit — **this is the case that
+  makes the agent-side hang time (§3) mandatory**, since WIMS must treat the whole CW
+  stream as one band occupancy.
+- The Icom early-SEND-drop quirk is absorbed by the same hang (500 ms ≫ 3 ms).
+- Electrically, the Keyline J1 sense (§4.1.2: ~3.3 V / 2 kΩ wetting through the FTDI
+  pull-up, 4.7 V zener clamp) parallels safely across modern solid-state/relay KEY outputs
+  — consistent with the SO4R interface spec (open collector, low true, 5–15 V). Connect it
+  on the **rig side** of any buffer relay; never across a legacy amp's grid-block keying
+  loop (high/negative/AC voltages — the same reason Icom mandates the buffer).
+
 #### 4.1.1 Latency facts to design around
 
 | Hop | Typical | Notes |
@@ -445,7 +475,7 @@ last:
 |-------|-----------|-------------|---------|
 | **PTT gate thread (§5.5, preferred)** | Dedicated-port RTS = intent ∧ ¬inhibit; UDP/CTS edge flips the line directly | **~1–2 ms to line drop + rig unkey (ms), deterministic** — no GUI tick, no rig thread, no audio buffer in the path; WSJT-X unaware (§3) | Requires the RTS-PTT seat wiring (dongle + PTT line per seat) and the WSJT-X patch |
 | §3.4.1 Layer-2 external audio mute | OS volume / VCA outside WSJT-X | 2–5 ms (analog) / 10–30 ms (software) | The fallback for **CAT-PTT seats** (no line to own) and for unpatched WSJT-X; also defense-in-depth behind the gate. Equally invisible to WSJT-X |
-| Radio hardware TX-inhibit input | Rig's interlock pin wired to the SSB/CW PTT | µs–ms, deterministic, zero software | **Per-rig survey needed:** Flex 6000-series has TX REQ interlock inputs (polarity configurable); Icom/Yaesu seats vary and many rigs have no such input. Where it exists, this is the only path that needs no computer at all |
+| Radio hardware TX-inhibit input | Rig's interlock pin wired to the SSB/CW PTT | µs–ms, deterministic, zero software | Flex 6000-series has TX REQ interlock inputs (polarity configurable); **Kenwood offers a menu-assignable TX Inhibit input** (SO2R heritage — §4.1.0); Icom/Yaesu seats vary and many rigs have no such input. Where it exists, this is the only path that needs no computer at all |
 
 Recommendation: the **§5.5 gate thread is the primary** wherever the seat can take the RTS
 wire; **CAT-PTT seats use the external audio mute** until rewired; the **analog backstop
