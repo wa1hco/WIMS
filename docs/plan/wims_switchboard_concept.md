@@ -193,6 +193,13 @@ So each well-known port keeps one meaning: **2237 = the WSJT-X full-protocol str
 the fleet multicast), **2333 = N1MM's ADIF log ingest**, no port doing double duty. N1MM's
 WSJT-X UDP reader stays off entirely.
 
+A note on that *deprecated* label: it has been on the setting since WSJT-X 2.1.0 (2019),
+removal has never actually been attempted, and N1MM+'s documentation still directs users to
+it. The feature's provenance is fitting: it was requested on wsjt-devel in June 2017 by Roger,
+W3SZ — for real-time contest logging into N1MM+, from this same station organization. Should
+upstream ever remove it, Option 2 below remains the fallback, and a fleet that builds its own
+WSJT-X controls the risk entirely.
+
 Why not the other assignment (primary → unicast N1MM:2237, secondary → multicast to WIMS)?
 The WSJT-X source rules it out: the N1MM broadcast transmits *only* `ADIF + " <eor>"` per
 logged QSO on a one-shot socket (`widgets/mainwindow.cpp`, "Log to N1MM Logger") — no decodes,
