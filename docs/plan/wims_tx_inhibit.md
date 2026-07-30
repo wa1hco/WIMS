@@ -116,9 +116,26 @@ self-inflicted; and (b) a momentary dual-signal at each word resume (~10–20 ms
 repeatedly). Context: semi break-in and SSB-PTT stations arrive *pre-hung* by the rig
 (§4.1.0), so the agent hang mostly matters for full-QSK operators; it is per-station
 tunable (0.2–5 s — a 35 WPM QSK op can run 0.3 s), and its cost is small (3 % of an FT8
-cycle, well inside the ~1.6 s puncture margin). *Option, not yet committed:* the agent sees
-every KEY edge and could measure dit length, setting hang adaptively (≈ 8 dit-times,
-floor 0.2 s) — the knob disappears and fast senders get faster resumes automatically.
+cycle, well inside the ~1.6 s puncture margin).
+
+**Adaptive hang (adopted direction for the agent):** the agent sees every KEY edge, so the
+line self-classifies from closure statistics — no mode input needed, keeping the agent
+standalone. Full-QSK CW is a dense train of short closures (30–200 ms elements); SSB-PTT is
+one closure held for seconds with no internal edges; VOX SSB and semi break-in CW also show
+long closures (the rig's VOX delay / break-in hang pre-bridges the short gaps). Rule:
+
+- **CW-like closures:** hang = **8 × measured dit-time**, clamped 0.2–1.0 s — exactly what
+  the sending speed requires (300 ms at 30 WPM, 640 ms at 15 WPM).
+- **Long closures (SSB-PTT / VOX / semi break-in):** flat **0.5 s**. There is no internal
+  gap to bridge (PTT is held; VOX already bridges syllables), so hang only debounces the
+  unkey and covers a re-tap. Deliberately *not* longer: gaps that survive to the KEY line
+  are genuine multi-second phrase pauses, reopening there costs only a rare ~10 ms
+  dual-signal blip at per-phrase rate (no relay-wear issue, unlike CW word-rate), and every
+  extra second of hang spends the ~1.6 s puncture margin — the difference between a brief
+  SSB interjection costing nothing and costing the FT8 QSO in progress.
+
+The hang knob then disappears entirely; the 0.2–5 s manual setting remains only as an
+override for pathological cases.
 
 **Fail-safe direction.** Wire/agent failure must not silently un-inhibit *or* permanently kill
 the band; the two failure directions get different treatments per source (§4). The invariant:
