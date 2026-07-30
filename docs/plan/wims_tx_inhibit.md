@@ -183,8 +183,20 @@ than an invert checkbox.
 CTS carries raw dit-by-dit keying, and re-radiating FT8 between a CW operator's elements
 would violate the one-signal rule in spirit. The gate thread therefore runs the local CTS
 edges through the *same* scheduler logic the Key agent uses (`KeyAgentScheduler`, already
-written and tested), with **fixed, compiled-in defaults** (hang 0.5 s) — behavior without
-configuration, per the strict-simplicity rule.
+written and tested), with **fixed, compiled-in defaults** (the §3 adaptive hang rule) —
+behavior without configuration, per the strict-simplicity rule.
+
+**No deadman on the local source — deliberately.** The UDP source needs a TTL because a
+*message stream* is the only evidence of state and can die silently; "keyed" learned from a
+datagram is a claim about the past that must expire unless refreshed. CTS is a **level**:
+the gate thread can read the actual pin at any instant (`TIOCMGET` after every `TIOCMIWAIT`
+wake, plus a reconciliation read on the slow tick it already runs for the UDP timers), so
+its knowledge is never stale and there is nothing to expire. The §4.3 compose rule is thus
+asymmetric by design: `INHIBIT = (CTS level, held through hang) ∨ any unexpired UDP hold` —
+the timing machinery (keepalives, TTL, expiry alarms) belongs to the message source only;
+the level source carries only the release hysteresis. The failures TTL guards against are
+covered for CTS by wiring physics instead (§8): losing the dongle loses the PTT output with
+the sense pin, and a stuck line is a permanently visible badge, not a silent state.
 
 #### 4.1.0 What the KEY line actually looks like (vendor survey)
 
