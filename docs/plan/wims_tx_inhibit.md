@@ -48,7 +48,7 @@ the fast audio mute. As the *primary* mechanism it is blunt in four distinct way
    **no un-halt / enable-TX message**. Resumption after a Halt requires a human at the seat or
    a fresh Reply — so "Halt at key-down, Enable at key-up" is not actually implementable as
    stated, and the design text needs correcting on this point (§8).
-3. **It is slow to take effect.** Traced through the source (§5.2): a UDP Halt rides the GUI
+3. **It is slow to take effect.** Traced through the source (Appendix A): a UDP Halt rides the GUI
    event loop, waits up to a 100 ms tick for the stop edge, then a fixed 200 ms timer before
    PTT drops — **~210–400 ms to PTT-down typical, >700 ms worst case**; audio dies earlier
    (~50–120 ms). That is why §3.4.1 needed the external audio-gain mute (Layer 2) at all.
@@ -76,7 +76,7 @@ One boolean per WSJT-X instance: **INHIBIT**. Sources (§4) are OR-ed.
 
 WSJT-X's main function does not know inhibit exists. It decides to transmit, starts and ends
 its cycles, plays its audio, advances its QSO auto-sequence, and lights its UI exactly as it
-always has — while the gate thread (§5.5) decides at the line whether the radio radiates:
+always has — while the gate thread (§5) decides at the line whether the radio radiates:
 `RTS = intent ∧ ¬inhibit`. The scenarios then fall out with no special cases:
 
 - **Brief burst mid-cycle:** the RF has a hole in it (mask interval + agent hang, §below).
@@ -154,7 +154,7 @@ The SSB/CW station's KEY/PTT line (via a relay contact or isolated sense — §4
 **CTS** pin of a USB-serial port on the WSJT-X PC, and the gate thread watches CTS edges.
 
 **Configuration: none — the inhibit input is the PTT port's own CTS pin.** The gate thread
-already owns a serial port (it drives PTT on RTS or DTR, §5.5); a serial port's modem lines
+already owns a serial port (it drives PTT on RTS or DTR, §5); a serial port's modem lines
 come in pairs, and the input directions are otherwise unused. So the rule is a convention,
 not a setting: **whenever a DTR/RTS PTT port is configured, that same port's CTS is the
 local KEY-inhibit input.** One cable, one port, one `open()`. Consequences:
@@ -331,159 +331,73 @@ Co-located special case: when the SSB/CW radio and a WSJT-X instance share one P
 still sends UDP to 127.0.0.1 — one mechanism, no special path (the loopback hop is
 microseconds).
 
-## 5. WSJT-X transmit-enable path and patch points
+## 5. The gate thread — the only WSJT-X change
 
-Source review of the improved_PLUS 3.1.0 tree (paths relative to the extracted source;
-`mainwindow.cpp` = `widgets/mainwindow.cpp`).
-
-### 5.1 How a transmission starts
-
-Everything is paced by a **100 ms GUI-thread timer** (`m_guiTimer`, mainwindow.cpp:1009 —
-"Don't change the 100 ms!"). Each `guiUpdate()` tick computes `m_bTxTime` from the T/R clock
-(:7720; `m_tune` overrides it, :7730) and reaches the **single point of no return** at
-:7810–7860:
-
-```cpp
-if(g_iptt==0 and ((m_bTxTime and (fTR < 0.75) and (msgLength>0)) or m_tune)) {
-  g_iptt = 1; ... m_config.transceiver_ptt (true); m_tx_when_ready = true;
-```
-
-This is the only place PTT is asserted for a normal cycle. Note `fTR < 0.75`: late starts are
-allowed up to 75 % into the period, so a start can happen on *any* tick, not just at t=0.
-"Enable Tx" is just `m_auto`; there is no separate TX-enable flag in this fork (JTDX's
-`m_enableTx` was folded into `m_auto` — fork markers at :5539, :5602).
-
-**Audio starts only after the rig confirms PTT**: the transceiver's update callback
-(:12557–12566) starts `ptt1Timer` with the TxDelay (default **0.2 s**), which fires
-`startTx2()` → the Modulator; the Modulator then pads with silence so FT8 tones begin
-**500 ms** into the period (Modulator.cpp:75–105). (Analysis background only — the adopted
-design deliberately touches none of these timers, §5.4; an inhibit spanning that window
-simply means nothing was radiated yet when the line unmasked.)
-
-### 5.2 How a transmission stops (today)
-
-- **Normal end:** `m_btxok` cleared at :7864 → next tick's edge check (:8226) calls
-  `stopTx()` (:8571): audio stopped first, then `ptt0Timer.start(200)` drops PTT **200 ms
-  later** (:8585, :8591). Sequencer state survives.
-- **Halt Tx (UDP type 8 / Stop button):** the `auto_only` flag matters — `auto_only=true`
-  only unchecks Enable Tx and **lets the current cycle finish**; `auto_only=false` clicks
-  Stop (:680–688), which clears `m_btxok` and *waits for the next tick* to actually stop
-  (:12408). It also destroys sequencer state: `m_auto`, `m_bCallingCQ`, `m_bAutoReply`, the
-  wait/reply timers. Measured end-to-end for a UDP Halt: **~210–400 ms to PTT-down** (event
-  loop + ≤100 ms tick + 200 ms ptt0Timer + CAT), worst case >700 ms if the rig-poll is in
-  flight. This quantifies §2's "blunt and slow."
-- **Watchdog:** `tx_watchdog(true)` (:14157) forces `m_bTxTime=false` and stops within the
-  same tick + the 200 ms PTT delay.
-
-### 5.3 The PTT plumbing and its latency traps
-
-`transceiver_ptt()` (Configuration.cpp:5199) posts a queued command to a dedicated **rig
-thread**. Three traps on that thread:
-
-1. A **500 ms polling timer** (PollingTransceiver.cpp:57) does blocking serial CAT I/O on the
-   same thread — a PTT command posted mid-poll waits for the poll to finish (10–100 ms).
-2. `TransceiverBase::set()` sleeps **100 ms after** each PTT change (TransceiverBase.cpp:142,
-   :186) — doesn't delay RF-off but blocks the next rig command.
-3. All PTT methods funnel through one `rig_set_ptt()` (HamlibTransceiver.cpp:1282): hamlib
-   dispatches CAT (~5–50 ms serial) vs DTR/RTS (~1 ms line flip) vs VOX (no-op — audio *is*
-   the PTT).
-
-The audio side is faster: Modulator and SoundOutput live on a `TimeCriticalPriority` audio
-thread (mainwindow.cpp:592, :1077), and `Modulator::stop()` → `m_stream->reset()`
-**discards the queued output buffer** (soundout.cpp:144) — residual RF is only what the
-driver already owns (~10–50 ms with the default "let Qt decide" buffer; bounded by setting
-`WSJT_TX_AUDIO_BUFFER_FRAMES`, mainwindow.cpp:313/599).
-
-**Confirmed: WSJT-X reads no modem-status lines anywhere** (no CTS/DSR/DCD input exists;
-QSerialPort is used only to enumerate port names). The CTS watcher is genuinely new code.
-
-### 5.4 Rejected: gating WSJT-X's transmit decisions
-
-An earlier iteration of this design put inhibit checks inside WSJT-X's own TX logic: an
-"intent gate" added to the `guiUpdate()` start condition (mainwindow.cpp:7810), a fast abort
-routine (audio-buffer discard + immediate PTT drop + partial state cleanup), cancellation of
-the pending-audio timer, a `stop_tuning()` special case, and a withheld PTT confirmation.
-All of it is **rejected** on the §3 principle: each of those touch points teaches WSJT-X
-about inhibit, multiplies internal states and failure modes, and turns "the radio didn't
-radiate" into "the program behaved differently" — including a divergence between what the
-operator sees and what the sequencer actually did. The radiation gate makes every one of
-them unnecessary: a masked cycle is just an uncopied transmission.
-
-Two facts from that analysis survive as constraints on the adopted design:
-
-- The GUI-loop and rig-thread paths cost 100–600 ms and are jitter-bound (§5.2–§5.3) —
-  which is *why* the gate must own the line directly instead of asking WSJT-X to stop.
-- **CAT-PTT seats have no line to own.** Until rewired to RTS PTT (§5.5 cost note), they are
-  covered by the §3.4.1 **external audio mute** — which also lives outside WSJT-X,
-  consistent with the principle — not by any WSJT-X-internal abort.
-
-### 5.5 Preferred architecture: a dedicated PTT gate thread (RTS on its own serial port)
-
-The adopted structure moves **PTT actuation itself** into a fast thread and puts the
-AND-gate at the last software point before the wire — the only design consistent with the
-§3 principle that inhibit acts on the radio, never on WSJT-X's decisions (§5.4):
+Inhibit does not care how WSJT-X works inside, and after §3 neither does this section: the
+entire WSJT-X change is that a small **PTT gate thread** owns the serial PTT line. WSJT-X's
+TX machinery — decision tick, sequencer, modulator, UI — is untouched and unaware.
 
 ```
   WSJT-X main loop ── TX intent (assert/release) ──►  ┌─────────────────────────┐
                                                       │  PTT gate thread        │
   Agent on SSB/CW PC ── UDP keyed/clear/keepalive ──► │  (TimeCriticalPriority) │
                                                       │  RTS = intent ∧ ¬inhibit│
-  Local CTS watcher (§4.1, optional) ───────────────► └───────────┬─────────────┘
+  Local KEY on CTS (§4.1, same port) ───────────────► └───────────┬─────────────┘
                                                                   │ RTS line, dedicated
                                                                   ▼ USB-serial port
                                                           radio PTT input (hard-wired)
 ```
 
-Seat wiring premise: WSJT-X keys the radio via **RTS on a USB-serial port dedicated to PTT**,
-separate from the CAT port. CAT (direct or via wfview/rigctld) handles frequency/mode only.
-
-Why this beats gating in the GUI thread:
-
-- **The inhibit path never touches WSJT-X's slow machinery.** UDP datagram → gate thread
-  wake → RTS flip: **~1–2 ms, deterministic**, independent of the 100 ms tick, the GUI event
-  loop, and the rig thread entirely. All three latency traps of §5.3 (500 ms poll contention,
-  the 100 ms post-PTT sleep, CAT serialization) simply exit the PTT path, for *normal*
-  operation as well as for inhibit.
-- **The RTS drop is the RF kill.** A hard-wired PTT release unkeys the radio in
-  milliseconds regardless of what the audio buffer is doing — no audio abort, no sequencer
-  bookkeeping, nothing inside WSJT-X involved at all (§3). Rigs handle mid-audio unkey
-  routinely — it is the same event as releasing a mic PTT mid-syllable; the rig's own
-  sequencer drops drive before opening its relay.
-- **The gate is a level, computed continuously.** `RTS = intent ∧ ¬inhibit` re-evaluates on
-  every input edge; there is no command ordering to get wrong and nothing to unwind.
-
-Integration points inside WSJT-X (why this must be part of WSJT-X, not a sidecar): TX
-*intent* exists only in-process — the only out-of-process equivalent is an analog gate in
-the PTT cable (§6). Specifically:
-
-1. **PTT routing:** when the PTT method is DTR/RTS, `transceiver_ptt()`'s intent goes to the
-   gate thread instead of the hamlib rig thread (the rig object keeps `ptt_type=None`, as
-   with VOX). This is the **only** touch on existing code.
-2. **PTT confirmation = intent accepted, not line state.** Audio starts only after PTT is
-   confirmed (§5.1, mainwindow.cpp:12557); the gate thread acknowledges *immediately and
-   unconditionally* — inhibited or not — so cycles, audio, and sequencing proceed
-   identically in every case. The physical line is the only thing inhibit ever changes
-   (§3). (A withheld-while-inhibited confirmation was considered and rejected — §5.4.)
-3. **Nothing else.** No checks in `guiUpdate()`, no abort routine, no timer cancellations,
-   no Tune special case (a Tune while inhibited simply doesn't radiate, and the badge says
-   why). WSJT-X's TX code path is the stock path; the patch changes who owns the serial
-   line, full stop.
-4. Deadman and telemetry are timers on the gate thread itself (hang lives in the Key agent,
-   §3); the thread emits state changes to the GUI thread for the UI badge and InhibitStatus
-   only — nothing on the fast path waits for the GUI.
+Seat wiring premise: WSJT-X keys the radio via **RTS on a USB-serial port dedicated to PTT**
+(the Keyline_Interface board, §4.1.2), separate from the CAT port; CAT handles frequency and
+mode only.
 
 **Design decision (2026-07-30): the gate thread *is* the serial-PTT path — not a second
-one.** Rather than adding a new PTT method beside hamlib's DTR/RTS, the patch reroutes the
-**existing DTR and RTS PTT methods** through the gate thread; hamlib keeps only CAT (and VOX
-= None). One mechanism instead of two:
+one.** The patch reroutes the **existing DTR and RTS PTT methods** through the gate thread;
+hamlib keeps only CAT (and VOX = None). One mechanism instead of two: every DTR/RTS user
+exercises the gate code on every transmission with the gate open (behavior identical to
+stock, minus the rig-thread latency traps — an improvement on its own merits, Appendix A);
+no configuration exists in which serial PTT bypasses the gate; and the upstream story writes
+itself — "faster, cleaner serial PTT" carries the gate into the base fork where it gets
+tested and cannot be orphaned as a niche WIMS feature.
 
-- Every DTR/RTS user exercises the gate code on every transmission, with the gate open —
-  behavior identical to today, minus the rig-thread latency traps (§5.3), which is an
-  improvement on its own merits.
-- There is no configuration in which serial PTT bypasses the gate, so "inhibit didn't work
-  because PTT was wired around it" cannot exist.
-- The upstream story writes itself: "faster, cleaner serial PTT" carries the gate into the
-  base fork where it gets tested and cannot be orphaned as a niche WIMS feature.
+Properties of the gate:
+
+- **Deterministic and fast:** UDP datagram (or local CTS edge) → gate thread wake → RTS
+  flip: **~1–2 ms**, independent of everything else in the process. The RTS drop is the RF
+  kill — a hard-wired PTT release unkeys the radio in milliseconds regardless of what the
+  audio buffer is doing (the same event as releasing a mic PTT mid-syllable; the rig's own
+  sequencer drops drive before opening its relay).
+- **A level, computed continuously:** `RTS = intent ∧ ¬inhibit` re-evaluates on every input
+  edge; no command ordering to get wrong, nothing to unwind.
+
+Integration, in full (why this must be part of WSJT-X, not a sidecar: TX *intent* exists
+only in-process — the only out-of-process equivalent is an analog gate in the PTT cable,
+§6):
+
+1. **PTT routing:** with PTT method DTR/RTS, `transceiver_ptt()`'s intent goes to the gate
+   thread instead of the hamlib rig thread (the rig object keeps `ptt_type=None`, as with
+   VOX). This is the **only** touch on existing code.
+2. **PTT confirmation = intent accepted, not line state.** WSJT-X starts audio only after
+   PTT is confirmed; the gate thread acknowledges *immediately and unconditionally* —
+   inhibited or not — so cycles, audio, and sequencing proceed identically in every case.
+   The physical line is the only thing inhibit ever changes (§3).
+3. **Nothing else.** No checks in the TX decision path, no abort routine, no timer
+   cancellations, no Tune special case (a Tune while inhibited simply doesn't radiate, and
+   the badge says why).
+4. Deadman and telemetry are timers on the gate thread itself (hang lives in the Key agent,
+   §3); state changes go to the GUI thread for the badge and InhibitStatus only — nothing on
+   the fast path waits for the GUI.
+
+An earlier iteration gated WSJT-X's *decisions* instead — an intent check in the TX start
+condition, a fast abort routine, timer cancellations, a withheld PTT confirmation. All
+rejected on the §3 principle: each touch point teaches WSJT-X about inhibit and turns "the
+radio didn't radiate" into "the program behaved differently." The supporting source
+analysis (where TX starts and stops, why asking WSJT-X to stop costs 100–600 ms of jitter,
+and confirmation that stock WSJT-X reads no modem-status lines) is preserved in
+**Appendix A** — the design depends on none of it beyond two conclusions: WSJT-X's own stop
+paths are too slow and jittery to be the interlock, and the serial line is the one place a
+deterministic gate can live.
 
 Cost, stated plainly: **one USB-serial dongle and one PTT wire per WSJT-X seat**, and a
 departure from the fleet's current CAT-PTT convention (networking doc §3.3.3 sets
@@ -491,7 +405,7 @@ departure from the fleet's current CAT-PTT convention (networking doc §3.3.3 se
 documentation change — but hard PTT lines are long-standing contest-station discipline, the
 determinism benefits normal keying too, and the same RCA/phono PTT inputs exist on the
 IC-9700 (SEND) and Flex (PTT in) back panels. Seats that cannot take the wire are covered by
-the §3.4.1 external audio mute (§5.4) until they can.
+the §3.4.1 external audio mute until they can.
 
 ## 6. Actuator survey — where the RF actually stops
 
@@ -500,11 +414,11 @@ last:
 
 | Layer | Mechanism | Kills RF in | Caveats |
 |-------|-----------|-------------|---------|
-| **PTT gate thread (§5.5, preferred)** | Dedicated-port RTS = intent ∧ ¬inhibit; UDP/CTS edge flips the line directly | **~1–2 ms to line drop + rig unkey (ms), deterministic** — no GUI tick, no rig thread, no audio buffer in the path; WSJT-X unaware (§3) | Requires the RTS-PTT seat wiring (dongle + PTT line per seat) and the WSJT-X patch |
+| **PTT gate thread (§5, preferred)** | Dedicated-port RTS = intent ∧ ¬inhibit; UDP/CTS edge flips the line directly | **~1–2 ms to line drop + rig unkey (ms), deterministic** — no GUI tick, no rig thread, no audio buffer in the path; WSJT-X unaware (§3) | Requires the RTS-PTT seat wiring (dongle + PTT line per seat) and the WSJT-X patch |
 | §3.4.1 Layer-2 external audio mute | OS volume / VCA outside WSJT-X | 2–5 ms (analog) / 10–30 ms (software) | The fallback for **CAT-PTT seats** (no line to own) and for unpatched WSJT-X; also defense-in-depth behind the gate. Equally invisible to WSJT-X |
 | Radio hardware TX-inhibit input | Rig's interlock pin wired to the SSB/CW PTT | µs–ms, deterministic, zero software | Flex 6000-series has TX REQ interlock inputs (polarity configurable); **Kenwood offers a menu-assignable TX Inhibit input** (SO2R heritage — §4.1.0); Icom/Yaesu seats vary and many rigs have no such input. Where it exists, this is the only path that needs no computer at all |
 
-Recommendation: the **§5.5 gate thread is the primary** wherever the seat can take the RTS
+Recommendation: the **§5 gate thread is the primary** wherever the seat can take the RTS
 wire; **CAT-PTT seats use the external audio mute** until rewired; the **analog backstop
 stays** for defense-in-depth; **hardware inhibit inputs are wired wherever the rig offers
 one**. Note what all four layers share: they act on the emission path — PTT line, TX audio,
@@ -573,10 +487,10 @@ appears — there is no UDP enable.
 1. Standalone **inhibit watcher module** (CTS + UDP deadman + hang time, pure logic separated
    from I/O) — testable without WSJT-X; lives in the WIMS repo; the seat agent can host it
    immediately to drive the §3.4.1 external mute (value before any WSJT-X patch ships).
-2. **WSJT-X patch** in the improved_PLUS build: the §5.5 PTT gate thread — existing DTR/RTS
+2. **WSJT-X patch** in the improved_PLUS build: the §5 PTT gate thread — existing DTR/RTS
    PTT methods rerouted through it, immediate intent-acknowledge handshake, zero new
    settings (§11.2) — plus the InhibitStatus announcement and the status-bar badge
-   ("TX INHIBITED — 144 SSB"). Nothing in WSJT-X's TX decision code changes (§3, §5.4).
+   ("TX INHIBITED — 144 SSB"). Nothing in WSJT-X's TX decision code changes (§3, §5).
    Seats still on CAT PTT are covered by the §3.4.1 external audio mute.
    2a. **Seat wiring standard update** (networking doc §3.3): one USB-serial PTT dongle per
    WSJT-X seat, RTS → radio PTT input (IC-9700 SEND, Flex PTT-in); CAT becomes
@@ -631,7 +545,7 @@ RX, alarmed and self-clearing. The complexity this deletes from every seat is th
 if WIMS or the Key agent must carry more algorithm to keep WSJT-X state-free, that is the
 right trade.
 
-The PTT side (§5.5) adds no inhibit-specific settings either: the existing DTR/RTS PTT
+The PTT side (§5) adds no inhibit-specific settings either: the existing DTR/RTS PTT
 method selection now routes through the gate thread — same screens, same fields as stock
 WSJT-X.
 
@@ -680,14 +594,14 @@ patterns (`m_audioThread`, `transceiver_thread_`):
 
 - Owns: the UDP socket (always bound — 22372 or ephemeral, §11.2), the deadman QTimer, the
   INHIBIT atomic, and the serial PTT port — **all DTR/RTS PTT routes through this thread**
-  (§5.5), so it owns the port stock WSJT-X would have handed to hamlib, including that
+  (§5), so it owns the port stock WSJT-X would have handed to hamlib, including that
   port's **CTS pin as the local KEY input** (§4.1, fixed-default scheduler logic in-thread).
 - Emits (queued, to GUI thread): `inhibitChanged(bool, QString source)` for the UI badge
   and the InhibitStatus announcements — presentation only, never behavior (§3). Nothing on
   the fast path waits for the GUI.
 - Touches existing code in exactly **one** place: the PTT-method routing (existing DTR/RTS
   values redirected to the gate thread instead of hamlib, with immediate intent-acknowledge
-  as the confirmation — §5.5). No changes to `guiUpdate()`, the sequencer, the modulator,
+  as the confirmation — §5). No changes to `guiUpdate()`, the sequencer, the modulator,
   or any TX decision code. Everything else is additive.
 
 ### 11.6 Prototype sequence (test before integrate)
@@ -710,3 +624,36 @@ patterns (`m_audioThread`, `transceiver_thread_`):
 Order rationale: step 1 de-risks every design decision that does not require WSJT-X (format,
 deadman, hang, latency) with an afternoon's hardware; step 2 is then a mechanical transplant
 whose only new risks are Qt-threading and settings plumbing.
+
+
+---
+
+## Appendix A — WSJT-X 3.1.0 TX-path notes (patch-review anchors)
+
+File:line anchors and measured numbers backing the §5 patch and the §2 latency claims.
+improved_PLUS tree; `mainwindow.cpp` = `widgets/mainwindow.cpp`.
+
+- **TX start:** single point of no return mainwindow.cpp:7810–7860 (`g_iptt` 0→1 +
+  `transceiver_ptt(true)`), evaluated on the 100 ms `m_guiTimer` tick (:1009); `fTR < 0.75`
+  permits late starts. JTDX's `m_enableTx` is folded into `m_auto` in this fork (:5539,
+  :5602).
+- **Audio start:** rig PTT confirmation (:12557–12566) → `ptt1Timer` = TxDelay (default
+  0.2 s) → `startTx2()`; modulator pads 500 ms silence for FT8 (Modulator.cpp:75–105).
+  Patch behavior: the gate thread acknowledges the PTT command immediately; no timer
+  touched.
+- **TX stop:** `m_btxok` cleared (:7864) → edge check next tick (:8226) → `stopTx()`
+  (:8571): audio first, then `ptt0Timer` 200 ms → PTT down (:8585, :8591). UDP Halt with
+  `auto_only=false`: **~210–400 ms to PTT-down measured**, >700 ms worst behind a rig poll;
+  clears `m_auto`, `m_bCallingCQ`, `m_bAutoReply`. `auto_only=true` only unchecks Enable Tx
+  and lets the cycle finish. Watchdog (:14157) stops same-tick + 200 ms.
+- **Rig-thread traps removed from serial PTT by the gate:** 500 ms blocking CAT poll on the
+  same thread (PollingTransceiver.cpp:57); `TransceiverBase::set()` sleeps 100 ms after
+  each PTT change (TransceiverBase.cpp:142, :186); all PTT methods funnel through
+  `rig_set_ptt()` (HamlibTransceiver.cpp:1282).
+- **Audio stop:** `Modulator::stop()` → `m_stream->reset()` discards the queued buffer
+  (soundout.cpp:144); driver residual ~10–50 ms, bounded by `WSJT_TX_AUDIO_BUFFER_FRAMES`
+  (mainwindow.cpp:313, :599). Relevant only to the §3.4.1 external-mute backstop — the gate
+  never touches audio.
+- **No modem-status input exists in stock code** (no CTS/DSR/DCD read anywhere; QSerialPort
+  used only to enumerate port names) — the gate thread's CTS input (§4.1) is new code, not
+  a modification.
