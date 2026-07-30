@@ -72,15 +72,17 @@ One boolean per WSJT-X instance: **INHIBIT**. Sources (§4) are OR-ed. Semantics
 | TX pending / cycle boundary | The **intent gate** (§5.4a) holds the start. Not a cancellation: the start condition re-evaluates every 100 ms tick, and WSJT-X natively allows **late starts up to 75 % into the period** — so a release early enough in the period starts the transmission late *in the same period*, symbol-aligned (a leading puncture) | If released before the 75 % point: late start, same period. Later: next period |
 | TX in progress | **Puncture mode (RTS-gate seats, default):** only the RTS line is masked (~1–2 ms); **the modulator keeps running** — WSJT-X's internal state doesn't change at all, and the waveform stays on the symbol clock. CAT-PTT fallback seats can't do this (audio is the kill lever, §5.4b), so there the cycle is lost. Either way QSO/sequencer state survives, unlike Halt Tx | **Puncture mode: RF resumes immediately, mid-waveform, same period** — the emitted signal has a gap exactly like the bench-tested punctures (§below). CAT-PTT seats: next period |
 
-**Hang time (release hysteresis).** CW keying is a stream of edges milliseconds apart; the
-inhibit must not chatter — and RF between an SSB/CW operator's dits or syllables would still
-violate the one-signal rule in spirit. Release takes effect only after the source has been
-continuously clear for a configurable **hang time**. Default **0.5 s** (covers CW inter-word
-gaps at contest speeds and SSB syllable pauses), range 0.2–5 s, tuned per SSB/CW operator
-style — like a VOX delay. Assert is always immediate. Note the trade: hang time adds directly
-to the resume latency in puncture mode (burst ends → RF back = hang time), and every added
-second of gap spends FT8's measured puncture margin (§2 item 1) — hence a short default, not
-the ~1 s a VOX would use.
+**Hang time (release hysteresis) — implemented in the Key agent, not in WSJT-X.** CW keying
+is a stream of edges milliseconds apart; the inhibit must not chatter — and RF between an
+SSB/CW operator's dits or syllables would still violate the one-signal rule in spirit. The
+**Key agent** holds the band: it keeps sending `keyed` keepalives until its input has been
+continuously clear for the hang time (default **0.5 s**, range 0.2–5 s, tuned per SSB/CW
+operator style like a VOX delay), then sends `clear`. The WSJT-X gate needs **no hysteresis
+of its own** — it obeys `keyed`/`clear` and expires by TTL, nothing more. This puts the
+per-operator tuning knob at the SSB/CW seat where the operating style is, and keeps WSJT-X
+state-free (per the strict-simplicity rule, §11). Assert is always immediate. The trade is
+unchanged: hang time adds directly to resume latency in puncture mode, and every added
+second of gap spends FT8's measured puncture margin (§2 item 1) — hence a short default.
 
 **Fail-safe direction.** Wire/agent failure must not silently un-inhibit *or* permanently kill
 the band; the two failure directions get different treatments per source (§4). The invariant:
@@ -333,6 +335,19 @@ the PTT cable (§6). Specifically:
    thread emits state changes to the GUI thread for the UI badge and UDP status only —
    nothing on the fast path waits for the GUI.
 
+**Design decision (2026-07-30): the gate thread *is* the serial-PTT path — not a second
+one.** Rather than adding a new PTT method beside hamlib's DTR/RTS, the patch reroutes the
+**existing DTR and RTS PTT methods** through the gate thread; hamlib keeps only CAT (and VOX
+= None). One mechanism instead of two:
+
+- Every DTR/RTS user exercises the gate code on every transmission, with the gate open —
+  behavior identical to today, minus the rig-thread latency traps (§5.3), which is an
+  improvement on its own merits.
+- There is no configuration in which serial PTT bypasses the gate, so "inhibit didn't work
+  because PTT was wired around it" cannot exist.
+- The upstream story writes itself: "faster, cleaner serial PTT" carries the gate into the
+  base fork where it gets tested and cannot be orphaned as a niche WIMS feature.
+
 Cost, stated plainly: **one USB-serial dongle and one PTT wire per WSJT-X seat**, and a
 departure from the fleet's current CAT-PTT convention (networking doc §3.3.3 sets
 `PTT Method = CAT` via wfview; Flex seats key via SmartSDR CAT). That is a real wiring and
@@ -450,27 +465,39 @@ regardless of whether it is Enabled.*
             keyed datagram (any valid sender)
    OPEN  ───────────────────────────────────►  INHIBITED(deadline)
     ▲                                                │
-    │  clear datagram + hang time elapsed,           │ every keyed/keepalive datagram
-    │  OR deadline expires (deadman, alarmed)        │ re-arms deadline = now + TTL
+    │  clear datagram (hang already applied          │ every keyed/keepalive datagram
+    │  by the Key agent, §3),                        │ re-arms deadline = now + TTL
+    │  OR deadline expires (deadman, alarmed)        │
     └────────────────────────────────────────────────┘
 ```
 
-No persistent state, nothing survives a restart, no configuration of *who* may inhibit —
-the gate defaults **OPEN**, asserts only on receipt of valid datagrams, and self-clears.
-An Enabled thread that never receives a datagram changes nothing about WSJT-X behavior;
-that is the "no effect if unused" guarantee, held by construction rather than by testing.
+No persistent state, nothing survives a restart, no hysteresis (that is the Key agent's
+job, §3), no configuration of *who* may inhibit — the gate defaults **OPEN**, asserts only
+on receipt of valid datagrams, and self-clears. A gate that never receives a datagram
+changes nothing about WSJT-X behavior; that is the "no effect if unused" guarantee, held by
+construction rather than by testing.
 
-### 11.2 Settings — three fields
+### 11.2 Settings — none (a deliberate zero)
 
-| Setting (Settings → Reporting, "TX Inhibit" group) | Default | Notes |
-|---|---|---|
-| Enable TX inhibit input | **off** | Off = thread not started, socket not bound, zero code in the TX path |
-| UDP port | **22372** | Clear of band streams 2237–2243, N1MM 12060/2333, WIMS 8787/8788, GT bridge 22370/22371. Per-instance: multi-instance hosts give each instance its own port (22372, 22373, …) — visible in one field, and the assignment screen (§4.4) checks for collisions |
-| Hang time | **0.5 s** | §3; range 0.2–5 s |
+Strict-simplicity rule (adopted 2026-07-30): **anything in WSJT-X beyond an enable checkbox
+is suspect — and even the checkbox proved unnecessary.** Everything that looked like a
+setting moved out:
 
-The PTT side (dedicated-port RTS method, §5.5) is configured where PTT already lives —
-Settings → Radio → PTT Method — and is a separate decision from the inhibit input: the gate
-thread masks whatever PTT path is in use (RTS directly; CAT seats get the §5.4b fallback).
+| Was going to be a setting | Where it went |
+|---|---|
+| Enable checkbox | **Always on.** The listener binds at startup, costs nothing when silent, and fail direction is safe (inhibit only ever *stops* TX and self-clears by TTL). The only control is a **Hold "TX inhibit test" menu item** that ignores datagrams until restart — for bench testing, never a config state |
+| UDP port | **Auto.** Bind 22372 if free, else an ephemeral port; the actual port is announced in InhibitStatus (§11.4), so nothing and nobody needs to know it in advance. Multi-instance hosts just work — second instance lands on an ephemeral port, announced the same way |
+| Hang time | **Key agent** (§3) — the per-operator knob lives at the SSB/CW seat |
+
+Trust model, stated: any LAN host can inhibit any WSJT-X. On a cooperative contest LAN this
+is the same trust already extended to "Accept UDP requests," and the failure direction is
+RX, alarmed and self-clearing. The complexity this deletes from every seat is the point —
+if WIMS or the Key agent must carry more algorithm to keep WSJT-X state-free, that is the
+right trade.
+
+The PTT side (§5.5) adds no inhibit-specific settings either: the existing DTR/RTS PTT
+method selection now routes through the gate thread — same screens, same fields as stock
+WSJT-X.
 
 ### 11.3 Datagram format
 
@@ -492,12 +519,18 @@ rate, and parsing cost is nanoseconds against a millisecond budget):
 
 The thread announces itself in-band on plane A: a new WSJT-X UDP message type
 **InhibitStatus** (proposed type 18, above the current highest = 12–17 range check at build
-time), emitted at heartbeat cadence *only when Enabled*, carrying
+time), emitted at heartbeat cadence, carrying
 `{inhibit_port, gate_state, source_station (when inhibited), counters}`. Properties:
 
-- WIMS learns *instance → (host, inhibit port, enabled)* passively, the same way it learns
-  everything else about the fleet — no probing, no per-seat registration step. The
-  assignment screen (§4.4) simply lists discovered inhibit inputs.
+- WIMS learns *instance → (host, inhibit port)* passively, the same way it learns everything
+  else about the fleet — no probing, no per-seat registration step. The assignment screen
+  (§4.4) simply lists discovered inhibit inputs.
+- **The announcement is what makes the zero-config port (§11.2) workable — and the Key agent
+  consumes it directly.** Assignments are by stable **instance id** ("ROY-222-FT8"), not by
+  address; the Key agent listens to plane A itself and resolves its assigned ids to live
+  `ip:port` from each instance's own InhibitStatus. A WSJT-X restart onto a new ephemeral
+  port heals within one announcement interval, with WIMS not in the loop — the interlock
+  keeps working through a WIMS outage (only *changing* assignments needs the dashboard).
 - Existing consumers are safe: WSJT-X-protocol servers skip unknown message types (verify on
   N1MM + GridTracker in the §11.6 bench — regression risk is low but must be shown, not
   assumed).
@@ -509,14 +542,17 @@ time), emitted at heartbeat cadence *only when Enabled*, carrying
 One new class (`TxInhibitGate`), one new thread, following the existing worker-thread
 patterns (`m_audioThread`, `transceiver_thread_`):
 
-- Owns: the UDP socket (bound only when Enabled), the deadman/hang QTimers, the INHIBIT
-  atomic, and — when the §5.5 PTT method is selected — the dedicated serial port's RTS line.
+- Owns: the UDP socket (always bound — 22372 or ephemeral, §11.2), the deadman QTimer (no
+  hang timer — §3), the INHIBIT atomic, and the serial PTT line: **all DTR/RTS PTT routes
+  through this thread** (§5.5), so it owns the port stock WSJT-X would have handed to
+  hamlib.
 - Emits (queued, to GUI thread): `inhibitChanged(bool, QString source)` for the intent gate
   (§5.4a), the UI badge, and the InhibitStatus announcements. Nothing on the fast path waits
   for the GUI.
 - Touches existing code in exactly three places: the one-line intent gate at
-  mainwindow.cpp:7810, the PTT-method routing (new enum value), and the PTT-confirmation
-  handshake (§5.5 point 2). Everything else is additive.
+  mainwindow.cpp:7810, the PTT-method routing (existing DTR/RTS values redirected to the
+  gate thread instead of hamlib — §5.5 decision), and the PTT-confirmation handshake (§5.5
+  point 2). Everything else is additive.
 
 ### 11.6 Prototype sequence (test before integrate)
 
