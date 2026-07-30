@@ -167,20 +167,38 @@ configuration, per the strict-simplicity rule.
 | USB-serial reports modem-status change | **1–16 ms** | FTDI parts report status at the *latency timer* interval — **default 16 ms, set to 1 ms** (sysfs `latency_timer` on Linux, FTDI driver property page on Windows). CP210x/CH34x similar ballpark. This is the dominant term and it is configurable. |
 | OS wakes the watcher | <1 ms | Linux: blocking `ioctl(TIOCMIWAIT)` (edge-triggered wait, no polling). Windows: `WaitCommEvent(EV_CTS)`. Event-driven, not a poll loop — and it is the gate thread itself waiting, no extra thread. |
 
-#### 4.1.2 The dongle (a build item, not a purchase)
+#### 4.1.2 The dongle: **Keyline_Interface** (a build item, not a purchase)
 
 Market reality: RTS→PTT keying cables are commercial commodities, but **KEY→CTS sensing is
-generally unavailable** — the station's existing home-built dongle (RTS→PTT out + KEY→CTS in
-on one USB-serial port) is therefore the **reference design**, and the fleet standard is to
-replicate it. Spec points for the write-up (to be its own short hardware note):
+generally unavailable**. The fleet reference design is the station's own
+**Keyline_Interface** board (KiCad project committed at
+[`hardware/keyline_interface/`](../../hardware/keyline_interface/), schematic + PCB + SVG;
+canonical source lives in the SO4R_Interlock_V2 project). As built — netlist-verified:
 
-- One USB-serial port per seat: RTS (or DTR) drives the radio PTT input through the usual
-  keying transistor/optocoupler; KEY sense enters CTS through an **optocoupler** — the
-  SSB/CW keying loop may sit at amplifier-relay voltages and must not share ground with the
-  PC casually.
-- Sense polarity per §4.1: key closed ⇒ CTS asserted; include a pull to the deasserted state
-  so an unplugged KEY cable reads open, not floating.
-- FTDI-based, so the 1 ms latency-timer setting applies on both OSes.
+- **USB-C → FT230XS** (U1, SSOP-16), used purely as a modem-line device: TXD/RXD/CBUS all
+  unconnected. Proper USB-C device signaling (5.1 k CC pulldowns), VBUS through ferrite +
+  Schottky, 3.6 V zeners + 27 Ω + 47 p on the data pair. FTDI part ⇒ the 1 ms latency-timer
+  setting (§4.1.1) applies on both OSes.
+- **Key input (J1, 3.5 mm jack) — protected, ground-referenced:** tip → 0.1 µ shunt (RF /
+  contact bounce) → 1 k series → 4.7 V zener clamp → 1 k series → CTS̄. No external pull-up
+  needed: the FT-X's internal pull-up holds CTS̄ deasserted when open, so key-closed-to-
+  sleeve asserts — the §4.1 polarity convention implemented by the chip itself, and an
+  unplugged cable reads open, not floating.
+- **Inhibit output (J3, 3.5 mm jack) — opto-isolated and floating:** RTS̄ sinks the LED of
+  U3 (marked AT3H4X — PC817-class phototransistor opto, SSOP-4) through 1 k from 5 V, so
+  the output contact closes when the host asserts RTS. Collector → tip, emitter → ring: a
+  floating switch, DC-isolated from USB ground (Schottky across the pair for reverse
+  protection, 0.1 µ bypasses to ground for RF). Tip-to-ring keying stays fully floating;
+  tip-to-sleeve gives a conventional ground-referenced PTT.
+- 0402 passives with LCSC part numbers throughout — designed for board-house assembly, so
+  "replicate the fleet standard" means *order more*, not *solder more*.
+
+Note the isolation philosophy (deliberate, and the reverse of an earlier guess in this doc):
+the **output** is isolated because it crosses into the radio's PTT/keying domain; the
+**input** is protection-only (series R + zener + RC) because the KEY sense is a local
+contact closure. One board serves both seat roles: at a WSJT-X seat, J3 keys the radio
+(RTS→PTT) and J1 senses a co-located KEY line; at an SSB/CW seat, J1 feeds the Key agent's
+CTS watch and J3 is available to drive a radio's hardware inhibit input.
 
 ### 4.2 UDP inhibit datagram (agent on the SSB/CW radio's PC)
 
