@@ -165,10 +165,11 @@ attribution for the lease check in step 1, no port bookkeeping. A fixed number i
 debugging/firewall-rule convenience. The one port that must be well-known is GridTracker's
 *receive* port (where F2 arrives), because GridTracker has to be configured with it.
 
-*Prototype status:* the experimental bridge already implements the return path — it binds a
-fixed port (**22371**, a prototype convenience per the paragraph above), accepts GridTracker's
-Reply / Halt-TX / Free-Text / etc., reads the instance `id` out of the datagram, and unicasts
-it to that instance's control address. Today it is deliberately pass-through ("decide later
+*Prototype status:* the experimental bridge already implements the return path — it now
+binds an **ephemeral port** for the GT reply direction, exactly per the paragraph above
+(the earlier fixed 22371 is retired); GridTracker replies to the source port of the F2
+forwards, and the bridge accepts Reply / Halt-TX / Free-Text / etc., reads the instance
+`id` out of the datagram, and unicasts it to that instance's control address. Today it is deliberately pass-through ("decide later
 how strict to make it" — no interlock/lease check); under this concept, gating step 1–2 above
 becomes mandatory, using the TX arbiter that already exists in the code.
 

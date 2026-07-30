@@ -16,8 +16,10 @@ Related: **[wims_status.md](wims_status.md)** for what the server currently bind
 > ([wims_tx_inhibit.md](wims_tx_inhibit.md) §5.5), which would replace the `PTT Method = CAT`
 > convention in §3.3. Also note: the current server ships an **experimental GridTracker
 > bridge** not yet reflected below — forwards all plane-A traffic to one GridTracker
-> (`--gt-forward HOST:22370`), reverse click-to-work on **22371**, currently **without
-> arbiter gating** (lab use only; `GET /api/gt-bridge` for stats).
+> (`--gt-forward HOST:22370`), reverse click-to-work returns to the bridge's **ephemeral**
+> send port (GT replies to the source of what it hears; the earlier fixed 22371 is
+> retired), currently **without arbiter gating** (lab use only; `GET /api/gt-bridge` for
+> stats).
 
 **Critical ops note:** every WSJT-X instance must set **Outgoing interface = contest LAN NIC**
 (§4.1). Multicast address alone is not enough — blank / `@Invalid()` interface is a silent
