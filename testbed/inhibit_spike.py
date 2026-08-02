@@ -25,9 +25,11 @@ Two small programs and a selftest, exercising the pure logic in
             ephemeral), print state transitions with timestamps; with
             --rts /dev/ttyUSBn also drive the RTS line = NOT inhibited
             (Linux only) so a scope can measure the full path.
-  agent     SSB/CW Key-agent stand-in: send keyed/clear/keepalives to
-            --targets.  Key input from --script (offline timeline), or
-            --serial /dev/ttyUSBn CTS (Linux, TIOCMIWAIT edge wait).
+  agent     SSB/CW Key-agent stand-in: send holds/keepalives/release to
+            --targets.  Key input from --script (offline timeline),
+            --serial /dev/ttyUSBn CTS (Linux, TIOCMIWAIT edge wait),
+            --keyboard (SPACE toggles the KEY line, q quits), or --evdev
+            (real time: hold SPACE = KEY down, via /dev/input).
   selftest  Run agent logic against a gate over UDP loopback with a
             CW-style keying script; assert behavior and print the
             measured send->transition latency distribution.  Exits
@@ -93,11 +95,27 @@ def cts_get(fd):
 
 
 def cts_wait_edge(fd):
-    """Block until any CTS transition (TIOCMIWAIT). Returns new CTS state."""
+    """Block until any CTS transition. Returns new CTS state.
+
+    TIOCMIWAIT where the driver supports it (FTDI); measured 2026-07-31 that
+    cp210x returns ENOTTY, so fall back to a 1 ms TIOCMGET poll there.
+    """
+    import errno
     import fcntl
     import struct
-    fcntl.ioctl(fd, TIOCMIWAIT, struct.pack("I", TIOCM_CTS))
-    return cts_get(fd)
+    import time
+    before = cts_get(fd)
+    try:
+        fcntl.ioctl(fd, TIOCMIWAIT, struct.pack("I", TIOCM_CTS))
+        return cts_get(fd)
+    except OSError as e:
+        if e.errno != errno.ENOTTY:
+            raise
+    while True:
+        time.sleep(0.001)
+        now = cts_get(fd)
+        if now != before:
+            return now
 
 
 # -------------------------------------------------------------------- gate
@@ -135,10 +153,10 @@ def run_gate(args):
             inhibited = state
             if rts_fd is not None:
                 rts_set(rts_fd, not inhibited)
-            who = ",".join(gate.holding_stations(now)) or "-"
+            who = gate.holding_station(now) or "-"
             print(f"{now:14.6f}  {'INHIBITED' if inhibited else 'OPEN':9s}"
-                  f"  by={who}  keyed_rx={gate.keyed_rx}"
-                  f" clear_rx={gate.clear_rx} expiries={gate.expiries}"
+                  f"  by={who}  hold_rx={gate.hold_rx}"
+                  f" release_rx={gate.release_rx} expiries={gate.expiries}"
                   f" invalid={gate.invalid}")
 
 
@@ -184,7 +202,7 @@ def run_agent(args):
             while time.monotonic() < deadline:
                 send(sched.poll(time.monotonic()))
                 time.sleep(TICK_S)
-        while sched.holding:                      # drain hang -> clear
+        while sched.holding:                      # drain hang -> release (ttl 0)
             send(sched.poll(time.monotonic()))
             time.sleep(TICK_S)
         print("agent: script done")
@@ -207,7 +225,114 @@ def run_agent(args):
             send(sched.poll(time.monotonic()))
             time.sleep(TICK_S)
 
-    raise SystemExit("agent: need --script or --serial")
+    if args.evdev is not None:
+        # Real-time key line from the Linux input layer: true key-down and
+        # key-up events (hold SPACE = KEY closed), unlike a terminal which
+        # only sees characters.  Needs read access to /dev/input (input
+        # group membership) and sees the keyboard system-wide, regardless
+        # of window focus — a feature on the bench.
+        import glob
+        import os
+        import struct
+        EV_KEY, KEY_SPACE = 0x01, 57
+        fmt = "llHHi"                             # struct input_event
+        size = struct.calcsize(fmt)
+        dev = args.evdev or next(
+            iter(sorted(glob.glob("/dev/input/by-path/*-event-kbd"))), None)
+        if not dev:
+            raise SystemExit("agent: no keyboard under /dev/input/by-path; "
+                             "pass --evdev /dev/input/eventN")
+        try:
+            fd = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+        except PermissionError:
+            raise SystemExit(
+                f"agent: cannot read {dev} — add yourself to the 'input' "
+                "group (sudo usermod -aG input $USER, then log out/in) "
+                "or run with sudo")
+        print(f"agent: real-time keying from {dev}\n"
+              "       hold SPACE = KEY down, release = KEY up "
+              "(any window focus); Ctrl-C quits")
+        if sys.stdin.isatty():                    # don't spray spaces around
+            import termios
+            import tty
+            saved = termios.tcgetattr(sys.stdin.fileno())
+            tty.setcbreak(sys.stdin.fileno())
+        else:
+            saved = None
+        try:
+            while True:
+                ready, _, _ = select.select([fd], [], [], TICK_S)
+                now = time.monotonic()
+                if ready:
+                    while True:
+                        try:
+                            chunk = os.read(fd, size)
+                        except BlockingIOError:
+                            break
+                        if len(chunk) < size:
+                            break
+                        _s, _us, etype, code, value = struct.unpack(fmt, chunk)
+                        if etype != EV_KEY or code != KEY_SPACE or value > 1:
+                            continue              # value 2 = auto-repeat
+                        send(sched.set_key(bool(value), now))
+                        if value:
+                            print(f"{now:12.3f}  KEY DOWN — holding band")
+                        else:
+                            print(f"{now:12.3f}  KEY UP   — hang "
+                                  f"{sched.last_hang_s * 1000:.0f} ms "
+                                  f"({sched.hang_mode})")
+                send(sched.poll(time.monotonic()))
+        except KeyboardInterrupt:
+            send(sched.set_key(False, time.monotonic()))
+            while sched.holding:                  # drain hang -> release
+                send(sched.poll(time.monotonic()))
+                time.sleep(TICK_S)
+            print("\nagent: quit, band released")
+        finally:
+            if saved is not None:
+                import termios
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, saved)
+        return
+
+    if args.keyboard:
+        import termios
+        import tty
+        if not sys.stdin.isatty():
+            raise SystemExit("agent: --keyboard needs an interactive terminal")
+        print(f"agent: keyboard keying to {targets} — "
+              "SPACE toggles KEY down/up, q quits")
+        stdin_fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(stdin_fd)
+        tty.setcbreak(stdin_fd)
+        keyed = False
+        try:
+            while True:
+                ready, _, _ = select.select([sys.stdin], [], [], TICK_S)
+                now = time.monotonic()
+                if ready:
+                    ch = sys.stdin.read(1)
+                    if ch in ("q", "Q", "\x1b"):
+                        if keyed:
+                            send(sched.set_key(False, now))
+                        while sched.holding:      # drain hang -> release
+                            send(sched.poll(time.monotonic()))
+                            time.sleep(TICK_S)
+                        print("agent: quit, band released")
+                        return
+                    if ch == " ":
+                        keyed = not keyed
+                        send(sched.set_key(keyed, now))
+                        if keyed:
+                            print(f"{now:12.3f}  KEY DOWN — holding band")
+                        else:
+                            print(f"{now:12.3f}  KEY UP   — hang "
+                                  f"{sched.last_hang_s * 1000:.0f} ms "
+                                  f"({sched.hang_mode})")
+                send(sched.poll(time.monotonic()))
+        finally:
+            termios.tcsetattr(stdin_fd, termios.TCSADRAIN, saved)
+
+    raise SystemExit("agent: need --script, --serial, or --keyboard")
 
 
 # ----------------------------------------------------------------- selftest
@@ -251,7 +376,7 @@ def run_selftest(_args):
             if after != before:
                 latencies.append(transitions[-1][0] - t0)
 
-    # Scenario 1: one 0.7 s SSB burst -> assert immediately, clear after hang.
+    # Scenario 1: one 0.7 s SSB burst -> assert immediately, release after hang.
     send_and_time(sched.set_key(True, time.monotonic()))
     if not gate.inhibited(time.monotonic()):
         failures.append("burst: gate did not assert on key-down")
@@ -270,15 +395,15 @@ def run_selftest(_args):
     pump(time.monotonic() + 0.05)
     t_open = time.monotonic()
     if gate.inhibited(t_open):
-        failures.append("burst: gate still inhibited after clear")
+        failures.append("burst: gate still inhibited after release")
     hang_measured = t_open - t_keyup
     if not (0.25 <= hang_measured <= 0.6):
         failures.append(f"burst: release at {hang_measured:.3f}s vs hang 0.3s")
     if gate.expiries != 0:
-        failures.append("burst: released by deadman, not by clear")
+        failures.append("burst: released by deadman, not by ttl-0 release")
 
     # Scenario 2: CW string (40 ms dits / 60 ms gaps) -> one continuous hold.
-    clears_before = gate.clear_rx
+    releases_before = gate.release_rx
     for _ in range(15):
         send_and_time(sched.set_key(True, time.monotonic()))
         pump(time.monotonic() + 0.04)
@@ -292,9 +417,9 @@ def run_selftest(_args):
         send_and_time(sched.poll(time.monotonic()))
         pump(time.monotonic() + TICK_S)
     pump(time.monotonic() + 0.05)
-    if gate.clear_rx - clears_before != 1:
-        failures.append(f"cw: expected exactly 1 clear, got "
-                        f"{gate.clear_rx - clears_before}")
+    if gate.release_rx - releases_before != 1:
+        failures.append(f"cw: expected exactly 1 release, got "
+                        f"{gate.release_rx - releases_before}")
     if gate.inhibited(time.monotonic()):
         failures.append("cw: gate stuck after string")
 
@@ -320,7 +445,7 @@ def run_selftest(_args):
             print(f"FAIL {f}")
         return 1
     print("selftest: PASS (assert-on-keydown, continuous CW hold, "
-          "clear-after-hang, deadman+alarm)")
+          "release-after-hang, deadman+alarm)")
     return 0
 
 
@@ -340,10 +465,16 @@ def main(argv=None):
                    help="host:port[,host:port...] of gate(s)")
     a.add_argument("--station", default="SPIKE-SSB")
     a.add_argument("--band", default="222")
-    a.add_argument("--hang", type=float, default=0.5)
+    a.add_argument("--hang", type=float, default=None,
+                   help="fixed hang override in s (default: §3 adaptive)")
     a.add_argument("--ttl-ms", type=int, default=600)
     a.add_argument("--script", help='keying timeline, e.g. "k0.7 c0.4 k0.05"')
     a.add_argument("--serial", help="watch CTS on this tty (Linux)")
+    a.add_argument("--keyboard", action="store_true",
+                   help="interactive: SPACE toggles KEY down/up, q quits")
+    a.add_argument("--evdev", nargs="?", const="", metavar="DEVICE",
+                   help="real-time: hold SPACE = KEY down via /dev/input "
+                        "(auto-detects keyboard; needs input-group access)")
 
     sub.add_parser("selftest", help="loopback agent+gate, assert + latency")
 
