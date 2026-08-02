@@ -309,3 +309,53 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   header count matches the body. Runs automatically at `wims.solo` startup (before the server) and
   standalone via `scripts\windows\Check-WimsSetup.cmd`. Windows README gained a "Solo tester" section.
   Tests: `test_agent_solo` (7). Fleet/lab agent output unchanged.
+- **2026-07-31** — **TX-inhibit spike verified live + adaptive hang built** (tx_inhibit §3/§11.6.1).
+  Spike verified: 15 unit tests, loopback selftest (median 0.24 ms transition), and a two-process
+  gate↔agent UDP run (SSB burst + CW string = exactly one INHIBITED→OPEN cycle). Bench facts on a
+  real dongle (Digirig, CP2102N): Linux `cp210x` returns `ENOTTY` for `TIOCMIWAIT` → spike's CTS
+  watcher gained a 1 ms `TIOCMGET` poll fallback (FTDI Keyline unaffected); Digirig exposes no CTS
+  pin at all → §4.1 same-port KEY convention inapplicable on Digirig seats (doc updated). **Adaptive
+  hang classifier** (`adaptive_hang_s` + `KeyAgentScheduler` default): latest closure picks the mode
+  (≥0.75 s → flat 0.5 s; else CW → 8×dit-estimate clamped 0.2–1.0 s, dit = min recent short closure,
+  20 ms debounce); numeric `hang_s` = manual override, classifier off; `last_hang_s`/`hang_mode`
+  exposed for telemetry. Tests: `test_inhibit` now 23 (WPM tracking 15/20/30, 7-dit word-gap hold,
+  clamps, CW↔SSB flip, bounce immunity, override). wsjtx-3.1.0 improved_PLUS builds clean on this
+  laptop (superbuild → `build/wsjtx-prefix/src/wsjtx-build/wsjtx`) — ready for Stage 2 (§11.6.2).
+  Known pre-existing failure: `test_agent_report` (N1MM probe monkeypatch), unrelated.
+- **2026-08-02** — **Inhibit wire protocol collapsed to one message type** (per WA1HCO): every
+  datagram means *"inhibit this band for `ttl_ms`"*; **release = `ttl_ms: 0`** — no `state`
+  field, no clear code path in the gate (tx_inhibit §11.3). Gate counters now
+  `hold_rx`/`release_rx`/`expiries`/`invalid` (releases never enter the deadline table, so
+  expiries stay pure keepalive-loss alarms). Protocol magic renamed `wims_inhibit` →
+  `tx_inhibit` (patch carries no WIMS reference, §11.7.4); class `TxInhibitGate` → `PttGate`.
+  Code+tests+spike updated, 23/23 green; §11.7 netcat two-liner demoed live against the gate.
+  Doc-side same day: radio-inhibit prior-art survey (K2TR's Elecraft mid-key **latch**
+  measurement; Flex TX REQ initiation-only; Kenwood TS-890 has no external inhibit line) +
+  the arbitration-model statement (radios: two humans, first-PTT-wins; WIMS: one human vs
+  N machines, human always wins — why level semantics + puncture had to be built new).
+  Same day, second simplification (per WA1HCO): **gate tracks ONE hold** — per-station
+  deadline table removed; last hold wins, any valid release opens; multi-station
+  arbitration declared out of scope for WSJT-X (SSB/CW side ORs KEY lines in hardware,
+  tx_inhibit §4.3). `holding_stations()` → `holding_station()`; InhibitStatus `stations`
+  list → `station`. 23/23 green after both changes.
+- **2026-08-02** — **Stage 2 begun: `PttGate` lands in the fork** (wsjtx-improved-wims
+  `feature/tx-inhibit` @ 9990730). `Transceiver/PttGate.{hpp,cpp}` — C++/Qt5 port of the
+  proven `InhibitGate` semantics (single hold, ttl-only protocol, PreciseTimer deadman,
+  hold/release/expiry/invalid counters, `hold_test` bench slot, `line = intent ∧ ¬inhibit`
+  on RTS/DTR via QSerialPort, immediate unconditional ptt ack). House style: trailing-`_`
+  members, CRLF, no reformat (CMake diff = 2 lines: source list + `Qt5::SerialPort` on
+  `wsjt_qt`). Full `wsjtx` binary builds clean from the repo tree (fresh build dir against
+  the superbuild's hamlib; tree is **Qt5**, noted). Not yet wired: gate thread setup,
+  DTR/RTS PTT reroute (the one existing-code touch), badge, InhibitStatus type 18.
+- **2026-07-31** — **WSJT-X Improved → own GitHub project** for Stage 2 tracking:
+  [wa1hco/wsjtx-improved-wims](https://github.com/wa1hco/wsjtx-improved-wims). Baseline import of
+  extracted Improved 3.1.0 (`improved_AL_PLUS_260522`) as tag
+  `base-3.1.0-improved-AL-PLUS-260522`; branch `feature/tx-inhibit` reserved for the
+  `PttGate` patch (class renamed from `TxInhibitGate` 2026-07-31 — "gate" already implies
+  the inhibit). 2026-08-02: hang purpose sharpened (per WA1HCO) — hang exists *only* to
+  keep the WSJT-X radio's PTT from following break-in dits/dahs; long-closure
+  (SSB-PTT/VOX/semi-BK) hang cut **0.5 s → 20 ms debounce** (`LONG_HANG_S`), hardware
+  safety under arbitrary keying being a station requirement, not the agent's job. CW
+  8×dit rule unchanged. Tests updated, 23/23 green. Superbuild drop remains local under
+  `~/ham/wsjtx-3.1.0_improved_AL_PLUS_260522/` (not in the WIMS tree). Design cross-link added in
+  [wims_tx_inhibit.md](wims_tx_inhibit.md).
