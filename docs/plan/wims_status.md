@@ -67,6 +67,9 @@ still the R0 tester release (`v0.1.0-tester` planned once dummy-load Reply is ve
 Sister C++ forks (`wsjtx-wims` / `wsjtx-improved-wims`) already have build/release
 workflows; they are separate products and cadence.
 
+**Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
+and launchers mean (solo / server / seat agent; KEY agent out of R0).
+
 ---
 
 ## Milestones (design intent: §4 / §4.5)
@@ -381,3 +384,6 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   again. Add `.github/workflows/ci.yml` (push/PR → `scripts/validate.sh` on Python
   3.10/3.12/3.14 + version pin check). No tags/Releases yet — next is R0 dummy-load
   Reply + `v0.1.0-tester`.
+- **2026-08-11** — **Tester roles doc:** [tester_roles.md](../tester_roles.md) freezes the
+  install surface (solo / site server / console / seat agent; KEY agent lab-only). Fixed
+  stale “Arm TX” and 432→2240 port in quickstart/Windows README; linked from README.

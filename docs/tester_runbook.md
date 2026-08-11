@@ -2,6 +2,7 @@
 
 > **Start here for most people:** [tester_quickstart.md](tester_quickstart.md)  
 > (install-only · WSJT-X only · WSJT-X+N1MM · optional multi-PC).  
+> **Roles / what ships:** [tester_roles.md](tester_roles.md).  
 > This runbook is the **deep solo path** (WSJT-X + N1MM on one PC).
 
 **Try WIMS on one PC, on a single FT8 frequency (any band).** You already run WSJT-X

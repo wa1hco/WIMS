@@ -10,6 +10,7 @@
 
 ## Solo tester (everything on one PC) — start here if you're trying WIMS out
 
+**What you install (roles):** [docs/tester_roles.md](../../docs/tester_roles.md)  
 **Full tracks (no apps → WSJT only → N1MM+WSJT → multi-PC):**  
 [docs/tester_quickstart.md](../../docs/tester_quickstart.md)
 
@@ -17,12 +18,13 @@ For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a singl
 frequency (any band). No fleet, no separate server.
 
 1. **`Install-Wims.cmd`** — installs prerequisites (once; may prompt for UAC).
-2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`**, tick
-   **"Accept UDP requests"**.
+2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`** (or your
+   band port — 144→2238, 432→**2241**, never 2240), tick **"Accept UDP requests"**.
 3. **`Check-WimsSetup.cmd`** — double-click to see a plain-language **[OK] / [! ] / [XX]**
    check of your WSJT-X + N1MM setup (starts nothing).
 4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
-   `http://localhost:8787/`. Arm TX, click **Work** on a roster row, **Halt TX** to stop.
+   `http://localhost:8787/`. **Click a roster line** to Work (no Arm/Enable TX);
+   **Halt TX** always available.
 
 | File | What it does |
 |------|----------------|
