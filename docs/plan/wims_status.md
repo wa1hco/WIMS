@@ -60,6 +60,13 @@ captures one SSE frame, asserts the state contract + emulated instances flow thr
 Exit 0 = all green; per-check logs land in `scratch/validate/` (gitignored). Overridable
 via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 
+**GitHub CI / release track:** `.github/workflows/ci.yml` runs the same `scripts/validate.sh`
+on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
+`wims.__version__` pin check. **No GitHub Releases or tags yet** — first public cut is
+still the R0 tester release (`v0.1.0-tester` planned once dummy-load Reply is verified).
+Sister C++ forks (`wsjtx-wims` / `wsjtx-improved-wims`) already have build/release
+workflows; they are separate products and cadence.
+
 ---
 
 ## Milestones (design intent: §4 / §4.5)
@@ -68,8 +75,9 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
   frequency (any band, HF included): watch the ranked roster, verify needed↔dupe by editing
   the N1MM log and **click a roster line** to Work (Reply). `python -m wims.solo` + Windows/Linux
   wrappers. **Done:** roster-line **Work** (GT2, no global arm) + Halt, arbiter grant/release,
-  `tx` state block, casual (non-contest) seed. **Remaining before shipping:** first bring-up
-  against **real WSJT-X** into a dummy load (echo-exactness of Reply) and a tester runbook.
+  `tx` state block, casual (non-contest) seed, **CI green gate**. **Remaining before shipping:**
+  first bring-up against **real WSJT-X** into a dummy load (echo-exactness of Reply); then
+  tag + GitHub Release for testers.
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
   dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
@@ -347,6 +355,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `wsjt_qt`). Full `wsjtx` binary builds clean from the repo tree (fresh build dir against
   the superbuild's hamlib; tree is **Qt5**, noted). Not yet wired: gate thread setup,
   DTR/RTS PTT reroute (the one existing-code touch), badge, InhibitStatus type 18.
+- **2026-08-03** — **Mainline fork published with gate wired:**
+  [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims). Local `~/ham/wsjtx-wims`.
+  Push order: (1) baseline tag `baseline-v3.0.2` = official `WSJTX/wsjtx` v3.0.2;
+  (2) `TxInhibit/` gate + Configuration DTR/RTS reroute + status badge +
+  `NetworkMessage::InhibitStatus` (type 17) + docs (superbuild / build / inhibit).
+  Protocol matches Python spike (`tx_inhibit`, ttl-only). Official CI
+  (`.github/workflows/build-{linux,windows,macos}.yml` + `release.yml`) kept for
+  downloadable test binaries via `build/v*` tags. WIMS design link updated.
 - **2026-07-31** — **WSJT-X Improved → own GitHub project** for Stage 2 tracking:
   [wa1hco/wsjtx-improved-wims](https://github.com/wa1hco/wsjtx-improved-wims). Baseline import of
   extracted Improved 3.1.0 (`improved_AL_PLUS_260522`) as tag
@@ -359,3 +375,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   8×dit rule unchanged. Tests updated, 23/23 green. Superbuild drop remains local under
   `~/ham/wsjtx-3.1.0_improved_AL_PLUS_260522/` (not in the WIMS tree). Design cross-link added in
   [wims_tx_inhibit.md](wims_tx_inhibit.md).
+- **2026-08-11** — **Release-track Phase 0:** fix seat-agent N1MM probe so UserDir\\Databases
+  is found via `n1mm_user_dirs()` (test was patching agent helpers while `database_dirs()`
+  only consulted logdb’s host scan — failed on Linux CI/dev). `test_agent_report` green
+  again. Add `.github/workflows/ci.yml` (push/PR → `scripts/validate.sh` on Python
+  3.10/3.12/3.14 + version pin check). No tags/Releases yet — next is R0 dummy-load
+  Reply + `v0.1.0-tester`.

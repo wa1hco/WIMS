@@ -11,11 +11,20 @@ Because this station builds and runs its own WSJT-X (the *improved_PLUS* fork), 
 WSJT-X itself is in scope** — that is the main new degree of freedom relative to §3.4.1, which
 was designed around an unmodified WSJT-X.
 
-**WSJT-X Improved working tree (separate GitHub project):**
-[wa1hco/wsjtx-improved-wims](https://github.com/wa1hco/wsjtx-improved-wims) — baseline tag
-`base-3.1.0-improved-AL-PLUS-260522`, feature branch `feature/tx-inhibit`. Track Improved
-releases there and carry the inhibit patch until (if) upstream accepts an equivalent gate;
-WIMS keeps the Key agent, assignment UI, and pure-logic tests.
+**WSJT-X working trees (separate GitHub projects):**
+
+- **Mainline + gate (primary for the patch):**
+  [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) — baseline tag `baseline-v3.0.2`
+  (official WSJT-X v3.0.2), then the TX Inhibit gate on `main`. CI builds Linux/Windows/macOS;
+  test binaries via GitHub Releases (`build/v*` tags). See that repo’s `docs/SUPERBUILD.md`
+  and `docs/WIMS_TX_INHIBIT.md`.
+- **Improved drop (tracking / rebase source):**
+  [wa1hco/wsjtx-improved-wims](https://github.com/wa1hco/wsjtx-improved-wims) — baseline tag
+  `base-3.1.0-improved-AL-PLUS-260522`. Use when rebasing the gate onto Improved for seats
+  that run DG2YCB builds until (if) either lineage accepts an equivalent gate.
+
+WIMS keeps the Key agent, assignment UI, and pure-logic tests
+(`src/wims/interlock/inhibit.py`).
 
 ---
 

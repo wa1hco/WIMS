@@ -1,0 +1,50 @@
+# WIMS — PR / main quality gate.
+# Runs the same one-command smoke path as local dev: unit suites + import
+# check + interlock bench + live no-RF server/emulator SSE contract.
+# No pip deps (stdlib-only runtime). Failures block the release track.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: validate (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Project targets ≥3.10; 3.12 is the common Windows install path;
+        # 3.14 is the local dev target (CLAUDE.md).
+        python-version: ["3.10", "3.12", "3.14"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Version pin check
+        run: |
+          set -euo pipefail
+          # tomllib is 3.11+; parse the one field with re so 3.10 stays valid.
+          PYVER=$(python -c "import re; t=open('pyproject.toml').read(); m=re.search(r'(?m)^version\s*=\s*\"([^\"]+)\"', t); assert m, 'version not found in pyproject.toml'; print(m.group(1))")
+          INITVER=$(python -c "import sys; sys.path.insert(0,'src'); import wims; print(wims.__version__)")
+          echo "pyproject version=$PYVER  wims.__version__=$INITVER"
+          test "$PYVER" = "$INITVER"
+
+      - name: Validate (unit + live no-RF)
+        env:
+          PYTHON: python
+        run: scripts/validate.sh
