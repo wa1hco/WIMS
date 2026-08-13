@@ -30,17 +30,28 @@ WIMS keeps the Key agent, assignment UI, and pure-logic tests
 
 ## 1. Scenario and requirement
 
-One band, two transmitters, one rule:
+One band, two transmitters, one rule (**one radiated signal per band**):
 
 - A WSJT-X seat: its own radio, decoding continuously, making contacts that the WSJT-X
   operator enables (locally or via WIMS click-to-work). FT8/MSK144 cycles run on the mode's
   clock.
 - An SSB/CW station on the **same band**, in run or S&P, whose transmissions have **priority**
-  under the one-signal-per-band contest rule.
+  under the contest rule **when the band is in interlock policy**.
 
-Requirement: when the SSB/CW operator keys, any WSJT-X emission on that band must stop — and
-must not start — until the band is theirs again. The stop must be fast enough that the overlap
-is negligible (target: ≤10 ms from key-down to RF gone, per §3.4.1). The mechanism must work:
+**WIMS band-sharing policy** ([wims_design.md](wims_design.md) **§2.14**):
+
+| Policy | This document (TX Inhibit) |
+|--------|----------------------------|
+| **`interlock`** | **In force** — KEY/UDP hold stops WSJT-X RF as designed below |
+| **`coordinated`** | **Not actuated** — operators hand off manually; WIMS shows mutual TX/QSO status only. KEY agents may still report telemetry; they must **not** send holds that gate RF solely for priority |
+
+This document specifies the **interlock** path (original WIMS mission). Coordinated mode is
+not a weaker inhibit — it is **no inhibit for priority**, with information UX in the main design.
+
+**Requirement (interlock policy):** when the SSB/CW operator keys, any WSJT-X emission on that
+band must stop — and must not start — until the band is theirs again. The stop must be fast
+enough that the overlap is negligible (target: ≤10 ms from key-down to RF gone, per §3.4.1).
+The mechanism must work:
 
 - **standalone at the seat** (no WIMS server involved — the interlock must survive a server
   restart, §3.4.1 "trigger path never via the server"), and

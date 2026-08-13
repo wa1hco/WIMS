@@ -60,14 +60,21 @@ WIMS has support for setup where it verifies connection to all the WSJT-X and N1
 guides the user in the setup, and reports loss of communication. WIMS has features to automate
 the setup.
 
-WIMS supports one or more SSB/CW stations that have priority over WSJT-X operation. When the
-SSB/CW operator wants to transmit, WIMS halts (within 10 ms) any WSJT-X operation that would
-violate the contest rules. WSJT-X may not stop the transmission within the time budget, so WIMS
-has an additional ability to reduce the transmit level to zero so that audio buffering is not an
-issue.
+WIMS supports one or more SSB/CW stations on the same bands as WSJT-X. Contest rule remains
+**one radiated signal per band**. How WIMS enforces that is a **per-band policy** (§2.14 / §3.4.1):
 
-The SSB/CW operator has a small program that shows the activity of WIMS on the relevant band, to
-give the SSB/CW operator the option to wait for the current contact to complete.
+1. **Interlock (original WIMS mission)** — SSB/CW has **priority**. When the SSB/CW operator
+   keys, WIMS stops WSJT-X emission on that band in real time (TX Inhibit / fast mute, target
+   ≤10 ms; details [wims_tx_inhibit.md](wims_tx_inhibit.md)). Automatic; survives server outage
+   on the seat path.
+2. **Coordinated handoff (manual)** — operators **share the band by agreement**. WIMS does
+   **not** assert inhibit or mute. It supplies **clear mutual status** (who is TX, who is in a
+   digital QSO, who wants the band) so humans hand off cleanly. Same dashboards and presence
+   feeds; no automatic RF stop.
+
+Both modes use the same discovery and inventory; only actuation differs. A band may start in
+coordinated mode (no KEY hardware yet, or voice and digital ops prefer etiquette) and move to
+interlock when KEY agents and patched WSJT-X are ready.
 
 In general WIMS runs on a separate computer from the WSJT-X and SSB/CW computers.
 
@@ -926,6 +933,209 @@ UI rules:
   transmitting + calling-us without having issued a Call CQ.
 - FreeText one-shot CQ never required for contest operation.
 
+### 2.13 Fleet inventory, dynamic membership, and console sessions
+
+**Need (operator scenarios, 2026-08-12).** The operator opens the browser on **:8787** and must
+see an **inventory of equipment known to WIMS** that stays current as nodes come and go.
+Several related operating scenarios (FT8 control for a band; SSB/CW watch-only roster; slow-band
+takeover) all depend on the same membership + inventory model.
+
+#### 2.13.1 Equipment inventory (Status / Operate sections)
+
+The console must present **clearly labeled sections / tables** (Phase-1 dense is fine; Phase-2
+culls columns) so the operator can find data without hunting. Minimum inventory groups:
+
+| Group | What each row carries (minimum) | Source today / target |
+|-------|----------------------------------|------------------------|
+| **WSJT-X instances** | id (`--rig-name`), host, **band**, dial freq, mode, TX/RX state, health ALIVE/STALE/DEAD, **logger-of-record N1MM** (or ⚠ mismatch), **inhibit status** (open / held / holder / age when gate reports; n/a if band policy `coordinated`), last decode age | Plane A UDP (§4.3); inhibit via InhibitStatus / Key path ([wims_tx_inhibit.md](wims_tx_inhibit.md)); logger binding §2.13.4; policy §2.14 |
+| **N1MM loggers** | station name, mycall, **band(s)** claimed, network path (broadcast target / last seen), contest / active log identity, QSO rate or last contact age, WSJT-reader on/off if known | Plane B `<RadioInfo>` / `<AppInfo>` / `<contactinfo>` |
+| **SSB/CW stations** | Key-agent id, band, KEY/PTT state (idle / keyed), frequency if known (N1MM RadioInfo), **band policy** (`interlock` / `coordinated`), **assigned WSJT inhibit targets** (list length + health; empty/unused in coordinated) | Key agent registration + assignment (§ functions #5–#7); §2.14 |
+| **Seat agents** | host, seat id, severity, WSJT/N1MM process hints, last report age | `wims.agent` → `/api/agents/report` |
+| **Operator consoles** | callsign + name, bands subscribed / claimed, last action age, session liveness | §2.7 / §2.13.5 |
+| **Rotators** (when present) | id, az, moving, mapped band(s) | §2.10 |
+
+**Convention — how WSJT-X joins WIMS.** Instances **multicast** WSJT-X protocol traffic
+(Heartbeat / Status / Decode / …) to the fleet group + **band stream port**
+([wims_networking.md](wims_networking.md) §4: `224.0.0.73` + band port). WIMS is a **subscriber**
+to those streams (solo: one port; fleet server: all declared ports). There is no separate
+“register with WIMS” handshake for WSJT-X beyond correct Reporting settings + Accept UDP for
+control. Discovery = first datagram + ongoing health from silence prune (§3.15).
+
+#### 2.13.2 Overlap control: inhibit *and* Halt (not either-or for safety)
+
+WIMS uses **both** layers; they are not alternate product modes that replace each other:
+
+| Mechanism | Role | Time scale |
+|-----------|------|------------|
+| **TX arbiter** (server) | ≤1 WIMS-granted TX per resource group; preventive “don’t start if SSB keyed” | Before Reply / work |
+| **TX Inhibit gate** (in patched WSJT-X + Key agent) | SSB/CW key-down stops RF mid-cycle (puncture); KEY agents hold **assigned target lists** | ≤10 ms path |
+| **UDP Halt Tx** | Cleanup / panic / end WIMS QSO; **no UDP Enable** — “halt/enable” is not a symmetric pair | ~200–400 ms to PTT-down |
+
+**Product wording:** WIMS does **not** “Enable Tx” over UDP. Human initiation is roster click
+(Reply) or seat WSJT-X UI. **Halt** is always available. **Inhibit** is the SSB/CW priority
+path. Seats without the inhibit patch fall back to audio-mute + Halt cleanup (§3.4.1).
+
+#### 2.13.3 Multiple SSB/CW stations and KEY agents on one band
+
+- **N KEY agents on a band are allowed** (identified by Key-agent registration: station id +
+  band + last seen).
+- **Each KEY agent receives an assignment list** of WSJT-X inhibit targets on that band
+  (function #5: server pushes list; agent persists last list so interlock survives WIMS outage —
+  [wims_tx_inhibit.md](wims_tx_inhibit.md) §4.4).
+- **WIMS discovers WSJT-X on a band and proposes / maintains them on the control list** for
+  that band’s KEY agent(s) (auto-suggest new instances; operator confirms or Instance Profile
+  pins the map). When a WSJT-X instance appears/disappears, WIMS **updates KEY target lists**.
+- **WIMS does not arbitrate TX overlap among multiple SSB/CW stations on the same band.**
+  That is **out of scope for WIMS** — station RF practice / hardware OR of KEY lines / external
+  SO*R interlock (same decision as inhibit multi-holder: one logical inhibit into WSJT-X). WIMS
+  only protects **digital vs human voice/CW** on that band.
+
+#### 2.13.4 WSJT-X ↔ N1MM binding verification
+
+WIMS **verifies** that each WSJT-X band stream has a coherent logger:
+
+1. Which N1MM process(es) are **alive** on the LAN (any broadcast).
+2. Which N1MM is the **logger-of-record** for that stream (Instance Profile / Band Stream
+   Registry: exactly one WSJT **reader** per band stream).
+3. **Mismatch alarms:** WSJT-X on 144 but no N1MM-144 reader; two N1MMs both reading the same
+   stream (double-log risk); logger present but no WSJT on that band (SSB-only period — normal).
+
+**Multiple N1MM processes on one band — design answer (2026-08-12):**
+
+| Situation | Accommodate? | Rule |
+|-----------|--------------|------|
+| **Two N1MMs both enable the WSJT UDP reader on the same band stream** | **No** as a supported config | Readiness **error** (double-log). Exactly one logger-of-record per stream. |
+| **One digital N1MM (WSJT reader) + separate SSB/CW N1MM** that does **not** join the WSJT stream | **Yes, observe both** | Digital N1MM remains logger-of-record for FT8; SSB N1MM contributes RadioInfo / voice-log presence. Dupe/mult for **digital** still from the contest digital log (or merged copy if the station intentionally uses one multi-contest DB). |
+| **Multiple N1MMs broadcasting Contacts for different contests** | **Yes, pick active contest** | Already: Setup contest picker + resync; do not merge unrelated contests into one dupe key. |
+
+WIMS may **display** every N1MM it hears; it must **not** treat two WSJT readers as OK.
+
+#### 2.13.5 Dynamic membership (come and go)
+
+WIMS continuously updates membership; no full restart required for normal churn:
+
+| Entity | Join signal | Leave / prune |
+|--------|-------------|----------------|
+| WSJT-X | First Heartbeat/Status/Decode on a joined port | Silent > prune TTL (today ~120 s) → STALE then DEAD / drop |
+| N1MM | Any plane-B broadcast | Age out last-seen; clear logger row when dead |
+| Seat / Key agent | Report / registration UDP or HTTP | Age out (agents ~5 min today) |
+| KEY target lists | Derived from live WSJT set + assignment policy | Re-push when instances join/leave or operator edits map |
+| Operator browser | Identify (call/name) + subscribe/claim heartbeats via API/SSE | Session idle TTL → drop from multi-op widget; claims auto-expire (§4.5) |
+
+#### 2.13.6 What WIMS monitors about browser windows
+
+**Not** a full remote-desktop of the browser. Only **session coordination metadata**:
+
+| Field | Why |
+|-------|-----|
+| Operator **callsign + name** | Multi-op widget; attribution (§2.7) |
+| **Bands subscribed** | Who is watching which roster scope (§2.11) |
+| **Bands/instances claimed** | Who may Work/point (§4.5) |
+| **Last action time** | Stale-op / takeover affordance |
+| **Session liveness** (SSE connected / last poll) | “Console open” vs abandoned tab |
+| Optional: page focus (Operate vs Status) | Ops only; not required for safety |
+
+WIMS does **not** need mouse position, form field contents, or authentication. Identity is
+good-will coordination, not security.
+
+#### 2.13.7 Operating scenarios (acceptance sketches)
+
+These are design acceptance stories; implementation tracks M5–M7 / status todos.
+
+1. **Inventory glance** — Open `:8787/status` (and Operate banners): see WSJT by band, N1MM
+   network status, KEY/inhibit state, empty-band highlights.
+2. **FT8 control for a band** — Operator enters name/call, **subscribes** to band → roster
+   fills from **all** WSJT-X on that band; sees SSB/CW station(s) on that band (freq, TX/KEY
+   status) while working S&P/tailend.
+3. **SSB/CW op monitors FT8 (not operating digital)** — Opens browser, subscribes to band
+   roster **view-only** (subscribe without claim, or claim idle); uses activity to optimize
+   voice/CW; does not need KEY agent for *viewing*.
+4. **Slow band, operator on break** — Second op already subscribed (or subscribes), sees
+   needed decode, **clicks roster line** → soft claim / takeover (§4.5) → Work; monitors QSO.
+5. **Multi-subscribe** — Op may subscribe to **all** bands; multi-op widget shows every
+   operator name per band (none / one / many).
+
+---
+
+### 2.14 Band sharing: interlock vs coordinated (manual) handoff
+
+**Origin.** WIMS began as an **interlock system**: inhibit WSJT-X in real time so SSB/CW can
+take the band under the one-signal rule without waiting for FT8 cycles. That remains the
+**primary safety product** where KEY + gate are deployed ([wims_tx_inhibit.md](wims_tx_inhibit.md),
+§3.4.1).
+
+**Additional requirement (2026-08-12).** WIMS must also support bands where **WSJT-X and
+SSB/CW hand off operation manually**. In that mode WIMS’s job is **information for operators**,
+not automatic inhibit. Humans decide when digital stops and voice/CW starts (and the reverse).
+
+#### 2.14.1 Policy (per band / resource group)
+
+| Policy | Automatic RF stop? | WIMS role | Typical use |
+|--------|--------------------|-----------|-------------|
+| **`interlock`** | **Yes** — KEY / inhibit path (and preventive “don’t start Work if SSB keyed”) | Enforce + show status | Multi-multi contest when KEY + gate ready |
+| **`coordinated`** | **No** — no inhibit push, no audio mute from KEY | **Inform only** — same status both sides | Lab; seats without KEY; ops prefer manual etiquette; mixed periods |
+
+- Policy is **per band** (or per shared-resource group), not global. 50 MHz can be interlock
+  while 222 is coordinated.
+- **Default when KEY path not configured:** `coordinated` (fail-soft: never pretend interlock
+  works without hardware). **Default when KEY + targets assigned:** `interlock`.
+- Changing policy is an operator/setup action (Status/Setup), logged; not a silent auto flip.
+- **FT8-vs-FT8** zero-overlap (arbiter ≤1 per group for WIMS-granted TX) is **independent** of
+  this policy — it always applies to console-driven Work.
+
+#### 2.14.2 What “information” means in coordinated mode
+
+Both digital and SSB/CW operators need a **shared picture** of the band. Minimum status both
+sides see (Operate banner + Status section + optional SSB “small client” view):
+
+| Signal | Why |
+|--------|-----|
+| **SSB/CW TX / KEY state** (idle / keyed, station id) | Digital op knows voice is live — hold Work / finish QSO |
+| **SSB/CW frequency / mode** (when N1MM RadioInfo available) | Context for “they’re on run freq” |
+| **WSJT-X TX / cycle** (transmitting, period, dx_call if in QSO) | SSB op can wait for end of over / end of QSO |
+| **WIMS Work in progress** (claim holder, call being worked) | SSB knows digital is mid-contact |
+| **Band policy** badge (`INTERLOCK` / `COORDINATED`) | No ambiguity about whether RF will auto-stop |
+| **“Wants the band” / handoff intent** (optional soft flag) | Either side can mark “requesting band” without keying or inhibiting |
+
+In **coordinated** mode, WIMS **must not**:
+
+- send inhibit holds from KEY agents to WSJT-X for policy reasons (KEY agent may still run for
+  telemetry only, or be disabled — config);
+- refuse Work solely because SSB is keyed (optional **advisory** warning is OK; hard block is
+  interlock-mode behavior);
+- imply that one-signal is software-guaranteed — UI copy: *“Coordinated band — operators hand
+  off; WIMS does not inhibit.”*
+
+In **interlock** mode, the same status remains visible (SSB op still benefits from seeing an
+in-progress FT8 QSO before keying when possible); actuation adds automatic inhibit.
+
+#### 2.14.3 Manual handoff scenarios (acceptance)
+
+1. **Voice wants the band (coordinated)** — SSB op sees FT8 mid-QSO on Status/small client →
+   waits for TX→RX or claims clear → digital op finishes or Halts → SSB keys. No inhibit
+   fired. Optional: SSB sets “requesting band”; digital roster shows banner.
+2. **Digital wants the band after voice** — FT8 op sees SSB KEY idle + optional clear flag →
+   starts Work / seat CQ. WIMS does not “enable” anything; it only shows clear.
+3. **Policy switch mid-contest** — Setup sets band to `interlock` after KEY wiring verified;
+   Status badge flips; KEY agents begin fan-out. Reverse to `coordinated` if gate fails (fail
+   open to RX on inhibit path is separate; policy reverts inform-only).
+4. **Mixed fleet** — Roy 222 `coordinated` (same op runs SSB and FT8 by seat practice); Trailer
+   50 `interlock` (multi-beam FT8 vs SSB run).
+
+#### 2.14.4 Relationship to other mechanisms
+
+| Mechanism | Interlock policy | Coordinated policy |
+|-----------|------------------|--------------------|
+| KEY → TX Inhibit | **On** (safety path) | **Off** for priority (telemetry optional) |
+| Preventive “no Work while SSB keyed” | **On** | **Off** (advisory toast optional) |
+| UDP Halt (panic / end QSO) | Available | Available |
+| Arbiter (WIMS multi-instance TX) | On | On |
+| Multi-op claim / subscribe | On | On |
+| Inventory / SSB status on roster | On | On (primary value) |
+
+**Not a third “disable all safety” mode.** Coordinated still assumes cooperative operators and
+contest rules; WIMS simply does not automate the stop. Panic Halt and readiness fail-soft remain.
+
 ---
 
 ## 3. Specific pieces of the WSJT-X management program
@@ -1002,8 +1212,17 @@ enable different modules from the matrix).
 
 ### 3.4.1 SSB/CW priority interlock (gate + fast halt)
 
-Contest rule: **one signal per band.** When an SSB/CW operator transmits, no WIMS-managed WSJT-X
-may transmit **on that same band**. Enforced by **two mechanisms** over a **shared SSB/CW
+Contest rule: **one signal per band.** **Whether WIMS enforces that automatically is per-band
+policy §2.14:**
+
+- **`interlock`** — this section applies in full (KEY → inhibit / mute; preventive no-Work while
+  SSB keyed).
+- **`coordinated`** — **no automatic inhibit or mute.** WIMS still **senses and displays**
+  SSB/CW and WSJT-X TX state so operators hand off manually (§2.14.2). Skip Mechanism 1 hard
+  block and Mechanism 2 actuation; keep status on the state contract.
+
+When policy is **`interlock`**: when an SSB/CW operator transmits, no WIMS-managed WSJT-X may
+transmit **on that same band**. Enforced by **two mechanisms** over a **shared SSB/CW
 transmit-state signal**.
 
 **Shared signal — SSB/CW TX-state announcement.** Each SSB/CW position has an agent that **senses
@@ -1573,3 +1792,21 @@ Candidate situations worth covering — rename, add, or cut freely:
   scoring only). Weight of “worked last year on 432” vs “heard this weekend on 432 but not
   worked”. How much detail on the roster row vs expand/work-dialog so assessment is fast under
   contest pace.
+- **Multiple N1MM on one band — RESOLVED (§2.13.4).** Exactly one N1MM may enable the **WSJT
+  reader** per band stream (logger-of-record). A second N1MM for SSB/CW that does **not** join
+  that stream is OK for presence/RadioInfo; two WSJT readers = readiness error. WIMS displays
+  all N1MMs it hears; digital dupe/mult follows the active contest log.
+- **What to monitor on browser windows — RESOLVED (§2.13.6).** Session metadata only: identity,
+  subscriptions, claims, last action, liveness — not full UI remote-control.
+- **SSB/CW multi-station TX overlap on one band — RESOLVED (out of scope for WIMS) (§2.13.3).**
+  Hardware / external interlock among voice stations; WIMS only maps KEY agents → WSJT inhibit
+  targets and keeps lists current as instances churn.
+- **Auto vs manual KEY target assignment** — when a new WSJT-X appears on a band, auto-add to
+  every KEY agent on that band vs operator confirm on assignment UI? Prefer auto-add with
+  visible Status + one-click remove; pin in Instance Profile for permanent seats.
+- **Band sharing `interlock` vs `coordinated` — RESOLVED (§2.14).** Both supported per band.
+  Interlock = original real-time inhibit. Coordinated = information-only handoff, no priority
+  inhibit. Default coordinated until KEY path configured; optional soft “wants the band” flag.
+- **Coordinated-mode KEY agent** — still sense KEY for dashboard telemetry while policy is
+  coordinated, or power down hold senders entirely? Prefer **sense + display, suppress hold
+  datagrams** so Status stays true without accidental inhibit.

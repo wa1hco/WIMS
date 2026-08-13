@@ -150,6 +150,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ### Design / feature todos (not yet coded)
 
+- [ ] **§2.13 — Fleet inventory & dynamic membership** — Status/Operate sections for WSJT
+  (band, logger binding, inhibit status), N1MM (log + network), SSB/CW KEY agents + target
+  lists, operator sessions; prune/update KEY assignment lists as instances churn; WSJT↔N1MM
+  binding verify; multi-N1MM reader = error. Design: wims_design.md §2.13 (2026-08-12).
+- [ ] **§2.14 — Band sharing policy `interlock` | `coordinated`** — per-band mode: automatic
+  KEY inhibit vs **manual handoff with mutual status only** (no inhibit actuation). Badge on
+  inventory/Operate; optional “wants the band” soft flag; coordinated default when KEY not
+  configured. Design: wims_design.md §2.14 (2026-08-12).
 - [ ] **C7 / §2.9 — Cross-band evidence + `cross_band` factor** — ship **structured evidence**
   (other needed bands, this-contest vs prior-contest source, seat readiness, suggested QSY) on
   the state contract so the operator can **assess other-band contact ability**; optional rank
@@ -387,3 +395,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-08-11** — **Tester roles doc:** [tester_roles.md](../tester_roles.md) freezes the
   install surface (solo / site server / console / seat agent; KEY agent lab-only). Fixed
   stale “Arm TX” and 432→2240 port in quickstart/Windows README; linked from README.
+- **2026-08-12** — **Design §2.13** (fleet inventory, dynamic membership, browser sessions,
+  multi-KEY, multi-N1MM answer, inhibit+Halt roles) folded from operator scenarios; networking
+  logger invariant clarified. Code not yet; todos listed under design backlog.
+- **2026-08-12** — **Design §2.14** band-sharing policy: **`interlock`** (original real-time
+  inhibit, SSB/CW priority) vs **`coordinated`** (manual handoff; WIMS informs both sides, no
+  automatic inhibit). Goals + §3.4.1 + tx_inhibit §1 cross-linked.

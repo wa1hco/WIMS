@@ -148,6 +148,12 @@ TX steps in the runbook are **provisional** until the first real-WSJT-X dummy-lo
 | Rotator: live K3NG on seats | Partial (sim + API; not full product) |
 | “One package, choose role” installer | Design only; launchers only today |
 | Multi-op claims, remote console polish | Later milestones |
+| Fleet inventory UI + KEY target lists as nodes churn | Design §2.13; not coded |
+
+**Fleet operating model (design):** operator identity + band subscribe + soft claim takeover,
+equipment inventory, multi-KEY agents, and N1MM binding rules live in
+[plan/wims_design.md](plan/wims_design.md) **§2.7 / §2.11 / §2.13**. R0 solo does not need
+multi-op or KEY; site multi-multi does.
 
 ---
 
