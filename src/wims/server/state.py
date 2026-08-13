@@ -33,21 +33,35 @@ from wims.engine.geo import (
 
 API_VERSION = 1
 
+# Per-band SSB/CW vs WSJT-X sharing (§2.14). Default is inform-only until KEY path
+# is configured for interlock.
+SHARE_POLICIES = ("coordinated", "interlock")
+DEFAULT_SHARE_POLICY = "coordinated"
 
-def _instance(n, now: float) -> dict:
+
+def normalize_share_policy(policy: str | None) -> str:
+    """Return a valid share policy; unknown → coordinated."""
+    p = (policy or "").strip().lower()
+    return p if p in SHARE_POLICIES else DEFAULT_SHARE_POLICY
+
+
+def _instance(n, now: float, *, share_policy: str | None = None) -> dict:
     # id_collision uses a recent-host window so a desktop→VM move of the same
     # rig-name does not sticky-flag ⚠ id after the old source goes silent.
     collide = (n.id_collision_at(now) if hasattr(n, "id_collision_at")
                else n.id_collision)
     recent = sorted(n.hosts_recent(now)) if hasattr(n, "hosts_recent") else sorted(n.hosts)
     ctrl = getattr(n, "control_addr", None)
+    band = n.band
+    pol = normalize_share_policy(
+        share_policy if share_policy is not None else DEFAULT_SHARE_POLICY)
     return {
         "id": n.id,
         "host": n.host,
         "hosts": recent,   # live sources (debug / multi-host collision UI)
         # Ephemeral MessageClient port for Reply/Halt (ip:port from last recvfrom)
         "control": (None if not ctrl else {"host": ctrl[0], "port": int(ctrl[1])}),
-        "band": n.band,
+        "band": band,
         "mode": n.mode,
         "dial_hz": n.dial_hz,
         "de_call": getattr(n, "de_call", None),
@@ -62,6 +76,14 @@ def _instance(n, now: float) -> dict:
         "quiet": n.is_quiet(now),
         "id_collision": collide,
         "version": n.version,
+        # §2.14 — band-sharing mode for this instance's band
+        "share_policy": pol,
+        # Inhibit status placeholder until KEY/gate report into the server (§2.13)
+        "inhibit": None if pol == "coordinated" else {
+            "state": "unknown",
+            "holder": None,
+            "age": None,
+        },
     }
 
 
@@ -361,17 +383,104 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
     }
 
 
-def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0) -> dict:
+def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0,
+                  share_policies: dict[str, str] | None = None) -> dict:
     """Snapshot the fleet (instances + loggers) as the console API payload."""
+    policies = share_policies or {}
     instances = sorted(tracker.nodes.values(), key=lambda x: (x.band or "~", x.id))
     loggers = sorted(tracker.loggers.values(), key=lambda x: x.id)
+    inst_dicts = [
+        _instance(n, now, share_policy=policies.get(n.band or "")
+                  or DEFAULT_SHARE_POLICY)
+        for n in instances
+    ]
+    log_dicts = [_logger(lg, now) for lg in loggers]
     return {
         "api": API_VERSION,
         "now": now,
         "rx": {"wsjtx": wsjt_pkts, "n1mm": n1mm_pkts},
-        "instances": [_instance(n, now) for n in instances],
-        "loggers": [_logger(lg, now) for lg in loggers],
+        "instances": inst_dicts,
+        "loggers": log_dicts,
+        # §2.13 / §2.14 — per-band inventory + sharing policy
+        "bands": inventory_bands(inst_dicts, log_dicts, policies),
+        "share_policy_default": DEFAULT_SHARE_POLICY,
     }
+
+
+def inventory_bands(instances: list[dict], loggers: list[dict],
+                    share_policies: dict[str, str] | None = None) -> list[dict]:
+    """Per-band inventory rows for Status (design §2.13 / §2.14).
+
+    Aggregates live WSJT-X instances and N1MM loggers by band label. ``share_policy``
+    is coordinated (info-only handoff) unless overridden to interlock.
+    """
+    from wims.core.bands import band_sort_key
+
+    policies = {k: normalize_share_policy(v)
+                for k, v in (share_policies or {}).items()}
+    by_band: dict[str, dict] = {}
+
+    def row(band: str) -> dict:
+        b = band or "?"
+        if b not in by_band:
+            by_band[b] = {
+                "band": b,
+                "share_policy": normalize_share_policy(policies.get(b)),
+                "wsjt": [],
+                "wsjt_tx": [],
+                "loggers": [],
+                "ssb": [],          # KEY agents — empty until productized
+                "wants_band": [],   # soft handoff flags — later
+                "inhibit_active": False,
+            }
+        return by_band[b]
+
+    for n in instances:
+        b = n.get("band") or "?"
+        r = row(b)
+        # Prefer instance's own policy if present
+        if n.get("share_policy"):
+            r["share_policy"] = normalize_share_policy(n["share_policy"])
+        r["wsjt"].append({
+            "id": n.get("id"),
+            "host": n.get("host"),
+            "mode": n.get("mode"),
+            "state": n.get("state"),
+            "health": n.get("health"),
+            "transmitting": bool(n.get("transmitting")),
+            "dial_hz": n.get("dial_hz"),
+        })
+        if n.get("transmitting"):
+            r["wsjt_tx"].append(n.get("id"))
+
+    for lg in loggers:
+        b = lg.get("last_band") or "?"
+        r = row(b)
+        r["loggers"].append({
+            "id": lg.get("id"),
+            "host": lg.get("host"),
+            "mycall": lg.get("mycall"),
+            "last_seen_age": lg.get("last_seen_age"),
+            "qso_count": lg.get("qso_count"),
+            "last_call": lg.get("last_call"),
+        })
+
+    # Explicit policy-only bands (e.g. --interlock-band 70cm with no traffic yet)
+    for b, pol in policies.items():
+        if b:
+            r = row(b)
+            r["share_policy"] = pol
+
+    out = list(by_band.values())
+    for r in out:
+        r["wsjt_count"] = len(r["wsjt"])
+        r["logger_count"] = len(r["loggers"])
+        r["ssb_count"] = len(r["ssb"])
+        r["wsjt_tx"].sort(key=lambda x: x or "")
+        r["wsjt"].sort(key=lambda x: x.get("id") or "")
+        r["loggers"].sort(key=lambda x: x.get("id") or "")
+    out.sort(key=lambda r: (band_sort_key(r["band"]), r["band"]))
+    return out
 
 
 def agents_to_dict(agents: dict, now: float, *, stale_after: float = 90.0,

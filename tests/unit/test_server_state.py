@@ -28,7 +28,8 @@ from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, identity_groups  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, decodes_to_dict,
-    n1mm_sync_to_dict, API_VERSION)
+    n1mm_sync_to_dict, inventory_bands, normalize_share_policy,
+    DEFAULT_SHARE_POLICY, API_VERSION)
 from wims.server.app import LiveFleet  # noqa: E402
 
 
@@ -46,16 +47,67 @@ def test_fleet_to_dict_shape():
     d = fleet_to_dict(t, now=102.0, wsjt_pkts=3, n1mm_pkts=1)
     assert d["api"] == API_VERSION
     assert d["rx"] == {"wsjtx": 3, "n1mm": 1}
+    assert d["share_policy_default"] == DEFAULT_SHARE_POLICY
+    assert "bands" in d and isinstance(d["bands"], list)
 
     inst = d["instances"][0]
     assert inst["id"] == "SIM-6M" and inst["band"] == "6m" and inst["mode"] == "FT8"
     assert inst["state"] == "DEC" and inst["health"] == "ALIVE"
     assert inst["dial_hz"] == 50_313_000 and inst["host"] == "192.168.10.21"
     assert isinstance(inst["decodes_per_period"], float)
+    assert inst["share_policy"] == "coordinated"
+    assert inst["inhibit"] is None  # coordinated → no inhibit projection
 
     lg = d["loggers"][0]
     assert lg["kind"] == "N1MM" and lg["id"] == "ROY-PC" and lg["last_call"] == "K1ABC"
     assert lg["last_band"] == "6m"
+
+    bands = {b["band"]: b for b in d["bands"]}
+    assert "6m" in bands
+    assert bands["6m"]["share_policy"] == "coordinated"
+    assert bands["6m"]["wsjt_count"] == 1
+    assert bands["6m"]["logger_count"] == 1
+    assert bands["6m"]["wsjt"][0]["id"] == "SIM-6M"
+
+
+def test_inventory_and_share_policy_interlock():
+    assert normalize_share_policy("INTERLOCK") == "interlock"
+    assert normalize_share_policy("nope") == "coordinated"
+
+    t = FleetTracker()
+    t.observe(M.parse(E.build_status("A-6M", 50_313_000, mode="FT8")),
+              now=10.0, src_ip="10.0.0.1")
+    t.observe(M.parse(E.build_status("B-2M", 144_174_000, mode="FT8", transmitting=True)),
+              now=10.0, src_ip="10.0.0.2")
+    d = fleet_to_dict(t, now=11.0, share_policies={"6m": "interlock", "2m": "coordinated"})
+    by_id = {i["id"]: i for i in d["instances"]}
+    assert by_id["A-6M"]["share_policy"] == "interlock"
+    assert by_id["A-6M"]["inhibit"] is not None
+    assert by_id["A-6M"]["inhibit"]["state"] == "unknown"
+    assert by_id["B-2M"]["share_policy"] == "coordinated"
+    assert by_id["B-2M"]["inhibit"] is None
+
+    bands = {b["band"]: b for b in d["bands"]}
+    assert bands["6m"]["share_policy"] == "interlock"
+    assert bands["2m"]["wsjt_tx"] == ["B-2M"]
+
+    # Policy-only band with no traffic yet still appears
+    inv = inventory_bands([], [], {"70cm": "interlock"})
+    assert inv[0]["band"] == "70cm" and inv[0]["share_policy"] == "interlock"
+    assert inv[0]["wsjt_count"] == 0
+
+
+def test_livefleet_set_share_policy():
+    live = LiveFleet()
+    r = live.set_share_policy("6m", "interlock")
+    assert r["ok"] and r["share_policy"] == "interlock"
+    live.observe_wsjtx(M.parse(E.build_status("SIM", 50_313_000, mode="FT8")),
+                       now=1.0, src_ip="127.0.0.1")
+    s = live.snapshot(now=1.0)
+    assert s["instances"][0]["share_policy"] == "interlock"
+    assert any(b["band"] == "6m" and b["share_policy"] == "interlock" for b in s["bands"])
+    bad = live.set_share_policy("", "interlock")
+    assert not bad["ok"]
 
 
 def test_activity_tile_on_heartbeat_without_decode():

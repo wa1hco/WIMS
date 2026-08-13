@@ -150,14 +150,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ### Design / feature todos (not yet coded)
 
-- [ ] **§2.13 — Fleet inventory & dynamic membership** — Status/Operate sections for WSJT
-  (band, logger binding, inhibit status), N1MM (log + network), SSB/CW KEY agents + target
-  lists, operator sessions; prune/update KEY assignment lists as instances churn; WSJT↔N1MM
-  binding verify; multi-N1MM reader = error. Design: wims_design.md §2.13 (2026-08-12).
-- [ ] **§2.14 — Band sharing policy `interlock` | `coordinated`** — per-band mode: automatic
-  KEY inhibit vs **manual handoff with mutual status only** (no inhibit actuation). Badge on
-  inventory/Operate; optional “wants the band” soft flag; coordinated default when KEY not
-  configured. Design: wims_design.md §2.14 (2026-08-12).
+- [~] **§2.13 — Fleet inventory & dynamic membership** — **Slice 1 done:** state key `bands`
+  (per-band WSJT + N1MM aggregation), Status **Band inventory** table, instance `share_policy`.
+  Remaining: logger binding verify, KEY/SSB rows, operator sessions, KEY list churn.
+  Design: wims_design.md §2.13.
+- [~] **§2.14 — Band sharing policy `interlock` | `coordinated`** — **Slice 1 done:** default
+  `coordinated`; `--interlock-band BAND`; `POST /api/band/policy`; badges on Status; inhibit
+  placeholder on instances when interlock. Remaining: KEY actuation gate on policy, soft
+  “wants the band”, Operate banner. Design: wims_design.md §2.14.
 - [ ] **C7 / §2.9 — Cross-band evidence + `cross_band` factor** — ship **structured evidence**
   (other needed bands, this-contest vs prior-contest source, seat readiness, suggested QSY) on
   the state contract so the operator can **assess other-band contact ability**; optional rank
@@ -401,3 +401,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-08-12** — **Design §2.14** band-sharing policy: **`interlock`** (original real-time
   inhibit, SSB/CW priority) vs **`coordinated`** (manual handoff; WIMS informs both sides, no
   automatic inhibit). Goals + §3.4.1 + tx_inhibit §1 cross-linked.
+- **2026-08-12** — **Slice 1 (inventory + policy) code:** `state.fleet_to_dict` → `bands[]` +
+  per-instance `share_policy` / `inhibit` placeholder; LiveFleet `set_share_policy`;
+  `POST /api/band/policy`; `--interlock-band`; Status Band inventory table + policy pills.
+  Tests in `test_server_state`. KEY/SSB rows and inhibit actuation still later.

@@ -131,6 +131,34 @@ class LiveFleet:
         self._id_collision_warn_ts: dict[str, float] = {}
         # Experimental GridTracker merge bridge (see --gt-forward).
         self._gt_bridge: GridTrackerBridge | None = None
+        # Per-band share policy (§2.14): band label → coordinated|interlock.
+        # Default (missing key) is coordinated — no automatic KEY inhibit.
+        self._share_policies: dict[str, str] = {}
+
+    def set_share_policy(self, band: str, policy: str) -> dict:
+        """Set band sharing mode (design §2.14). Returns result dict for API."""
+        from wims.server.state import normalize_share_policy, SHARE_POLICIES, DEFAULT_SHARE_POLICY
+        b = (band or "").strip()
+        if not b:
+            return {"ok": False, "error": "need_band",
+                    "detail": "band label required (e.g. 6m, 2m, 70cm)"}
+        raw = (policy or "").strip().lower()
+        if raw not in SHARE_POLICIES:
+            return {"ok": False, "error": "bad_policy",
+                    "detail": f"policy must be one of {list(SHARE_POLICIES)}"}
+        pol = normalize_share_policy(raw)
+        with self._lock:
+            if pol == DEFAULT_SHARE_POLICY:
+                # Store explicit default so inventory still shows the band if empty.
+                self._share_policies[b] = pol
+            else:
+                self._share_policies[b] = pol
+            applied = dict(self._share_policies)
+        return {"ok": True, "band": b, "share_policy": pol, "policies": applied}
+
+    def share_policies(self) -> dict[str, str]:
+        with self._lock:
+            return dict(self._share_policies)
 
     def configure_log_discovery(self, *, databases_dir: str | None = None,
                                 db_path: str | None = None) -> None:
@@ -653,7 +681,8 @@ class LiveFleet:
                 self._maps.pop(mid, None)
             self._tracker.prune_loggers(now)
             d = fleet_to_dict(self._tracker, now,
-                              wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts)
+                              wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts,
+                              share_policies=self._share_policies)
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
             d["interlock"] = interlock_to_dict(
                 self._overlap, self.group_of, self._grouping,
@@ -953,6 +982,15 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(200, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/band/policy":
+                # §2.14 — set per-band share policy (coordinated | interlock).
+                try:
+                    result = live.set_share_policy(
+                        body.get("band") or "", body.get("policy") or "")
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
             else:
                 self._send(404, "text/plain", b"not found")
 
@@ -1076,6 +1114,10 @@ def main() -> None:
     ap.add_argument("--sim-rotator", action="append", default=[], metavar="SPEC",
                     help="lab simulator: id[:az][:instance,...]  e.g. ROT-6M:45:WSJT-X "
                          "(repeatable). Enables Az ant / Δaz / click-to-point without K3NG.")
+    ap.add_argument("--interlock-band", action="append", default=[], metavar="BAND",
+                    help="set band share policy to interlock (SSB/CW KEY priority inhibit) "
+                         "for BAND (e.g. 6m, 2m, 70cm). Repeatable. Default for all other "
+                         "bands is coordinated (manual handoff, info only) — design §2.14.")
     args = ap.parse_args()
 
     # Validate network args up front: a malformed address otherwise only blows up
@@ -1152,6 +1194,11 @@ def main() -> None:
         if len(parts) >= 3 and parts[2].strip():
             insts = [x.strip() for x in parts[2].split(",") if x.strip()]
         live._rotators.ensure_sim(rid, az=az0, instances=insts, label=rid)
+
+    for band in (args.interlock_band or []):
+        r = live.set_share_policy(str(band).strip(), "interlock")
+        if not r.get("ok"):
+            ap.error(f"--interlock-band {band!r}: {r.get('detail') or r.get('error')}")
 
     # Seed before opening sockets so the first browser load already has the log.
     # Operator-facing lines are printed after the console URL (below).

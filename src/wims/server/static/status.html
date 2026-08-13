@@ -48,6 +48,25 @@
   <h2>System · nodes</h2>
   <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
 
+  <h2>Band inventory (share policy)</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Per-band view of WSJT-X + N1MM known to WIMS (design §2.13).
+    <b>coordinated</b> = manual handoff (info only, no KEY inhibit).
+    <b>interlock</b> = SSB/CW priority inhibit when KEY path is configured (§2.14).
+    Toggle: <code>POST /api/band/policy</code> with
+    <code>{"band":"6m","policy":"interlock"}</code> or start with
+    <code>--interlock-band 6m</code>.
+  </p>
+  <table id="band-inv">
+    <thead><tr>
+      <th>Band</th><th>Policy</th><th class="num">WSJT</th><th>WSJT ids</th>
+      <th>TX now</th><th class="num">N1MM</th><th>Loggers</th>
+      <th class="num">SSB/KEY</th>
+    </tr></thead>
+    <tbody id="band-inv-body"></tbody>
+  </table>
+  <div id="band-inv-empty" class="empty">No bands yet — waiting for WSJT-X / N1MM traffic…</div>
+
   <h2>Seat agents (config / host audit)</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
     Reports from <code>wims.agent</code> on each station PC (WSJT-X.ini, N1MM presence).
@@ -70,7 +89,7 @@
   <h2>WSJT-X instances</h2>
   <table id="inst">
     <thead><tr>
-      <th>ID</th><th>Host</th><th>Band</th><th>Mode</th><th>Freq (MHz)</th>
+      <th>ID</th><th>Host</th><th>Band</th><th>Policy</th><th>Mode</th><th>Freq (MHz)</th>
       <th>State</th><th class="num">Dec/p</th><th class="num">LastDec</th>
       <th class="num">HB</th><th>Health</th>
     </tr></thead>

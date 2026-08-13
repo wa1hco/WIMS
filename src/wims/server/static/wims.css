@@ -47,6 +47,8 @@ th,td { text-align:left; padding:2px 8px; border-bottom:1px solid var(--line);
 th { color:var(--dim); font-weight:normal; font-size:12px; }
 td.num { text-align:right; font-variant-numeric:tabular-nums; }
 .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
+.policy-coordinated { color:#0550ae; background:#ddf4ff; border:1px solid #54aeff66; }
+.policy-interlock { color:#9a6700; background:#fff8c5; border:1px solid #d4a72c66; font-weight:600; }
 .ALIVE { color:var(--alive); } .STALE { color:var(--stale); }
 .DEAD  { color:var(--dead);  } .UNKNOWN{ color:var(--dim); }
 tr.tx { background:#fff8e6; }

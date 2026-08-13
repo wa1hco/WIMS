@@ -50,6 +50,9 @@ function renderSystem(s) {
   const quiet = inst.filter(n => n.quiet).length;
   const agents = s.agents || [];
   const aErr = agents.filter(a => a.severity === "error").length;
+  const bands = s.bands || [];
+  const nInter = bands.filter(b => b.share_policy === "interlock").length;
+  const nCoord = bands.filter(b => b.share_policy === "coordinated").length;
   el.innerHTML =
     `<span><span class="dot active"></span><b>WIMS server</b> · live</span>` +
     `<span><span class="k">WSJT-X:</span>${inst.length} (` +
@@ -58,10 +61,53 @@ function renderSystem(s) {
       (by("DEAD")  ? ` · <span class="DEAD">${by("DEAD")} dead</span>`   : ``) +
       (quiet ? ` · <span class="quiet">${quiet} quiet</span>` : ``) + `)</span>` +
     `<span><span class="k">transmitting:</span>${tx}</span>` +
+    `<span><span class="k">bands:</span>${bands.length}` +
+      (nInter || nCoord
+        ? ` (<span class="policy-interlock">${nInter} interlock</span>` +
+          ` · <span class="policy-coordinated">${nCoord} coordinated</span>)`
+        : ``) + `</span>` +
     `<span><span class="k">N1MM loggers:</span>${(s.loggers||[]).length}</span>` +
     `<span><span class="k">seat agents:</span>${agents.length}` +
       (aErr ? ` · <span class="warn">${aErr} error</span>` : ``) + `</span>` +
     `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>`;
+}
+
+function policyBadge(pol) {
+  const p = (pol || "coordinated").toLowerCase();
+  const cls = p === "interlock" ? "policy-interlock" : "policy-coordinated";
+  const title = p === "interlock"
+    ? "SSB/CW KEY inhibit when configured — automatic priority"
+    : "Manual handoff — WIMS informs operators, does not inhibit";
+  return `<span class="pill ${cls}" title="${title}">${esc(p)}</span>`;
+}
+
+function renderBandInventory(s) {
+  const body = $("band-inv-body");
+  if (!body) return;
+  const bands = s.bands || [];
+  const empty = $("band-inv-empty");
+  if (empty) empty.style.display = bands.length ? "none" : "block";
+  body.innerHTML = "";
+  for (const b of bands) {
+    const tr = document.createElement("tr");
+    if ((b.wsjt_tx || []).length) tr.className = "tx";
+    const ids = (b.wsjt || []).map(w => w.id).filter(Boolean).join(", ") || "—";
+    const tx = (b.wsjt_tx || []).length ? esc((b.wsjt_tx || []).join(", ")) : "—";
+    const logs = (b.loggers || []).map(l => {
+      const mc = l.mycall ? ` (${l.mycall})` : "";
+      return `${l.id || "?"}${mc}`;
+    }).join(", ") || "—";
+    tr.innerHTML =
+      `<td><b>${esc(b.band)}</b></td>` +
+      `<td>${policyBadge(b.share_policy)}</td>` +
+      `<td class="num">${b.wsjt_count ?? (b.wsjt || []).length}</td>` +
+      `<td style="white-space:normal;max-width:280px">${esc(ids)}</td>` +
+      `<td class="${(b.wsjt_tx || []).length ? "state-TX" : ""}">${tx}</td>` +
+      `<td class="num">${b.logger_count ?? (b.loggers || []).length}</td>` +
+      `<td style="white-space:normal;max-width:240px">${esc(logs)}</td>` +
+      `<td class="num">${b.ssb_count ?? 0}</td>`;
+    body.appendChild(tr);
+  }
 }
 
 function _flagOn(v) {
@@ -219,6 +265,7 @@ function renderInstances(s) {
       : "";
     tr.innerHTML =
       `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(n.band||"-")}</td>` +
+      `<td>${policyBadge(n.share_policy)}</td>` +
       `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
       `<td class="state-${n.state}">${n.state}</td>` +
       `<td class="num ${n.quiet?'quiet':''}">${n.decodes_per_period.toFixed(1)}</td>` +
@@ -905,6 +952,7 @@ function renderTxBar(tx) {
 function render(s) {
   renderHeader(s);
   renderSystem(s);
+  renderBandInventory(s);
   renderAgents(s);
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
   renderRotators(s.rotators);
