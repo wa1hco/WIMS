@@ -78,6 +78,55 @@ def test_fleet_to_dict_shape():
     assert bands["6m"]["wsjt"][0]["n1mm_logger"]["id"] == "ROY-PC"
 
 
+def test_n1mm_network_view_multi_and_none():
+    """N1MM-centric view: multi-WSJT → one N1MM; N1MM with zero WSJT; unbound WSJT."""
+    t = FleetTracker()
+    # Two 6m beams + one 2m instance
+    t.observe(M.parse(E.build_status("TRAILER-50-A", 50_313_000, mode="FT8")),
+              now=10.0, src_ip="10.0.0.1")
+    t.observe(M.parse(E.build_status("TRAILER-50-B", 50_313_000, mode="FT8")),
+              now=10.0, src_ip="10.0.0.2")
+    t.observe(M.parse(E.build_status("CHIP-2M", 144_174_000, mode="FT8")),
+              now=10.0, src_ip="10.0.0.3")
+    # N1MM-50 takes both 6m streams; N1MM-SSB has no digital
+    t.observe_n1mm_xml(
+        "<contactinfo><app>N1MM</app><StationName>N1MM-50</StationName>"
+        "<call>K1ABC</call><band>50</band><mycall>N2OY</mycall></contactinfo>",
+        now=10.0, src_ip="10.0.0.10")
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>N1MM-SSB</StationName>"
+        "<OpCall>W1AW</OpCall><Freq>1441740</Freq><Mode>USB</Mode></RadioInfo>",
+        now=10.0, src_ip="10.0.0.20")
+
+    d = fleet_to_dict(t, now=11.0)
+    net = d["n1mm_network"]
+    assert net["logger_count"] == 2
+    by = {lg["id"]: lg for lg in d["loggers"]}
+
+    n50 = by["N1MM-50"]
+    assert n50["has_wsjt"] is True
+    assert n50["role"] == "digital_logger"
+    assert n50["wsjt_count"] == 2
+    ids = {w["id"] for w in n50["wsjt_instances"]}
+    assert ids == {"TRAILER-50-A", "TRAILER-50-B"}
+    assert "6m" in n50["wsjt_bands"]
+    assert "6m" in n50["bands"]
+
+    ssb = by["N1MM-SSB"]
+    assert ssb["has_wsjt"] is False
+    assert ssb["role"] == "no_wsjt"
+    assert ssb["wsjt_count"] == 0
+    assert ssb["wsjt_instances"] == []
+    # RadioInfo Freq should contribute a band
+    assert ssb.get("bands_seen") or ssb.get("last_band") or ssb.get("bands")
+
+    # 2m has no N1MM on that band → unbound
+    unbound_ids = {w["id"] for w in net["unbound_wsjt"]}
+    assert "CHIP-2M" in unbound_ids
+    assert net["with_wsjt"] == 1
+    assert net["without_wsjt"] == 1
+
+
 def test_n1mm_logger_missing_and_colocated():
     t = FleetTracker()
     t.observe(M.parse(E.build_status("ONLY-6M", 50_313_000, mode="FT8")),

@@ -122,11 +122,19 @@
   <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
   <div id="status-contest-line" class="meta" style="margin:4px 0 8px 0"></div>
 
-  <h2>N1MM instances (live broadcasts)</h2>
+  <h2>N1MM network view</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Mirrors “who is on the LAN” (like N1MM Network Status): each N1MM station, its host,
+    bands seen, and <b>which WSJT-X instances log to it</b>.
+    One N1MM may take several WSJT streams (e.g. multi-beam 6&nbsp;m); some N1MMs have
+    <b>no</b> WSJT (SSB/CW-only or not yet reading). WSJT with no matched logger listed below.
+  </p>
+  <div id="n1mm-net-summary" class="syncrow" style="margin-bottom:6px"></div>
   <table id="log">
     <thead><tr>
-      <th>Station</th><th>Host</th><th>MyCall</th><th>Seen</th>
-      <th class="num">QSOs</th><th>Last QSO</th>
+      <th>Station</th><th>Host</th><th>MyCall</th><th>Role</th>
+      <th>Bands</th><th>WSJT logging here</th><th class="num">#</th>
+      <th>Seen</th><th class="num">QSOs</th><th>Last QSO</th>
     </tr></thead>
     <tbody id="log-body"></tbody>
   </table>
@@ -135,6 +143,10 @@
     <b>Config → Configure Ports → Broadcast Data</b> → Radio + Contacts →
     WIMS host or multicast <code>:12060</code>.
     Historical dupe/mult log is chosen under <a href="/setup">Setup → Contest log</a>.
+  </div>
+  <div id="n1mm-unbound-wrap" style="margin-top:8px;display:none">
+    <h3 style="font-size:12px;margin:0 0 4px;color:var(--dim)">WSJT-X with no N1MM logger match</h3>
+    <div id="n1mm-unbound" class="meta" style="white-space:normal"></div>
   </div>
 
   <h2>Decode activity (audio-freq × cycle × SNR)</h2>

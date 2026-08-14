@@ -302,22 +302,87 @@ function renderInstances(s) {
 function renderLoggers(s) {
   const lb = $("log-body");
   if (!lb) return;
+  const net = s.n1mm_network || {};
+  const loggers = s.loggers || [];
   lb.innerHTML = "";
-  $("log-empty").style.display = s.loggers.length ? "none" : "block";
-  for (const l of s.loggers) {
+  const empty = $("log-empty");
+  if (empty) empty.style.display = loggers.length ? "none" : "block";
+
+  const sum = $("n1mm-net-summary");
+  if (sum) {
+    if (!loggers.length) {
+      sum.innerHTML = `<span class="k">No N1MM on network yet</span>`;
+    } else {
+      const withW = net.with_wsjt != null ? net.with_wsjt
+        : loggers.filter(l => l.has_wsjt).length;
+      const without = net.without_wsjt != null ? net.without_wsjt
+        : loggers.filter(l => !l.has_wsjt).length;
+      const unbound = (net.unbound_wsjt || []).length;
+      sum.innerHTML =
+        `<span><span class="k">N1MM stations:</span><b>${loggers.length}</b></span>` +
+        `<span><span class="k">with WSJT logging:</span><span class="ALIVE">${withW}</span></span>` +
+        `<span><span class="k">no WSJT:</span>${without ? `<span class="STALE">${without}</span>` : "0"}</span>` +
+        (unbound
+          ? `<span><span class="k">WSJT unbound:</span><span class="warn">${unbound}</span></span>`
+          : ``);
+    }
+  }
+
+  for (const l of loggers) {
     const tr = document.createElement("tr");
+    if (!l.has_wsjt) tr.className = "n1mm-no-wsjt";
     const fresh = l.last_seen_age != null && l.last_seen_age < 60;
     const seen = l.last_seen_age == null ? "-" : age(l.last_seen_age) + " ago";
     const lastq = l.last_qso_age == null ? "—"
       : `${l.last_call||""} ${l.last_band||""} (${age(l.last_qso_age)} ago)`;
     const alias = (l.aliases && l.aliases.length)
       ? ` <span class="meta">aka ${esc(l.aliases.join(", "))}</span>` : "";
+    const bands = (l.bands && l.bands.length)
+      ? l.bands.join(", ")
+      : ((l.bands_seen && l.bands_seen.length) ? l.bands_seen.join(", ")
+        : (l.last_band || "—"));
+    const role = l.role === "digital_logger"
+      ? `<span class="ALIVE">digital</span>`
+      : `<span class="STALE" title="No WSJT-X bound to this N1MM — SSB/CW only or reader not set">no WSJT</span>`;
+    const wsjtList = (l.wsjt_instances || []);
+    let wsjtCell;
+    if (!wsjtList.length) {
+      wsjtCell = `<span class="meta">— none</span>`;
+    } else {
+      wsjtCell = wsjtList.map(w => {
+        const b = w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "";
+        const h = w.host ? ` @${esc(w.host)}` : "";
+        const st = w.health === "ALIVE" ? "ALIVE" : (w.health || "");
+        return `<span class="${st}">${esc(w.id || "?")}</span>${b}${h}`;
+      }).join("<br>");
+    }
     tr.innerHTML =
-      `<td><span class="dot ${fresh?'active':'idle'}"></span>${esc(l.kind)} · ${esc(l.id)}${alias}</td>` +
+      `<td><span class="dot ${fresh?'active':'idle'}"></span>${esc(l.kind)} · <b>${esc(l.id)}</b>${alias}</td>` +
       `<td>${esc(l.host||"-")}</td><td>${esc(l.mycall||"-")}</td>` +
+      `<td>${role}</td>` +
+      `<td style="white-space:normal;max-width:120px">${esc(bands)}</td>` +
+      `<td style="white-space:normal;max-width:320px">${wsjtCell}</td>` +
+      `<td class="num">${l.wsjt_count ?? wsjtList.length}</td>` +
       `<td>${seen}</td><td class="num">${l.qso_count}</td>` +
       `<td>${esc(lastq)}</td>`;
     lb.appendChild(tr);
+  }
+
+  const wrap = $("n1mm-unbound-wrap");
+  const ub = $("n1mm-unbound");
+  const unbound = net.unbound_wsjt || [];
+  if (wrap && ub) {
+    if (!unbound.length) {
+      wrap.style.display = "none";
+      ub.innerHTML = "";
+    } else {
+      wrap.style.display = "block";
+      ub.innerHTML = unbound.map(w =>
+        `<span class="warn">${esc(w.id || "?")}</span>` +
+        (w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "") +
+        (w.host ? ` @${esc(w.host)}` : "")
+      ).join(" · ");
+    }
   }
 }
 

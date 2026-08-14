@@ -88,7 +88,12 @@ def _instance(n, now: float, *, share_policy: str | None = None) -> dict:
 
 
 def _logger(lg, now: float) -> dict:
+    from wims.core.bands import band_sort_key
+
     aliases = sorted(getattr(lg, "aliases", None) or [])
+    bands_seen = sorted(getattr(lg, "bands_seen", None) or set(), key=band_sort_key)
+    if lg.last_band and lg.last_band not in bands_seen:
+        bands_seen = sorted(set(bands_seen) | {lg.last_band}, key=band_sort_key)
     return {
         "id": lg.id,
         "kind": lg.kind,
@@ -99,9 +104,75 @@ def _logger(lg, now: float) -> dict:
         "qso_count": lg.qso_count,
         "last_call": lg.last_call,
         "last_band": lg.last_band,
+        "bands_seen": bands_seen,  # bands this N1MM has been active on
         "last_seen_age": None if lg.last_seen is None else round(now - lg.last_seen, 1),
         "last_qso_age": None if lg.last_qso is None else round(now - lg.last_qso, 1),
+        # Filled by attach_wsjt_to_loggers (N1MM network view, reverse of n1mm_logger).
+        "wsjt_instances": [],
+        "wsjt_count": 0,
+        "wsjt_bands": [],
+        "has_wsjt": False,
+        "role": "unknown",  # digital_logger | no_wsjt
     }
+
+
+def attach_wsjt_to_loggers(instances: list[dict], loggers: list[dict]) -> list[dict]:
+    """Invert WSJT→N1MM bind: each logger lists WSJT-X that log to it.
+
+    Returns unbound WSJT instances (no N1MM match). Mutates ``loggers`` in place.
+    Design: N1MM network view — multi-WSJT per N1MM and N1MM with zero WSJT (SSB-only).
+    """
+    from wims.core.bands import band_sort_key
+
+    by_id = {lg["id"]: lg for lg in loggers if lg.get("id")}
+    for lg in loggers:
+        lg["wsjt_instances"] = []
+        lg["wsjt_count"] = 0
+        lg["wsjt_bands"] = []
+        lg["has_wsjt"] = False
+
+    unbound: list[dict] = []
+    for inst in instances:
+        nl = inst.get("n1mm_logger") or {}
+        entry = {
+            "id": inst.get("id"),
+            "band": inst.get("band"),
+            "host": inst.get("host"),
+            "mode": inst.get("mode"),
+            "health": inst.get("health"),
+            "state": inst.get("state"),
+            "bind_status": nl.get("status"),
+        }
+        lid = nl.get("id")
+        if lid and lid in by_id and nl.get("status") != "missing":
+            by_id[lid]["wsjt_instances"].append(entry)
+        else:
+            unbound.append(entry)
+
+    for lg in loggers:
+        wsjt = lg["wsjt_instances"]
+        wsjt.sort(key=lambda w: (band_sort_key(w.get("band") or "?"), w.get("id") or ""))
+        bands = []
+        for w in wsjt:
+            b = w.get("band")
+            if b and b not in bands:
+                bands.append(b)
+        lg["wsjt_bands"] = sorted(bands, key=band_sort_key)
+        lg["wsjt_count"] = len(wsjt)
+        lg["has_wsjt"] = bool(wsjt)
+        # Role: digital logger if any WSJT bound; else present with no digital feed.
+        lg["role"] = "digital_logger" if lg["has_wsjt"] else "no_wsjt"
+        # Combined band picture: N1MM activity + WSJT bands logging here.
+        seen = list(lg.get("bands_seen") or [])
+        for b in lg["wsjt_bands"]:
+            if b not in seen:
+                seen.append(b)
+        if lg.get("last_band") and lg["last_band"] not in seen:
+            seen.append(lg["last_band"])
+        lg["bands"] = sorted(seen, key=band_sort_key)
+
+    unbound.sort(key=lambda w: (band_sort_key(w.get("band") or "?"), w.get("id") or ""))
+    return unbound
 
 
 def interlock_to_dict(detector, group_of, grouping: str,
@@ -478,12 +549,21 @@ def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0
     ]
     log_dicts = [_logger(lg, now) for lg in loggers]
     bind_n1mm_to_instances(inst_dicts, log_dicts)
+    unbound_wsjt = attach_wsjt_to_loggers(inst_dicts, log_dicts)
     return {
         "api": API_VERSION,
         "now": now,
         "rx": {"wsjtx": wsjt_pkts, "n1mm": n1mm_pkts},
         "instances": inst_dicts,
         "loggers": log_dicts,
+        # N1MM network view: reverse map (which WSJT log to which N1MM).
+        "n1mm_network": {
+            "loggers": log_dicts,          # same objects, enriched with wsjt_*
+            "unbound_wsjt": unbound_wsjt,  # WSJT with no N1MM match
+            "logger_count": len(log_dicts),
+            "with_wsjt": sum(1 for lg in log_dicts if lg.get("has_wsjt")),
+            "without_wsjt": sum(1 for lg in log_dicts if not lg.get("has_wsjt")),
+        },
         # §2.13 / §2.14 — per-band inventory + sharing policy
         "bands": inventory_bands(inst_dicts, log_dicts, policies),
         "share_policy_default": DEFAULT_SHARE_POLICY,

@@ -76,6 +76,10 @@ tr.mult td.score { color:var(--alive); }
 /* Same WSJT-X UDP id on two PCs (must rename --rig-name) */
 tr.id-collide { background:#fff8e0; }
 tr.id-collide td:first-child { font-weight:600; }
+/* N1MM present but no WSJT-X bound (SSB/CW-only or missing reader) */
+tr.n1mm-no-wsjt { background:#f6f8fa; }
+tr.n1mm-no-wsjt td { color:var(--dim); }
+tr.n1mm-no-wsjt td:first-child { color:var(--text); }
 .warn { color:#9a6700; font-weight:600; }
 tr.calling-us { background:#ffd6d6; }
 tr.calling-us td { font-weight:600; }
