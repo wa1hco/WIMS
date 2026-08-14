@@ -20,32 +20,26 @@
 
 Default layout matches the multi-multi sketch (networking §1):
 
-  **6 m (band port 2237)** — three WSJT-X beams log to **one** N1MM on the
-  **SSB/CW station PC**:
-      TRAILER-50-A, TRAILER-50-B, TV-50-C  →  N1MM-50 @ SSB-PC
+  **6 m (port 2237)** — three WSJT-X beams → **one** N1MM on the **SSB/CW PC**:
+      TRAILER-50-A, TRAILER-50-B, TV-50-C  →  N1MM-50 @ SSB-50-PC
 
-  Plus a light multi-band backdrop so the N1MM network view is non-trivial:
-      CHIP-2M → N1MM-144
-      ROY-222 → N1MM-222
-      ROY-432 → N1MM-432
-      N1MM-VOICE — present, **no** WSJT (SSB-only station)
+  **2 m (port 2238)** — two WSJT-X (separate radios/PCs) + **one SSB/CW PC**:
+      TRAILER-144-FT8   FT8
+      TRAILER-144-MSK   MSK144
+      both → N1MM-144
+      N1MM-144-SSB (or SSB RadioInfo) — **no WSJT** (voice PC on the band)
 
-Run (repo root), then start the WIMS server on the same iface:
+  **222 / 432 (ports 2239 / 2241)** — **one PC per band**, switches FT8 ↔ SSB/CW:
+      ROY-222 / ROY-432 emit WSJT only in the digital half-period; N1MM stays up
+      always so Status shows N1MM with WSJT during FT8 and **no WSJT** during SSB.
 
-    # Terminal A — site server (loopback lab)
-    PYTHONPATH=src python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
+Run (repo root):
 
-    # Terminal B — this scenario
-    PYTHONPATH=src python3 testbed/simulators/fleet_ui.py
+    scripts/run_ui_fleet.sh
+    # or: PYTHONPATH=src python3 testbed/simulators/fleet_ui.py
+    # → http://localhost:8787/status
 
-    # Browser
-    open http://localhost:8787/status
-
-Or: ``scripts/run_ui_fleet.sh`` (starts both).
-
-WSJT-X traffic uses the correct **band stream ports** (2237/2238/…). N1MM XML goes to
-UDP **12060** (unicast to --n1mm-host, default 127.0.0.1) so the server's unicast
-N1MM listener receives it.
+WSJT-X uses band stream ports; N1MM XML → UDP :12060 unicast (--n1mm-host).
 """
 
 from __future__ import annotations
@@ -95,6 +89,9 @@ class SimWsjt:
     transmitting: bool = False
     tx_until: float = 0.0
     tx_message: str = ""
+    # Roy 222/432: one PC switches FT8 ↔ SSB — when False, stop WSJT UDP (N1MM stays).
+    mode_switch: bool = False
+    digital_active: bool = True
 
     @property
     def band(self) -> str:
@@ -103,6 +100,11 @@ class SimWsjt:
     @property
     def port(self) -> int:
         return BAND_PORT.get(self.band, 2237)
+
+    @property
+    def live(self) -> bool:
+        """Emit WSJT traffic only when in digital mode (always for fixed digital seats)."""
+        return self.digital_active or not self.mode_switch
 
 
 @dataclass
@@ -115,21 +117,27 @@ class SimN1mm:
     mycall: str = MYCALL
     # Optional: which WSJT ids *should* bind here (documentation + contactinfo band).
     feeds: list[str] = field(default_factory=list)
-    # True → this is the 6m logger on the SSB/CW PC (story in docstring).
+    # True → logger sits on / with the SSB/CW position for that band.
     ssb_pc: bool = False
+    # Linked mode-switch WSJT ids: only send contactinfo while those are digital-active.
+    mode_switch_feeds: list[str] = field(default_factory=list)
     seq: int = 0
+    # When True, RadioInfo Mode=USB (SSB period) vs DIGI when digital.
+    prefer_ssb_radioinfo: bool = False
 
 
 def default_wsjt() -> list[SimWsjt]:
     return [
         # --- 6 m: three beams → N1MM-50 on SSB-PC ---
-        SimWsjt("TRAILER-50-A", 50_313_000),
-        SimWsjt("TRAILER-50-B", 50_313_000),
-        SimWsjt("TV-50-C", 50_313_000),
-        # --- other bands (one each) ---
-        SimWsjt("CHIP-2M", 144_174_000),
-        SimWsjt("ROY-222", 222_174_000),
-        SimWsjt("ROY-432", 432_174_000),
+        SimWsjt("TRAILER-50-A", 50_313_000, "FT8"),
+        SimWsjt("TRAILER-50-B", 50_313_000, "FT8"),
+        SimWsjt("TV-50-C", 50_313_000, "FT8"),
+        # --- 2 m: FT8 + MSK144 (two WSJT) + separate SSB/CW PC (N1MM only) ---
+        SimWsjt("TRAILER-144-FT8", 144_174_000, "FT8"),
+        SimWsjt("TRAILER-144-MSK", 144_174_000, "MSK144"),
+        # --- 222 / 432: one PC each, switches FT8 ↔ SSB/CW ---
+        SimWsjt("ROY-222", 222_174_000, "FT8", mode_switch=True, digital_active=True),
+        SimWsjt("ROY-432", 432_174_000, "FT8", mode_switch=True, digital_active=True),
     ]
 
 
@@ -138,15 +146,43 @@ def default_n1mm() -> list[SimN1mm]:
         SimN1mm(
             station="N1MM-50",
             band_mhz=50.0,
-            host_label="SSB-PC",
+            host_label="SSB-50-PC",
             feeds=["TRAILER-50-A", "TRAILER-50-B", "TV-50-C"],
             ssb_pc=True,
         ),
-        SimN1mm("N1MM-144", 144.0, "CHIP-PC", feeds=["CHIP-2M"]),
-        SimN1mm("N1MM-222", 222.0, "ROY-PC", feeds=["ROY-222"]),
-        SimN1mm("N1MM-432", 432.0, "ROY-PC", feeds=["ROY-432"]),
-        # Present on LAN, no digital feed (SSB/CW-only or not reading WSJT).
-        SimN1mm("N1MM-VOICE", 50.0, "SSB-PC-voice", feeds=[], ssb_pc=True),
+        # Digital logger for both 2 m WSJT instances (FT8 + MSK).
+        SimN1mm(
+            station="N1MM-144",
+            band_mhz=144.0,
+            host_label="TRAILER-144",
+            feeds=["TRAILER-144-FT8", "TRAILER-144-MSK"],
+        ),
+        # Separate SSB/CW PC on 2 m — on network, no WSJT logging to it.
+        SimN1mm(
+            station="N1MM-144-SSB",
+            band_mhz=144.0,
+            host_label="SSB-144-PC",
+            feeds=[],
+            ssb_pc=True,
+            prefer_ssb_radioinfo=True,
+        ),
+        # Roy: one N1MM per band on the same seat PC as the mode-switch radio.
+        SimN1mm(
+            station="N1MM-222",
+            band_mhz=222.0,
+            host_label="ROY-222",
+            feeds=["ROY-222"],
+            mode_switch_feeds=["ROY-222"],
+            ssb_pc=True,
+        ),
+        SimN1mm(
+            station="N1MM-432",
+            band_mhz=432.0,
+            host_label="ROY-432",
+            feeds=["ROY-432"],
+            mode_switch_feeds=["ROY-432"],
+            ssb_pc=True,
+        ),
     ]
 
 
@@ -194,7 +230,7 @@ def n1mm_freq_100hz(band_mhz: float) -> int:
     return int(round(band_mhz * 10_000))
 
 
-def build_radioinfo(n: SimN1mm) -> str:
+def build_radioinfo(n: SimN1mm, *, mode: str = "USB") -> str:
     n.seq += 1
     freq = n1mm_freq_100hz(n.band_mhz)
     # Include a stable NetBiosName so merges behave like a real PC.
@@ -206,7 +242,7 @@ def build_radioinfo(n: SimN1mm) -> str:
         f"<NetBiosName>{xml_esc(netbios)}</NetBiosName>"
         f"<RadioNr>1</RadioNr>"
         f"<Freq>{freq}</Freq><TXFreq>{freq}</TXFreq>"
-        f"<Mode>USB</Mode>"
+        f"<Mode>{xml_esc(mode)}</Mode>"
         f"<OpCall>{xml_esc(n.mycall)}</OpCall>"
         f"<IsRunning>False</IsRunning>"
         f"<IsTransmitting>False</IsTransmitting>"
@@ -290,6 +326,9 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--six-only", action="store_true",
                     help="only 3×6m WSJT + N1MM-50 (minimal scenario)")
+    ap.add_argument("--mode-switch-s", type=float, default=45.0,
+                    help="seconds per FT8 vs SSB half-period for Roy 222/432 "
+                         "(0 = stay digital forever)")
     args = ap.parse_args()
 
     rng = random.Random(args.seed)
@@ -300,7 +339,7 @@ def main() -> None:
             SimWsjt("TV-50-C", 50_313_000),
         ]
         n1mms = [
-            SimN1mm("N1MM-50", 50.0, "SSB-PC",
+            SimN1mm("N1MM-50", 50.0, "SSB-50-PC",
                     feeds=["TRAILER-50-A", "TRAILER-50-B", "TV-50-C"], ssb_pc=True),
         ]
     else:
@@ -316,6 +355,8 @@ def main() -> None:
     n1mm_dest = (args.n1mm_host, args.n1mm_port)
 
     def send_wsjt(inst: SimWsjt, payload: bytes) -> None:
+        if not inst.live:
+            return
         socks[inst.port].sendto(payload, (args.group, inst.port))
 
     def send_status(inst: SimWsjt) -> None:
@@ -329,45 +370,78 @@ def main() -> None:
     def send_n1mm(xml: str) -> None:
         n1mm_sock.sendto(xml.encode("utf-8"), n1mm_dest)
 
+    def digital_feeds_active(n: SimN1mm) -> bool:
+        """Whether this N1MM should claim digital feeds (Roy SSB half → False)."""
+        if not n.mode_switch_feeds:
+            return bool(n.feeds)
+        for fid in n.mode_switch_feeds:
+            inst = by_id.get(fid)
+            if inst is not None and inst.live:
+                return True
+        return False
+
+    def radio_mode_for(n: SimN1mm) -> str:
+        if n.prefer_ssb_radioinfo or not digital_feeds_active(n):
+            return "USB"
+        return "DIGI"
+
     print("UI fleet scenario (no RF)")
     print(f"  WSJT-X  {args.group} ports {ports} via {args.iface}")
     print(f"  N1MM    → {args.n1mm_host}:{args.n1mm_port} (unicast XML)")
     print()
-    print("  6 m story: three WSJT-X → one N1MM on SSB/CW PC")
+    print("  6 m — three WSJT → N1MM-50 on SSB/CW PC")
     for w in wsjt:
         if w.band == "6m":
-            print(f"    {w.id:14s}  {w.dial_hz/1e6:.3f} MHz  port {w.port}")
+            print(f"    {w.id:18s}  {w.mode:6s}  {w.dial_hz/1e6:.3f}  :{w.port}")
     for n in n1mms:
-        if n.ssb_pc or n.station == "N1MM-50":
-            feeds = ", ".join(n.feeds) if n.feeds else "(no WSJT)"
-            print(f"    {n.station:14s}  @{n.host_label}  band {n.band_mhz:g}  "
-                  f"feeds: {feeds}")
+        if n.station == "N1MM-50":
+            print(f"    {n.station:18s}  @{n.host_label}  feeds {', '.join(n.feeds)}")
     print()
-    print("  Other instances / loggers:")
+    print("  2 m — FT8 + MSK144 WSJT + separate SSB/CW PC")
     for w in wsjt:
-        if w.band != "6m":
-            print(f"    WSJT  {w.id:14s}  {w.band:6s}  port {w.port}")
+        if w.band == "2m":
+            print(f"    {w.id:18s}  {w.mode:6s}  {w.dial_hz/1e6:.3f}  :{w.port}")
     for n in n1mms:
-        if not (n.ssb_pc or n.station == "N1MM-50"):
-            feeds = ", ".join(n.feeds) if n.feeds else "— none"
-            print(f"    N1MM  {n.station:14s}  @{n.host_label}  "
-                  f"WSJT: {feeds}")
+        if "144" in n.station:
+            feeds = ", ".join(n.feeds) if n.feeds else "(no WSJT — voice PC)"
+            print(f"    {n.station:18s}  @{n.host_label}  {feeds}")
     print()
-    print("  Server tip:")
-    print("    PYTHONPATH=src python3 -m wims.server.app "
+    print("  222 / 432 — one PC each, FT8 ↔ SSB/CW switch "
+          f"(every {args.mode_switch_s:g}s)" if args.mode_switch_s > 0 else
+          "  222 / 432 — one PC each (digital only; --mode-switch-s 0)")
+    for w in wsjt:
+        if w.mode_switch:
+            print(f"    {w.id:18s}  {w.mode:6s}  mode_switch  :{w.port}")
+    for n in n1mms:
+        if n.station in ("N1MM-222", "N1MM-432"):
+            print(f"    {n.station:18s}  @{n.host_label}  seat N1MM (same PC)")
+    print()
+    print("  Server: PYTHONPATH=src python3 -m wims.server.app "
           f"--iface {args.iface} --no-presence --no-seed")
     print("  Status: http://localhost:8787/status")
     print("  Ctrl-C to stop.\n")
 
     next_cycle = next_hb = next_n1mm = time.time()
+    next_mode_switch = time.time() + max(0.0, args.mode_switch_s)
     cycle = 0
     n1mm_round = 0
     try:
         while True:
-            # Reply/Halt on any band socket
             rlist = list(socks.values())
             ready, _, _ = select.select(rlist, [], [], 0.2)
             now = time.time()
+
+            # Roy 222/432: flip between FT8 (WSJT up) and SSB (WSJT silent, N1MM stays).
+            if args.mode_switch_s > 0 and now >= next_mode_switch:
+                next_mode_switch = now + args.mode_switch_s
+                for inst in wsjt:
+                    if not inst.mode_switch:
+                        continue
+                    inst.digital_active = not inst.digital_active
+                    inst.transmitting = False
+                    phase = "FT8/digital" if inst.digital_active else "SSB/CW"
+                    print(f"  MODE  [{inst.id}] → {phase}")
+
             for sock in ready:
                 try:
                     data, _addr = sock.recvfrom(65535)
@@ -377,7 +451,7 @@ def main() -> None:
                 if msg is None or msg.type not in (M.REPLY, M.HALT_TX):
                     continue
                 inst = by_id.get(msg.id)
-                if not inst:
+                if not inst or not inst.live:
                     continue
                 if msg.type == M.REPLY:
                     inst.transmitting = True
@@ -393,22 +467,26 @@ def main() -> None:
             if now >= next_hb:
                 next_hb = now + 15.0
                 for inst in wsjt:
-                    send_wsjt(inst, E.build_heartbeat(inst.id, version="2.7.0-ui-sim"))
+                    if inst.live:
+                        send_wsjt(inst, E.build_heartbeat(
+                            inst.id, version="2.7.0-ui-sim"))
 
             if now >= next_n1mm:
                 next_n1mm = now + args.n1mm_interval
                 n1mm_round += 1
                 for n in n1mms:
-                    send_n1mm(build_radioinfo(n))
+                    send_n1mm(build_radioinfo(n, mode=radio_mode_for(n)))
                     if n1mm_round % 5 == 1:
                         send_n1mm(build_appinfo(n))
-                    # Digital loggers: occasional contactinfo so last_band binds WSJT.
-                    if n.feeds and args.contact_every > 0 and (
-                            n1mm_round % args.contact_every == 0):
+                    # contactinfo only when this N1MM is acting as digital logger.
+                    if (n.feeds and digital_feeds_active(n)
+                            and args.contact_every > 0
+                            and n1mm_round % args.contact_every == 0):
                         call, grid = rng.choice(POOL)
                         send_n1mm(build_contactinfo(n, call, grid))
+                        nfeed = len(n.feeds)
                         print(f"  N1MM {n.station} logged {call} on {n.band_mhz:g} "
-                              f"({len(n.feeds)} WSJT feed)")
+                              f"({nfeed} WSJT feed)")
 
             if now >= next_cycle:
                 next_cycle = now + args.period
@@ -416,22 +494,28 @@ def main() -> None:
                 tms = now_ms_of_day(now)
                 parts = []
                 for inst in wsjt:
+                    if not inst.live:
+                        parts.append(f"{inst.id}:ssb")
+                        continue
                     if inst.transmitting and now >= inst.tx_until:
                         inst.transmitting = False
                     send_status(inst)
                     if not inst.transmitting:
+                        # MSK144 uses a different "mode" char in Decode; FT8 uses ~.
+                        dmode = "~" if inst.mode == "FT8" else (
+                            "`" if inst.mode == "MSK144" else "+")
                         for _ in range(args.rate):
                             send_wsjt(inst, E.build_decode(
                                 inst.id, time_ms=tms, snr=rng.randint(-22, 8),
                                 delta_time=round(rng.uniform(-0.3, 0.3), 1),
                                 delta_frequency=rng.randint(200, 2800),
                                 message=make_decode_message(rng),
-                                mode="~" if inst.mode == "FT8" else "+",
+                                mode=dmode,
                             ))
                     parts.append(f"{inst.id}:{'TX' if inst.transmitting else 'rx'}")
                 if cycle % 2 == 0:
-                    print(f"  cycle {cycle:3d}  " + "  ".join(parts[:4])
-                          + (" …" if len(parts) > 4 else ""))
+                    print(f"  cycle {cycle:3d}  " + "  ".join(parts[:5])
+                          + (" …" if len(parts) > 5 else ""))
     except KeyboardInterrupt:
         print("\nfleet_ui stopped")
     finally:

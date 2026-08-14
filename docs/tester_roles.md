@@ -184,8 +184,13 @@ PYTHONPATH=src python3 testbed/simulators/fleet_ui.py   # or --six-only
 # → http://localhost:8787/status
 ```
 
-Story: **TRAILER-50-A/B + TV-50-C** log to **N1MM-50 on SSB-PC**; other bands optional;
-**N1MM-VOICE** has no WSJT. See `testbed/simulators/fleet_ui.py`.
+Story (default `fleet_ui.py`):
+
+| Band | WSJT-X | N1MM |
+|------|--------|------|
+| **6 m** | TRAILER-50-A/B, TV-50-C | N1MM-50 on SSB-50-PC (3 feeds) |
+| **2 m** | TRAILER-144-FT8 + TRAILER-144-MSK | N1MM-144 (both); N1MM-144-SSB (no WSJT) |
+| **222 / 432** | ROY-222 / ROY-432 | Seat N1MM; **mode switch** FT8 ↔ SSB (WSJT silent in SSB half) |
 
 Do **not** expect KEY/inhibit from that path.
 
