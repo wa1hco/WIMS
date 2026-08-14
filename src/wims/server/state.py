@@ -383,6 +383,88 @@ def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,
     }
 
 
+def bind_n1mm_to_instances(instances: list[dict], loggers: list[dict]) -> None:
+    """Attach ``n1mm_logger`` to each WSJT-X instance (mutates in place).
+
+    Logger-of-record is **one N1MM per band stream** (networking §4 / design §2.13.4).
+    Match order:
+      1. Live loggers whose ``last_band`` equals the instance band.
+      2. Else a single logger on the **same host** as the instance (co-located seat).
+      3. Else ``status=missing`` so the console can flag the gap.
+
+    Fields: station id, host IP (address for logging path / presence), mycall, status.
+    """
+    by_band: dict[str, list[dict]] = {}
+    for lg in loggers:
+        b = lg.get("last_band")
+        if b:
+            by_band.setdefault(b, []).append(lg)
+
+    def _hosts_of(lg: dict) -> set[str]:
+        hs = set(lg.get("hosts") or [])
+        if lg.get("host"):
+            hs.add(lg["host"])
+        return hs
+
+    def _pack(lg: dict, *, status: str, detail: str | None = None,
+              candidates: list | None = None) -> dict:
+        out = {
+            "id": lg.get("id"),
+            "host": lg.get("host"),
+            "hosts": sorted(_hosts_of(lg)),
+            "mycall": lg.get("mycall"),
+            "last_band": lg.get("last_band"),
+            "status": status,  # ok | multiple | colocated | missing
+            "detail": detail,
+        }
+        if candidates is not None:
+            out["candidates"] = candidates
+        return out
+
+    def _missing(band: str | None) -> dict:
+        return {
+            "id": None,
+            "host": None,
+            "hosts": [],
+            "mycall": None,
+            "last_band": band,
+            "status": "missing",
+            "detail": f"no N1MM heard for band {band or '?'}",
+        }
+
+    for inst in instances:
+        band = inst.get("band")
+        host = inst.get("host")
+        cands = list(by_band.get(band) or [])
+        if len(cands) == 1:
+            inst["n1mm_logger"] = _pack(cands[0], status="ok")
+            continue
+        if len(cands) > 1:
+            same = [c for c in cands if host and host in _hosts_of(c)]
+            pick = same[0] if len(same) == 1 else cands[0]
+            names = ", ".join(f"{c.get('id')}@{c.get('host') or '?'}" for c in cands)
+            inst["n1mm_logger"] = _pack(
+                pick, status="multiple",
+                detail=f"{len(cands)} N1MM on {band}: {names}",
+                candidates=[{"id": c.get("id"), "host": c.get("host")} for c in cands],
+            )
+            continue
+        # No band-matched logger: co-located N1MM on same PC (common on 222/432 seats).
+        if host:
+            coloc = [c for c in loggers if host in _hosts_of(c)]
+            if len(coloc) == 1:
+                lg = coloc[0]
+                inst["n1mm_logger"] = _pack(
+                    lg, status="colocated",
+                    detail=(
+                        f"same host as WSJT-X; logger last_band="
+                        f"{lg.get('last_band') or '?'}"
+                    ),
+                )
+                continue
+        inst["n1mm_logger"] = _missing(band)
+
+
 def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0,
                   share_policies: dict[str, str] | None = None) -> dict:
     """Snapshot the fleet (instances + loggers) as the console API payload."""
@@ -395,6 +477,7 @@ def fleet_to_dict(tracker, now: float, *, wsjt_pkts: int = 0, n1mm_pkts: int = 0
         for n in instances
     ]
     log_dicts = [_logger(lg, now) for lg in loggers]
+    bind_n1mm_to_instances(inst_dicts, log_dicts)
     return {
         "api": API_VERSION,
         "now": now,
@@ -441,6 +524,7 @@ def inventory_bands(instances: list[dict], loggers: list[dict],
         # Prefer instance's own policy if present
         if n.get("share_policy"):
             r["share_policy"] = normalize_share_policy(n["share_policy"])
+        nl = n.get("n1mm_logger") or {}
         r["wsjt"].append({
             "id": n.get("id"),
             "host": n.get("host"),
@@ -449,6 +533,11 @@ def inventory_bands(instances: list[dict], loggers: list[dict],
             "health": n.get("health"),
             "transmitting": bool(n.get("transmitting")),
             "dial_hz": n.get("dial_hz"),
+            "n1mm_logger": {
+                "id": nl.get("id"),
+                "host": nl.get("host"),
+                "status": nl.get("status"),
+            } if nl else None,
         })
         if n.get("transmitting"):
             r["wsjt_tx"].append(n.get("id"))

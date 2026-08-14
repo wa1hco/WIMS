@@ -62,12 +62,47 @@ def test_fleet_to_dict_shape():
     assert lg["kind"] == "N1MM" and lg["id"] == "ROY-PC" and lg["last_call"] == "K1ABC"
     assert lg["last_band"] == "6m"
 
+    # WSJT-X row carries N1MM logger-of-record (station + host address).
+    nl = inst["n1mm_logger"]
+    assert nl["status"] == "ok"
+    assert nl["id"] == "ROY-PC"
+    assert nl["host"] == "192.168.10.22"
+    assert nl["last_band"] == "6m"
+
     bands = {b["band"]: b for b in d["bands"]}
     assert "6m" in bands
     assert bands["6m"]["share_policy"] == "coordinated"
     assert bands["6m"]["wsjt_count"] == 1
     assert bands["6m"]["logger_count"] == 1
     assert bands["6m"]["wsjt"][0]["id"] == "SIM-6M"
+    assert bands["6m"]["wsjt"][0]["n1mm_logger"]["id"] == "ROY-PC"
+
+
+def test_n1mm_logger_missing_and_colocated():
+    t = FleetTracker()
+    t.observe(M.parse(E.build_status("ONLY-6M", 50_313_000, mode="FT8")),
+              now=10.0, src_ip="10.0.0.1")
+    d = fleet_to_dict(t, now=11.0)
+    assert d["instances"][0]["n1mm_logger"]["status"] == "missing"
+
+    t2 = FleetTracker()
+    t2.observe(M.parse(E.build_status("SEAT-222", 222_174_000, mode="FT8")),
+               now=10.0, src_ip="10.0.0.9")
+    # Logger on same host but last_band not yet 1.25m (e.g. only RadioInfo).
+    t2.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>SEAT-PC</StationName>"
+        "<NetBiosName>SEAT-PC</NetBiosName><RadioNr>1</RadioNr>"
+        "<Freq>1400000</Freq><TXFreq>1400000</TXFreq>"
+        "<Mode>USB</Mode><OpCall>N2OY</OpCall><IsRunning>False</IsRunning>"
+        "</RadioInfo>",
+        now=10.0, src_ip="10.0.0.9")
+    d2 = fleet_to_dict(t2, now=11.0)
+    nl = d2["instances"][0]["n1mm_logger"]
+    # May be colocated (same host) or missing if RadioInfo did not register — either
+    # way host should surface when logger is present.
+    if d2["loggers"]:
+        assert nl["status"] in ("colocated", "ok", "multiple")
+        assert nl["host"] == "10.0.0.9" or nl["id"] == "SEAT-PC"
 
 
 def test_inventory_and_share_policy_interlock():

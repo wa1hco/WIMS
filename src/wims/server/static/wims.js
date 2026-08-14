@@ -91,11 +91,16 @@ function renderBandInventory(s) {
   for (const b of bands) {
     const tr = document.createElement("tr");
     if ((b.wsjt_tx || []).length) tr.className = "tx";
-    const ids = (b.wsjt || []).map(w => w.id).filter(Boolean).join(", ") || "—";
+    const ids = (b.wsjt || []).map(w => {
+      const nl = w.n1mm_logger;
+      if (nl && nl.id) return `${w.id}→${nl.id}`;
+      return w.id;
+    }).filter(Boolean).join(", ") || "—";
     const tx = (b.wsjt_tx || []).length ? esc((b.wsjt_tx || []).join(", ")) : "—";
     const logs = (b.loggers || []).map(l => {
       const mc = l.mycall ? ` (${l.mycall})` : "";
-      return `${l.id || "?"}${mc}`;
+      const h = l.host ? `@${l.host}` : "";
+      return `${l.id || "?"}${h}${mc}`;
     }).join(", ") || "—";
     tr.innerHTML =
       `<td><b>${esc(b.band)}</b></td>` +
@@ -245,6 +250,23 @@ function renderAgents(s) {
   }
 }
 
+function n1mmLoggerCell(nl) {
+  if (!nl || nl.status === "missing" || !nl.id) {
+    const tip = (nl && nl.detail) ? nl.detail : "No N1MM broadcast matched this band";
+    return `<span class="warn" title="${esc(tip)}">⚠ none</span>`;
+  }
+  const addr = nl.host || (nl.hosts && nl.hosts[0]) || "?";
+  const call = nl.mycall ? ` · ${nl.mycall}` : "";
+  const label = `${nl.id} @ ${addr}${call}`;
+  if (nl.status === "multiple") {
+    return `<span class="warn" title="${esc(nl.detail || "multiple N1MM on band")}">⚠ ${esc(label)}</span>`;
+  }
+  if (nl.status === "colocated") {
+    return `<span class="STALE" title="${esc(nl.detail || "same host; band not confirmed")}">${esc(label)} <span class="meta">· host</span></span>`;
+  }
+  return `<span class="ALIVE" title="Logger-of-record for this band">${esc(label)}</span>`;
+}
+
 function renderInstances(s) {
   const ib = $("inst-body");
   if (!ib) return;
@@ -265,6 +287,7 @@ function renderInstances(s) {
       : "";
     tr.innerHTML =
       `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(n.band||"-")}</td>` +
+      `<td style="white-space:normal;max-width:260px">${n1mmLoggerCell(n.n1mm_logger)}</td>` +
       `<td>${policyBadge(n.share_policy)}</td>` +
       `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
       `<td class="state-${n.state}">${n.state}</td>` +
