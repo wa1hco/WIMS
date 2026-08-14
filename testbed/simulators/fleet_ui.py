@@ -20,8 +20,9 @@
 
 Default layout matches the multi-multi sketch (networking §1):
 
-  **6 m (port 2237)** — three WSJT-X beams → **one** N1MM on the **SSB/CW PC**:
-      TRAILER-50-A, TRAILER-50-B, TV-50-C  →  N1MM-50 @ SSB-50-PC
+  **6 m (port 2237)** — three WSJT-X beams (**South**, **West**, **East**) → **one**
+  N1MM on the **SSB/CW PC**:
+      South, West, East  →  N1MM-50 @ SSB-50-PC
 
   **2 m (port 2238)** — two WSJT-X (separate radios/PCs) + **one SSB/CW PC**:
       TRAILER-144-FT8   FT8

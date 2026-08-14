@@ -30,7 +30,7 @@ trap cleanup EXIT INT TERM
 
 echo "=== WIMS UI fleet lab ==="
 echo "  iface=$IFACE  console=http://localhost:${HTTP}/status"
-echo "  6m:  3×WSJT → N1MM-50 @ SSB PC"
+echo "  6m:  South / West / East → N1MM-50 @ SSB PC"
 echo "  2m:  FT8 + MSK144 WSJT → N1MM-144; SSB PC has N1MM, no WSJT"
 echo "  222/432: one PC each, FT8 ↔ SSB (mode switch)"
 echo

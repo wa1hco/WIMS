@@ -188,7 +188,7 @@ Story (default `fleet_ui.py`):
 
 | Band | WSJT-X | N1MM |
 |------|--------|------|
-| **6 m** | TRAILER-50-A/B, TV-50-C | N1MM-50 on SSB-50-PC (3 feeds) |
+| **6 m** | **South**, **West**, **East** | N1MM-50 on SSB-50-PC (3 feeds) |
 | **2 m** | TRAILER-144-FT8 + TRAILER-144-MSK | N1MM-144 (both); N1MM-144-SSB (no WSJT) |
 | **222 / 432** | ROY-222 / ROY-432 | Seat N1MM; **mode switch** FT8 ↔ SSB (WSJT silent in SSB half) |
 
