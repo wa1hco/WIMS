@@ -26,6 +26,11 @@ was designed around an unmodified WSJT-X.
 WIMS keeps the Key agent, assignment UI, and pure-logic tests
 (`src/wims/interlock/inhibit.py`).
 
+**Standalone Key agent design (dual-radio simple station + fleet):**
+**[wims_key_agent.md](wims_key_agent.md)** — process boundaries, SO2R/split-RX station model,
+config without WIMS server, MVP implementation plan. Gate/protocol detail stays in **this**
+file; agent product shape lives there.
+
 ---
 
 ## 1. Scenario and requirement
