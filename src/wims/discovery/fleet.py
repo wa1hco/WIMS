@@ -351,7 +351,8 @@ class FleetTracker:
             except (TypeError, ValueError):
                 pass
         elif tag == "radioinfo":
-            # N1MM RadioInfo Freq is typically 100 Hz units (14.000 MHz → 140000).
+            # N1MM RadioInfo Freq is typically **100 Hz units**
+            # (14.020 MHz → 140200; 50.313 MHz → 503130). Convert ×100 → Hz.
             for key in ("freq", "txfreq"):
                 raw = f.get(key)
                 if not raw:
@@ -360,10 +361,10 @@ class FleetTracker:
                     v = float(raw)
                 except (TypeError, ValueError):
                     continue
-                if v > 1e8:          # already Hz
+                if v > 1e8:          # already Hz (defensive)
                     hz = int(v)
-                elif v > 1e5:        # 100 Hz units
-                    hz = int(v * 10)
+                elif v > 1e4:        # 100 Hz units (covers HF…µwave)
+                    hz = int(v * 100)
                 elif v > 0:          # MHz
                     hz = int(v * 1_000_000)
                 else:

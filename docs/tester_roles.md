@@ -168,6 +168,25 @@ PYTHONPATH=src python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
   --instances SIM-6M:50313000,SIM-2M:144174000
 ```
 
+### UI lab fleet (multi WSJT + N1MM, including 3×6m → one N1MM)
+
+Simulates the Status / N1MM network view without Springhill:
+
+```bash
+# one shot (server + traffic):
+scripts/run_ui_fleet.sh
+# or 6 m only:
+scripts/run_ui_fleet.sh --six-only
+
+# manual:
+PYTHONPATH=src python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
+PYTHONPATH=src python3 testbed/simulators/fleet_ui.py   # or --six-only
+# → http://localhost:8787/status
+```
+
+Story: **TRAILER-50-A/B + TV-50-C** log to **N1MM-50 on SSB-PC**; other bands optional;
+**N1MM-VOICE** has no WSJT. See `testbed/simulators/fleet_ui.py`.
+
 Do **not** expect KEY/inhibit from that path.
 
 When reporting issues: note **track**, OS, and whether N1MM / WSJT-X / unique rig-name were in use.
