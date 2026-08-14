@@ -26,10 +26,15 @@ was designed around an unmodified WSJT-X.
 WIMS keeps the Key agent, assignment UI, and pure-logic tests
 (`src/wims/interlock/inhibit.py`).
 
-**Standalone Key agent design (dual-radio simple station + fleet):**
-**[wims_key_agent.md](wims_key_agent.md)** — process boundaries, SO2R/split-RX station model,
-config without WIMS server, MVP implementation plan. Gate/protocol detail stays in **this**
-file; agent product shape lives there.
+**Inhibit generators** (same protocol; three programs):
+
+| Program | Project | Doc |
+|---------|---------|-----|
+| **inhibit-test** | wsjtx-inhibit | Existing lab tool |
+| **inhibit-agent** | wsjtx-inhibit | **[wsjtx_inhibit_agent.md](wsjtx_inhibit_agent.md)** — CTS → localhost gate, **no WIMS** |
+| **WIMS Key agent** | WIMS | **[wims_key_agent.md](wims_key_agent.md)** — multi-target list from WIMS |
+
+Gate/protocol detail stays in **this** file. Datagrams are never routed through a WIMS server.
 
 ---
 
