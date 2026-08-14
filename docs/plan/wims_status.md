@@ -405,7 +405,6 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   per-instance `share_policy` / `inhibit` placeholder; LiveFleet `set_share_policy`;
   `POST /api/band/policy`; `--interlock-band`; Status Band inventory table + policy pills.
   Tests in `test_server_state`. KEY/SSB rows and inhibit actuation still later.
-- **2026-08-14** — **Split inhibit generator designs:** three tools — **inhibit-test** (existing,
-  wsjtx-inhibit), **inhibit-agent** ([wsjtx_inhibit_agent.md](wsjtx_inhibit_agent.md),
-  wsjtx-inhibit, CTS→localhost, no WIMS), **WIMS Key agent** ([wims_key_agent.md](wims_key_agent.md),
-  multi-target from WIMS). Review feedback folded in; not coded yet.
+- **2026-08-14** — **Split inhibit generator designs:** **inhibit-test** + **inhibit-agent**
+  (wsjtx-inhibit; design [inhibit_agent.md](inhibit_agent.md) — no WIMS mentions, exportable)
+  vs **WIMS Key agent** ([wims_key_agent.md](wims_key_agent.md)). Not coded yet.

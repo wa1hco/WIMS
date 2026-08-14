@@ -119,7 +119,7 @@ not time-critical centralizes in one WIMS server.
 | 4 | **Operations control: assign bands to call rosters** (subscriptions + control leases, handoff) | WIMS server |
 | 5 | **Operations control: assign WSJT-X inhibit inputs to SSB/CW Key outputs** — interlock wiring as a routing assignment, pushed to the Key agents | WIMS server (assignment only — not the data path) |
 | 6 | **WIMS call roster** — browser roster as the alternative to GridTracker | WIMS server |
-| 7 | **WIMS Key agent** — fleet KEY sense + **WIMS-assigned** multi-target inhibit fan-out; optional inventory report. **Not** the same binary as **inhibit-agent** (that ships with **wsjtx-inhibit**, localhost-only, no WIMS — [wsjtx_inhibit_agent.md](wsjtx_inhibit_agent.md)). WIMS design: **[wims_key_agent.md](wims_key_agent.md)** | **Standalone program** (WIMS tree), one per SSB/CW sense point |
+| 7 | **WIMS Key agent** — fleet KEY sense + **WIMS-assigned** multi-target inhibit fan-out; optional inventory report. **Not** the same binary as **inhibit-agent** (wsjtx-inhibit, localhost-only — design copy: [inhibit_agent.md](inhibit_agent.md)). WIMS-side design: **[wims_key_agent.md](wims_key_agent.md)** | **Standalone program** (WIMS tree), one per SSB/CW sense point |
 | 8 | **WSJT-X inhibit input** — gate thread controlling PTT from UDP inhibit datagrams ([wims_tx_inhibit.md](wims_tx_inhibit.md)) | **Inside WSJT-X** (improved-fork patch) — part of WSJT-X, not of WIMS |
 | 9 | **Seat setup agent** — WSJT-X PC setup, config audit, readiness (existing `wims.agent` role) | Standalone program, one per WSJT-X PC |
 

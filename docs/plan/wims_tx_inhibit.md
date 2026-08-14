@@ -31,7 +31,7 @@ WIMS keeps the Key agent, assignment UI, and pure-logic tests
 | Program | Project | Doc |
 |---------|---------|-----|
 | **inhibit-test** | wsjtx-inhibit | Existing lab tool |
-| **inhibit-agent** | wsjtx-inhibit | **[wsjtx_inhibit_agent.md](wsjtx_inhibit_agent.md)** — CTS → localhost gate, **no WIMS** |
+| **inhibit-agent** | wsjtx-inhibit | **[inhibit_agent.md](inhibit_agent.md)** — CTS → localhost gate (doc has no WIMS dependency; copy into wsjtx-inhibit) |
 | **WIMS Key agent** | WIMS | **[wims_key_agent.md](wims_key_agent.md)** — multi-target list from WIMS |
 
 Gate/protocol detail stays in **this** file. Datagrams are never routed through a WIMS server.
