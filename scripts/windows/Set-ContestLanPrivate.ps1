@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 
-# WIMS — WSJT-X Instance Management System
+# WIMS - WSJT-X Instance Management System
 # Copyright (C) 2026 Jeff Millar, WA1HCO
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -74,11 +74,11 @@ foreach ($p in $profiles) {
     $cat = [string]$p.NetworkCategory
     $label = "{0} ({1})" -f $alias, $name
     if ($cat -eq "Private") {
-        Write-Status OK "$label already Private — N1MM Private allow-rules apply."
+        Write-Status OK "$label already Private - N1MM Private allow-rules apply."
         continue
     }
     if ($cat -eq "DomainAuthenticated") {
-        Write-Status OK "$label is DomainAuthenticated — leaving as-is."
+        Write-Status OK "$label is DomainAuthenticated - leaving as-is."
         continue
     }
     try {

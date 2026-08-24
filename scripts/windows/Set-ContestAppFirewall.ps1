@@ -1,6 +1,6 @@
 #Requires -Version 5.1
 
-# WIMS — WSJT-X Instance Management System
+# WIMS - WSJT-X Instance Management System
 # Copyright (C) 2026 Jeff Millar, WA1HCO
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
@@ -12,7 +12,7 @@
 
   Do NOT turn the firewall off. Keep Ethernet Private, then run this.
 
-  WSJT-X control uses an ephemeral UDP port — a rule limited to 2237 is wrong.
+  WSJT-X control uses an ephemeral UDP port - a rule limited to 2237 is wrong.
   Allow inbound UDP to wsjtx.exe (any local port). Same idea for GridTracker.
 
 .NOTES
@@ -122,7 +122,7 @@ Ensure-Rule -DisplayName "WIMS contest - N1MM UDP 12070" -Direction Inbound -Pro
 Ensure-Rule -DisplayName "WIMS contest - N1MM UDP 12080" -Direction Inbound -Protocol UDP -LocalPort "12080"
 Ensure-Rule -DisplayName "WIMS contest - N1MM UDP 12060" -Direction Inbound -Protocol UDP -LocalPort "12060"
 
-# --- WSJT-X: program UDP (any local port — control is ephemeral, not 2237) ---
+# --- WSJT-X: program UDP (any local port - control is ephemeral, not 2237) ---
 $wsjtCandidates = @(
     "C:\WSJT\wsjtx\bin\wsjtx.exe",
     "C:\wsjt\wsjtx\bin\wsjtx.exe",
