@@ -47,16 +47,18 @@ echo    7.  Put WIMS on Desktop        ^(menu + Agent icons^)
 echo    8.  Desktop: WIMS Agent only   ^(green agent icon^)
 echo    9.  Auto-start at logon        ^(install Startup for a radio pack^)
 echo    A.  Remove auto-start
+echo    P.  Set contest LAN Private    ^(N1MM Send/Receive / TCP 12070^)
+echo    F.  Contest app firewall       ^(N1MM / WSJT-X / GridTracker / WIMS^)
 echo.
 echo    0.  Exit
 echo.
 echo  ============================================================
 echo.
-choice /C 123456789A0 /N /M "  Choose 0-9 or A: "
+choice /C 123456789APF0 /N /M "  Choose 0-9, A, P, or F: "
 set "SEL=%ERRORLEVEL%"
 
-REM choice keys: 1..9, A=10, 0=11
-if "%SEL%"=="11" goto end
+REM choice keys: 1..9, A=10, P=11, F=12, 0=13
+if "%SEL%"=="13" goto end
 if "%SEL%"=="1" goto do_check
 if "%SEL%"=="2" goto do_agent
 if "%SEL%"=="3" goto do_seat_flex
@@ -67,6 +69,8 @@ if "%SEL%"=="7" goto do_desktop
 if "%SEL%"=="8" goto do_desktop_agent
 if "%SEL%"=="9" goto do_startup_on
 if "%SEL%"=="10" goto do_startup_off
+if "%SEL%"=="11" goto do_lan_private
+if "%SEL%"=="12" goto do_app_firewall
 goto menu
 
 :do_check
@@ -134,6 +138,22 @@ goto menu
 
 :do_startup_off
 call "%HERE%Remove-WimsSeatStartup.cmd"
+goto menu
+
+:do_lan_private
+echo.
+echo  Setting contest LAN to Private (UAC if not already admin)...
+call "%HERE%Set-ContestLanPrivate.cmd" /nopause
+echo.
+pause
+goto menu
+
+:do_app_firewall
+echo.
+echo  Adding Private-profile firewall rules (UAC if not already admin)...
+call "%HERE%Set-ContestAppFirewall.cmd" /nopause
+echo.
+pause
 goto menu
 
 :end

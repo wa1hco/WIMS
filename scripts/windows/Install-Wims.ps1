@@ -531,6 +531,20 @@ try {
     Ok $startCmd
 
     $fwOk = $true
+    $lanScript = Join-Path $PSScriptRoot "Set-ContestLanPrivate.ps1"
+    if (Test-Path -LiteralPath $lanScript) {
+        Step "Contest LAN = Private (N1MM/WSJT firewall allow-rules)"
+        try {
+            & $lanScript -NoElevate
+            if ($LASTEXITCODE -eq 0) {
+                Ok "Network category Private (or Domain)"
+            } else {
+                Warn "Could not set network to Private (exit $LASTEXITCODE). N1MM Send/Receive stays red on Public."
+            }
+        } catch {
+            Warn "Set-ContestLanPrivate.ps1 failed: $_"
+        }
+    }
     if (-not $SkipFirewall) {
         $fwOk = Set-Firewall8787
     }

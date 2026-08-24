@@ -70,7 +70,9 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WSJTX-50.cmd`** / **`Start-WSJTX-144.cmd`** | Band-specific WSJT-X only (tired-op safe). |
 | **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
-| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup. |
+| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup, **Private LAN**. |
+| **`Set-ContestLanPrivate.cmd`** | UAC: set Ethernet to **Private**. N1MM allow-rules only match Private; Public blocks TCP 12070 send/receive. |
+| **`Set-ContestAppFirewall.cmd`** | UAC: inbound **Private** allow for N1MM, WSJT-X (`wsjtx.exe` UDP any port), GridTracker, WIMS 8787/8788/8790. Firewall stays on. |
 
 ### Lab: Proxmox seat clones (optional)
 
@@ -79,7 +81,7 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`proxmox-clone-wims-seats.sh`** | On the **Proxmox host**: template the golden Win10 guest, clone IC-9700 + Flex seats. |
 | **`_pve_api.py`** / **`_pve_spawn_seats.py`** | Optional API helpers (password via CLI arg only — never commit secrets). Lab defaults (host/VMIDs) are in-file; edit for your cluster. |
 
-After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming).
+After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming). That now also sets Ethernet to **Private** and adds contest app firewall rules (UAC). If N1MM already shows other stations but Send/Receive stays red, run **`Set-ContestLanPrivate.cmd`** (menu **P**) then **`Set-ContestAppFirewall.cmd`** (menu **F**) on each N1MM PC.
 
 ### Two radio packs (same PC or separate seats)
 

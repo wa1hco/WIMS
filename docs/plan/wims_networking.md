@@ -1062,6 +1062,7 @@ Cross-refs: design §2.5 (network health), §3.3 (setup wizard), §3.14 (profile
 | WSJT-X up, N1MM down (or reverse) | Partial restart |
 | WIMS never sees the seat | Server `--iface`, IGMP, wrong port join |
 | “Fine locally, dead on console” | Loopback server, unset outgoing iface, or host firewall |
+| N1MM Network Status sees peers, **Send/Receive** not OK | Windows network is **Public** — gold-image N1MM rules **Allow** on Private and **Block** on Public. TCP **12070** times out (`SYN_SENT`); UDP discovery still works. Fix: `Set-ContestLanPrivate.cmd` on **each** N1MM PC (or Settings → Network profile → Private) |
 
 **Principle:** operators never configure multicast arithmetic under stress. They pick a **seat
 role** (e.g. `ROY-222`). WIMS applies the profile, verifies the wire, and **names the fix in

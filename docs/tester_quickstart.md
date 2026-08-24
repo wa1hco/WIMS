@@ -255,6 +255,8 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | Roster empty (Track B/C) | WSJT-X port ≠ WIMS port; UDP Server not multicast; Outgoing interface blank |
 | Two PCs, one WSJT row | Same default id `WSJT-X` — set unique `--rig-name` |
 | Work “ok” but DX blank | Accept UDP off; Windows firewall on **wsjtx.exe**; stale Band Activity line |
+| N1MM sees stations, Send/Receive red | Ethernet is **Public** — N1MM allow-rules are Private-only. Run `Set-ContestLanPrivate.cmd` (UAC) on **each** N1MM PC |
+| Work click / UDP still dead after Private | App rules missing or bound to an old `wsjtx.exe` path. Run `Set-ContestAppFirewall.cmd` (WIMS menu **F**) |
 | Needed never greys | N1MM Broadcast Contacts off; wrong contest log on Setup; no N1MM (Track B) |
 | Bind warning on :2240 | Expected if something else holds 2240 — WIMS no longer uses 2240 for any band |
 
