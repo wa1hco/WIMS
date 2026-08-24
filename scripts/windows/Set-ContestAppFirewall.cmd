@@ -21,6 +21,7 @@ echo.
 echo  WIMS - contest app firewall (Private)
 echo  =====================================
 echo  N1MM, WSJT-X, GridTracker, WIMS inbound allow on Private only.
+echo  Click YES on UAC. Watch the new PowerShell window for [OK] lines.
 echo.
 
 REM Do not pass /nopause through; the .ps1 self-elevates unless already admin.
