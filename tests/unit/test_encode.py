@@ -78,6 +78,40 @@ def test_reply_auto_tx_eligible():
     assert M.reply_auto_tx_eligible("W9XYZ K1ABC 73") is True
     assert M.reply_auto_tx_eligible("W9XYZ K1ABC RR73") is True
     assert M.reply_auto_tx_eligible("W9XYZ K1ABC R-12") is False
+
+
+def test_qso_logged_roundtrip():
+    from datetime import datetime, timezone
+    when = datetime(2026, 8, 24, 18, 30, 0, tzinfo=timezone.utc)
+    raw = E.build_qso_logged(
+        "PROBE-6M",
+        dx_call="K1AA1",
+        dx_grid="FN42",
+        tx_frequency=50_313_000,
+        mode="FT8",
+        my_call="WA1HCO",
+        my_grid="FN42",
+        comments="WIMS2237-mcast",
+        datetime_off=when,
+        datetime_on=when,
+    )
+    m = M.parse(raw)
+    assert isinstance(m, M.QSOLogged)
+    assert m.id == "PROBE-6M"
+    assert m.dx_call == "K1AA1" and m.dx_grid == "FN42"
+    assert m.tx_frequency == 50_313_000 and m.mode == "FT8"
+    assert m.my_call == "WA1HCO" and m.comments == "WIMS2237-mcast"
+    assert m.datetime_off is not None and m.datetime_off["julian_day"] > 0
+    assert m.datetime_off["timespec"] == 1
+
+
+def test_logged_adif_roundtrip():
+    adif = "<CALL:5>K1AA2<BAND:2>6m<FREQ:8>50.313000<MODE:3>FT8"
+    raw = E.build_logged_adif("PROBE-6M", adif)
+    m = M.parse(raw)
+    assert isinstance(m, M.LoggedADIF)
+    assert m.id == "PROBE-6M"
+    assert m.adif is not None and "K1AA2" in m.adif and "<eor>" in m.adif.lower()
     assert M.reply_auto_tx_eligible("W9XYZ K1ABC FN42") is False
 
 

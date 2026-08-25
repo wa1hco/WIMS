@@ -26,10 +26,32 @@ as `NetworkMessage.hpp`; `messages.parse(build_x(...))` round-trips.
 from __future__ import annotations
 
 import struct
+from datetime import date, datetime, timezone
 
 from wims.udp.messages import (
-    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, CONFIGURE, QUINT32_MAX,
+    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, CONFIGURE,
+    QSO_LOGGED, LOGGED_ADIF, QUINT32_MAX,
 )
+
+# Qt QDate Julian day for 1970-01-01 (UTC civil date).
+_JULIAN_UNIX_EPOCH = 2440588
+
+
+def _qt_datetime_utc(dt: datetime | None = None) -> tuple[int, int, int]:
+    """Return (julian_day, msecs_since_midnight, timespec) for a UTC QDateTime.
+
+    timespec 1 = Qt::UTC (no offset field). Matches ``messages._Reader.datetime``.
+    """
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    elif dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    julian = _JULIAN_UNIX_EPOCH + (dt.date() - date(1970, 1, 1)).days
+    msecs = ((dt.hour * 3600 + dt.minute * 60 + dt.second) * 1000
+             + dt.microsecond // 1000)
+    return julian, msecs, 1
 
 
 class _Writer:
@@ -68,6 +90,19 @@ class _Writer:
             b = s.encode("utf-8")
             self.u32(len(b))
             self.buf += b
+
+    def datetime_utc(self, dt: datetime | None = None) -> None:
+        """Write a non-null QDateTime in UTC (timespec=1)."""
+        julian, msecs, timespec = _qt_datetime_utc(dt)
+        self.buf += struct.pack(">q", julian)
+        self.u32(msecs)
+        self.u8(timespec)
+
+    def datetime_null(self) -> None:
+        """Write a null QDateTime (julian day 0)."""
+        self.buf += struct.pack(">q", 0)
+        self.u32(0)
+        self.u8(0)
 
     def bytes(self) -> bytes:
         return bytes(self.buf)
@@ -153,4 +188,58 @@ def build_configure(mid: str, *, mode: str = "", frequency_tolerance: int | None
     # GT2 uses a single space when grid unknown so the field is non-empty.
     w.utf8(dx_grid if dx_grid else " ")
     w.boolean(generate_messages)
+    return w.bytes()
+
+
+def build_qso_logged(
+    mid: str, *,
+    dx_call: str,
+    tx_frequency: int,
+    mode: str = "FT8",
+    dx_grid: str = "",
+    report_sent: str = "-10",
+    report_received: str = "-12",
+    tx_power: str = "",
+    comments: str = "",
+    name: str = "",
+    operator_call: str = "",
+    my_call: str = "W1AW",
+    my_grid: str = "FN31",
+    exchange_sent: str = "",
+    exchange_received: str = "",
+    propagation_mode: str = "",
+    datetime_off: datetime | None = None,
+    datetime_on: datetime | None = None,
+    schema: int = 2,
+) -> bytes:
+    """QSO Logged (msg 5): the datagram N1MM's WSJT UDP reader consumes to log."""
+    w = _Writer(schema, QSO_LOGGED, mid)
+    when = datetime_off or datetime_on or datetime.now(timezone.utc)
+    w.datetime_utc(when)          # datetime_off
+    w.utf8(dx_call)
+    w.utf8(dx_grid or None)
+    w.u64(int(tx_frequency))
+    w.utf8(mode)
+    w.utf8(report_sent)
+    w.utf8(report_received)
+    w.utf8(tx_power)
+    w.utf8(comments)
+    w.utf8(name)
+    w.datetime_utc(datetime_on or when)
+    w.utf8(operator_call or my_call)
+    w.utf8(my_call)
+    w.utf8(my_grid)
+    w.utf8(exchange_sent)
+    w.utf8(exchange_received)
+    w.utf8(propagation_mode)
+    return w.bytes()
+
+
+def build_logged_adif(mid: str, adif: str, *, schema: int = 2) -> bytes:
+    """Logged ADIF (msg 12): ADIF payload (Secondary UDP / some bridges use this)."""
+    w = _Writer(schema, LOGGED_ADIF, mid)
+    text = (adif or "").strip()
+    if text and "<eor>" not in text.lower():
+        text += " <eor>"
+    w.utf8(text)
     return w.bytes()
