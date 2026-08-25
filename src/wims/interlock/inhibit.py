@@ -22,13 +22,15 @@ Design: docs/plan/wims_tx_inhibit.md §3, §4.4, §11 (spike step §11.6.1).
 
 Two sides of one wire protocol:
 
-- ``InhibitGate`` is the WSJT-X side (§11.1): two states, per-station TTL
+- ``InhibitGate`` is the WSJT-X side (§11.1): two states, one hold, one TTL
   deadman, no hysteresis, no configuration of who may inhibit.  Written to be
   transplanted into the WSJT-X fork's gate thread, so it must stay free of
   I/O, threads, and wall-clock reads — callers inject monotonic time.
 - ``KeyAgentScheduler`` is the SSB/CW Key-agent side (§3): immediate assert on
-  key-down, keepalives while holding the band, hang time before ``clear``.
-  All the hysteresis lives here, keeping the gate state-free.
+  key-down, keepalives while holding the band, hang time before the release
+  (a datagram with ``ttl_ms=0`` — the protocol's only message type is
+  "inhibit for ttl_ms").  All the hysteresis lives here, keeping the gate
+  state-free.
 
 Both return/accept encoded datagrams; transport (UDP, loopback, test harness)
 is the caller's job.
@@ -37,28 +39,69 @@ is the caller's job.
 from __future__ import annotations
 
 import json
+from collections import deque
 
-PROTOCOL_KEY = "wims_inhibit"
+PROTOCOL_KEY = "tx_inhibit"
 PROTOCOL_VERSION = 1
 
 DEFAULT_GATE_PORT = 22372     # try first; fall back to ephemeral (§11.2)
-DEFAULT_TTL_MS = 600          # keyed state expires without keepalive (§4.2)
-DEFAULT_KEEPALIVE_S = 0.2     # keyed repeat while holding
-DEFAULT_HANG_S = 0.5          # agent-side release hysteresis (§3)
+DEFAULT_TTL_MS = 600          # a hold expires without keepalive (§4.2 deadman)
+DEFAULT_KEEPALIVE_S = 0.2     # hold re-armed at this rate while keyed
+LONG_HANG_S = 0.02            # long closures: debounce only (§3, 2026-08-02)
+
+# Adaptive hang (§3): the line self-classifies from closure statistics.
+ADAPTIVE_DITS = 8             # CW hang = 8 x measured dit-time
+ADAPTIVE_HANG_MIN_S = 0.2     # clamp: ~60 WPM floor
+ADAPTIVE_HANG_MAX_S = 1.0     # clamp: ~10 WPM ceiling
+LONG_CLOSURE_S = 0.75         # at/above: SSB-PTT/VOX/semi-BK (rig pre-hangs)
+DIT_MAX_S = 0.2               # a dit at >=6 WPM; longer closures are not dit evidence
+CLOSURE_DEBOUNCE_S = 0.02     # sub-20 ms closures are bounce, not elements
+CLOSURE_WINDOW = 8            # closures kept for the dit estimate
 
 MAX_DATAGRAM_BYTES = 512
 _TTL_MS_MIN, _TTL_MS_MAX = 100, 30_000
 
 
-def encode_datagram(state, station, band, seq, ttl_ms=DEFAULT_TTL_MS):
-    """Encode one inhibit datagram (§11.3). state: 'keyed' | 'clear'."""
-    if state not in ("keyed", "clear"):
-        raise ValueError(f"bad state {state!r}")
+def adaptive_hang_s(closures):
+    """§3 adaptive hang from recent closure durations (seconds, newest last).
+
+    Returns ``(hang_s, mode)`` with mode ``"cw"`` or ``"long"``.  The latest
+    closure picks the mode: at/above ``LONG_CLOSURE_S`` the line is
+    SSB-PTT/VOX/semi-break-in-like — no CW elements to bridge, so hang
+    collapses to the ``LONG_HANG_S`` debounce (hang exists only to keep
+    the WSJT-X radio's PTT from following break-in dits).  CW mode needs
+    **evidence of actual elements**: a dit-plausible closure (<=
+    ``DIT_MAX_S``) in the window; then hang = ``ADAPTIVE_DITS`` x the
+    shortest such closure, clamped.  A mid-length closure (0.2-0.75 s)
+    alone is neither — not a dit, not a rig-hung over — and gets the
+    debounce (found on the keyboard bench 2026-08-02: a ~0.4 s press
+    read as a "3 WPM dit" and produced a clamped 1 s hang).
+    """
+    if not closures or closures[-1] >= LONG_CLOSURE_S:
+        return LONG_HANG_S, "long"
+    dits = [c for c in closures if c <= DIT_MAX_S]
+    if not dits:
+        return LONG_HANG_S, "long"    # no CW elements in evidence
+    hang = max(ADAPTIVE_HANG_MIN_S, min(ADAPTIVE_HANG_MAX_S,
+                                        ADAPTIVE_DITS * min(dits)))
+    return hang, "cw"
+
+
+def encode_datagram(station, band, seq, ttl_ms=DEFAULT_TTL_MS):
+    """Encode one inhibit datagram (§11.3).
+
+    One message type only: "inhibit this band for ``ttl_ms``".  A fresh
+    hold or keepalive carries a real TTL; **release is ``ttl_ms=0``** —
+    the same message meaning "inhibit for zero more milliseconds"
+    (decision 2026-08-02: eliminates the clear code path in WSJT-X).
+    """
+    ttl_ms = int(ttl_ms)
+    if ttl_ms != 0 and not (_TTL_MS_MIN <= ttl_ms <= _TTL_MS_MAX):
+        raise ValueError(f"bad ttl_ms {ttl_ms}")
     return json.dumps(
         {
             PROTOCOL_KEY: PROTOCOL_VERSION,
-            "state": state,
-            "ttl_ms": int(ttl_ms),
+            "ttl_ms": ttl_ms,
             "station": str(station),
             "band": str(band),
             "seq": int(seq),
@@ -77,30 +120,34 @@ def parse_datagram(data):
         return None
     if not isinstance(msg, dict) or msg.get(PROTOCOL_KEY) != PROTOCOL_VERSION:
         return None
-    if msg.get("state") not in ("keyed", "clear"):
+    ttl = msg.get("ttl_ms")
+    if not isinstance(ttl, int) or isinstance(ttl, bool) or (
+            ttl != 0 and not (_TTL_MS_MIN <= ttl <= _TTL_MS_MAX)):
         return None
-    ttl = msg.get("ttl_ms", DEFAULT_TTL_MS)
-    if not isinstance(ttl, int) or not (_TTL_MS_MIN <= ttl <= _TTL_MS_MAX):
-        return None
-    msg["ttl_ms"] = ttl
     msg["station"] = str(msg.get("station", ""))
     msg["band"] = str(msg.get("band", ""))
     return msg
 
 
 class InhibitGate:
-    """WSJT-X-side gate (§11.1): INHIBIT = any station keyed and unexpired.
+    """WSJT-X-side gate (§11.1): one inhibit source, one deadline.
 
-    Per-station deadlines implement the §4.3 compose rule (two SSB/CW
-    stations may hold the band; a clear from one must not release the
-    other's hold).  A station whose deadline passes without a ``clear``
-    is dropped and counted as an expiry (keepalive loss — alarm-worthy).
+    The gate deliberately tracks **one hold** (decision 2026-08-02): every
+    valid hold re-arms the single deadline to ``now + ttl_ms`` and names
+    the holder (last datagram wins); a release (``ttl_ms=0``) drops the
+    hold at receipt, whoever sent it.  Arbitration among multiple SSB/CW
+    stations, if a site ever needs it, belongs on the SSB/CW side (e.g.
+    OR-ing KEY lines in hardware) — outside the WSJT-X thread's scope.
+    A *nonzero* deadline that lapses without refresh is counted as an
+    expiry (keepalive loss — alarm-worthy); a release never looks like an
+    expiry because it clears the deadline at receipt.
     """
 
     def __init__(self):
-        self._deadlines = {}          # station -> (deadline monotonic s, band)
-        self.keyed_rx = 0
-        self.clear_rx = 0
+        self._deadline = None         # monotonic s; None = no hold
+        self._holder = ""             # station named by the current hold
+        self.hold_rx = 0             # datagrams with ttl > 0
+        self.release_rx = 0           # datagrams with ttl == 0
         self.expiries = 0
         self.invalid = 0
 
@@ -113,37 +160,35 @@ class InhibitGate:
             self.invalid += 1
             return False
         before = self.inhibited(now)
-        station = msg["station"]
-        if msg["state"] == "keyed":
-            self.keyed_rx += 1
-            self._deadlines[station] = (now + msg["ttl_ms"] / 1000.0, msg["band"])
+        if msg["ttl_ms"] == 0:
+            self.release_rx += 1
+            self._deadline = None
         else:
-            self.clear_rx += 1
-            self._deadlines.pop(station, None)
+            self.hold_rx += 1
+            self._deadline = now + msg["ttl_ms"] / 1000.0
+            self._holder = msg["station"]
         return self.inhibited(now) != before
 
     # -- output --------------------------------------------------------------
 
     def inhibited(self, now):
-        """True while any station's hold is unexpired. Prunes as it goes."""
-        expired = [s for s, (dl, _b) in self._deadlines.items() if now >= dl]
-        for station in expired:
-            del self._deadlines[station]
+        """True while the hold is unexpired. Expiry here is the deadman."""
+        if self._deadline is not None and now >= self._deadline:
+            self._deadline = None
             self.expiries += 1
-        return bool(self._deadlines)
+        return self._deadline is not None
 
-    def holding_stations(self, now):
-        """Stations currently holding the band (for UI badge / telemetry)."""
-        self.inhibited(now)
-        return sorted(self._deadlines)
+    def holding_station(self, now):
+        """Station holding the band, or "" (for UI badge / telemetry)."""
+        return self._holder if self.inhibited(now) else ""
 
     def status(self, now):
         """Telemetry dict for InhibitStatus announcements (§11.4)."""
         return {
             "inhibited": self.inhibited(now),
-            "stations": self.holding_stations(now),
-            "keyed_rx": self.keyed_rx,
-            "clear_rx": self.clear_rx,
+            "station": self.holding_station(now),
+            "hold_rx": self.hold_rx,
+            "release_rx": self.release_rx,
             "expiries": self.expiries,
             "invalid": self.invalid,
         }
@@ -157,27 +202,38 @@ class KeyAgentScheduler:
     datagrams to send to every assigned target.  "Holding" spans from the
     first key-down until hang time after the last key-up, so a CW string
     is one continuous hold — the gate never sees the gaps between dits.
+
+    Hang time is **adaptive by default** (``hang_s=None``): each key-up
+    picks its hang via ``adaptive_hang_s`` over the recent closure history,
+    so a 30 WPM QSK op releases the band in ~0.32 s while an SSB-PTT/VOX
+    line releases after a 20 ms debounce — no mode input, no knob (§3).  Passing a numeric ``hang_s``
+    is the manual override for pathological cases; the classifier is then
+    off.  The chosen value and mode are exposed as ``last_hang_s`` /
+    ``hang_mode`` (``"cw"`` | ``"long"`` | ``"manual"``) for telemetry.
     """
 
-    def __init__(self, station, band, hang_s=DEFAULT_HANG_S,
+    def __init__(self, station, band, hang_s=None,
                  keepalive_s=DEFAULT_KEEPALIVE_S, ttl_ms=DEFAULT_TTL_MS):
         if ttl_ms / 1000.0 <= 2 * keepalive_s:
             raise ValueError("ttl must comfortably exceed the keepalive period")
         self.station = station
         self.band = band
-        self.hang_s = float(hang_s)
+        self.hang_override = None if hang_s is None else float(hang_s)
         self.keepalive_s = float(keepalive_s)
         self.ttl_ms = int(ttl_ms)
         self.seq = 0
+        self.last_hang_s = self.hang_override
+        self.hang_mode = "manual" if self.hang_override is not None else None
+        self._closures = deque(maxlen=CLOSURE_WINDOW)
+        self._down_at = None          # when the current closure began
         self._key = False             # physical input as last reported
-        self._holding = False         # keyed sent, clear not yet sent
-        self._clear_at = None         # when hang expires (key currently up)
+        self._holding = False         # hold sent, release (ttl 0) not yet
+        self._release_at = None       # when hang expires (key currently up)
         self._next_keepalive = None
 
-    def _emit(self, state):
+    def _emit(self, ttl_ms):
         self.seq += 1
-        return encode_datagram(state, self.station, self.band, self.seq,
-                               self.ttl_ms)
+        return encode_datagram(self.station, self.band, self.seq, ttl_ms)
 
     def set_key(self, keyed, now):
         """Report the physical key state. Returns datagrams to send now."""
@@ -186,27 +242,37 @@ class KeyAgentScheduler:
             return []
         self._key = keyed
         if keyed:
-            self._clear_at = None                 # re-key during hang: keep holding
+            self._down_at = now
+            self._release_at = None                 # re-key during hang: keep holding
             if not self._holding:
                 self._holding = True              # assert is immediate (§3)
                 self._next_keepalive = now + self.keepalive_s
-                return [self._emit("keyed")]
+                return [self._emit(self.ttl_ms)]
             return []
-        self._clear_at = now + self.hang_s        # key up: start hang window
+        if self._down_at is not None:             # key up: record the closure...
+            closure = now - self._down_at
+            self._down_at = None
+            if closure >= CLOSURE_DEBOUNCE_S:     # ...unless it was bounce
+                self._closures.append(closure)
+        if self.hang_override is not None:
+            self.last_hang_s, self.hang_mode = self.hang_override, "manual"
+        else:
+            self.last_hang_s, self.hang_mode = adaptive_hang_s(self._closures)
+        self._release_at = now + self.last_hang_s   # ...then start the hang window
         return []
 
     def poll(self, now):
         """Timer tick. Returns datagrams to send now (possibly empty)."""
         if not self._holding:
             return []
-        if not self._key and self._clear_at is not None and now >= self._clear_at:
+        if not self._key and self._release_at is not None and now >= self._release_at:
             self._holding = False
-            self._clear_at = None
+            self._release_at = None
             self._next_keepalive = None
-            return [self._emit("clear")]
+            return [self._emit(0)]      # release: hold for 0 more ms
         if now >= self._next_keepalive:
             self._next_keepalive = now + self.keepalive_s
-            return [self._emit("keyed")]
+            return [self._emit(self.ttl_ms)]
         return []
 
     @property

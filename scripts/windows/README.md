@@ -10,6 +10,7 @@
 
 ## Solo tester (everything on one PC) — start here if you're trying WIMS out
 
+**What you install (roles):** [docs/tester_roles.md](../../docs/tester_roles.md)  
 **Full tracks (no apps → WSJT only → N1MM+WSJT → multi-PC):**  
 [docs/tester_quickstart.md](../../docs/tester_quickstart.md)
 
@@ -17,12 +18,13 @@ For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a singl
 frequency (any band). No fleet, no separate server.
 
 1. **`Install-Wims.cmd`** — installs prerequisites (once; may prompt for UAC).
-2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`**, tick
-   **"Accept UDP requests"**.
+2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`** (or your
+   band port — 144→2238, 432→**2241**, never 2240), tick **"Accept UDP requests"**.
 3. **`Check-WimsSetup.cmd`** — double-click to see a plain-language **[OK] / [! ] / [XX]**
    check of your WSJT-X + N1MM setup (starts nothing).
 4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
-   `http://localhost:8787/`. Arm TX, click **Work** on a roster row, **Halt TX** to stop.
+   `http://localhost:8787/`. **Click a roster line** to Work (no Arm/Enable TX);
+   **Halt TX** always available.
 
 | File | What it does |
 |------|----------------|
@@ -68,7 +70,9 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`Start-WSJTX-50.cmd`** / **`Start-WSJTX-144.cmd`** | Band-specific WSJT-X only (tired-op safe). |
 | **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
-| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup. |
+| **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup, **Private LAN**. |
+| **`Set-ContestLanPrivate.cmd`** | UAC: set Ethernet to **Private**. N1MM allow-rules only match Private; Public blocks TCP 12070 send/receive. |
+| **`Set-ContestAppFirewall.cmd`** | UAC: inbound **Private** allow for N1MM, WSJT-X (`wsjtx.exe` UDP any port), GridTracker, WIMS 8787/8788/8790. Firewall stays on. |
 
 ### Lab: Proxmox seat clones (optional)
 
@@ -77,7 +81,7 @@ After that, operators only need the Desktop **WIMS** icon.
 | **`proxmox-clone-wims-seats.sh`** | On the **Proxmox host**: template the golden Win10 guest, clone IC-9700 + Flex seats. |
 | **`_pve_api.py`** / **`_pve_spawn_seats.py`** | Optional API helpers (password via CLI arg only — never commit secrets). Lab defaults (host/VMIDs) are in-file; edit for your cluster. |
 
-After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming).
+After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming). That now also sets Ethernet to **Private** and adds contest app firewall rules (UAC). If N1MM already shows other stations but Send/Receive stays red, run **`Set-ContestLanPrivate.cmd`** (menu **P**) then **`Set-ContestAppFirewall.cmd`** (menu **F**) on each N1MM PC.
 
 ### Two radio packs (same PC or separate seats)
 

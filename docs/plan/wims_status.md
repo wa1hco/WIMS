@@ -63,6 +63,16 @@ captures one SSE frame, asserts the state contract + emulated instances flow thr
 Exit 0 = all green; per-check logs land in `scratch/validate/` (gitignored). Overridable
 via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 
+**GitHub CI / release track:** `.github/workflows/ci.yml` runs the same `scripts/validate.sh`
+on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
+`wims.__version__` pin check. **No GitHub Releases or tags yet** — first public cut is
+still the R0 tester release (`v0.1.0-tester` planned once dummy-load Reply is verified).
+Sister C++ forks (`wsjtx-wims` / `wsjtx-improved-wims`) already have build/release
+workflows; they are separate products and cadence.
+
+**Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
+and launchers mean (solo / server / seat agent; KEY agent out of R0).
+
 ---
 
 ## Milestones (design intent: §4 / §4.5)
@@ -71,8 +81,9 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
   frequency (any band, HF included): watch the ranked roster, verify needed↔dupe by editing
   the N1MM log and **click a roster line** to Work (Reply). `python -m wims.solo` + Windows/Linux
   wrappers. **Done:** roster-line **Work** (GT2, no global arm) + Halt, arbiter grant/release,
-  `tx` state block, casual (non-contest) seed. **Remaining before shipping:** first bring-up
-  against **real WSJT-X** into a dummy load (echo-exactness of Reply) and a tester runbook.
+  `tx` state block, casual (non-contest) seed, **CI green gate**. **Remaining before shipping:**
+  first bring-up against **real WSJT-X** into a dummy load (echo-exactness of Reply); then
+  tag + GitHub Release for testers.
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
   dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
@@ -142,6 +153,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ### Design / feature todos (not yet coded)
 
+- [~] **§2.13 — Fleet inventory & dynamic membership** — **Slice 1 done:** state key `bands`
+  (per-band WSJT + N1MM aggregation), Status **Band inventory** table, instance `share_policy`.
+  Remaining: logger binding verify, KEY/SSB rows, operator sessions, KEY list churn.
+  Design: wims_design.md §2.13.
+- [~] **§2.14 — Band sharing policy `interlock` | `coordinated`** — **Slice 1 done:** default
+  `coordinated`; `--interlock-band BAND`; `POST /api/band/policy`; badges on Status; inhibit
+  placeholder on instances when interlock. Remaining: KEY actuation gate on policy, soft
+  “wants the band”, Operate banner. Design: wims_design.md §2.14.
 - [ ] **C7 / §2.9 — Cross-band evidence + `cross_band` factor** — ship **structured evidence**
   (other needed bands, this-contest vs prior-contest source, seat readiness, suggested QSY) on
   the state contract so the operator can **assess other-band contact ability**; optional rank
@@ -317,3 +336,83 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `%APPDATA%\wims`, override `WIMS_LAST_LOG`). Startup: explicit DB → remembered → auto
   latest dated contest. Fixes home casual `DX` / wa1hco.s3db losing to N2OY June every
   restart. Tests: `test_last_log`.
+- **2026-07-31** — **TX-inhibit spike verified live + adaptive hang built** (tx_inhibit §3/§11.6.1).
+  Spike verified: 15 unit tests, loopback selftest (median 0.24 ms transition), and a two-process
+  gate↔agent UDP run (SSB burst + CW string = exactly one INHIBITED→OPEN cycle). Bench facts on a
+  real dongle (Digirig, CP2102N): Linux `cp210x` returns `ENOTTY` for `TIOCMIWAIT` → spike's CTS
+  watcher gained a 1 ms `TIOCMGET` poll fallback (FTDI Keyline unaffected); Digirig exposes no CTS
+  pin at all → §4.1 same-port KEY convention inapplicable on Digirig seats (doc updated). **Adaptive
+  hang classifier** (`adaptive_hang_s` + `KeyAgentScheduler` default): latest closure picks the mode
+  (≥0.75 s → flat 0.5 s; else CW → 8×dit-estimate clamped 0.2–1.0 s, dit = min recent short closure,
+  20 ms debounce); numeric `hang_s` = manual override, classifier off; `last_hang_s`/`hang_mode`
+  exposed for telemetry. Tests: `test_inhibit` now 23 (WPM tracking 15/20/30, 7-dit word-gap hold,
+  clamps, CW↔SSB flip, bounce immunity, override). wsjtx-3.1.0 improved_PLUS builds clean on this
+  laptop (superbuild → `build/wsjtx-prefix/src/wsjtx-build/wsjtx`) — ready for Stage 2 (§11.6.2).
+  Known pre-existing failure: `test_agent_report` (N1MM probe monkeypatch), unrelated.
+- **2026-08-02** — **Inhibit wire protocol collapsed to one message type** (per WA1HCO): every
+  datagram means *"inhibit this band for `ttl_ms`"*; **release = `ttl_ms: 0`** — no `state`
+  field, no clear code path in the gate (tx_inhibit §11.3). Gate counters now
+  `hold_rx`/`release_rx`/`expiries`/`invalid` (releases never enter the deadline table, so
+  expiries stay pure keepalive-loss alarms). Protocol magic renamed `wims_inhibit` →
+  `tx_inhibit` (patch carries no WIMS reference, §11.7.4); class `TxInhibitGate` → `PttGate`.
+  Code+tests+spike updated, 23/23 green; §11.7 netcat two-liner demoed live against the gate.
+  Doc-side same day: radio-inhibit prior-art survey (K2TR's Elecraft mid-key **latch**
+  measurement; Flex TX REQ initiation-only; Kenwood TS-890 has no external inhibit line) +
+  the arbitration-model statement (radios: two humans, first-PTT-wins; WIMS: one human vs
+  N machines, human always wins — why level semantics + puncture had to be built new).
+  Same day, second simplification (per WA1HCO): **gate tracks ONE hold** — per-station
+  deadline table removed; last hold wins, any valid release opens; multi-station
+  arbitration declared out of scope for WSJT-X (SSB/CW side ORs KEY lines in hardware,
+  tx_inhibit §4.3). `holding_stations()` → `holding_station()`; InhibitStatus `stations`
+  list → `station`. 23/23 green after both changes.
+- **2026-08-02** — **Stage 2 begun: `PttGate` lands in the fork** (wsjtx-improved-wims
+  `feature/tx-inhibit` @ 9990730). `Transceiver/PttGate.{hpp,cpp}` — C++/Qt5 port of the
+  proven `InhibitGate` semantics (single hold, ttl-only protocol, PreciseTimer deadman,
+  hold/release/expiry/invalid counters, `hold_test` bench slot, `line = intent ∧ ¬inhibit`
+  on RTS/DTR via QSerialPort, immediate unconditional ptt ack). House style: trailing-`_`
+  members, CRLF, no reformat (CMake diff = 2 lines: source list + `Qt5::SerialPort` on
+  `wsjt_qt`). Full `wsjtx` binary builds clean from the repo tree (fresh build dir against
+  the superbuild's hamlib; tree is **Qt5**, noted). Not yet wired: gate thread setup,
+  DTR/RTS PTT reroute (the one existing-code touch), badge, InhibitStatus type 18.
+- **2026-08-03** — **Mainline fork published with gate wired:**
+  [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims). Local `~/ham/wsjtx-wims`.
+  Push order: (1) baseline tag `baseline-v3.0.2` = official `WSJTX/wsjtx` v3.0.2;
+  (2) `TxInhibit/` gate + Configuration DTR/RTS reroute + status badge +
+  `NetworkMessage::InhibitStatus` (type 17) + docs (superbuild / build / inhibit).
+  Protocol matches Python spike (`tx_inhibit`, ttl-only). Official CI
+  (`.github/workflows/build-{linux,windows,macos}.yml` + `release.yml`) kept for
+  downloadable test binaries via `build/v*` tags. WIMS design link updated.
+- **2026-07-31** — **WSJT-X Improved → own GitHub project** for Stage 2 tracking:
+  [wa1hco/wsjtx-improved-wims](https://github.com/wa1hco/wsjtx-improved-wims). Baseline import of
+  extracted Improved 3.1.0 (`improved_AL_PLUS_260522`) as tag
+  `base-3.1.0-improved-AL-PLUS-260522`; branch `feature/tx-inhibit` reserved for the
+  `PttGate` patch (class renamed from `TxInhibitGate` 2026-07-31 — "gate" already implies
+  the inhibit). 2026-08-02: hang purpose sharpened (per WA1HCO) — hang exists *only* to
+  keep the WSJT-X radio's PTT from following break-in dits/dahs; long-closure
+  (SSB-PTT/VOX/semi-BK) hang cut **0.5 s → 20 ms debounce** (`LONG_HANG_S`), hardware
+  safety under arbitrary keying being a station requirement, not the agent's job. CW
+  8×dit rule unchanged. Tests updated, 23/23 green. Superbuild drop remains local under
+  `~/ham/wsjtx-3.1.0_improved_AL_PLUS_260522/` (not in the WIMS tree). Design cross-link added in
+  [wims_tx_inhibit.md](wims_tx_inhibit.md).
+- **2026-08-11** — **Release-track Phase 0:** fix seat-agent N1MM probe so UserDir\\Databases
+  is found via `n1mm_user_dirs()` (test was patching agent helpers while `database_dirs()`
+  only consulted logdb’s host scan — failed on Linux CI/dev). `test_agent_report` green
+  again. Add `.github/workflows/ci.yml` (push/PR → `scripts/validate.sh` on Python
+  3.10/3.12/3.14 + version pin check). No tags/Releases yet — next is R0 dummy-load
+  Reply + `v0.1.0-tester`.
+- **2026-08-11** — **Tester roles doc:** [tester_roles.md](../tester_roles.md) freezes the
+  install surface (solo / site server / console / seat agent; KEY agent lab-only). Fixed
+  stale “Arm TX” and 432→2240 port in quickstart/Windows README; linked from README.
+- **2026-08-12** — **Design §2.13** (fleet inventory, dynamic membership, browser sessions,
+  multi-KEY, multi-N1MM answer, inhibit+Halt roles) folded from operator scenarios; networking
+  logger invariant clarified. Code not yet; todos listed under design backlog.
+- **2026-08-12** — **Design §2.14** band-sharing policy: **`interlock`** (original real-time
+  inhibit, SSB/CW priority) vs **`coordinated`** (manual handoff; WIMS informs both sides, no
+  automatic inhibit). Goals + §3.4.1 + tx_inhibit §1 cross-linked.
+- **2026-08-12** — **Slice 1 (inventory + policy) code:** `state.fleet_to_dict` → `bands[]` +
+  per-instance `share_policy` / `inhibit` placeholder; LiveFleet `set_share_policy`;
+  `POST /api/band/policy`; `--interlock-band`; Status Band inventory table + policy pills.
+  Tests in `test_server_state`. KEY/SSB rows and inhibit actuation still later.
+- **2026-08-14** — **Split inhibit generator designs:** **inhibit-test** + **inhibit-agent**
+  (wsjtx-inhibit; design [inhibit_agent.md](inhibit_agent.md) — no WIMS mentions, exportable)
+  vs **WIMS Key agent** ([wims_key_agent.md](wims_key_agent.md)). Not coded yet.

@@ -103,11 +103,37 @@ def documents_n1mm_roots() -> list[Path]:
 def database_dirs() -> list[Path]:
     """All candidate Databases folders that exist on this host.
 
-    Same multi-path scan the server uses for log seed (registry UserDir\\Databases,
-    Documents, OneDrive, profile Databases).
+    Prefer paths under agent-visible N1MM roots (registry UserDir, Documents,
+    …) so a monkeypatched or portable UserDir is enough for the seat probe.
+    Then merge the shared server scan (logdb.candidate_database_dirs) so the
+    agent and log seed still see the same real-machine locations.
     """
     from wims.integrations.n1mm.logdb import candidate_database_dirs
-    return candidate_database_dirs()
+
+    found: list[Path] = []
+    seen: set[Path] = set()
+
+    def add(p: Path | None) -> None:
+        if p is None:
+            return
+        try:
+            if not p.is_dir():
+                return
+            rp = p.resolve()
+        except OSError:
+            return
+        if rp in seen:
+            return
+        seen.add(rp)
+        found.append(p)
+
+    # Agent UserDir / Documents roots first (testable; matches seat layout).
+    for root in n1mm_user_dirs():
+        add(root / "Databases")
+    # Shared host scan used by server log seed (may add more, e.g. HOME/Databases).
+    for d in candidate_database_dirs():
+        add(d)
+    return found
 
 def databases_dir() -> Path | None:
     """Primary Databases folder (first found). Prefer UserDir\\Databases."""

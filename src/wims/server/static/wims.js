@@ -50,6 +50,9 @@ function renderSystem(s) {
   const quiet = inst.filter(n => n.quiet).length;
   const agents = s.agents || [];
   const aErr = agents.filter(a => a.severity === "error").length;
+  const bands = s.bands || [];
+  const nInter = bands.filter(b => b.share_policy === "interlock").length;
+  const nCoord = bands.filter(b => b.share_policy === "coordinated").length;
   el.innerHTML =
     `<span><span class="dot active"></span><b>WIMS server</b> · live</span>` +
     `<span><span class="k">WSJT-X:</span>${inst.length} (` +
@@ -58,10 +61,58 @@ function renderSystem(s) {
       (by("DEAD")  ? ` · <span class="DEAD">${by("DEAD")} dead</span>`   : ``) +
       (quiet ? ` · <span class="quiet">${quiet} quiet</span>` : ``) + `)</span>` +
     `<span><span class="k">transmitting:</span>${tx}</span>` +
+    `<span><span class="k">bands:</span>${bands.length}` +
+      (nInter || nCoord
+        ? ` (<span class="policy-interlock">${nInter} interlock</span>` +
+          ` · <span class="policy-coordinated">${nCoord} coordinated</span>)`
+        : ``) + `</span>` +
     `<span><span class="k">N1MM loggers:</span>${(s.loggers||[]).length}</span>` +
     `<span><span class="k">seat agents:</span>${agents.length}` +
       (aErr ? ` · <span class="warn">${aErr} error</span>` : ``) + `</span>` +
     `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>`;
+}
+
+function policyBadge(pol) {
+  const p = (pol || "coordinated").toLowerCase();
+  const cls = p === "interlock" ? "policy-interlock" : "policy-coordinated";
+  const title = p === "interlock"
+    ? "SSB/CW KEY inhibit when configured — automatic priority"
+    : "Manual handoff — WIMS informs operators, does not inhibit";
+  return `<span class="pill ${cls}" title="${title}">${esc(p)}</span>`;
+}
+
+function renderBandInventory(s) {
+  const body = $("band-inv-body");
+  if (!body) return;
+  const bands = s.bands || [];
+  const empty = $("band-inv-empty");
+  if (empty) empty.style.display = bands.length ? "none" : "block";
+  body.innerHTML = "";
+  for (const b of bands) {
+    const tr = document.createElement("tr");
+    if ((b.wsjt_tx || []).length) tr.className = "tx";
+    const ids = (b.wsjt || []).map(w => {
+      const nl = w.n1mm_logger;
+      if (nl && nl.id) return `${w.id}→${nl.id}`;
+      return w.id;
+    }).filter(Boolean).join(", ") || "—";
+    const tx = (b.wsjt_tx || []).length ? esc((b.wsjt_tx || []).join(", ")) : "—";
+    const logs = (b.loggers || []).map(l => {
+      const mc = l.mycall ? ` (${l.mycall})` : "";
+      const h = l.host ? `@${l.host}` : "";
+      return `${l.id || "?"}${h}${mc}`;
+    }).join(", ") || "—";
+    tr.innerHTML =
+      `<td><b>${esc(b.band)}</b></td>` +
+      `<td>${policyBadge(b.share_policy)}</td>` +
+      `<td class="num">${b.wsjt_count ?? (b.wsjt || []).length}</td>` +
+      `<td style="white-space:normal;max-width:280px">${esc(ids)}</td>` +
+      `<td class="${(b.wsjt_tx || []).length ? "state-TX" : ""}">${tx}</td>` +
+      `<td class="num">${b.logger_count ?? (b.loggers || []).length}</td>` +
+      `<td style="white-space:normal;max-width:240px">${esc(logs)}</td>` +
+      `<td class="num">${b.ssb_count ?? 0}</td>`;
+    body.appendChild(tr);
+  }
 }
 
 function _flagOn(v) {
@@ -199,6 +250,23 @@ function renderAgents(s) {
   }
 }
 
+function n1mmLoggerCell(nl) {
+  if (!nl || nl.status === "missing" || !nl.id) {
+    const tip = (nl && nl.detail) ? nl.detail : "No N1MM broadcast matched this band";
+    return `<span class="warn" title="${esc(tip)}">⚠ none</span>`;
+  }
+  const addr = nl.host || (nl.hosts && nl.hosts[0]) || "?";
+  const call = nl.mycall ? ` · ${nl.mycall}` : "";
+  const label = `${nl.id} @ ${addr}${call}`;
+  if (nl.status === "multiple") {
+    return `<span class="warn" title="${esc(nl.detail || "multiple N1MM on band")}">⚠ ${esc(label)}</span>`;
+  }
+  if (nl.status === "colocated") {
+    return `<span class="STALE" title="${esc(nl.detail || "same host; band not confirmed")}">${esc(label)} <span class="meta">· host</span></span>`;
+  }
+  return `<span class="ALIVE" title="Logger-of-record for this band">${esc(label)}</span>`;
+}
+
 function renderInstances(s) {
   const ib = $("inst-body");
   if (!ib) return;
@@ -219,6 +287,8 @@ function renderInstances(s) {
       : "";
     tr.innerHTML =
       `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(n.band||"-")}</td>` +
+      `<td style="white-space:normal;max-width:260px">${n1mmLoggerCell(n.n1mm_logger)}</td>` +
+      `<td>${policyBadge(n.share_policy)}</td>` +
       `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
       `<td class="state-${n.state}">${n.state}</td>` +
       `<td class="num ${n.quiet?'quiet':''}">${n.decodes_per_period.toFixed(1)}</td>` +
@@ -232,22 +302,87 @@ function renderInstances(s) {
 function renderLoggers(s) {
   const lb = $("log-body");
   if (!lb) return;
+  const net = s.n1mm_network || {};
+  const loggers = s.loggers || [];
   lb.innerHTML = "";
-  $("log-empty").style.display = s.loggers.length ? "none" : "block";
-  for (const l of s.loggers) {
+  const empty = $("log-empty");
+  if (empty) empty.style.display = loggers.length ? "none" : "block";
+
+  const sum = $("n1mm-net-summary");
+  if (sum) {
+    if (!loggers.length) {
+      sum.innerHTML = `<span class="k">No N1MM on network yet</span>`;
+    } else {
+      const withW = net.with_wsjt != null ? net.with_wsjt
+        : loggers.filter(l => l.has_wsjt).length;
+      const without = net.without_wsjt != null ? net.without_wsjt
+        : loggers.filter(l => !l.has_wsjt).length;
+      const unbound = (net.unbound_wsjt || []).length;
+      sum.innerHTML =
+        `<span><span class="k">N1MM stations:</span><b>${loggers.length}</b></span>` +
+        `<span><span class="k">with WSJT logging:</span><span class="ALIVE">${withW}</span></span>` +
+        `<span><span class="k">no WSJT:</span>${without ? `<span class="STALE">${without}</span>` : "0"}</span>` +
+        (unbound
+          ? `<span><span class="k">WSJT unbound:</span><span class="warn">${unbound}</span></span>`
+          : ``);
+    }
+  }
+
+  for (const l of loggers) {
     const tr = document.createElement("tr");
+    if (!l.has_wsjt) tr.className = "n1mm-no-wsjt";
     const fresh = l.last_seen_age != null && l.last_seen_age < 60;
     const seen = l.last_seen_age == null ? "-" : age(l.last_seen_age) + " ago";
     const lastq = l.last_qso_age == null ? "—"
       : `${l.last_call||""} ${l.last_band||""} (${age(l.last_qso_age)} ago)`;
     const alias = (l.aliases && l.aliases.length)
       ? ` <span class="meta">aka ${esc(l.aliases.join(", "))}</span>` : "";
+    const bands = (l.bands && l.bands.length)
+      ? l.bands.join(", ")
+      : ((l.bands_seen && l.bands_seen.length) ? l.bands_seen.join(", ")
+        : (l.last_band || "—"));
+    const role = l.role === "digital_logger"
+      ? `<span class="ALIVE">digital</span>`
+      : `<span class="STALE" title="No WSJT-X bound to this N1MM — SSB/CW only or reader not set">no WSJT</span>`;
+    const wsjtList = (l.wsjt_instances || []);
+    let wsjtCell;
+    if (!wsjtList.length) {
+      wsjtCell = `<span class="meta">— none</span>`;
+    } else {
+      wsjtCell = wsjtList.map(w => {
+        const b = w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "";
+        const h = w.host ? ` @${esc(w.host)}` : "";
+        const st = w.health === "ALIVE" ? "ALIVE" : (w.health || "");
+        return `<span class="${st}">${esc(w.id || "?")}</span>${b}${h}`;
+      }).join("<br>");
+    }
     tr.innerHTML =
-      `<td><span class="dot ${fresh?'active':'idle'}"></span>${esc(l.kind)} · ${esc(l.id)}${alias}</td>` +
+      `<td><span class="dot ${fresh?'active':'idle'}"></span>${esc(l.kind)} · <b>${esc(l.id)}</b>${alias}</td>` +
       `<td>${esc(l.host||"-")}</td><td>${esc(l.mycall||"-")}</td>` +
+      `<td>${role}</td>` +
+      `<td style="white-space:normal;max-width:120px">${esc(bands)}</td>` +
+      `<td style="white-space:normal;max-width:320px">${wsjtCell}</td>` +
+      `<td class="num">${l.wsjt_count ?? wsjtList.length}</td>` +
       `<td>${seen}</td><td class="num">${l.qso_count}</td>` +
       `<td>${esc(lastq)}</td>`;
     lb.appendChild(tr);
+  }
+
+  const wrap = $("n1mm-unbound-wrap");
+  const ub = $("n1mm-unbound");
+  const unbound = net.unbound_wsjt || [];
+  if (wrap && ub) {
+    if (!unbound.length) {
+      wrap.style.display = "none";
+      ub.innerHTML = "";
+    } else {
+      wrap.style.display = "block";
+      ub.innerHTML = unbound.map(w =>
+        `<span class="warn">${esc(w.id || "?")}</span>` +
+        (w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "") +
+        (w.host ? ` @${esc(w.host)}` : "")
+      ).join(" · ");
+    }
   }
 }
 
@@ -905,6 +1040,7 @@ function renderTxBar(tx) {
 function render(s) {
   renderHeader(s);
   renderSystem(s);
+  renderBandInventory(s);
   renderAgents(s);
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
   renderRotators(s.rotators);

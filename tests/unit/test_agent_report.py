@@ -204,25 +204,10 @@ def main():
     test_agents_to_dict_stale()
     test_export_report_no_url()
     test_process_match_n1mmlogger_net_via_tasklist_mock()
+    # No pytest: drive the tmp_path test with a real TemporaryDirectory.
     import tempfile
-    from pathlib import Path as _P
     with tempfile.TemporaryDirectory() as td:
-        # inline without pytest monkeypatch fixture
-        from wims.agent import n1mm_probe as N
-        user = _P(td) / "User"
-        dbdir = user / "Databases"
-        dbdir.mkdir(parents=True)
-        (dbdir / "N2OY.s3db").write_bytes(b"SQLite format 3\x00" + b"\x00" * 100)
-        (dbdir / "N2OY.s3db-wal").write_bytes(b"x" * 50)
-        real_ud, real_uds = N._win_user_dir, N.n1mm_user_dirs
-        N._win_user_dir = lambda: user  # type: ignore
-        N.n1mm_user_dirs = lambda: [user]  # type: ignore
-        try:
-            p = N.probe_n1mm()
-            assert "N2OY.s3db" in p["s3db_files"]
-        finally:
-            N._win_user_dir = real_ud
-            N.n1mm_user_dirs = real_uds
+        test_n1mm_probe_finds_userdir_databases(Path(td))
     print("test_agent_report: OK")
 
 

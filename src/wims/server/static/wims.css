@@ -47,6 +47,8 @@ th,td { text-align:left; padding:2px 8px; border-bottom:1px solid var(--line);
 th { color:var(--dim); font-weight:normal; font-size:12px; }
 td.num { text-align:right; font-variant-numeric:tabular-nums; }
 .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; }
+.policy-coordinated { color:#0550ae; background:#ddf4ff; border:1px solid #54aeff66; }
+.policy-interlock { color:#9a6700; background:#fff8c5; border:1px solid #d4a72c66; font-weight:600; }
 .ALIVE { color:var(--alive); } .STALE { color:var(--stale); }
 .DEAD  { color:var(--dead);  } .UNKNOWN{ color:var(--dim); }
 tr.tx { background:#fff8e6; }
@@ -74,6 +76,10 @@ tr.mult td.score { color:var(--alive); }
 /* Same WSJT-X UDP id on two PCs (must rename --rig-name) */
 tr.id-collide { background:#fff8e0; }
 tr.id-collide td:first-child { font-weight:600; }
+/* N1MM present but no WSJT-X bound (SSB/CW-only or missing reader) */
+tr.n1mm-no-wsjt { background:#f6f8fa; }
+tr.n1mm-no-wsjt td { color:var(--dim); }
+tr.n1mm-no-wsjt td:first-child { color:var(--text); }
 .warn { color:#9a6700; font-weight:600; }
 tr.calling-us { background:#ffd6d6; }
 tr.calling-us td { font-weight:600; }

@@ -2,6 +2,9 @@
 
 **Goal:** evaluate WIMS at home or in the lab without needing a full multi-multi contest.
 
+**What you install (roles):** [tester_roles.md](tester_roles.md) — solo vs server vs seat
+agent vs KEY agent (not in R0), and which Windows scripts matter.
+
 Pick the **track** that matches what you have. Each track builds on the previous one.
 
 | Track | You have | You prove |
@@ -127,7 +130,10 @@ Solo = local server, no fleet presence election, browser to Operate.
 | 50 MHz | **2237** |
 | 144 | **2238** |
 | 222 | **2239** |
-| 432 | **2240** |
+| *(unused)* | **2240** — do not use |
+| 432 | **2241** |
+| 902 | **2242** |
+| 1296 | **2243** |
 
 WIMS solo defaults to **2237**. If you use another port, start with that port, e.g. `python -m wims.solo --port 2238`.
 
@@ -223,7 +229,7 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 
 **Minimum dual-PC lab:**
 
-1. **Server PC:** WIMS server (joins ports **2237–2240** by default).  
+1. **Server PC:** WIMS server (joins **2237–2239,2241–2243** by default; skips **2240**).  
 2. **Each radio PC:** unique rig-name; UDP `224.0.0.73` + **band port**; Outgoing interface = LAN; Accept UDP ON.  
 3. Browser → `http://<server-lan-ip>:8787/`.
 
@@ -251,8 +257,10 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | Roster empty (Track B/C) | WSJT-X port ≠ WIMS port; UDP Server not multicast; Outgoing interface blank |
 | Two PCs, one WSJT row | Same default id `WSJT-X` — set unique `--rig-name` |
 | Work “ok” but DX blank | Accept UDP off; Windows firewall on **wsjtx.exe**; stale Band Activity line |
+| N1MM sees stations, Send/Receive red | Ethernet is **Public** — N1MM allow-rules are Private-only. Run `Set-ContestLanPrivate.cmd` (UAC) on **each** N1MM PC |
+| Work click / UDP still dead after Private | App rules missing or bound to an old `wsjtx.exe` path. Run `Set-ContestAppFirewall.cmd` (WIMS menu **F**) |
 | Needed never greys | N1MM Broadcast Contacts off; wrong contest log on Setup; no N1MM (Track B) |
-| Bind warning on :2240 | Harmless if you don’t use 432; other app holds UDP 2240 — skip or free the port |
+| Bind warning on :2240 | Expected if something else holds 2240 — WIMS no longer uses 2240 for any band |
 
 More detail: [tester_runbook.md](tester_runbook.md) (solo deep dive) · [plan/wims_networking.md](plan/wims_networking.md) (fleet).
 

@@ -106,6 +106,16 @@ if /I "%PACK%"=="flex50" (
   set "DESC=WIMS IC9700-144 seat pack at logon"
 )
 
+REM Contest LAN must be Private or N1MM's existing allow-rules do not match
+if exist "%HERE%Set-ContestLanPrivate.cmd" (
+  echo  Setting contest LAN to Private...
+  call "%HERE%Set-ContestLanPrivate.cmd" /nopause
+)
+if exist "%HERE%Set-ContestAppFirewall.cmd" (
+  echo  Adding N1MM / WSJT-X / WIMS firewall rules...
+  call "%HERE%Set-ContestAppFirewall.cmd" /nopause
+)
+
 REM Desktop WIMS menu
 if exist "%HERE%Install-WIMS-Desktop-Shortcut.cmd" (
   call "%HERE%Install-WIMS-Desktop-Shortcut.cmd" /nopause
@@ -137,6 +147,7 @@ echo  Reboot now so the new hostname applies, then log on and confirm:
 echo    - WIMS agent reports seat %SEAT% on http://192.168.1.119:8787/status
 echo    - WSJT-X Outgoing interface = Ethernet, UDP 224.0.0.73:band-port
 echo    - N1MM Broadcast = 224.0.0.73:12060
+echo    - Ethernet = Private ^(N1MM Send/Receive / TCP 12070^)
 echo.
 choice /C YN /M "Reboot now"
 if errorlevel 2 goto done

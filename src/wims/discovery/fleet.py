@@ -171,6 +171,8 @@ class LoggerNode:
     qso_count: int = 0
     last_call: str | None = None
     last_band: str | None = None
+    # Bands ever seen on this logger (contactinfo band, RadioInfo freq, …).
+    bands_seen: set[str] = field(default_factory=set)
     mycall: str | None = None        # the station's own call (RadioInfo/contactinfo)
     first_seen: float = 0.0
 
@@ -180,6 +182,11 @@ class LoggerNode:
         if self.host_seen:
             return max(self.host_seen.items(), key=lambda kv: kv[1])[0]
         return sorted(self.hosts)[0] if self.hosts else None
+
+    def note_band(self, band: str | None) -> None:
+        if band and band != "?":
+            self.bands_seen.add(band)
+            self.last_band = band
 
 
 @dataclass
@@ -232,6 +239,9 @@ class FleetTracker:
             keep.last_qso = other.last_qso
             keep.last_call = other.last_call or keep.last_call
             keep.last_band = other.last_band or keep.last_band
+        keep.bands_seen |= set(other.bands_seen or [])
+        if other.last_band:
+            keep.bands_seen.add(other.last_band)
         keep.qso_count = max(keep.qso_count, other.qso_count)
         if other.first_seen and (
                 not keep.first_seen or other.first_seen < keep.first_seen):
@@ -330,14 +340,37 @@ class FleetTracker:
             node.kind = f["app"]
         if f.get("mycall"):
             node.mycall = f["mycall"].upper()
+        if f.get("opcall") and not node.mycall:
+            node.mycall = f["opcall"].upper()
         if tag == "contactinfo":         # ...and a logged QSO specifically
             node.last_qso = now
             node.qso_count += 1
             node.last_call = f.get("call") or None
             try:
-                node.last_band = band_label_mhz(float(f.get("band")))
+                node.note_band(band_label_mhz(float(f.get("band"))))
             except (TypeError, ValueError):
-                node.last_band = None
+                pass
+        elif tag == "radioinfo":
+            # N1MM RadioInfo Freq is typically **100 Hz units**
+            # (14.020 MHz → 140200; 50.313 MHz → 503130). Convert ×100 → Hz.
+            for key in ("freq", "txfreq"):
+                raw = f.get(key)
+                if not raw:
+                    continue
+                try:
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if v > 1e8:          # already Hz (defensive)
+                    hz = int(v)
+                elif v > 1e4:        # 100 Hz units (covers HF…µwave)
+                    hz = int(v * 100)
+                elif v > 0:          # MHz
+                    hz = int(v * 1_000_000)
+                else:
+                    continue
+                node.note_band(band_label(hz))
+                break
         # Collapse StationName / NetBIOS / bare-IP rows for this host.
         self.consolidate_loggers()
 
