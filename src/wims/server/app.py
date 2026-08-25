@@ -66,6 +66,7 @@ from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
 from wims.engine.roster import RosterBuilder  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
+from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
@@ -153,11 +154,17 @@ class LiveFleet:
             return list(self._seed_scan_dirs)
 
     def seed_from_db(self, db_path: str, *, contest_nr: int | None = None,
-                     contest_name: str | None = None) -> int:
+                     contest_name: str | None = None,
+                     remember: bool = False,
+                     selection: str | None = None) -> int:
         """Pull one N1MM contest log into the log copy (§3.6). Read-only.
 
         When the .s3db holds multiple contests (June + Sept VHF…), pass contest_nr
         (preferred) so only that ContestInstance's DXLOG rows load.
+
+        ``remember=True`` persists this choice for the next server start on this
+        host (Setup picker / explicit ``--seed-db``). Auto heuristic picks do not
+        remember, so a casual DX log chosen once is not overwritten by June VHF.
         """
         from wims.integrations.n1mm import logdb
         qsos = logdb.read_dxlog(db_path, contest_nr=contest_nr,
@@ -181,48 +188,141 @@ class LiveFleet:
                 "db_label": Path(db_path).name,
                 "label": contest_name or f"ContestNR {contest_nr}",
             }
+        if active is not None:
+            # Always stamp the path we actually opened (list_contests may omit it).
+            active = {**active, "db_path": db_path,
+                      "db_label": active.get("db_label") or Path(db_path).name}
+        sel = selection or ("manual" if remember else "auto")
         with self._lock:
             self._log.reconcile(qsos)
             self._seed = {
                 "count": len(qsos),
                 "source": Path(db_path).name,
                 "db_path": db_path,
-                "contest_nr": contest_nr,
+                "contest_nr": contest_nr if contest_nr is not None
+                              else (active or {}).get("contest_nr"),
                 "contest_name": (active or {}).get("contest_name") or contest_name,
                 "label": (active or {}).get("label"),
+                "selection": sel,
             }
             self._active_contest = active
             self._seed_db_hint = db_path
+        if remember and active is not None:
+            last_log_pref.save({
+                "db_path": db_path,
+                "contest_nr": active.get("contest_nr"),
+                "contest_name": active.get("contest_name"),
+                "db_label": active.get("db_label") or Path(db_path).name,
+                "label": active.get("label"),
+            })
         return len(qsos)
 
     def auto_seed(self) -> dict:
-        """Discover contests and seed the recommended one (latest with QSOs).
+        """Discover contests; prefer last operator choice, else latest with QSOs.
 
         Returns a small status dict for startup logging / API. Never raises on
         empty discovery — log copy stays empty and UI offers a picker.
+
+        Selection order:
+          1. Host-local last log (Setup pick / prior ``--seed-db``) if still present
+          2. ``pick_contest`` heuristic (latest real StartDate with QSOs)
         """
         from wims.integrations.n1mm import logdb
         disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
         with self._lock:
             self._contest_catalog = disc["contests"]
             self._seed_scan_dirs = list(disc.get("scan_dirs") or [])
+        contests = disc["contests"]
+        scan_dirs = disc.get("scan_dirs") or []
+
+        pref = last_log_pref.load()
+        if pref and last_log_pref.is_db_usable(pref.get("db_path") or ""):
+            match = last_log_pref.match_in_catalog(pref, contests)
+            if match is None and last_log_pref.is_db_usable(pref["db_path"]):
+                # File exists but catalog filter missed it — seed directly.
+                try:
+                    n = self.seed_from_db(
+                        pref["db_path"],
+                        contest_nr=(int(pref["contest_nr"])
+                                    if pref.get("contest_nr") is not None
+                                    else None),
+                        contest_name=pref.get("contest_name"),
+                        remember=False,
+                        selection="remembered",
+                    )
+                    with self._lock:
+                        active = self._active_contest
+                    return {"ok": True, "seeded": n, "contest": active or pref,
+                            "source": "remembered",
+                            "contests": contests, "scan_dirs": scan_dirs}
+                except Exception:
+                    match = None
+            if match is not None:
+                n = self.seed_from_db(
+                    match["db_path"],
+                    contest_nr=match.get("contest_nr"),
+                    remember=False,
+                    selection="remembered",
+                )
+                return {"ok": True, "seeded": n, "contest": match,
+                        "source": "remembered",
+                        "contests": contests, "scan_dirs": scan_dirs}
+
         rec = disc.get("recommended")
         if not rec:
             return {"ok": False, "reason": "no_contests_with_qsos",
-                    "contests": disc["contests"],
-                    "scan_dirs": disc.get("scan_dirs") or []}
-        n = self.seed_from_db(rec["db_path"], contest_nr=rec["contest_nr"])
-        return {"ok": True, "seeded": n, "contest": rec,
-                "contests": disc["contests"],
-                "scan_dirs": disc.get("scan_dirs") or []}
+                    "contests": contests, "scan_dirs": scan_dirs,
+                    "source": "auto"}
+        n = self.seed_from_db(rec["db_path"], contest_nr=rec["contest_nr"],
+                              remember=False, selection="auto")
+        return {"ok": True, "seeded": n, "contest": rec, "source": "auto",
+                "contests": contests, "scan_dirs": scan_dirs}
 
     def select_contest(self, *, db_path: str, contest_nr: int) -> dict:
-        """Operator picked a contest in the Status UI — reload log copy from DXLOG."""
-        n = self.seed_from_db(db_path, contest_nr=int(contest_nr))
+        """Operator picked a contest in Setup — reload log copy and remember it."""
+        n = self.seed_from_db(db_path, contest_nr=int(contest_nr),
+                              remember=True, selection="manual")
         self.refresh_contest_catalog()
         with self._lock:
             active = self._active_contest
-        return {"ok": True, "seeded": n, "contest": active}
+        return {"ok": True, "seeded": n, "contest": active,
+                "remembered": True}
+
+    def seed_explicit_db(self, db_path: str) -> dict:
+        """CLI ``--seed-db``: load best contest in that file and remember it.
+
+        Unlike auto-discover, other .s3db files (e.g. N2OY June) do not compete.
+        """
+        from wims.integrations.n1mm import logdb
+        path = str(Path(db_path).expanduser())
+        if not Path(path).is_file():
+            return {"ok": False, "reason": "db_not_found", "db_path": path}
+        try:
+            contests = logdb.list_contests(path)
+        except Exception as e:
+            return {"ok": False, "reason": str(e), "db_path": path}
+        # Catalog still useful for Setup; include full discovery roots.
+        try:
+            self.refresh_contest_catalog()
+        except Exception:
+            with self._lock:
+                self._contest_catalog = [c.to_dict() for c in contests]
+        pick = logdb.pick_contest(contests)
+        if pick is None:
+            # Empty contests: still try whole-file seed if DXLOG has rows.
+            n = self.seed_from_db(path, remember=True, selection="cli")
+            if n == 0:
+                return {"ok": False, "reason": "no_contests_with_qsos",
+                        "db_path": path, "contests": [c.to_dict() for c in contests]}
+            with self._lock:
+                active = self._active_contest
+            return {"ok": True, "seeded": n, "contest": active, "source": "cli",
+                    "contests": [c.to_dict() for c in contests]}
+        n = self.seed_from_db(path, contest_nr=pick.contest_nr,
+                              remember=True, selection="cli")
+        return {"ok": True, "seeded": n, "contest": pick.to_dict(),
+                "source": "cli",
+                "contests": [c.to_dict() for c in contests]}
 
     def resync_log(self, *, now: float | None = None) -> dict:
         """Operator-triggered re-read of the active contest's DXLOG → reconcile.
@@ -1053,8 +1153,9 @@ def main() -> None:
                     help="EXPERIMENTAL: allow Call CQ via one-shot WSJT-X FreeText "
                          "(no auto-sequence; pending live verify). Off by default.")
     ap.add_argument("--seed-db", default=None,
-                    help="N1MM contest .s3db to seed the log copy from (read-only); "
-                         "if omitted, auto-find in --seed-db-dir and other known roots")
+                    help="N1MM contest .s3db to seed from (read-only); loads the best "
+                         "contest in THAT file only and remembers it for next start. "
+                         "If omitted: last Setup pick, else auto-find latest contest")
     # Default prefers UserDir\\Databases / home\\Databases when present (many N1MM
     # installs); also_standard discovery still scans all known roots on Rescan.
     from wims.integrations.n1mm import logdb as _logdb_cli  # noqa: E402
@@ -1157,19 +1258,29 @@ def main() -> None:
     # Operator-facing lines are printed after the console URL (below).
     seed_lines: list[str] = []
     if not args.no_seed:
-        # Auto: scan .s3db files, list contests (June + Sept…), pick latest with QSOs.
-        # Operator can change selection on Setup — no ContestNR CLI required.
+        # Order: explicit --seed-db (that file only + remember) → last Setup pick
+        # → auto latest contest. Operator can always change on Setup.
         try:
-            result = live.auto_seed()
+            if args.seed_db:
+                result = live.seed_explicit_db(args.seed_db)
+            else:
+                result = live.auto_seed()
             if result.get("ok"):
-                c = result["contest"]
+                c = result.get("contest") or {}
+                src = result.get("source") or "auto"
                 # label() already includes QSO count (e.g. ARRLVHFJUN · date · N QSOs).
+                how = {"remembered": "remembered", "cli": "from --seed-db",
+                       "auto": "auto", "manual": "manual"}.get(src, src)
                 seed_lines.append(
-                    f"  Log: {c.get('db_label')} · {c.get('label')}"
+                    f"  Log: {c.get('db_label') or Path(c.get('db_path') or '').name}"
+                    f" · {c.get('label') or c.get('contest_name')}"
+                    f" ({how})"
                 )
                 others = [x for x in result.get("contests") or []
-                          if not x.get("recommended") and x.get("qso_count", 0) > 0]
-                if others:
+                          if x.get("qso_count", 0) > 0
+                          and (x.get("db_path") != c.get("db_path")
+                               or x.get("contest_nr") != c.get("contest_nr"))]
+                if others and src != "cli":
                     seed_lines.append(
                         f"  Log: {len(others)} other contest(s) available — pick on Setup"
                     )
@@ -1177,10 +1288,14 @@ def main() -> None:
                 seed_lines.append(
                     "  Log: no contest with QSOs found — add an N1MM .s3db or open Setup"
                 )
-                scanned = result.get("scan_dirs") or []
+                scanned = result.get("scan_dirs") or live.seed_scan_dirs()
                 if scanned:
                     seed_lines.append("  Log scan: " + "; ".join(scanned[:4])
                                       + ("…" if len(scanned) > 4 else ""))
+                if result.get("reason") == "db_not_found":
+                    seed_lines.append(
+                        f"  Log: --seed-db not found: {result.get('db_path')}"
+                    )
         except Exception as e:
             seed_lines.append(f"  Log: seed skipped ({e})")
     else:

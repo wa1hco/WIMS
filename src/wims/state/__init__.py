@@ -16,4 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Persistent state: the SQLite log copy / dupe-mult view (plan §3.10)."""
+"""Persistent state: the SQLite log copy / dupe-mult view (plan §3.10).
+
+Also host-local operator prefs (e.g. last selected N1MM contest log).
+"""

@@ -36,9 +36,12 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 - **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
   **Halt TX** always on. Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
   (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ** is WSJT-X UI only (§2.12).
-- **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**,
-  auto-picks the latest with QSOs, and loads only that contest (not whole multi-year DXLOG).
-  Setup/Status picker + Resync, no ContestNR CLI in normal operation.
+- **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**.
+  Startup order: **`--seed-db` (that file only + remember)** → **last Setup pick**
+  (host `last_log.json`) → **auto** latest dated contest with QSOs. Loads only that
+  contest instance (not whole multi-year DXLOG). Setup picker + Resync; no ContestNR
+  CLI in normal operation. Pref path: `$XDG_CONFIG_HOME/wims/last_log.json` or
+  `~/.config/wims/…` (Windows `%APPDATA%\wims\`), override `WIMS_LAST_LOG`.
 - **Ingest:** multicast `224.0.0.73` on **band streams** (default ports above; networking **§4**).
   N1MM XML on `:12060` (unicast/broadcast by default; `--n1mm-group` optional multicast).
   Each **N1MM** joins **only its band stream**; WIMS joins **all** streams. Map:
@@ -52,7 +55,7 @@ python -m wims.solo            # localhost, no presence; runs setup check then o
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
 `test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual` ·
-`test_rotator`
+`test_rotator` · `test_last_log`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -110,7 +113,7 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
-| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
+| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; **remember last Setup/`--seed-db` log** across restarts (`state/last_log.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -309,3 +312,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   header count matches the body. Runs automatically at `wims.solo` startup (before the server) and
   standalone via `scripts\windows\Check-WimsSetup.cmd`. Windows README gained a "Solo tester" section.
   Tests: `test_agent_solo` (7). Fleet/lab agent output unchanged.
+- **2026-07-28** — **Remember last N1MM contest log across restarts.** Setup pick and
+  `--seed-db` write host pref (`state/last_log.py` → `~/.config/wims/last_log.json` /
+  `%APPDATA%\wims`, override `WIMS_LAST_LOG`). Startup: explicit DB → remembered → auto
+  latest dated contest. Fixes home casual `DX` / wa1hco.s3db losing to N2OY June every
+  restart. Tests: `test_last_log`.

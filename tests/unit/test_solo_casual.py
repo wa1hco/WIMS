@@ -66,11 +66,18 @@ def _needed(live) -> dict:
 
 def test_casual_dx_log_seeds_and_flips_needed_dupe():
     db = _casual_db()
+    # Isolate host last-log prefs; use explicit seed so real N2OY/wa1hco on disk
+    # cannot win auto-discover (also_standard scan).
+    pref = db + ".last_log.json"
+    os.environ["WIMS_LAST_LOG"] = pref
     try:
         live = LiveFleet()
-        live.configure_log_discovery(db_path=db)
-        res = live.auto_seed()
-        assert res["ok"] and res["seeded"] == 1, res     # fallback rescues the 'DX' log
+        # Explicit path: only this file's contests; pick_contest fallback still
+        # rescues the skip-named 'DX' log when it is the only one in the file.
+        res = live.seed_explicit_db(db)
+        assert res["ok"] and res["seeded"] == 1, res
+        assert res.get("source") == "cli"
+        assert (res.get("contest") or {}).get("contest_name") == "DX"
 
         now = time.time()
         live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, de_call="WA1HCO",
@@ -91,7 +98,12 @@ def test_casual_dx_log_seeds_and_flips_needed_dupe():
              "mode": "FT8", "contestname": "DX", "contestnr": 5}))
         assert _needed(live)["W9NEW"] is False, "log must flip roster row to dupe"
     finally:
-        os.unlink(db)
+        os.environ.pop("WIMS_LAST_LOG", None)
+        for p in (db, pref):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":

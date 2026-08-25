@@ -167,6 +167,8 @@ Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
 3. WSJT-X port in N1MM’s WSJT reader = **same** port as WSJT-X / WIMS (e.g. both 2237).  
 4. **Historical log (dupe/mult seed):** WIMS reads `.s3db` files only on the **machine running the WIMS server**.  
    - Same PC as N1MM → auto-scans N1MM `UserDir\Databases` (registry), `%USERPROFILE%\Databases`, and `Documents\N1MM Logger+\Databases`. Check server console for **N1MM seed scan dirs**.  
+   - Startup order: **`--seed-db`** (that file only) → **last Setup pick** (remembered on this PC) → auto latest dated contest.  
+   - Casual **`DX`** loses auto-pick to named contests (e.g. June VHF) — pick yours once on Setup (or `--seed-db`); it sticks after restart.  
    - If Setup still says no logs while N1MM has `wa1hco.s3db` open: note the full path in N1MM and set `WIMS_SEED_DB_DIR` or pass `--seed-db` to that file.  
    - Server on another host/VM → **copy** the open log `.s3db` onto the server (or point `WIMS_SEED_DB_DIR` at a share), then Setup → **Rescan** and pick **DX** (or your contest).  
    - UDP Contacts alone do **not** load your past 11k QSOs — only new QSOs after start.
