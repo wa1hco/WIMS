@@ -58,6 +58,9 @@ def main() -> None:
                     help="console HTTP port (default 8787)")
     ap.add_argument("--iface", default="127.0.0.1",
                     help="interface for WSJT-X multicast ingest/TX (default 127.0.0.1 = this PC)")
+    ap.add_argument("--port", type=int, default=2237,
+                    help="WSJT-X band stream UDP port (default 2237 = 50 MHz; "
+                         "144→2238, 222→2239, 432→2241, 902→2242, 1296→2243; never 2240)")
     ap.add_argument("--tx-host", default=None,
                     help="send WSJT-X control to this unicast host instead of the multicast "
                          "group — use 127.0.0.1 if your WSJT-X 'UDP Server' is a plain address")
@@ -88,7 +91,7 @@ def main() -> None:
         "--http-port", str(args.http_port),
         "--iface", args.iface,
         "--no-presence",
-        "--ports", "2237",  # single-PC default; fleet server joins all band ports
+        "--ports", str(args.port),
     ]
     if args.tx_host:
         argv += ["--tx-host", args.tx_host]
@@ -99,8 +102,8 @@ def main() -> None:
     if args.enable_cq_freetext:
         argv += ["--enable-cq-freetext"]
 
-    print("WIMS solo — single-PC console. In WSJT-X: Settings → Reporting → UDP Server "
-          "224.0.0.73:2237, 'Accept UDP requests' ON.")
+    print(f"WIMS solo — single-PC console. In WSJT-X: Settings → Reporting → UDP Server "
+          f"224.0.0.73:{args.port}, 'Accept UDP requests' ON.")
 
     if not args.no_open:
         url = f"http://localhost:{args.http_port}/"

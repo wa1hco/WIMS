@@ -11,11 +11,11 @@ future GitHub Release.
 
 ---
 
-## One tree, several entry points
+## One tree, one desktop launcher
 
-WIMS is **one codebase** (stdlib Python, no `pip` deps for runtime). There is no separate
-installer per role. You clone or unpack the tree, run **Install** on Windows if needed,
-then pick a **launcher**.
+WIMS is **one codebase** (stdlib Python, no `pip` deps for runtime). You clone or unpack
+the tree, run **Install** on Windows if needed, then use the **desktop GUI launcher** —
+same idea as double-clicking N1MM or WSJT-X.
 
 | How you get the tree | Notes |
 |----------------------|--------|
@@ -24,30 +24,36 @@ then pick a **launcher**.
 | Future: GitHub **Release** asset | Same tree + release notes; not required for lab use |
 
 **Windows prereqs once:** double-click `scripts\windows\Install-Wims.cmd`  
-→ Python ≥ 3.10, optional Git, firewall **TCP 8787**, desktop shortcuts.  
+→ Python ≥ 3.10, optional Git, firewall **TCP 8787**, then  
+`Install-WIMS-Desktop-Shortcut.cmd` → Desktop **WIMS** icon (`assets\wims.ico`).  
 **Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
-**Linux:** `git` + `python3` (≥ 3.10); run with `PYTHONPATH=src`.
+**Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`;  
+`scripts/install-wims-desktop.sh` or `PYTHONPATH=src python3 -m wims --install-shortcut`.
+
+**Everyday start:** double-click Desktop **WIMS** (or `python -m wims` /  
+`scripts\windows\Start-WimsLauncher.cmd`). Hover any button for a tooltip; pick a role.
 
 ---
 
 ## Roles (what people mean vs what exists)
 
-Design calls for three stackable roles: **server**, **console**, **agent**. In practice a
-tester meets these **named** pieces:
+Design calls for stackable roles: **server**, **console**, **agent**, **KEY**. Testers
+meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 
 | Role / name | What it is | How you start it | Home tester (R0)? |
 |-------------|------------|------------------|-------------------|
-| **Solo** | Site server + setup check + browser, single-PC defaults (one WSJT port, no fleet presence) | Windows: **`Start-Wims-Solo.cmd`** · Linux: `python -m wims.solo` / `scripts/start-wims-solo.sh` | **Yes — primary path** |
-| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins all band ports | **`Start-WimsServer.cmd`** / `python -m wims.server.app` | Optional (Track D / multi-PC) |
-| **Operator console** | Browser only — Operate / Status / Setup | `http://<host>:8787/` | **Yes** (opened by Solo) |
-| **Seat agent** (= **station agent**) | Local config audit, optional continuous report to server, local UI `:8790` | **`Check-WimsSetup.cmd`**, **`Start-WimsAgent.cmd`**, continuous **WIMS Agent** | Optional on one PC; useful on seats |
-| **KEY agent** (SSB/CW → TX inhibit) | Reads KEY/CTS, sends `tx_inhibit` UDP to the WSJT-X gate | **No product launcher in this tree** | **No — not in R0 install surface** |
-| **Seat pack** (Flex 50 / IC-9700 144) | Starts radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** menu | Lab / fleet only |
+| **Desktop launcher** | GUI: role picker, band port, tooltips, Desktop shortcut helper | Desktop **WIMS** · `python -m wims` · `Start-WimsLauncher.cmd` | **Yes — primary entry** |
+| **Solo** | Site server + browser, single-PC defaults (one WSJT port, no fleet presence) | GUI **Start Solo** · `Start-Wims-Solo.cmd` · `python -m wims solo` | **Yes — primary path** |
+| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins all band ports | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
+| **Operator console** | Browser only — Operate / Status / Setup | `http://<host>:8787/` (buttons in GUI) | **Yes** (opened by Solo) |
+| **Seat agent** (= **station agent**) | Local config audit, optional continuous report to server, local UI `:8790` | GUI **Check** / **Start agent** · `Check-WimsSetup.cmd` · `python -m wims agent` | Optional on one PC; useful on seats |
+| **KEY agent** (SSB/CW → TX inhibit) | Lab selftest / spike; KEY → `tx_inhibit` UDP | GUI advanced **KEY selftest** · `python -m wims key selftest` | **Lab only** (not needed for Solo FT8) |
+| **Seat pack** (Flex 50 / IC-9700 144) | Starts radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
 **Naming:** “station agent” and “seat agent” are the **same** process (`wims.agent`). There
-is not a second FT8-seat binary. **KEY agent** is a future/lab interlock role, not a
-separate installer today.
+is not a second FT8-seat binary. **KEY** in the GUI runs the lab selftest; full fleet
+assignment is still design-only (`docs/plan/wims_key_agent.md`).
 
 ---
 
@@ -92,12 +98,14 @@ If `scripts/windows/` looks crowded, only these matter for home:
 
 | Step | Windows | Linux |
 |------|---------|--------|
-| 1. Install prereqs | `Install-Wims.cmd` | `apt install git python3` |
-| 2. Check setup | `Check-WimsSetup.cmd` | `PYTHONPATH=src python3 -m wims.agent --solo` |
-| 3. Run | `Start-Wims-Solo.cmd` | `PYTHONPATH=src python3 -m wims.solo` |
-| 4. Console | Browser → http://localhost:8787/ | same |
+| 1. Install prereqs | `Install-Wims.cmd` | `apt install git python3 python3-tk` |
+| 2. Desktop icon | `Install-WIMS-Desktop-Shortcut.cmd` | `scripts/install-wims-desktop.sh` |
+| 3. Open WIMS | Double-click Desktop **WIMS** | same, or `PYTHONPATH=src python3 -m wims` |
+| 4. In the GUI | **Check this PC**, then **Start Solo** | same |
+| 5. Console | GUI **Open Operate** → http://localhost:8787/ | same |
 
-Everything else (seat packs, Startup, Proxmox clones, multi-band fleet server) is **advanced / site lab**.
+Everything else (seat packs, Startup, Proxmox clones, multi-band fleet server, KEY) is
+**advanced / site lab**.
 
 ---
 
@@ -144,9 +152,9 @@ TX steps in the runbook are **provisional** until the first real-WSJT-X dummy-lo
 | Versioned GitHub Release / tags | Not yet (rolling `main`) |
 | Dummy-load Reply echo-exactness | Open (R0 ship gate) |
 | Seat agent: interlock / KEY / mute | Not productized |
-| KEY agent launcher in WIMS install | Not present |
+| KEY agent fleet assignment | Lab selftest in GUI only; no server-pushed targets yet |
 | Rotator: live K3NG on seats | Partial (sim + API; not full product) |
-| “One package, choose role” installer | Design only; launchers only today |
+| Desktop GUI role launcher | Done (`python -m wims` / Desktop **WIMS** icon) |
 | Multi-op claims, remote console polish | Later milestones |
 | Fleet inventory UI + KEY target lists as nodes churn | Design §2.13; not coded |
 

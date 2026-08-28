@@ -12,20 +12,27 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 ## How to run (current)
 
 ```
-# Solo single-PC (tester release): server + local WSJT-X + N1MM on one machine.
-python -m wims.solo            # localhost, no presence; runs setup check then opens browser
+# Desktop GUI launcher (recommended — peer to N1MM / WSJT-X icons):
+python -m wims                 # opens role picker with tooltips
+#   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
+#            or Start-WimsLauncher.cmd
+#   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
+#   In GUI: Check this PC → pick Solo band port → Start Solo → Open Operate
+
+# Solo single-PC (CLI / scripts still work):
+python -m wims solo            # or: python -m wims.solo
 #   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:<band-port>, "Accept UDP requests" ON.
 #   Band ports (wims_networking.md §4): 50→2237, 144→2238, 222→2239,
 #     432→2241, 902→2242, 1296→2243  (UDP 2240 unused — N1MM conflict hole)
-#   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims.solo --port 2238
+#   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims solo --port 2238
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
-#   Setup check only: python -m wims.agent --solo   (Windows: Check-WimsSetup.cmd)
+#   Setup check only: python -m wims agent --solo   (Windows: Check-WimsSetup.cmd)
 #   Tester walkthrough: docs/tester_runbook.md
 #   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
-# Fleet / multi-host (site server) — operators use a double-click launcher, not flags:
-#   Windows: scripts\windows\Start-WimsServer.cmd
-#   Or: python -m wims.server.app   (defaults join 2237-2239,2241-2243)
+# Fleet / multi-host (site server):
+#   GUI: Start server  ·  Windows: Start-WimsServer.cmd
+#   Or: python -m wims server   (defaults join 2237-2239,2241-2243)
 #   Operate:  http://localhost:8787/          (roster click = Work · Halt TX)
 #   Status:   http://localhost:8787/status
 #   Setup:    http://localhost:8787/setup
@@ -193,6 +200,13 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
+  (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
+  Open Operate/Status/Setup, Put-on-Desktop shortcut helper. Windows Desktop **WIMS** icon
+  now points at `Start-WimsLauncher.cmd` (`assets\wims.ico`); Linux
+  `scripts/install-wims-desktop.sh`. Top-level CLI roles (`solo`/`server`/`agent`/`key`/
+  `version`); `wims.solo --port`; thin `wims.key` wrapping inhibit spike selftest.
+  Tests: `test_cli_launcher.py`. Docs: tester_roles + how-to-run.
 - **2026-06-17** — §3.1 parser + read-only console monitor. N1MM log layer (DXLOG seed +
   `contactinfo` → `LoggedQso` → SQLite log copy with dupe/rover/mult + resync). Decode-activity
   map, fleet discovery, WSJT-X config validator, datagram encoder, WSJT-X emulator. M2 core:

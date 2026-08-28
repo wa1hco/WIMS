@@ -38,16 +38,17 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 
 **No PowerShell knowledge required.**
 
-### One place to click (recommended) — fleet radio seats
+### One place to click (recommended)
 
 | File | What it does |
 |------|----------------|
-| **`WIMS.cmd`** | **Seat menu** — check agent, continuous agent, seat pack, open pages, desktop/Startup helpers. Finds the install automatically. |
-| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (seat menu, blue icon) **+** **WIMS Agent** (green). Run once per seat VM. |
+| **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — Solo / Check / Site server / Seat agent / KEY lab, with tooltips. |
+| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (GUI launcher + `assets\wims.ico`) **+** **WIMS Agent** (green). Run once. |
 | **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (green icon → continuous agent). |
+| **`WIMS.cmd`** | Text **seat menu** (packs, Startup, firewall) — still available; not the primary Desktop icon. |
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
-After that, operators only need the Desktop **WIMS** icon.
+After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).
 
 ### Other scripts (menu calls these; rarely opened by hand)
 
@@ -132,10 +133,11 @@ Steps (seat / fleet VM):
 
 1. Get the repo onto the VM (`git clone …` **or** USB tree), e.g. `C:\Users\W2SZ\WIMS`.
 2. Open `WIMS\scripts\windows\` once → double-click **`Install-Wims.cmd`** (Python) if needed.
-3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** (blue menu)
-   and **WIMS Agent** (green continuous agent).
-4. Day-to-day: run the pack for the radio in use (`Start-Seat-Flex50` or `…-IC9700-144`),
-   or use the **WIMS** menu. Edit `seat-common.cmd` + the matching `radio-*.cmd`.
+3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** (GUI
+   launcher + icon) and **WIMS Agent** (green continuous agent).
+4. Day-to-day: double-click Desktop **WIMS** for Solo / server / agent; for radio packs
+   use `Start-Seat-Flex50` / `…-IC9700-144` or the text **`WIMS.cmd`** menu.
+   Edit `seat-common.cmd` + the matching `radio-*.cmd`.
 5. **Unique WSJT-X UDP id per band:** set `WSJTX_RIG_NAME` in the radio config **and** fix
    Desktop shortcuts: `Find-And-Set-WsjtxRigName.cmd -RigName WSJTX-144 -Apply` (2m) or
    `WSJTX-50` (6m). Prefer `Start-WSJTX-50.cmd` / `Start-WSJTX-144.cmd` over bare `wsjtx.exe`.
