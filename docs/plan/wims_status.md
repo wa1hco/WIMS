@@ -200,6 +200,12 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-08-29** — Contest PC roles: Solo demoted (lab/advanced); launcher primary =
+  Site server · Log agent · Key agent · WSJT seat check/monitor. Config check is per-role
+  WIMS function; compact agent GUIs planned. Docs:
+  [2026-08-29-contest-pc-roles.md](../decisions/2026-08-29-contest-pc-roles.md),
+  [2026-08-22-remote-n1mm-logging.md](../decisions/2026-08-22-remote-n1mm-logging.md)
+  (lean TCP 52001). `log_agent.py` still UDP 2333 until coded.
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
   Open Operate/Status/Setup, Put-on-Desktop shortcut helper. Windows Desktop **WIMS** icon

@@ -26,6 +26,7 @@ from wims.launcher.roles import (
     DEFAULT_SOLO_PORT,
     ROLES,
     console_urls,
+    primary_roles,
     role_by_id,
 )
 from wims.launcher.tooltips import ToolTip
@@ -52,8 +53,11 @@ def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
 
 
 def _python_cmd() -> list[str]:
-    """Interpreter used to spawn roles (same as the launcher)."""
-    return [sys.executable]
+    """Interpreter used to spawn roles (same as the launcher).
+
+    ``-u`` keeps Activity log lines appearing while roles start (no block buffer).
+    """
+    return [sys.executable, "-u"]
 
 
 def _role_env() -> dict[str, str]:
@@ -61,6 +65,7 @@ def _role_env() -> dict[str, str]:
     src = str(_SRC)
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = src if not existing else f"{src}{os.pathsep}{existing}"
+    env["PYTHONUNBUFFERED"] = "1"
     return env
 
 
@@ -203,14 +208,15 @@ class LauncherApp:
         ).pack(anchor="w")
         tk.Label(
             header,
-            text="WSJT-X Instance Management — start the piece you need on this PC",
+            text="Contest fleet — start the WIMS piece for this PC",
             font=_ui_font(11), bg="#f4f4f4", fg="#444444",
             wraplength=520, justify="left",
         ).pack(anchor="w")
         peers = tk.Label(
             header,
-            text="Desktop peer to N1MM, WSJT-X, GridTracker, and rotator tools. "
-                 "You still start those apps separately.",
+            text="N1MM PC: server (optional) + log agent + key agent.  "
+                 "WSJT PC: optional seat check/monitor.  "
+                 "You still start N1MM / WSJT-X / GridTracker yourself.",
             font=_ui_font(10), bg="#f4f4f4", fg="#666666",
             wraplength=520, justify="left",
         )
@@ -218,23 +224,53 @@ class LauncherApp:
         ToolTip(
             peers,
             "WIMS does not replace N1MM or WSJT-X.\n"
-            "• N1MM = contest log\n"
-            "• WSJT-X = radio / decode / CQ\n"
-            "• GridTracker (optional) = map / alternate roster\n"
-            "• WIMS = ranked roster, needed/dupe, Work/Halt, fleet status",
+            "• N1MM PC — log agent (mcast→localhost) + key agent (SSB/CW)\n"
+            "• WSJT PC — config/monitor agent only (RF stays in WSJT-X)\n"
+            "• Site server — one per LAN (may share the N1MM box)\n"
+            "• Solo lab path is under Advanced — not contest bring-up\n"
+            "See docs/decisions/2026-08-29-contest-pc-roles.md",
         )
 
-        # Solo band port (only matters for Solo).
+        hint = tk.Label(
+            self.root,
+            text="Each agent will grow a compact GUI (status · interconnect · config check). "
+                 "Config checks are scoped to what that role needs.",
+            font=_ui_font(10), bg="#f4f4f4", fg="#555555",
+            wraplength=540, justify="left",
+        )
+        hint.pack(anchor="w", padx=14, pady=(2, 6))
+
+        self._cards = tk.Frame(self.root, bg="#f4f4f4")
+        self._cards.pack(fill="both", expand=True, padx=14, pady=4)
+        self._card_widgets: dict[str, dict] = {}
+        for role in primary_roles():
+            self._add_role_card(self._cards, role)
+
+        adv_toggle = tk.Checkbutton(
+            self.root,
+            text="Show lab roles (Solo single-PC)",
+            variable=self._show_advanced,
+            command=self._toggle_advanced,
+            font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
+            highlightthickness=0,
+        )
+        adv_toggle.pack(anchor="w", padx=14)
+        ToolTip(
+            adv_toggle,
+            "Solo is for home/lab single-PC testing only — low priority for contest drive.",
+        )
+
+        self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
+        # Solo band port only when lab roles are shown.
         band = tk.LabelFrame(
-            self.root, text="Solo band port (must match WSJT-X UDP Server)",
+            self._adv_frame, text="Solo band port (lab only)",
             font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=10, pady=6,
         )
-        band.pack(fill="x", padx=14, pady=(4, 8))
+        band.pack(fill="x", pady=(0, 4))
         ToolTip(
             band,
-            "Each VHF band uses a fixed UDP port on 224.0.0.73.\n"
-            "WSJT-X, N1MM (for that band), and WIMS Solo must all use the same port.\n"
-            "UDP 2240 is unused on purpose (N1MM conflict hole).",
+            "Lab Solo only. Contest fleet uses shared multicast :2237 + log agent "
+            "(see remote-logging decision). UDP 2240 unused (N1MM conflict hole).",
         )
         row = tk.Frame(band, bg="#f4f4f4")
         row.pack(fill="x")
@@ -245,29 +281,8 @@ class LauncherApp:
                 highlightthickness=0, indicatoron=True, justify="center",
             )
             rb.pack(side="left", expand=True, padx=2)
-            ToolTip(rb, f"Use UDP port {port} for {label} FT8 with WIMS Solo.")
+            ToolTip(rb, f"Lab Solo: UDP port {port} for {label}.")
 
-        self._cards = tk.Frame(self.root, bg="#f4f4f4")
-        self._cards.pack(fill="both", expand=True, padx=14, pady=4)
-        self._card_widgets: dict[str, dict] = {}
-        for role in ROLES:
-            if role.advanced:
-                continue
-            self._add_role_card(self._cards, role)
-
-        adv_toggle = tk.Checkbutton(
-            self.root,
-            text="Show advanced / lab roles (KEY agent)",
-            variable=self._show_advanced,
-            command=self._toggle_advanced,
-            font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
-            highlightthickness=0,
-        )
-        adv_toggle.pack(anchor="w", padx=14)
-        ToolTip(adv_toggle, "KEY / TX-inhibit tools for SSB+digital seats. Not needed for Solo FT8.")
-
-        self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
-        # packed on demand
         for role in ROLES:
             if role.advanced:
                 self._add_role_card(self._adv_frame, role)
@@ -315,7 +330,11 @@ class LauncherApp:
             relief="solid", borderwidth=1,
         )
         self._log.pack(fill="both", expand=True, pady=(4, 0))
-        self._log.insert("end", "Welcome. Start with “Check this PC”, then “Start Solo”.\n")
+        self._log.insert(
+            "end",
+            "Contest: Start server (one PC) · on N1MM PCs start log agent + key agent · "
+            "on WSJT PCs optional seat check/monitor.\n",
+        )
         self._log.configure(state="disabled")
 
     def _add_role_card(self, parent, role) -> None:
@@ -435,6 +454,13 @@ class LauncherApp:
         if role.id == "solo":
             urls = console_urls(DEFAULT_HTTP_PORT)
             self.root.after(1800, lambda: webbrowser.open(urls["operate"]))
+        elif role.id == "wsjt_agent":
+            # Local seat UI — port 8790 (not 8970). Opens after agent binds.
+            self._append_log("Seat monitor UI: http://127.0.0.1:8790/")
+            self.root.after(2500, lambda: webbrowser.open("http://127.0.0.1:8790/"))
+        elif role.id == "server":
+            urls = console_urls(DEFAULT_HTTP_PORT)
+            self.root.after(1800, lambda: webbrowser.open(urls["status"]))
 
     def _reader(self, role_id: str, proc: subprocess.Popen) -> None:
         assert proc.stdout is not None

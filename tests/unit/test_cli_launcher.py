@@ -31,22 +31,36 @@ from wims.launcher.roles import (
 
 
 class RoleCatalogTests(unittest.TestCase):
-    def test_recommended_solo_exists(self):
+    def test_contest_primary_roles(self):
+        from wims.launcher.roles import primary_roles
+        primary = {r.id for r in primary_roles()}
+        self.assertIn("server", primary)
+        self.assertIn("log", primary)
+        self.assertIn("key", primary)
+        self.assertIn("wsjt_check", primary)
+        self.assertNotIn("solo", primary)  # lab only
+
+    def test_server_is_recommended(self):
+        server = role_by_id("server")
+        self.assertIsNotNone(server)
+        assert server is not None
+        self.assertTrue(server.recommended)
+
+    def test_solo_is_advanced_lab_only(self):
         solo = role_by_id("solo")
         self.assertIsNotNone(solo)
         assert solo is not None
-        self.assertTrue(solo.recommended)
-        self.assertTrue(solo.long_running)
-
-    def test_solo_argv_includes_port(self):
-        solo = role_by_id("solo")
-        assert solo is not None
+        self.assertTrue(solo.advanced)
+        self.assertFalse(solo.recommended)
         argv = solo.build_argv(port=2238)
-        self.assertIn("-m", argv)
         self.assertIn("wims.solo", argv)
-        self.assertIn("--port", argv)
-        i = argv.index("--port")
-        self.assertEqual(argv[i + 1], "2238")
+        self.assertEqual(argv[argv.index("--port") + 1], "2238")
+
+    def test_log_agent_argv(self):
+        log = role_by_id("log")
+        assert log is not None
+        argv = log.build_argv()
+        self.assertTrue(any("log_agent" in a for a in argv))
 
     def test_band_ports_skip_2240(self):
         ports = [p for _, p in BAND_PORTS]

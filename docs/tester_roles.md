@@ -31,8 +31,12 @@ same idea as double-clicking N1MM or WSJT-X.
 **Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`;  
 `scripts/install-wims-desktop.sh` or `PYTHONPATH=src python3 -m wims --install-shortcut`.
 
-**Everyday start:** double-click Desktop **WIMS** (or `python -m wims` /  
-`scripts\windows\Start-WimsLauncher.cmd`). Hover any button for a tooltip; pick a role.
+**Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
+on each **N1MM** PC also **Log agent** + **Key agent**; on **WSJT** PCs optional seat
+check/monitor. Solo is under **lab roles** only.
+
+Hover any button for a tooltip. Role model:
+[docs/decisions/2026-08-29-contest-pc-roles.md](decisions/2026-08-29-contest-pc-roles.md).
 
 ---
 

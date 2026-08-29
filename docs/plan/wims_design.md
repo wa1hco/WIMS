@@ -119,17 +119,24 @@ not time-critical centralizes in one WIMS server.
 | 4 | **Operations control: assign bands to call rosters** (subscriptions + control leases, handoff) | WIMS server |
 | 5 | **Operations control: assign WSJT-X inhibit inputs to SSB/CW Key outputs** — interlock wiring as a routing assignment, pushed to the Key agents | WIMS server (assignment only — not the data path) |
 | 6 | **WIMS call roster** — browser roster as the alternative to GridTracker | WIMS server |
-| 7 | **WIMS Key agent** — fleet KEY sense + **WIMS-assigned** multi-target inhibit fan-out; optional inventory report. **Not** the same binary as **inhibit-agent** (wsjtx-inhibit, localhost-only — design copy: [inhibit_agent.md](inhibit_agent.md)). WIMS-side design: **[wims_key_agent.md](wims_key_agent.md)** | **Standalone program** (WIMS tree), one per SSB/CW sense point |
+| 7 | **WIMS Key agent** — fleet KEY sense + **WIMS-assigned** multi-target inhibit fan-out; optional inventory report. **Not** the same binary as **inhibit-agent** (wsjtx-inhibit, localhost-only — design copy: [inhibit_agent.md](inhibit_agent.md)). WIMS-side design: **[wims_key_agent.md](wims_key_agent.md)**. Usually on the **N1MM / SSB-CW PC**. | **Standalone program** (WIMS tree), one per SSB/CW sense point |
 | 8 | **WSJT-X inhibit input** — gate thread controlling PTT from UDP inhibit datagrams ([wims_tx_inhibit.md](wims_tx_inhibit.md)) | **Inside WSJT-X** (improved-fork patch) — part of WSJT-X, not of WIMS |
-| 9 | **Seat setup agent** — WSJT-X PC setup, config audit, readiness (existing `wims.agent` role) | Standalone program, one per WSJT-X PC |
+| 9 | **WSJT seat agent** — config audit + monitoring for local WSJT-X instance(s); **not** required for decode/TX. Reason to exist: verify interconnect and watch drift. | Standalone program, optional on each WSJT-X PC |
+| 10 | **Log agent** — on each **N1MM PC**: join fleet mcast, band-filter Logged QSO, deliver to local N1MM (TCP **52001** preferred). See [docs/decisions/2026-08-22-remote-n1mm-logging.md](../decisions/2026-08-22-remote-n1mm-logging.md). | Standalone program, one per N1MM logger PC |
 
 GridTracker itself stays third-party and unmodified — a subscriber, never a component.
 
-The former "WIMS server + agent" split survives but sharpens into **one central server + three
-seat-side programs** (Key agent, seat setup agent, and the in-WSJT-X inhibit thread), each
-deliberately small: the Key agent knows only its serial port, its assignment list, and the
-dashboard; the inhibit thread knows only its UDP port and its PTT line; the setup agent knows
-only its own PC.
+**Contest PC roles (2026-08-29):** [docs/decisions/2026-08-29-contest-pc-roles.md](../decisions/2026-08-29-contest-pc-roles.md) —
+N1MM PC = log agent + key agent (+ optional site server); WSJT PC = optional seat
+monitor/config; **Solo is lab-only**. Each agent owns a **scoped config check** and a
+**compact GUI** (status / interconnect / fleet SW config). Config check is a WIMS
+function of the role, not a separate product.
+
+The former "WIMS server + agent" split survives as **one central server + seat-side
+programs** (log agent, key agent, WSJT seat monitor, in-WSJT-X inhibit thread). The Key
+agent knows its serial port, assignment list, and dashboard; the log agent knows mcast +
+band pin + localhost N1MM delivery; the inhibit thread knows its UDP port and PTT line;
+the WSJT seat agent knows only that PC’s WSJT instances.
 
 ### Deployment context (current operation)
 

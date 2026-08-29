@@ -402,40 +402,51 @@ def main(argv: list[str] | None = None) -> int:
         errs, _warns = _counts(rep)
         return 1 if errs else 0
 
+    # Discovery: one-shot does full UDP + optional HTTP /24 probe. Daemon must NOT
+    # block binding the local UI on a long HTTP scan — use brief UDP only here;
+    # background loop continues discovery (with HTTP fallback only if still unknown).
     if not args.no_discover:
         if P is None:
-            print("(presence module not installed — git pull latest; scan still runs)")
+            print("(presence module not installed — git pull latest; scan still runs)",
+                  flush=True)
         else:
-            print("Looking for site WIMS server (no IP required)…")
+            print("Looking for site WIMS server (no IP required)…", flush=True)
             print(f"  1) UDP presence {P.DEFAULT_GROUP}:{P.DEFAULT_PORT} "
-                  f"+ LAN broadcast (~{P.STARTUP_LISTEN_S:.0f}s)")
-            print(f"  2) if needed: HTTP probe of local /24s on :{P.DEFAULT_HTTP_PORT}/healthz")
-            beacon = state.discover_server()
+                  f"+ LAN broadcast (~{P.STARTUP_LISTEN_S:.0f}s)", flush=True)
+            if not run_daemon:
+                print(f"  2) if needed: HTTP probe of local /24s on "
+                      f":{P.DEFAULT_HTTP_PORT}/healthz", flush=True)
+            else:
+                print("  2) HTTP /24 probe deferred (daemon: local UI binds first)",
+                      flush=True)
+            beacon = state.discover_server(http_fallback=not run_daemon)
             if beacon:
                 via = beacon.get("_via") or "udp"
                 print(f"  FOUND via {via}: {beacon.get('hostname')} "
-                      f"{beacon.get('console_base')}")
+                      f"{beacon.get('console_base')}", flush=True)
                 urls = beacon.get("urls") or {}
                 if urls.get("operate"):
-                    print(f"  Operate: {urls.get('operate')}")
+                    print(f"  Operate: {urls.get('operate')}", flush=True)
                 if urls.get("status"):
-                    print(f"  Status:  {urls.get('status')}")
+                    print(f"  Status:  {urls.get('status')}", flush=True)
                 if urls.get("setup"):
-                    print(f"  Setup:   {urls.get('setup')}")
-                print("  → open those URLs in a browser (or use --daemon → http://127.0.0.1:8790/)")
+                    print(f"  Setup:   {urls.get('setup')}", flush=True)
+                print("  → open those URLs in a browser "
+                      f"(or daemon UI http://{args.bind}:{args.local_port}/)",
+                      flush=True)
                 if configured and configured.rstrip("/") != (beacon.get("console_base") or "").rstrip("/"):
                     print(f"  note: --server {configured} differs from discovery "
-                          f"(export uses configured URL; UI links use discovery)")
+                          f"(export uses configured URL; UI links use discovery)",
+                          flush=True)
             else:
-                print("  NOT FOUND. On the site PC start/restart:")
-                print("    python -m wims.server.app --iface <contest-LAN-IP>")
-                print("  Seat and server must share a LAN (ping the server).")
-                print("  Escape hatch only: set WIMS_SERVER=http://x.x.x.x:8787")
-        print()
+                print("  NOT FOUND yet. On the site PC start/restart:", flush=True)
+                print("    python -m wims.server.app --iface <contest-LAN-IP>", flush=True)
+                print("  Escape hatch: set WIMS_SERVER=http://x.x.x.x:8787", flush=True)
+        print(flush=True)
 
     rep = state.refresh()
-    print(format_report_text(rep))
-    print()
+    print(format_report_text(rep), flush=True)
+    print(flush=True)
 
     if not run_daemon:
         # One-shot: export when we have a URL unless --no-export.
@@ -481,19 +492,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     t.start()
 
-    httpd = ThreadingHTTPServer((args.bind, args.local_port), make_handler(state))
-    print(f"WIMS agent UI: http://{args.bind}:{args.local_port}/  (--daemon)")
-    print("  open that URL on this PC for clickable site-console links (zero memory)")
+    try:
+        httpd = ThreadingHTTPServer((args.bind, args.local_port), make_handler(state))
+    except OSError as e:
+        print(f"ERROR: cannot bind agent UI on {args.bind}:{args.local_port}: {e}",
+              file=sys.stderr, flush=True)
+        print(f"  Is another agent already using port {args.local_port}?",
+              file=sys.stderr, flush=True)
+        return 2
+
+    print(f"WIMS agent UI: http://{args.bind}:{args.local_port}/  (--daemon)",
+          flush=True)
+    print("  open that URL on this PC for clickable site-console links (zero memory)",
+          flush=True)
     if state.server_url:
         print(f"  export -> {state.server_url}/api/agents/report"
-              f" ({'auto every ' + str(args.interval) + 's' if auto_export else 'manual only'})")
+              f" ({'auto every ' + str(args.interval) + 's' if auto_export else 'manual only'})",
+              flush=True)
     else:
-        print("  no site server URL yet — will keep listening for presence")
-    print("Ctrl-C to stop.")
+        print("  no site server URL yet — will keep listening for presence", flush=True)
+    print("Ctrl-C to stop.", flush=True)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nstopped")
+        print("\nstopped", flush=True)
     return 0
 
 

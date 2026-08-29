@@ -3,10 +3,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Role catalog for the desktop launcher (pure data + argv builders)."""
+"""Role catalog for the desktop launcher (pure data + argv builders).
+
+Contest-first catalog: docs/decisions/2026-08-29-contest-pc-roles.md
+Solo is lab-only (advanced), not a primary contest bring-up path.
+"""
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Callable
 
@@ -52,100 +57,129 @@ def _server_argv() -> list[str]:
     return ["-m", "wims.server.app"]
 
 
-def _check_argv() -> list[str]:
-    return ["-m", "wims.agent", "--solo"]
+def _wsjt_check_argv() -> list[str]:
+    # Seat config audit for local WSJT-X (+ N1MM if present). Not --solo contest path.
+    return ["-m", "wims.agent", "--once"]
 
 
-def _agent_argv() -> list[str]:
-    return ["-m", "wims.agent", "--daemon"]
+def _wsjt_agent_argv() -> list[str]:
+    # Local UI http://127.0.0.1:8790/ — pin server when WIMS_SERVER unset so export
+    # has a default on single-site lab boxes; discovery still updates presence.
+    argv = ["-m", "wims.agent", "--daemon", "--local-port", "8790"]
+    if not os.environ.get("WIMS_SERVER"):
+        argv += ["--server", "http://127.0.0.1:8787"]
+    return argv
 
 
-def _key_selftest_argv() -> list[str]:
-    # Prefer product module when present; fall back to lab spike path via -c.
+def _log_agent_argv() -> list[str]:
+    # Repo-root relative; launcher sets cwd to repo.
+    return ["testbed/log_agent.py"]
+
+
+def _key_agent_argv() -> list[str]:
     return ["-m", "wims.key", "selftest"]
 
 
 ROLES: tuple[Role, ...] = (
     Role(
-        id="solo",
-        title="Solo console",
-        summary="One PC: N1MM + WSJT-X + WIMS together. Opens the Operate page in your browser.",
-        tooltip=(
-            "Use this at home or on a single radio seat.\n\n"
-            "Starts the WIMS console on this computer, watches your local WSJT-X "
-            "over UDP, and seeds needed/dupe from your N1MM log.\n\n"
-            "In WSJT-X → Settings → Reporting:\n"
-            "  • UDP Server 224.0.0.73 and the band port below\n"
-            "  • Accept UDP requests = ON\n\n"
-            "Then click a roster line to Work; Halt TX is always available.\n"
-            "Calling CQ stays in the WSJT-X window."
-        ),
-        button="Start Solo",
-        recommended=True,
-        long_running=True,
-        build_argv=lambda port=DEFAULT_SOLO_PORT, **_: _solo_argv(port=port),
-    ),
-    Role(
-        id="check",
-        title="Check this PC",
-        summary="Plain-language [OK] / [!] / [XX] report for WSJT-X and N1MM. Starts nothing.",
-        tooltip=(
-            "Safe first step. Reads your WSJT-X.ini and looks for N1MM, then prints "
-            "what is wrong in everyday language.\n\n"
-            "Does not start the console or change any settings."
-        ),
-        button="Run check",
-        recommended=False,
-        long_running=False,
-        build_argv=lambda **_: _check_argv(),
-    ),
-    Role(
         id="server",
         title="Site server",
-        summary="Fleet / multi-PC: one server for the whole contest LAN (all band ports).",
+        summary="One per contest LAN: roster, inventory, Work/Halt, Status/Setup. "
+                "May run on the same PC as an N1MM seat.",
         tooltip=(
-            "Run this on the site computer (or a lab PC), not usually on every radio seat.\n\n"
-            "Joins every band stream (2237–2239, 2241–2243), builds the combined "
-            "roster, and serves Operate / Status / Setup at http://<this-pc>:8787/\n\n"
-            "Radio seats open that URL in a browser. Seat agents report into Status."
+            "Central WIMS console for the fleet.\n\n"
+            "Joins the fleet WSJT UDP stream(s), seeds/mirrors the log, and serves "
+            "Operate / Status / Setup in the browser.\n\n"
+            "Typical: one server for the site. It can share a box with N1MM + "
+            "log/key agents. Seats open http://<server>:8787/ — they do not each "
+            "run another server."
         ),
         button="Start server",
-        recommended=False,
+        recommended=True,
         long_running=True,
         build_argv=lambda **_: _server_argv(),
     ),
     Role(
-        id="agent",
-        title="Seat agent",
-        summary="On a radio PC: keeps checking setup and reports to the site server.",
+        id="log",
+        title="Log agent (N1MM PC)",
+        summary="On the band’s N1MM PC: join fleet mcast, keep this band’s QSOs, "
+                "forward to local N1MM (TCP 52001 preferred).",
         tooltip=(
-            "Leave this running on seats that also run WSJT-X / N1MM.\n\n"
-            "Opens a small local page at http://127.0.0.1:8790/ and sends "
-            "config health to the site WIMS server (discovered on the LAN, "
-            "or set via WIMS_SERVER).\n\n"
-            "Does not transmit. Does not replace Solo or the site server."
+            "Required on each N1MM logger PC when WSJT-X is elsewhere on the LAN.\n\n"
+            "Listens on 224.0.0.73:2237, filters to this seat’s band, delivers the "
+            "Log envelope to N1MM on localhost. Prefer TCP 52001 (JTDX/Others); "
+            "UDP 2333 is a fallback — remote 2333 is untrusted.\n\n"
+            "Includes a scoped config check for multicast join, band pin, and "
+            "N1MM delivery. See docs/decisions/2026-08-22-remote-n1mm-logging.md."
         ),
-        button="Start agent",
-        recommended=False,
+        button="Start log agent",
+        recommended=True,
         long_running=True,
-        build_argv=lambda **_: _agent_argv(),
+        build_argv=lambda **_: _log_agent_argv(),
     ),
     Role(
         id="key",
-        title="KEY agent (lab)",
-        summary="SSB/CW key → TX-inhibit self-test. Not needed for normal FT8 Solo use.",
+        title="Key agent (SSB/CW PC)",
+        summary="On the SSB/CW / N1MM seat: KEY sense → inhibit to WSJT-X on that band.",
         tooltip=(
-            "Advanced / lab only.\n\n"
-            "Exercises the KEY → inhibit path used when an SSB/CW operator "
-            "must stop WSJT-X on the same band.\n\n"
-            "Home FT8 testers can ignore this. Requires the KEY role module "
-            "or lab spike; see docs/plan/wims_key_agent.md."
+            "Usually the same PC as N1MM (SSB/CW op logs there).\n\n"
+            "Reads KEY/CTS and sends tx_inhibit to assigned WSJT gates. Time-critical "
+            "path stays seat-local — not through the site server.\n\n"
+            "Scoped config check: KEY device, inhibit targets, band policy "
+            "(interlock vs coordinated). Lab entry today runs selftest; full GUI later."
         ),
-        button="Run KEY selftest",
+        button="Start key agent",
+        recommended=True,
+        long_running=False,  # selftest for now; product daemon later
+        build_argv=lambda **_: _key_agent_argv(),
+    ),
+    Role(
+        id="wsjt_check",
+        title="WSJT seat check",
+        summary="On a WSJT-X PC: verify UDP/iface/--rig-name for local instances. "
+                "Does not start radios.",
+        tooltip=(
+            "WSJT-X PCs often have no N1MM. This check only audits what WIMS needs "
+            "from those seats: multicast group/port, outgoing interface, Accept UDP, "
+            "unique --rig-name per instance, Secondary UDP off when log agent owns logging.\n\n"
+            "One PC may host several WSJT-X instances; many instances exist on the LAN. "
+            "RF/CQ stay in WSJT-X — this role is config + readiness only."
+        ),
+        button="Run WSJT check",
+        recommended=False,
+        long_running=False,
+        build_argv=lambda **_: _wsjt_check_argv(),
+    ),
+    Role(
+        id="wsjt_agent",
+        title="WSJT seat monitor",
+        summary="Optional continuous config/monitor on a WSJT-X PC; reports to site server.",
+        tooltip=(
+            "Not required for decode or TX. Exists so the fleet can see seat health "
+            "and so settings drift is caught.\n\n"
+            "Daemon + local UI (http://127.0.0.1:8790/) + optional export to the "
+            "site server. Same scoped WSJT checks as “WSJT seat check,” repeated."
+        ),
+        button="Start WSJT monitor",
+        recommended=False,
+        long_running=True,
+        build_argv=lambda **_: _wsjt_agent_argv(),
+    ),
+    Role(
+        id="solo",
+        title="Solo console (lab)",
+        summary="Single-PC home/lab path. Not used for W2SZ contest bring-up.",
+        tooltip=(
+            "Low priority while driving the contest fleet.\n\n"
+            "Starts server + browser with single-PC defaults. Prefer Site server + "
+            "agents on the real multi-PC layout.\n\n"
+            "CLI: python -m wims solo"
+        ),
+        button="Start Solo",
         recommended=False,
         advanced=True,
-        long_running=False,
-        build_argv=lambda **_: _key_selftest_argv(),
+        long_running=True,
+        build_argv=lambda port=DEFAULT_SOLO_PORT, **_: _solo_argv(port=port),
     ),
 )
 
@@ -155,6 +189,10 @@ def role_by_id(role_id: str) -> Role | None:
         if role.id == role_id:
             return role
     return None
+
+
+def primary_roles() -> tuple[Role, ...]:
+    return tuple(r for r in ROLES if not r.advanced)
 
 
 def console_urls(http_port: int = DEFAULT_HTTP_PORT) -> dict[str, str]:

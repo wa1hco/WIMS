@@ -8,11 +8,16 @@
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
 
-"""Test log agent: WSJT-X multicast Logged QSO → local N1MM :2333.
+"""Test log agent: WSJT-X multicast Logged QSO → local N1MM.
 
 Run this on the N1MM PC (e.g. VM hostname wims-test-50). It joins
 224.0.0.73:2237, keeps Logged ADIF / QSO Logged for the pinned band,
-and unicasts ADIF to 127.0.0.1:2333 (the path N1MM actually accepts).
+and delivers the Log envelope to N1MM on localhost.
+
+Default today: UDP 127.0.0.1:2333. Preferred direction (2026-08-29):
+TCP 127.0.0.1:52001 (N1MM "JTDX/Others") — see
+docs/decisions/2026-08-22-remote-n1mm-logging.md. Remote UDP 2333 is
+untrusted (LAN packets arrive; inserts often only from loopback).
 
 Band pin: --band, else trailing -50 / -144 / … on the hostname
 (wims-test-50 → 6m). Fail closed if no pin.
