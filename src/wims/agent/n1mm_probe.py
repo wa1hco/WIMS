@@ -264,6 +264,140 @@ def _find_ini_files(roots: list[Path]) -> list[Path]:
             continue
     return found
 
+_FLEET_UDP_PORTS = frozenset({2237, 2238, 2239, 2241, 2242, 2243})
+
+
+def _ini_truthy(val: str | None) -> bool:
+    if val is None:
+        return False
+    return val.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _parse_wsjt_udp_reader_from_ini(text: str) -> list[dict]:
+    """Extract WSJT/JTDX UDP reader enable/IP/port from N1MM Logger.ini text.
+
+    Keys live under [ExternalProgramInput] (documented in wims_networking.md §4.9):
+    EnableWSJTJTDXUDPReader / Reader2, WSJTJTDXUDPIP / IP2, WSJTJTDXUDPPort / Port2.
+    """
+    # Flatten key=value ignoring sections (keys are unique enough).
+    kv: dict[str, str] = {}
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(";") or line.startswith("#") or line.startswith("["):
+            continue
+        if "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        kv[k.strip().lower()] = v.strip()
+
+    out: list[dict] = []
+    for suffix, label in (("", "Radio1"), ("2", "Radio2")):
+        en_key = f"enablewsjtjtdxudpreader{suffix}"
+        ip_key = f"wsjtjtdxudpip{suffix}"
+        port_key = f"wsjtjtdxudpport{suffix}"
+        if suffix == "2" and en_key not in kv and ip_key not in kv and port_key not in kv:
+            continue
+        enabled = _ini_truthy(kv.get(en_key))
+        ip = kv.get(ip_key)
+        port_raw = kv.get(port_key)
+        port: int | None = None
+        if port_raw:
+            try:
+                port = int(str(port_raw).strip())
+            except ValueError:
+                port = None
+        # When enabled and port omitted, N1MM historically defaults to 2237.
+        if enabled and port is None:
+            port = 2237
+        out.append({
+            "radio": label,
+            "enabled": enabled,
+            "ip": ip,
+            "port": port,
+            "key_present": en_key in kv,
+        })
+    return out
+
+
+def probe_wsjt_udp_reader() -> dict:
+    """Read N1MM Logger.ini for WSJT/JTDX UDP reader enable state.
+
+    Returns::
+        {
+          "found_ini": bool,
+          "ini_paths": [...],
+          "readers": [{"radio", "enabled", "ip", "port", ...}, ...],
+          "fleet_conflict": bool,  # enabled on a fleet decode port
+          "summary": str,
+        }
+    """
+    paths = _find_ini_files(n1mm_user_dirs())
+    # Prefer the newest ini that mentions the reader key (active config).
+    try:
+        paths = sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)
+    except OSError:
+        pass
+    readers: list[dict] = []
+    used_paths: list[str] = []
+    for p in paths:
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        parsed = _parse_wsjt_udp_reader_from_ini(text)
+        if not any(r.get("key_present") for r in parsed):
+            # Keys absent: treat as off only for primary N1MM Logger.ini names.
+            if p.name.lower().startswith("n1mm") and not readers:
+                used_paths.append(str(p))
+                readers = [{
+                    "radio": "Radio1", "enabled": False, "ip": None,
+                    "port": None, "key_present": False,
+                }]
+            continue
+        used_paths = [str(p)]
+        readers = parsed
+        break
+
+    fleet_hits = [
+        r for r in readers
+        if r.get("enabled") and (r.get("port") in _FLEET_UDP_PORTS or r.get("port") is None)
+    ]
+    # port None + enabled already normalized to 2237 above when enabled.
+    fleet_conflict = any(
+        r.get("enabled") and r.get("port") in _FLEET_UDP_PORTS for r in readers
+    )
+    if not used_paths and not paths:
+        summary = "N1MM Logger.ini not found — cannot verify WSJT UDP reader."
+    elif not fleet_conflict and not any(r.get("enabled") for r in readers):
+        summary = "N1MM WSJT/JTDX UDP reader is off (Logger.ini)."
+    elif fleet_conflict:
+        parts = [
+            f"{r['radio']} port {r.get('port')}" + (f" @ {r['ip']}" if r.get("ip") else "")
+            for r in fleet_hits
+        ]
+        summary = (
+            "N1MM WSJT/JTDX UDP reader is ON for fleet decode port(s): "
+            + ", ".join(parts)
+            + " — turn OFF (Configurer > WSJT/JTDX Setup) so the log helper owns :2237."
+        )
+    else:
+        # Enabled but on 2333 / other — ADIF ingest, not fleet mcast join.
+        en = [r for r in readers if r.get("enabled")]
+        parts = [f"{r['radio']} port {r.get('port')}" for r in en]
+        summary = (
+            "N1MM WSJT/JTDX UDP reader enabled on non-fleet port(s): "
+            + ", ".join(parts)
+            + " (OK for local ADIF ingest)."
+        )
+    return {
+        "found_ini": bool(paths),
+        "ini_paths": used_paths or [str(p) for p in paths[:3]],
+        "readers": readers,
+        "fleet_conflict": fleet_conflict,
+        "summary": summary,
+    }
+
+
 def probe_n1mm() -> dict:
     """Structured N1MM presence + config hints for the agent report."""
     roots = n1mm_user_dirs()

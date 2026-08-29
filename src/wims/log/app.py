@@ -251,7 +251,6 @@ def _status_model(state: LogState) -> HelperStatusModel:
         f"Multicast: {s['group']}:{s['mcast_port']}  "
         + ("JOINED" if s["joined"] else ("FAILED" if s["join_error"] else "...")),
         f"Delivery: {'DRY-RUN' if s['dry_run'] else s['delivery']} (UDP today)",
-        "N1MM WSJT UDP reader on this PC must be OFF.",
     ]
     if s["radio_error"]:
         inter.append(f"Radio listen error: {s['radio_error']}")

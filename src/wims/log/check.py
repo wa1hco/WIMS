@@ -202,8 +202,30 @@ def run_checks(
             ))
 
     rep.items.append(_n1mm_presence())
-    rep.items.append(CheckItem(
-        "conflict", "warn",
-        "Turn OFF N1MM's WSJT UDP reader on this PC (do not bind fleet :2237 here).",
-    ))
+    rep.items.append(_wsjt_udp_reader_conflict())
     return rep
+
+
+def _wsjt_udp_reader_conflict() -> CheckItem:
+    """Warn only when Logger.ini says the fleet UDP reader is ON."""
+    try:
+        from wims.agent.n1mm_probe import probe_wsjt_udp_reader
+        info = probe_wsjt_udp_reader()
+    except Exception as e:
+        return CheckItem(
+            "conflict", "warn",
+            f"Could not read N1MM Logger.ini for WSJT UDP reader ({e}).",
+        )
+    if not info.get("found_ini"):
+        # Stay quiet — do not nag when we cannot prove a conflict.
+        return CheckItem(
+            "conflict", "ok",
+            "N1MM Logger.ini not found here; skipped WSJT UDP reader check.",
+        )
+    if info.get("fleet_conflict"):
+        return CheckItem("conflict", "warn", info.get("summary") or "WSJT UDP reader conflict.")
+    # Off, or enabled only on 2333 / non-fleet — not a yellow warning.
+    return CheckItem(
+        "conflict", "ok",
+        info.get("summary") or "N1MM WSJT/JTDX UDP reader OK for log helper.",
+    )

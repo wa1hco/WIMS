@@ -17,6 +17,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from wims.agent.n1mm_probe import _parse_wsjt_udp_reader_from_ini, probe_wsjt_udp_reader
 from wims.log.check import pin_from_hostname, resolve_pin, run_checks
 from wims.log.radioinfo import band_from_radioinfo_xml, n1mm_freq_units_to_hz
 
@@ -63,6 +64,75 @@ class RadioInfoTests(unittest.TestCase):
         self.assertEqual(meta, {})
 
 
+class WsjtUdpReaderIniTests(unittest.TestCase):
+    def test_reader_off(self):
+        text = "[ExternalProgramInput]\nEnableWSJTJTDXUDPReader=False\n"
+        rows = _parse_wsjt_udp_reader_from_ini(text)
+        self.assertFalse(rows[0]["enabled"])
+
+    def test_reader_on_defaults_2237(self):
+        text = (
+            "[ExternalProgramInput]\n"
+            "EnableWSJTJTDXUDPReader=True\n"
+            "WSJTJTDXUDPIP=224.0.0.73\n"
+        )
+        rows = _parse_wsjt_udp_reader_from_ini(text)
+        self.assertTrue(rows[0]["enabled"])
+        self.assertEqual(rows[0]["port"], 2237)
+
+    def test_reader_on_2333_not_fleet(self):
+        text = (
+            "[ExternalProgramInput]\n"
+            "EnableWSJTJTDXUDPReader=True\n"
+            "WSJTJTDXUDPPort=2333\n"
+        )
+        rows = _parse_wsjt_udp_reader_from_ini(text)
+        self.assertTrue(rows[0]["enabled"])
+        self.assertEqual(rows[0]["port"], 2333)
+
+    def test_probe_fleet_conflict_from_temp_ini(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ini = Path(td) / "N1MM Logger.ini"
+            ini.write_text(
+                "[ExternalProgramInput]\n"
+                "EnableWSJTJTDXUDPReader=True\n"
+                "WSJTJTDXUDPPort=2237\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "wims.agent.n1mm_probe._find_ini_files",
+                return_value=[ini],
+            ):
+                with mock.patch(
+                    "wims.agent.n1mm_probe.n1mm_user_dirs",
+                    return_value=[],
+                ):
+                    info = probe_wsjt_udp_reader()
+        self.assertTrue(info["fleet_conflict"])
+        self.assertIn("2237", info["summary"])
+
+    def test_probe_off_no_conflict(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ini = Path(td) / "N1MM Logger.ini"
+            ini.write_text(
+                "[ExternalProgramInput]\nEnableWSJTJTDXUDPReader=False\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "wims.agent.n1mm_probe._find_ini_files",
+                return_value=[ini],
+            ):
+                with mock.patch(
+                    "wims.agent.n1mm_probe.n1mm_user_dirs",
+                    return_value=[],
+                ):
+                    info = probe_wsjt_udp_reader()
+        self.assertFalse(info["fleet_conflict"])
+        self.assertIn("off", info["summary"].lower())
+
+
 class CheckTests(unittest.TestCase):
     def test_waiting_for_band_is_warn(self):
         rep = run_checks(live_band=None, joined=None, tcp_probe=lambda h, p: False)
@@ -72,17 +142,34 @@ class CheckTests(unittest.TestCase):
 
     def test_joined_and_tcp_ok(self):
         with mock.patch("wims.log.check._n1mm_presence") as n1:
-            from wims.log.check import CheckItem
-            n1.return_value = CheckItem("n1mm", "ok", "N1MM ok")
-            rep = run_checks(
-                live_band="6m", joined=True, dry_run=False,
-                tcp_probe=lambda h, p: True,
-            )
-        self.assertIn(rep.severity, ("ok", "warn"))
+            with mock.patch("wims.log.check._wsjt_udp_reader_conflict") as c:
+                from wims.log.check import CheckItem
+                n1.return_value = CheckItem("n1mm", "ok", "N1MM ok")
+                c.return_value = CheckItem("conflict", "ok", "reader off")
+                rep = run_checks(
+                    live_band="6m", joined=True, dry_run=False,
+                    tcp_probe=lambda h, p: True,
+                )
+        self.assertEqual(rep.severity, "ok")
         self.assertTrue(any(i.id == "mcast" and i.severity == "ok" for i in rep.items))
         self.assertTrue(any(i.id == "delivery" and i.severity == "ok" for i in rep.items))
         text = "\n".join(rep.lines())
         text.encode("cp1252")
+
+    def test_conflict_warn_only_when_detected(self):
+        with mock.patch("wims.log.check._n1mm_presence") as n1:
+            with mock.patch("wims.log.check._wsjt_udp_reader_conflict") as c:
+                from wims.log.check import CheckItem
+                n1.return_value = CheckItem("n1mm", "ok", "N1MM ok")
+                c.return_value = CheckItem(
+                    "conflict", "ok", "N1MM WSJT/JTDX UDP reader is off (Logger.ini).",
+                )
+                rep = run_checks(
+                    live_band="6m", joined=True, dry_run=True,
+                    tcp_probe=lambda h, p: True,
+                )
+        conflict = next(i for i in rep.items if i.id == "conflict")
+        self.assertEqual(conflict.severity, "ok")
 
     def test_expect_mismatch_warns(self):
         with mock.patch("wims.log.check._n1mm_presence") as n1:
