@@ -4,24 +4,11 @@ REM WIMS — WSJT-X Instance Management System
 REM Copyright (C) 2026 Jeff Millar, WA1HCO
 REM
 REM SPDX-License-Identifier: GPL-3.0-or-later
-REM
-REM This program is free software: you can redistribute it and/or modify
-REM it under the terms of the GNU General Public License as published by
-REM the Free Software Foundation, either version 3 of the License, or
-REM (at your option) any later version.
-REM
-REM This program is distributed in the hope that it will be useful,
-REM but WITHOUT ANY WARRANTY; without even the implied warranty of
-REM MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-REM GNU General Public License for more details.
-REM
-REM You should have received a copy of the GNU General Public License
-REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 setlocal EnableExtensions
 REM Seat agent — continuous mode for fleet seats / Startup folder.
-REM Rescans and POSTs to the site server; local UI at http://127.0.0.1:8790/
-REM Use Start-WimsAgent.cmd for a one-shot operator check that exits.
+REM Local UI: http://127.0.0.1:8790/   Site console: %WIMS_SERVER%/
+REM Use Start-WimsAgent.cmd for a one-shot check that exits.
 
 cd /d "%~dp0"
 set "ROOT=%~dp0..\.."
@@ -33,7 +20,6 @@ cd /d "%ROOT%"
 
 call "%~dp0_resolve-python.cmd"
 
-REM Shared + default radio config when launched alone (not from a seat pack)
 if exist "%~dp0seat-common.cmd" call "%~dp0seat-common.cmd"
 if not exist "%~dp0seat-common.cmd" if exist "%~dp0seat-local.cmd" call "%~dp0seat-local.cmd"
 if not defined WIMS_SEAT_ID (
@@ -50,29 +36,43 @@ set "SEAT_ARGS="
 if defined WIMS_SEAT_ID set "SEAT_ARGS=--seat-id %WIMS_SEAT_ID%"
 if defined WIMS_AGENT_ID set "SEAT_ARGS=%SEAT_ARGS% --agent-id %WIMS_AGENT_ID%"
 
+REM Prefer console python.exe (not pythonw) so bind errors are visible.
+for %%I in ("%PYTHON_EXE%") do set "PYDIR=%%~dpI"
+if exist "%PYDIR%python.exe" set "PYTHON_EXE=%PYDIR%python.exe"
+
 echo.
-echo  WIMS Agent — CONTINUOUS ^(station seat^)
+echo  WIMS Agent — CONTINUOUS (station seat)
 echo  Repo:   %ROOT%
 echo  Python: %PYTHON_EXE%
 echo  Local:  http://127.0.0.1:8790/
-echo  Export: %WIMS_SERVER%  every ~30s
-echo  Stop:   Ctrl+C
+echo  Site:   %WIMS_SERVER%/
+echo  Stop:   close the minimized "WIMS Agent" window
 echo.
 
-REM Open local agent page once (browser may show waiting until the server binds).
+start "WIMS Agent" /MIN /D "%ROOT%" "%PYTHON_EXE%" -u -m wims.agent --daemon --local-port 8790 --server "%WIMS_SERVER%" %SEAT_ARGS% %*
+
+REM Wait up to ~25s for 8790 (avoids Chrome "Unable to connect" race).
+set /a _n=0
+:wait8790
+netstat -ano 2>nul | findstr /R /C:":8790 .*LISTENING" >nul
+if not errorlevel 1 goto open8790
+set /a _n+=1
+if %_n% GEQ 50 (
+  echo.
+  echo  ERROR: nothing listening on 127.0.0.1:8790 after ~25s.
+  echo  Open the minimized "WIMS Agent" window for a Python traceback.
+  echo  Then on this VM:  git pull
+  echo  Confirm: set PYTHONPATH=%ROOT%\src
+  pause
+  exit /b 1
+)
+ping -n 2 127.0.0.1 >nul
+goto wait8790
+
+:open8790
+echo  Port 8790 is LISTENING — opening browser.
 if /I not "%WIMS_AGENT_NO_BROWSER%"=="1" (
   start "" "http://127.0.0.1:8790/"
 )
-
-if exist "%ROOT%\scripts\run_agent.py" (
-  "%PYTHON_EXE%" "%ROOT%\scripts\run_agent.py" --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*
-) else (
-  "%PYTHON_EXE%" -m wims.agent --daemon --server "%WIMS_SERVER%" %SEAT_ARGS% %*
-)
-set ERR=%ERRORLEVEL%
-if not %ERR%==0 (
-  echo Exit %ERR%
-  echo Tip: PYTHONPATH must include %ROOT%\src for "python -m wims.agent"
-  pause
-)
-exit /b %ERR%
+pause
+exit /b 0

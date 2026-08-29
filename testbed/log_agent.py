@@ -29,6 +29,7 @@ Band pin: --band, else trailing -50 / -144 / … on the hostname
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import socket
 import sys
@@ -122,10 +123,16 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
 
     host = socket.gethostname()
-    pin = args.band or pin_from_hostname(host)
+    pin = args.band or os.environ.get("WIMS_BAND") or pin_from_hostname(host)
+    if isinstance(pin, str):
+        pin = pin.strip() or None
     if not pin:
-        print(f"log-agent: no band pin (hostname={host!r}). "
-              f"Pass --band 6m  (or name the VM …-50)", file=sys.stderr)
+        print(
+            f"log-agent: no band pin (hostname={host!r}).\n"
+            f"  Pass --band 6m   or set WIMS_BAND=6m\n"
+            f"  or name this PC …-50 / …-144 / …-222 / …-432",
+            file=sys.stderr,
+        )
         return 2
 
     nhost, _, nport = args.n1mm.partition(":")

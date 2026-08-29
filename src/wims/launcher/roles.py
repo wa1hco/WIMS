@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 
@@ -63,20 +64,31 @@ def _wsjt_check_argv() -> list[str]:
 
 
 def _wsjt_agent_argv() -> list[str]:
-    # Local UI http://127.0.0.1:8790/ — pin server when WIMS_SERVER unset so export
-    # has a default on single-site lab boxes; discovery still updates presence.
+    # Local UI is always http://127.0.0.1:8790/ on THIS PC.
+    # Site console URL comes from WIMS_SERVER or presence discovery — never assume
+    # the site server is on localhost (Windows seat VMs usually are not the server).
     argv = ["-m", "wims.agent", "--daemon", "--local-port", "8790"]
-    if not os.environ.get("WIMS_SERVER"):
-        argv += ["--server", "http://127.0.0.1:8787"]
+    server = (os.environ.get("WIMS_SERVER") or "").strip()
+    if server:
+        argv += ["--server", server]
     return argv
 
 
-def _log_agent_argv() -> list[str]:
-    # Repo-root relative; launcher sets cwd to repo.
-    return ["testbed/log_agent.py"]
+def _log_agent_argv(*, band: str | None = None) -> list[str]:
+    # Absolute path — Windows shortcuts often have a surprising cwd.
+    script = str(
+        Path(__file__).resolve().parents[3] / "testbed" / "log_agent.py"
+    )
+    argv = [script]
+    # Band pin required: hostname …-50 / …-144 or explicit --band.
+    b = (band or os.environ.get("WIMS_BAND") or "").strip()
+    if b:
+        argv += ["--band", b]
+    return argv
 
 
 def _key_agent_argv() -> list[str]:
+    # Product key daemon not shipped yet — selftest only (exits in ~1s).
     return ["-m", "wims.key", "selftest"]
 
 
@@ -115,22 +127,22 @@ ROLES: tuple[Role, ...] = (
         button="Start log agent",
         recommended=True,
         long_running=True,
-        build_argv=lambda **_: _log_agent_argv(),
+        build_argv=lambda band=None, **_: _log_agent_argv(band=band),
     ),
     Role(
         id="key",
-        title="Key agent (SSB/CW PC)",
-        summary="On the SSB/CW / N1MM seat: KEY sense → inhibit to WSJT-X on that band.",
+        title="Key selftest (lab)",
+        summary="One-shot KEY→inhibit lab test. Does NOT stay running — not a seat daemon yet.",
         tooltip=(
-            "Usually the same PC as N1MM (SSB/CW op logs there).\n\n"
-            "Reads KEY/CTS and sends tx_inhibit to assigned WSJT gates. Time-critical "
-            "path stays seat-local — not through the site server.\n\n"
-            "Scoped config check: KEY device, inhibit targets, band policy "
-            "(interlock vs coordinated). Lab entry today runs selftest; full GUI later."
+            "Product key agent (resident KEY sense → inhibit) is not shipped yet.\n\n"
+            "This button only runs a short selftest and exits. You will not see a "
+            "lasting process in Task Manager. For contest seats, use Start seat "
+            "(log agent) on the N1MM PC; key daemon comes next."
         ),
-        button="Start key agent",
-        recommended=True,
-        long_running=False,  # selftest for now; product daemon later
+        button="Run KEY selftest",
+        recommended=False,
+        advanced=True,
+        long_running=False,
         build_argv=lambda **_: _key_agent_argv(),
     ),
     Role(

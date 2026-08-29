@@ -13,11 +13,12 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ```
 # Desktop GUI launcher (recommended — peer to N1MM / WSJT-X icons):
-python -m wims                 # opens role picker with tooltips
+python -m wims                 # N1MM seat home by default (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#   In GUI: Check this PC → pick Solo band port → Start Solo → Open Operate
+#   N1MM PC: pick This N1MM’s band → Start seat → Open site console (green = ready)
+#   Other PC types / Solo / KEY selftest live under Advanced
 
 # Solo single-PC (CLI / scripts still work):
 python -m wims solo            # or: python -m wims.solo
@@ -200,12 +201,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
-- **2026-08-29** — Contest PC roles: Solo demoted (lab/advanced); launcher primary =
-  Site server · Log agent · Key agent · WSJT seat check/monitor. Config check is per-role
-  WIMS function; compact agent GUIs planned. Docs:
-  [2026-08-29-contest-pc-roles.md](../decisions/2026-08-29-contest-pc-roles.md),
-  [2026-08-22-remote-n1mm-logging.md](../decisions/2026-08-22-remote-n1mm-logging.md)
-  (lean TCP 52001). `log_agent.py` still UDP 2333 until coded.
+- **2026-08-29** — Tired-operator launcher: default **N1MM seat** home (one Start /
+  Stop / Open site console + green-yellow-red banner). Role catalog under
+  “Other PC types…”. Docs: [tired-operator-ux](../decisions/2026-08-29-tired-operator-ux.md),
+  [contest-pc-roles](../decisions/2026-08-29-contest-pc-roles.md),
+  [remote-n1mm-logging](../decisions/2026-08-22-remote-n1mm-logging.md). Seat monitor
+  binds :8790 before discovery; Windows waits for LISTENING before browser.
+  **False “Running” fix:** log agent always gets `--band` / `WIMS_BAND` (band picker
+  required); KEY is advanced one-shot selftest (not a resident agent — no Task Manager
+  stay); launcher clears Running on exit and banners log helper stop.
+
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
   Open Operate/Status/Setup, Put-on-Desktop shortcut helper. Windows Desktop **WIMS** icon

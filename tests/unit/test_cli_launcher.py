@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -21,6 +22,7 @@ if str(SRC) not in sys.path:
 
 from wims import __version__
 from wims.cli import main as cli_main
+from wims.launcher.app import site_base_url
 from wims.launcher.roles import (
     BAND_PORTS,
     DEFAULT_SOLO_PORT,
@@ -36,9 +38,9 @@ class RoleCatalogTests(unittest.TestCase):
         primary = {r.id for r in primary_roles()}
         self.assertIn("server", primary)
         self.assertIn("log", primary)
-        self.assertIn("key", primary)
         self.assertIn("wsjt_check", primary)
         self.assertNotIn("solo", primary)  # lab only
+        self.assertNotIn("key", primary)  # advanced selftest until product daemon
 
     def test_server_is_recommended(self):
         server = role_by_id("server")
@@ -62,6 +64,33 @@ class RoleCatalogTests(unittest.TestCase):
         argv = log.build_argv()
         self.assertTrue(any("log_agent" in a for a in argv))
 
+    def test_log_agent_argv_passes_band(self):
+        log = role_by_id("log")
+        assert log is not None
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WIMS_BAND", None)
+            argv = log.build_argv(band="2m")
+        self.assertIn("--band", argv)
+        self.assertEqual(argv[argv.index("--band") + 1], "2m")
+        self.assertTrue(argv[0].endswith("log_agent.py"))
+
+    def test_log_agent_argv_from_env_band(self):
+        log = role_by_id("log")
+        assert log is not None
+        with mock.patch.dict(os.environ, {"WIMS_BAND": "70cm"}, clear=False):
+            argv = log.build_argv()
+        self.assertIn("--band", argv)
+        self.assertEqual(argv[argv.index("--band") + 1], "70cm")
+
+    def test_key_is_oneshot_selftest(self):
+        key = role_by_id("key")
+        assert key is not None
+        self.assertTrue(key.advanced)
+        self.assertFalse(key.long_running)
+        argv = key.build_argv()
+        self.assertIn("wims.key", argv)
+        self.assertIn("selftest", argv)
+
     def test_band_ports_skip_2240(self):
         ports = [p for _, p in BAND_PORTS]
         self.assertNotIn(2240, ports)
@@ -77,6 +106,10 @@ class RoleCatalogTests(unittest.TestCase):
         for role in ROLES:
             self.assertTrue(role.tooltip.strip(), msg=role.id)
             self.assertTrue(role.summary.strip(), msg=role.id)
+
+    def test_site_base_url_from_env(self):
+        with mock.patch.dict(os.environ, {"WIMS_SERVER": "http://10.0.0.5:8787/"}, clear=False):
+            self.assertEqual(site_base_url(), "http://10.0.0.5:8787")
 
 
 class CliTests(unittest.TestCase):

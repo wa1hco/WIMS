@@ -23,14 +23,23 @@ if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EX
   exit /b 1
 )
 
-REM Prefer pythonw.exe so no console flashes behind the GUI when available.
+REM Seat defaults (site server URL) before GUI — same as other seat scripts.
+if exist "%~dp0seat-common.cmd" call "%~dp0seat-common.cmd"
+if exist "%~dp0seat-local.cmd" call "%~dp0seat-local.cmd"
+if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+
+REM Prefer pythonw.exe for the GUI only (no console flash). Child roles use python.exe.
 set "GUI_EXE=%PYTHON_EXE%"
 if /I "%PYTHON_EXE%"=="py" goto :run
 if /I "%PYTHON_EXE%"=="python" goto :run
-set "CAND=%~dp0"
 for %%I in ("%PYTHON_EXE%") do set "PYDIR=%%~dpI"
 if exist "%PYDIR%pythonw.exe" set "GUI_EXE=%PYDIR%pythonw.exe"
 
 :run
+echo  WIMS launcher
+echo  Site server URL: %WIMS_SERVER%
+echo  Seat monitor UI will be http://127.0.0.1:8790/ on THIS PC
+echo  Site Operate/Status is %WIMS_SERVER%/  — not localhost unless server is here
+echo.
 start "WIMS" "%GUI_EXE%" -m wims.launcher %*
 exit /b 0
