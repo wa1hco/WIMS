@@ -22,7 +22,7 @@ if str(SRC) not in sys.path:
 
 from wims import __version__
 from wims.cli import main as cli_main
-from wims.launcher.app import site_base_url
+from wims.launcher.app import details_log_path, site_base_url
 from wims.launcher.roles import (
     BAND_PORTS,
     DEFAULT_SOLO_PORT,
@@ -110,6 +110,11 @@ class RoleCatalogTests(unittest.TestCase):
     def test_site_base_url_from_env(self):
         with mock.patch.dict(os.environ, {"WIMS_SERVER": "http://10.0.0.5:8787/"}, clear=False):
             self.assertEqual(site_base_url(), "http://10.0.0.5:8787")
+
+    def test_details_log_path_under_scratch(self):
+        path = details_log_path()
+        self.assertEqual(path.name, "launcher-details.log")
+        self.assertEqual(path.parent.name, "scratch")
 
 
 class CliTests(unittest.TestCase):

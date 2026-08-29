@@ -210,6 +210,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   **False “Running” fix:** log agent always gets `--band` / `WIMS_BAND` (band picker
   required); KEY is advanced one-shot selftest (not a resident agent — no Task Manager
   stay); launcher clears Running on exit and banners log helper stop.
+  Launcher Details: selectable + **Copy details** / **Open log file**
+  (`scratch/launcher-details.log`) so Windows ops can paste errors without fighting
+  a disabled text widget.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

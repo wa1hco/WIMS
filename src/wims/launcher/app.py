@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -39,8 +40,24 @@ from wims.launcher.tooltips import ToolTip
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC = _REPO_ROOT / "src"
 _ICON_ICO = _REPO_ROOT / "scripts" / "windows" / "assets" / "wims.ico"
+_DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = "http://192.168.1.119:8787"
+
+
+def details_log_path() -> Path:
+    """Session transcript for the launcher Details pane (easy to open/paste)."""
+    return _DETAILS_LOG
+
+
+def _append_details_file(text: str) -> None:
+    line = text if text.endswith("\n") else text + "\n"
+    try:
+        _DETAILS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with _DETAILS_LOG.open("a", encoding="utf-8") as f:
+            f.write(line)
+    except OSError:
+        pass
 
 
 def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
@@ -391,28 +408,43 @@ class LauncherApp:
             if role.advanced:
                 self._add_role_card(self._adv_frame, role)
 
-        # —— Quiet details log ——
+        # —— Quiet details log (selectable + mirrored to scratch file) ——
         self._details = tk.LabelFrame(
             self.root, text="Details (optional)", font=_ui_font(10),
             bg="#f4f4f4", fg="#666666", padx=6, pady=2,
         )
         self._details.pack(fill="both", expand=True, padx=16, pady=(8, 12))
-        shortcut_btn = tk.Button(
-            self._details, text="Put WIMS on Desktop", font=_ui_font(10),
+        detail_btns = tk.Frame(self._details, bg="#f4f4f4")
+        detail_btns.pack(fill="x", pady=2)
+        tk.Button(
+            detail_btns, text="Copy details", font=_ui_font(10),
+            command=self._copy_details,
+        ).pack(side="left")
+        tk.Button(
+            detail_btns, text="Open log file", font=_ui_font(10),
+            command=self._open_details_log,
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
+            detail_btns, text="Put WIMS on Desktop", font=_ui_font(10),
             command=self._install_shortcut,
-        )
-        shortcut_btn.pack(anchor="e", pady=2)
+        ).pack(side="right")
         self._log = tk.Text(
             self._details, height=6, font=_ui_font(10),
             bg="#ffffff", fg="#222222", wrap="word",
             relief="solid", borderwidth=1,
+            # Keep state=normal so Windows can select + Ctrl+C (disabled blocks copy).
+            exportselection=True,
         )
         self._log.pack(fill="both", expand=True)
-        self._log.insert(
-            "end",
-            "Press Start seat. When the top bar is green, use Open site console.\n",
+        # Block typing; allow Ctrl+C / Ctrl+A / navigation.
+        self._log.bind("<Key>", self._details_key)
+        self._log.bind("<<Paste>>", lambda _e: "break")
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        _append_details_file(f"\n===== WIMS launcher v{__version__}  {stamp} =====\n")
+        self._append_log(
+            "Press Start seat. When the top bar is green, use Open site console.\n"
+            f"Log also written to: {details_log_path()}"
         )
-        self._log.configure(state="disabled")
 
     def _toggle_advanced(self) -> None:
         if self._show_advanced.get():
@@ -558,11 +590,58 @@ class LauncherApp:
             "start": start, "stop": stop, "state": state_lbl, "role": role,
         }
 
+    def _details_key(self, event) -> str | None:
+        # Allow copy / select-all / movement; swallow other keypresses (read-only).
+        if event.state & 0x4:  # Control
+            key = (event.keysym or "").lower()
+            if key in ("c", "a", "insert"):
+                return None
+        if event.keysym in (
+            "Left", "Right", "Up", "Down", "Home", "End",
+            "Prior", "Next", "Shift_L", "Shift_R", "Control_L", "Control_R",
+        ):
+            return None
+        return "break"
+
     def _append_log(self, text: str) -> None:
-        self._log.configure(state="normal")
-        self._log.insert("end", text if text.endswith("\n") else text + "\n")
+        line = text if text.endswith("\n") else text + "\n"
+        self._log.insert("end", line)
         self._log.see("end")
-        self._log.configure(state="disabled")
+        _append_details_file(line.rstrip("\n"))
+
+    def _copy_details(self) -> None:
+        try:
+            body = self._log.get("1.0", "end-1c")
+        except Exception as e:
+            self._append_log(f"Copy failed: {e}")
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(body)
+            self.root.update_idletasks()
+            self._append_log("(Details copied to clipboard — paste anywhere with Ctrl+V.)")
+        except Exception as e:
+            self._append_log(f"Clipboard error: {e}. Use Open log file instead.")
+
+    def _open_details_log(self) -> None:
+        path = details_log_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.is_file():
+                path.write_text("(empty — start the seat to capture output)\n", encoding="utf-8")
+        except OSError as e:
+            self._append_log(f"Cannot write log file: {e}")
+            return
+        self._append_log(f"Opening {path}")
+        try:
+            if sys.platform.startswith("win"):
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(path)])
+            else:
+                subprocess.Popen(["xdg-open", str(path)])
+        except Exception as e:
+            self._append_log(f"Open log failed: {e}. Path: {path}")
 
     def _start_role(self, role, **kwargs) -> None:
         if role is None:
