@@ -218,7 +218,11 @@ def _status_model(state: LogState) -> HelperStatusModel:
     if s["join_error"] or s["radio_error"]:
         level, banner = "err", "Log helper needs attention"
     elif not band:
-        level, banner = "warn", "Waiting for N1MM band (RadioInfo)"
+        level = "warn"
+        banner = (
+            f"Waiting for N1MM band — enable Broadcast Data > Radio "
+            f"to 127.0.0.1:{s['radio_port']}"
+        )
     elif s["check_severity"] == "error":
         level, banner = "err", f"Log helper needs attention — {band}"
     elif s["check_severity"] == "warn":

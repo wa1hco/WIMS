@@ -22,7 +22,13 @@ if str(SRC) not in sys.path:
 
 from wims import __version__
 from wims.cli import main as cli_main
-from wims.launcher.app import details_log_path, site_base_url
+from wims.launcher.app import (
+    details_log_path,
+    load_last_site_url,
+    resolve_site_url,
+    save_last_site_url,
+    site_base_url,
+)
 from wims.launcher.roles import (
     BAND_PORTS,
     DEFAULT_SOLO_PORT,
@@ -125,6 +131,21 @@ class RoleCatalogTests(unittest.TestCase):
     def test_site_base_url_from_env(self):
         with mock.patch.dict(os.environ, {"WIMS_SERVER": "http://10.0.0.5:8787/"}, clear=False):
             self.assertEqual(site_base_url(), "http://10.0.0.5:8787")
+
+    def test_resolve_site_prefers_env_over_saved(self):
+        with mock.patch.dict(os.environ, {"WIMS_SERVER": "http://10.0.0.9:8787"}, clear=False):
+            with mock.patch("wims.launcher.app.load_last_site_url", return_value="http://1.2.3.4:8787"):
+                self.assertEqual(resolve_site_url(), "http://10.0.0.9:8787")
+
+    def test_save_load_last_site_url(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            pref = Path(td) / "last_site.json"
+            with mock.patch.dict(os.environ, {"WIMS_LAST_SITE": str(pref)}, clear=False):
+                os.environ.pop("WIMS_SERVER", None)
+                save_last_site_url("http://192.168.1.50:8787/")
+                self.assertEqual(load_last_site_url(), "http://192.168.1.50:8787")
+                self.assertEqual(resolve_site_url(), "http://192.168.1.50:8787")
 
     def test_details_log_path_under_scratch(self):
         path = details_log_path()

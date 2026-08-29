@@ -17,9 +17,10 @@ python -m wims                 # N1MM seat home by default (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#   N1MM PC: pick This N1MM’s band → Start seat → log helper status window + green banner
-#   Other PC types / Solo / KEY selftest live under Advanced
-#   Log helper CLI: python -m wims.log --band 6m   (add --no-gui for console-only)
+#   N1MM PC: Start seat → log helper status window + green banner
+#   (band from N1MM RadioInfo; site URL from env / last-known / LAN discover)
+#   Other PC types / Solo / KEY / site URL override under Advanced
+#   Log helper CLI: python -m wims.log   (add --no-gui for console-only)
 
 # Solo single-PC (CLI / scripts still work):
 python -m wims solo            # or: python -m wims.solo
@@ -220,6 +221,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   checks in `wims.log.check`. Windows hides the extra black console for the log child.
   **Live N1MM band:** filter follows RadioInfo on `127.0.0.1:12060` (wait/drop until
   heard; adapts on band change). Decision: `2026-08-29-n1mm-live-band.md`.
+  **Minimize questions:** home screen drops band picker + site URL field; site from
+  `WIMS_SERVER` / last-known / LAN discover (Advanced override only).
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

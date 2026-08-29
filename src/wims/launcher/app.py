@@ -60,6 +60,56 @@ def _append_details_file(text: str) -> None:
         pass
 
 
+def _site_pref_path() -> Path:
+    """Last known site console URL for this PC (host-local pref)."""
+    env = (os.environ.get("WIMS_LAST_SITE") or "").strip()
+    if env:
+        return Path(env)
+    xdg = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    if xdg:
+        return Path(xdg) / "wims" / "last_site.json"
+    if sys.platform == "win32":
+        appdata = (os.environ.get("APPDATA") or "").strip()
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "wims" / "last_site.json"
+    return Path.home() / ".config" / "wims" / "last_site.json"
+
+
+def load_last_site_url() -> str | None:
+    try:
+        raw = json.loads(_site_pref_path().read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    url = (raw.get("url") or "").strip().rstrip("/")
+    return url or None
+
+
+def save_last_site_url(url: str) -> None:
+    url = (url or "").strip().rstrip("/")
+    if not url:
+        return
+    path = _site_pref_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"schema": 1, "url": url}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def resolve_site_url() -> str:
+    """Env → last-known → built-in default. Discovery may refine later."""
+    env = (os.environ.get("WIMS_SERVER") or "").strip().rstrip("/")
+    if env:
+        return env
+    saved = load_last_site_url()
+    if saved:
+        return saved
+    return _DEFAULT_SITE.rstrip("/")
+
+
 def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
     family = "TkDefaultFont"
     try:
@@ -111,8 +161,8 @@ def _wait_tcp(host: str, port: int, timeout_s: float = 20.0) -> bool:
 
 
 def site_base_url() -> str:
-    """Site console base — never ask the operator for a port number."""
-    return (os.environ.get("WIMS_SERVER") or _DEFAULT_SITE).rstrip("/")
+    """Site console base — env / last-known / default (no home-screen typing)."""
+    return resolve_site_url()
 
 
 def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool, str]:
@@ -231,13 +281,12 @@ class LauncherApp:
         self._banner_text = tk.StringVar(value="Checking…")
         self._fix_text = tk.StringVar(value="")
         self._site_var = tk.StringVar(value=site_base_url())
-        # Optional expected band (warn-only); live filter follows N1MM RadioInfo.
-        env_band = (os.environ.get("WIMS_BAND") or "").strip()
-        self._band_var = tk.StringVar(value=env_band)
         self._card_widgets: dict[str, dict] = {}
+        self._discovering = False
 
         self._apply_icon()
         self._build()
+        self.root.after(200, self._kick_site_discover)
         self.root.after(400, self._refresh_status)
         self.root.after(1000, self._poll_procs)
 
@@ -315,24 +364,7 @@ class LauncherApp:
         ToolTip(
             open_btn,
             "Opens the fleet Operate/Status pages in your browser.\n"
-            "Uses the site server address below — not a localhost guess.",
-        )
-
-        band_row = tk.Frame(home, bg="#f4f4f4")
-        band_row.pack(fill="x", pady=(6, 2))
-        tk.Label(
-            band_row, text="Expected band (optional):", font=_ui_font(11),
-            bg="#f4f4f4", fg="#333333",
-        ).pack(side="left")
-        band_choices = ("", "6m", "2m", "1.25m", "70cm", "33cm", "23cm")
-        band_menu = tk.OptionMenu(band_row, self._band_var, *band_choices)
-        band_menu.configure(font=_ui_font(11))
-        band_menu.pack(side="left", padx=(8, 0))
-        ToolTip(
-            band_menu,
-            "Optional. The log helper follows N1MM’s live band via RadioInfo.\n"
-            "Pick a band here only to warn if N1MM disagrees.\n"
-            "N1MM must Broadcast Data → Radio to 127.0.0.1:12060.",
+            "Uses discovered / remembered site server — no typing on this screen.",
         )
 
         opts = tk.Frame(home, bg="#f4f4f4")
@@ -343,6 +375,7 @@ class LauncherApp:
             variable=self._also_server,
             font=_ui_font(11), bg="#f4f4f4", activebackground="#f4f4f4",
             highlightthickness=0,
+            command=self._on_also_server_toggled,
         )
         cb.pack(anchor="w")
         ToolTip(
@@ -350,26 +383,6 @@ class LauncherApp:
             "Only one site server on the whole LAN. Check this if THIS PC "
             "is the designated WIMS server (often the trailer / central N1MM).",
         )
-
-        site_row = tk.Frame(home, bg="#f4f4f4")
-        site_row.pack(fill="x", pady=(4, 2))
-        tk.Label(
-            site_row, text="Site server:", font=_ui_font(11),
-            bg="#f4f4f4", fg="#333333",
-        ).pack(side="left")
-        ent = tk.Entry(
-            site_row, textvariable=self._site_var, font=_ui_font(11), width=36,
-        )
-        ent.pack(side="left", padx=(8, 0))
-        ToolTip(
-            ent,
-            "Address of the WIMS site console (example http://192.168.1.119:8787).\n"
-            "Set once in seat-common.cmd / WIMS_SERVER so operators never type it.",
-        )
-        tk.Button(
-            site_row, text="Recheck", font=_ui_font(10),
-            command=self._refresh_status,
-        ).pack(side="left", padx=(8, 0))
 
         # —— Advanced role catalog (hidden) ——
         adv_toggle = tk.Checkbutton(
@@ -383,11 +396,37 @@ class LauncherApp:
         adv_toggle.pack(anchor="w", padx=16, pady=(8, 0))
         ToolTip(
             adv_toggle,
-            "WSJT seat monitor, Solo lab, and individual role cards. "
+            "Site URL override, WSJT seat monitor, Solo lab, role cards. "
             "Not needed for a normal N1MM seat bring-up.",
         )
 
         self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
+
+        site_box = tk.LabelFrame(
+            self._adv_frame, text="Site server URL (rare override)",
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=10, pady=6,
+        )
+        site_box.pack(fill="x", padx=14, pady=4)
+        site_row = tk.Frame(site_box, bg="#f4f4f4")
+        site_row.pack(fill="x")
+        ent = tk.Entry(
+            site_row, textvariable=self._site_var, font=_ui_font(11), width=36,
+        )
+        ent.pack(side="left")
+        ToolTip(
+            ent,
+            "Normally filled from WIMS_SERVER, last success, or LAN discovery.\n"
+            "Override only if discovery fails.",
+        )
+        tk.Button(
+            site_row, text="Find on LAN", font=_ui_font(10),
+            command=self._kick_site_discover,
+        ).pack(side="left", padx=(8, 0))
+        tk.Button(
+            site_row, text="Recheck", font=_ui_font(10),
+            command=self._refresh_status,
+        ).pack(side="left", padx=(8, 0))
+
         self._cards = tk.Frame(self._adv_frame, bg="#f4f4f4")
         self._cards.pack(fill="both", expand=True, padx=14, pady=4)
         for role in primary_roles():
@@ -473,6 +512,51 @@ class LauncherApp:
         p = self._procs.get(role_id)
         return p is not None and p.poll() is None
 
+    def _on_also_server_toggled(self) -> None:
+        if self._also_server.get():
+            local = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
+            self._site_var.set(local)
+            os.environ["WIMS_SERVER"] = local
+        self._refresh_status()
+
+    def _kick_site_discover(self) -> None:
+        if self._discovering:
+            return
+        # Env pin wins — do not override an explicit WIMS_SERVER.
+        if (os.environ.get("WIMS_SERVER") or "").strip():
+            self._site_var.set(site_base_url())
+            return
+        self._discovering = True
+        self._append_log("Looking for site server on the LAN…")
+
+        def work() -> None:
+            beacon = None
+            try:
+                from wims.discovery import presence as P
+                beacon = P.discover_site_server(duration_s=2.0, http_fallback=True)
+            except Exception as e:
+                self.root.after(0, self._append_log, f"(site discover: {e})")
+            url = None
+            if beacon:
+                url = (beacon.get("console_base") or "").rstrip("/") or None
+            self.root.after(0, self._apply_discovered_site, url)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _apply_discovered_site(self, url: str | None) -> None:
+        self._discovering = False
+        if url:
+            self._site_var.set(url)
+            os.environ["WIMS_SERVER"] = url
+            save_last_site_url(url)
+            self._append_log(f"Site server: {url}")
+        else:
+            # Keep last-known / default already in _site_var.
+            self._append_log(
+                f"No site server heard — using {self._site_var.get() or site_base_url()}"
+            )
+        self._refresh_status()
+
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
         self._site_var.set(base)
@@ -480,9 +564,9 @@ class LauncherApp:
         log_on = self._proc_running("log")
         srv_on = self._proc_running("server")
 
-        if self._also_server.get() and not (ok_site or srv_on):
-            # Starting or expected local server
-            pass
+        if ok_site:
+            save_last_site_url(base)
+            os.environ["WIMS_SERVER"] = base
 
         if ok_site and log_on:
             self._set_banner(
@@ -494,8 +578,8 @@ class LauncherApp:
             self._set_banner(
                 "warn",
                 "Log helper is running — site console not reachable",
-                f"Cannot reach {base}. Is the site server up? "
-                "Fix the Site server address if this PC is not the server.",
+                f"Cannot reach {base}. Start the site server, or use "
+                "Other PC types… → Find on LAN / URL override.",
             )
         elif ok_site and not log_on:
             self._set_banner(
@@ -512,22 +596,21 @@ class LauncherApp:
         self.root.after(3000, self._refresh_status)
 
     def _start_n1mm_seat(self) -> None:
-        expect = (self._band_var.get() or "").strip()
         self._set_banner(
             "busy",
             "Starting seat…",
-            "Log helper waits for N1MM RadioInfo before forwarding QSOs.",
+            "Log helper follows N1MM band (RadioInfo). Enable Broadcast Data > Radio if asked.",
         )
-        os.environ["WIMS_SERVER"] = self._site_var.get().strip() or site_base_url()
-        if expect:
-            os.environ["WIMS_BAND"] = expect
-        else:
-            os.environ.pop("WIMS_BAND", None)
+        base = self._site_var.get().strip() or site_base_url()
+        if self._also_server.get():
+            base = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
+            self._site_var.set(base)
+        os.environ["WIMS_SERVER"] = base
+        os.environ.pop("WIMS_BAND", None)
         if self._also_server.get() and not self._proc_running("server"):
             self._start_role(role_by_id("server"))
         if not self._proc_running("log"):
-            kwargs = {"band": expect} if expect else {}
-            self._start_role(role_by_id("log"), **kwargs)
+            self._start_role(role_by_id("log"))
         self.root.after(1500, self._refresh_status)
 
     def _stop_n1mm_seat(self) -> None:
@@ -655,15 +738,10 @@ class LauncherApp:
             return
         if role.id == "solo":
             kwargs.setdefault("port", int(self._solo_port.get()))
-        if role.id == "log" and not kwargs.get("band"):
-            expect = (
-                self._band_var.get().strip()
-                or (os.environ.get("WIMS_BAND") or "").strip()
-            )
-            if expect:
-                kwargs["band"] = expect
-        if role.id == "log" and kwargs.get("band"):
-            os.environ["WIMS_BAND"] = str(kwargs["band"]).strip()
+        if role.id == "log":
+            # Live band from N1MM RadioInfo — do not pass a launcher pin.
+            kwargs.pop("band", None)
+            os.environ.pop("WIMS_BAND", None)
         try:
             py_argv = role.build_argv(**kwargs)
         except TypeError:
