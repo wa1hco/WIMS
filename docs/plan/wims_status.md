@@ -212,7 +212,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   stay); launcher clears Running on exit and banners log helper stop.
   Launcher Details: selectable + **Copy details** / **Open log file**
   (`scratch/launcher-details.log`) so Windows ops can paste errors without fighting
-  a disabled text widget.
+  a disabled text widget. Log agent startup prints are ASCII-only (Windows cp1252
+  crashed on `→`); launcher sets `PYTHONUTF8` for child processes.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

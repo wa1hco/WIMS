@@ -93,6 +93,9 @@ def _role_env() -> dict[str, str]:
     existing = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = src if not existing else f"{src}{os.pathsep}{existing}"
     env["PYTHONUNBUFFERED"] = "1"
+    # Child prints must not die on Windows cp1252 consoles (arrows, etc.).
+    env.setdefault("PYTHONIOENCODING", "utf-8")
+    env.setdefault("PYTHONUTF8", "1")
     return env
 
 

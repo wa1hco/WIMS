@@ -130,7 +130,7 @@ def main(argv=None) -> int:
         print(
             f"log-agent: no band pin (hostname={host!r}).\n"
             f"  Pass --band 6m   or set WIMS_BAND=6m\n"
-            f"  or name this PC …-50 / …-144 / …-222 / …-432",
+            f"  or name this PC ...-50 / ...-144 / ...-222 / ...-432",
             file=sys.stderr,
         )
         return 2
@@ -139,8 +139,9 @@ def main(argv=None) -> int:
     n1mm = (nhost or "127.0.0.1", int(nport or "2333"))
     sock = open_socket(args.iface, args.port, args.group)
     out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    print(f"log-agent: host={host}  pin={pin}  join {args.group}:{args.port}  "
-          f"{'DRY-RUN' if args.dry_run else '→ ' + args.n1mm}")
+    # ASCII-only prints: Windows consoles often use cp1252 and crash on arrows.
+    dest = "DRY-RUN" if args.dry_run else f"-> {args.n1mm}"
+    print(f"log-agent: host={host}  pin={pin}  join {args.group}:{args.port}  {dest}")
     print("          N1MM WSJT UDP reader must be OFF on this PC (no 2237).")
     seen = set()
     n_fwd = n_drop = 0
