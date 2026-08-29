@@ -214,56 +214,57 @@ def rescan(state: LogState) -> None:
 def _status_model(state: LogState) -> HelperStatusModel:
     s = state.snapshot()
     band = s["live_band"]
-    title = f"WIMS log helper — {band or 'waiting'}"
-    if s["join_error"] or s["radio_error"]:
-        level, banner = "err", "Log helper needs attention"
-    elif not band:
-        level = "warn"
-        banner = (
-            f"Waiting for N1MM band — enable Broadcast Data > Radio "
+    title = f"WIMS log · {band or '...'}"
+
+    fix = ""
+    if s["join_error"]:
+        level, banner = "err", "Cannot join fleet multicast"
+        fix = str(s["join_error"])
+    elif s["radio_error"]:
+        level, banner = "err", "Cannot hear N1MM RadioInfo"
+        fix = (
+            f"{s['radio_error']} — enable Broadcast Data > Radio "
             f"to 127.0.0.1:{s['radio_port']}"
         )
+    elif not band:
+        level, banner = "warn", "Waiting for N1MM band"
+        fix = f"Enable Broadcast Data > Radio to 127.0.0.1:{s['radio_port']}"
     elif s["check_severity"] == "error":
-        level, banner = "err", f"Log helper needs attention — {band}"
+        level, banner = "err", f"Log helper — {band}"
+        # First error line from checks, if any.
+        for ln in s["check_lines"] or []:
+            if ln.startswith("[XX]"):
+                fix = ln[4:].strip()
+                break
+        fix = fix or "See Details"
     elif s["check_severity"] == "warn":
-        level, banner = "warn", f"Log helper running — check warnings — {band}"
+        level, banner = "warn", f"Running — {band}"
+        for ln in s["check_lines"] or []:
+            if ln.startswith("[! ]"):
+                fix = ln[4:].strip()
+                break
+        fix = fix or "Warnings in Details"
     else:
-        level, banner = "ok", f"Log helper running — {band}"
+        level, banner = "ok", f"Ready — {band}"
+        fix = "Forwarding this band’s Logged QSOs to local N1MM"
 
-    age = ""
-    if s["last_radio_at"]:
-        age = f"  (RadioInfo {int(time.time() - s['last_radio_at'])}s ago)"
-    status = [
-        f"Host: {s['host']}",
-        f"N1MM band filter: {band or '(waiting)'}{age}",
-        f"Forwarded: {s['n_fwd']}   Other-band drops: {s['n_drop']}   "
-        f"Waiting drops: {s['n_wait']}",
-        f"Last FWD: {s['last_fwd'] or '(none yet)'}",
+    mcast = "joined" if s["joined"] else ("failed" if s["join_error"] else "...")
+    facts = [
+        f"Band {band or '—'}   FWD {s['n_fwd']}   DROP {s['n_drop']}   WAIT {s['n_wait']}",
+        f"Mcast {s['group']}:{s['mcast_port']} {mcast}   "
+        f"→ {'dry-run' if s['dry_run'] else s['delivery']}",
+        f"Last {s['last_fwd'] or '— none yet —'}",
     ]
-    if s["expect_band"]:
-        status.append(f"Expected (optional): {s['expect_band']}")
     if s["last_error"]:
-        status.append(f"Last error: {s['last_error']}")
-
-    inter = [
-        f"RadioInfo listen: 127.0.0.1:{s['radio_port']}  "
-        + ("OK" if not s["radio_error"] else "FAILED"),
-        f"Multicast: {s['group']}:{s['mcast_port']}  "
-        + ("JOINED" if s["joined"] else ("FAILED" if s["join_error"] else "...")),
-        f"Delivery: {'DRY-RUN' if s['dry_run'] else s['delivery']} (UDP today)",
-    ]
-    if s["radio_error"]:
-        inter.append(f"Radio listen error: {s['radio_error']}")
-    if s["join_error"]:
-        inter.append(f"Join error: {s['join_error']}")
+        facts.append(f"Error: {s['last_error']}")
 
     return HelperStatusModel(
         title=title,
         banner_level=level,
         banner_text=banner,
-        status_lines=status,
-        interconnect_lines=inter,
-        check_lines=s["check_lines"] or ["(press Rescan)"],
+        fix_text=fix,
+        fact_lines=facts,
+        detail_lines=s["check_lines"] or [],
         site_url=s["site_url"],
     )
 

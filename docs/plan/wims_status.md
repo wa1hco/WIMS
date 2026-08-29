@@ -223,6 +223,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   heard; adapts on band change). Decision: `2026-08-29-n1mm-live-band.md`.
   **Minimize questions:** home screen drops band picker + site URL field; site from
   `WIMS_SERVER` / last-known / LAN discover (Advanced override only).
+  **Compact log helper UI:** green/yellow/red banner + fix line + few facts;
+  Details/Copy optional (`wims.helper_ui`).
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
