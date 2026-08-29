@@ -242,17 +242,14 @@ def test_adaptive_function_direct():
     assert adaptive_hang_s([0.06, 2.0]) == (LONG_HANG_S, "long")    # latest wins
 
 
-def test_adaptive_ssb_burst_releases_after_debounce():
+def test_adaptive_ssb_burst_releases_immediately():
     a = KeyAgentScheduler("S", "222")                  # no hang_s -> adaptive
     a.set_key(True, 0.0)
     a.set_key(False, 2.0)                              # one 2 s PTT over
     assert a.hang_mode == "long" and a.last_hang_s == LONG_HANG_S
-    t, states = 2.0, []
-    while a.holding:
-        t += 0.02
-        states += [state_of(d) for d in a.poll(t)]
-    assert states[-1] == "release"
-    assert 2.01 < t < 2.06                             # keyup + 20 ms debounce
+    states = [state_of(d) for d in a.poll(2.0)]        # hang 0: release at key-up
+    assert states == ["release"]
+    assert not a.holding
 
 
 def test_adaptive_hang_tracks_cw_speed():
@@ -281,7 +278,7 @@ def test_adaptive_hang_covers_word_gap():
 
 def test_adaptive_midlength_closure_is_not_cw():
     # Keyboard-bench regression (2026-08-02): a ~0.4 s press is neither a
-    # dit nor a rig-hung over; it must get the debounce, not a clamped
+    # dit nor a rig-hung over; it must get hang 0, not a clamped
     # 1 s "3 WPM CW" hang.
     assert adaptive_hang_s([0.4]) == (LONG_HANG_S, "long")
     a = KeyAgentScheduler("S", "222")

@@ -1,6 +1,6 @@
 # inhibit-agent — design
 
-**Status:** design for implementation in the **wsjtx-inhibit** project.  
+**Status:** implemented in **wsjtx-inhibit** (`tools/inhibit-agent/`).  
 **Audience:** wsjtx-inhibit maintainers and operators who use TX Inhibit on a dual-radio
 seat.  
 **Scope:** this program only. Gate internals and packaging live in the same project’s
@@ -35,9 +35,12 @@ is a **separate small program** in the same project family.
 Give **SSB/CW KEY priority over WSJT-X transmit** on a dual-radio station:
 
 1. Sense the SSB/CW **KEY/PTT line** (USB-serial **CTS**).
-2. While KEY is asserted, send **TX Inhibit hold** datagrams to the **local** WSJT-X gate
-   (`127.0.0.1`, configured gate port).
-3. On KEY release, apply hang, then send **release** (`ttl_ms: 0`).
+2. While KEY is asserted, send **TX Inhibit hold** datagrams to the gate
+   (CLI: caller’s `host:port`; GUI: `127.0.0.1:22372` unless overridden).
+3. On KEY release: if the line looks like **break-in CW**, apply hang then **release**
+   (`ttl_ms: 0`); if it is a **continuous** KEY (SSB / PTT / non-break-in), **release
+   immediately**. No software PTT debounce — the sense path is built for **manual
+   switches that already debounce**.
 
 No remote target list, no network service dependency. Configuration should feel as simple as
 **inhibit-test**.
@@ -46,7 +49,7 @@ No remote target list, no network service dependency. Configuration should feel 
 
 ## 2. Station model
 
-One band, two radios (or one shared shack), shared antenna plant:
+One band, two radios and one or two PC, shared antenna plant:
 
 ```
                     ┌─────────────────┐
@@ -82,7 +85,9 @@ One band, two radios (or one shared shack), shared antenna plant:
 
 ### 2.3 Host placement
 
-**inhibit-agent runs on the WSJT-X PC** and sends UDP to **`127.0.0.1`** (the local gate).
+**inhibit-agent usually runs on the WSJT-X PC.** The GUI defaults to
+**`127.0.0.1:22372`**. The CLI takes an explicit **`host:port`** so scripts can
+aim at a local or LAN gate.
 
 The **KEY line** from the SSB/CW radio must reach that PC’s serial CTS. That is fine when:
 
@@ -98,8 +103,8 @@ The **KEY line** from the SSB/CW radio must reach that PC’s serial CTS. That i
 |------|------|
 | **Name** | `inhibit-agent` |
 | **Project** | **wsjtx-inhibit** (beside the gate and **inhibit-test**) |
-| **Process** | Long-running; console is enough for v1 |
-| **I/O** | One serial port (CTS); one UDP socket to localhost |
+| **Process** | Long-running. **CLI** (`inhibit-agent`) for scripts; **GUI** (`inhibit-agent-gui`) for operators. Linux and Windows. |
+| **I/O** | One serial port (CTS); one UDP socket to a single `host:port` |
 
 ```
   SSB/CW KEY ──wire──► [CTS on WSJT-X PC]
@@ -119,18 +124,22 @@ The **KEY line** from the SSB/CW radio must reach that PC’s serial CTS. That i
 
 ### 4.1 Must do
 
-1. Open a user-specified **COM port** or **`/dev/ttyUSB*`** (explicit port; required).
+1. **CLI:** open the caller’s **COM / tty** (required). **GUI:** auto-pick Keyline
+   (USB string WA1HCO / Keyline) or the only USB-serial port — no COM to type.
 2. Read **CTS only** (optional invert flag if hardware is active-high).
-3. On KEY assert: send **hold** datagrams to **localhost** gate port.
+3. On KEY assert: send **hold** datagrams to the dest `host:port`.
 4. While KEY held: **keepalive** holds (default every 200 ms).
-5. On KEY release: **hang**, then **release** (`ttl_ms: 0`).
+5. On KEY release: **hang only for break-in CW**, then **release** (`ttl_ms: 0`).
+   Continuous KEY (SSB / PTT / non-break-in) releases **immediately**. **Do not
+   debounce PTT in software** — Keyline / footswitch / hand-PTT already include
+   debounce. Hang exists only so WSJT-X PTT does not follow CW dits.
 6. Fail-safe: if the agent stops, holds stop → gate deadman clears → digital TX may resume
    (prefer brief unprotected window over stuck inhibit).
 7. Console state: `OPEN` / `INHIBITING` / `HANG` / `SENSE FAULT`.
 
 ### 4.2 Must not do
 
-1. Maintain a list of remote gate addresses (always localhost).
+1. Maintain a **list** of remote gate addresses (one dest only; CLI names it).
 2. Implement SO2R RF switching.
 3. Block or filter **decode** (TX path only).
 4. Depend on any other application for configuration or runtime.
@@ -138,20 +147,19 @@ The **KEY line** from the SSB/CW radio must reach that PC’s serial CTS. That i
 ### 4.3 Configuration (as simple as inhibit-test)
 
 ```text
-inhibit-agent --port COM7
-inhibit-agent --port /dev/ttyUSB0
-inhibit-agent --port COM7 --invert
-inhibit-agent --port COM7 --gate-port 22372
+inhibit-agent --port COM7 --addr 127.0.0.1:22372
+inhibit-agent --port /dev/ttyUSB0 --addr 127.0.0.1:22372
+inhibit-agent COM7 192.168.1.40:22372
+inhibit-agent --port COM7 --addr 127.0.0.1:22372 --invert
+inhibit-agent-gui
 ```
 
-| Flag | Default | Notes |
-|------|---------|--------|
-| `--port` | **required** | COM / tty device |
-| `--invert` | false | CTS polarity |
-| `--gate-host` | `127.0.0.1` | Local only |
-| `--gate-port` | `22372` | Must match WSJT-X gate bind |
-| `--keepalive-ms` | `200` | While KEY down |
-| hang | project default | One clear default (fixed or adaptive per gate docs) |
+| Flag | CLI | GUI | Notes |
+|------|-----|-----|--------|
+| `--port` | **required** | optional | COM / tty. GUI auto-picks Keyline / only USB-serial |
+| `--addr` | **required** | optional | `host:port`. GUI default `127.0.0.1:22372` |
+| `--invert` | optional | optional | CTS polarity |
+| hang | project default | same | **CW only** (same classifier as inhibit-test). Continuous KEY hang = **0**. No PTT-debounce flag. |
 
 ### 4.4 Datagram fields `band` and `station`
 
@@ -173,8 +181,8 @@ Protocol: same layout as **inhibit-test** and the gate (project protocol doc).
 |--|------------------|-------------------|
 | Purpose | Prove gate / protocol / latency | Daily SSB KEY priority at a seat |
 | KEY input | keyboard, script, optional serial | **Serial CTS** (production) |
-| Destination | often configurable | **localhost only** |
-| Hang / keepalive | may be minimal | full hold / hang / release for voice KEY |
+| Destination | often configurable | CLI: one `host:port`; GUI: localhost default |
+| Hang / keepalive | may be minimal | hold + keepalive; **CW hang only**; voice/PTT hang = 0 |
 | Audience | developers, bring-up | operators with dual radio + gate binary |
 
 Share encode/hang code where practical; keep **two entry points** so “test harness” is not
@@ -219,6 +227,6 @@ Release note: “optional KEY sense for SSB priority; not required for gate-only
 
 ## 9. Summary
 
-**inhibit-agent** opens a **COM/tty**, watches **CTS**, and sends **inhibit holds to
-localhost**. Same protocol as **inhibit-test**, built for a dual-radio seat where voice KEY
-must suppress digital PTT while FT8 keeps listening.
+**inhibit-agent** watches **CTS** on a USB-serial port and sends **inhibit holds** to one
+gate address. CLI takes port + `host:port` for scripts; GUI auto-detects and needs no
+config. Same protocol as **inhibit-test**.

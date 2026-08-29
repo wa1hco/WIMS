@@ -430,3 +430,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-08-14** — **Split inhibit generator designs:** **inhibit-test** + **inhibit-agent**
   (wsjtx-inhibit; design [inhibit_agent.md](inhibit_agent.md) — no WIMS mentions, exportable)
   vs **WIMS Key agent** ([wims_key_agent.md](wims_key_agent.md)). Not coded yet.
+- **2026-08-16** — **Agents do not debounce PTT** (per WA1HCO): inhibit-agent and WIMS Key
+  agent assume **manual switches that already debounce**. Long/SSB hang **20 ms → 0**
+  (`LONG_HANG_S`); hang remains **CW-only** (8×dit). Aligns with shipped inhibit-test
+  (continuous KEY hang = 0). Spec + `test_inhibit` updated.
+- **2026-08-16** — **inhibit-agent coded** in sister repo `wsjtx-inhibit`
+  (`tools/inhibit-agent/`): CLI (`--port` + `--addr host:port`) for scripts; GUI
+  (no args; auto Keyline + `127.0.0.1:22372`) for operators; Linux and Windows.
+  Hang matches inhibit-test. Design copy: [inhibit_agent.md](inhibit_agent.md).

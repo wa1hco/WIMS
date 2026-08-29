@@ -47,7 +47,7 @@ PROTOCOL_VERSION = 1
 DEFAULT_GATE_PORT = 22372     # try first; fall back to ephemeral (§11.2)
 DEFAULT_TTL_MS = 600          # a hold expires without keepalive (§4.2 deadman)
 DEFAULT_KEEPALIVE_S = 0.2     # hold re-armed at this rate while keyed
-LONG_HANG_S = 0.02            # long closures: debounce only (§3, 2026-08-02)
+LONG_HANG_S = 0.0             # long/SSB: no hang, no software PTT debounce (§3, 2026-08-16)
 
 # Adaptive hang (§3): the line self-classifies from closure statistics.
 ADAPTIVE_DITS = 8             # CW hang = 8 x measured dit-time
@@ -55,7 +55,7 @@ ADAPTIVE_HANG_MIN_S = 0.2     # clamp: ~60 WPM floor
 ADAPTIVE_HANG_MAX_S = 1.0     # clamp: ~10 WPM ceiling
 LONG_CLOSURE_S = 0.75         # at/above: SSB-PTT/VOX/semi-BK (rig pre-hangs)
 DIT_MAX_S = 0.2               # a dit at >=6 WPM; longer closures are not dit evidence
-CLOSURE_DEBOUNCE_S = 0.02     # sub-20 ms closures are bounce, not elements
+CLOSURE_DEBOUNCE_S = 0.02     # omit sub-20 ms glitches from dit estimate only (not PTT hang)
 CLOSURE_WINDOW = 8            # closures kept for the dit estimate
 
 MAX_DATAGRAM_BYTES = 512
@@ -68,14 +68,14 @@ def adaptive_hang_s(closures):
     Returns ``(hang_s, mode)`` with mode ``"cw"`` or ``"long"``.  The latest
     closure picks the mode: at/above ``LONG_CLOSURE_S`` the line is
     SSB-PTT/VOX/semi-break-in-like — no CW elements to bridge, so hang
-    collapses to the ``LONG_HANG_S`` debounce (hang exists only to keep
-    the WSJT-X radio's PTT from following break-in dits).  CW mode needs
-    **evidence of actual elements**: a dit-plausible closure (<=
-    ``DIT_MAX_S``) in the window; then hang = ``ADAPTIVE_DITS`` x the
-    shortest such closure, clamped.  A mid-length closure (0.2-0.75 s)
-    alone is neither — not a dit, not a rig-hung over — and gets the
-    debounce (found on the keyboard bench 2026-08-02: a ~0.4 s press
-    read as a "3 WPM dit" and produced a clamped 1 s hang).
+    is ``LONG_HANG_S`` (0: no software PTT debounce; manual switches
+    already debounce).  Hang exists only to keep the WSJT-X radio's PTT
+    from following break-in dits.  CW mode needs **evidence of actual
+    elements**: a dit-plausible closure (<= ``DIT_MAX_S``) in the
+    window; then hang = ``ADAPTIVE_DITS`` x the shortest such closure,
+    clamped.  A mid-length closure (0.2-0.75 s) alone is neither — not
+    a dit, not a rig-hung over — and also gets hang 0 (keyboard-bench
+    2026-08-02: a ~0.4 s press otherwise reads as a "3 WPM dit").
     """
     if not closures or closures[-1] >= LONG_CLOSURE_S:
         return LONG_HANG_S, "long"
@@ -206,8 +206,10 @@ class KeyAgentScheduler:
     Hang time is **adaptive by default** (``hang_s=None``): each key-up
     picks its hang via ``adaptive_hang_s`` over the recent closure history,
     so a 30 WPM QSK op releases the band in ~0.32 s while an SSB-PTT/VOX
-    line releases after a 20 ms debounce — no mode input, no knob (§3).  Passing a numeric ``hang_s``
-    is the manual override for pathological cases; the classifier is then
+    line releases immediately (hang 0).  Agents do not debounce PTT —
+    the sense path is built for manual switches that already debounce.
+    No mode input, no knob (§3).  Passing a numeric ``hang_s`` is the
+    manual override for pathological cases; the classifier is then
     off.  The chosen value and mode are exposed as ``last_hang_s`` /
     ``hang_mode`` (``"cw"`` | ``"long"`` | ``"manual"``) for telemetry.
     """

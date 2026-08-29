@@ -165,15 +165,19 @@ long closures (the rig's VOX delay / break-in hang pre-bridges the short gaps). 
   the sending speed requires (300 ms at 30 WPM, 640 ms at 15 WPM). **CW mode requires dit
   evidence** (a closure ≤ 0.2 s — a dit at ≥ 6 WPM — in the recent window; the estimate is
   the shortest such closure). A **mid-length closure (0.2–0.75 s) alone is neither** a dit
-  nor a rig-hung over and gets the debounce — keyboard-bench find, 2026-08-02: a ~0.4 s
+  nor a rig-hung over and gets hang **0** — keyboard-bench find, 2026-08-02: a ~0.4 s
   press otherwise reads as a "3 WPM dit" and produces a clamped 1 s hang.
-- **Long closures (SSB-PTT / VOX / semi break-in): 20 ms — debounce only** (revised
-  2026-08-02 from an earlier 0.5 s, per WA1HCO). These lines carry no CW elements — the
-  rig's PTT/VOX/break-in hang already bridged them — so the one problem hang exists for
-  is absent, and the hang collapses to a debounce. The earlier 0.5 s was solving
-  non-problems: hardware safety under arbitrary keying patterns is a station requirement,
-  not the agent's job, and a gate reopen between overs costs only a ms-scale blip at the
-  next key-down while keeping the full ~1.6 s puncture margin available.
+- **Long closures (SSB-PTT / VOX / semi break-in): hang = 0** (revised 2026-08-16 from
+  the 2026-08-02 20 ms software debounce, per WA1HCO). These lines carry no CW elements —
+  the rig's PTT/VOX/break-in hang already bridged them — so the one problem hang exists
+  for is absent. **inhibit-agent and the WIMS Key agent do not debounce PTT:** the
+  sense path is designed for **manual switches that already include debounce**
+  (Keyline J1 RC, footswitch, hand mic). An earlier 0.5 s hang, then a 20 ms
+  software debounce, were solving non-problems: contact bounce is hardware's job,
+  wiring safety under arbitrary keying is a station requirement, and a gate reopen
+  between overs costs only a ms-scale blip at the next key-down while keeping the
+  full ~1.6 s puncture margin available. Same rule as shipped **inhibit-test**
+  (continuous KEY hang = 0).
 
 The hang knob then disappears entirely; the 0.2–5 s manual setting remains only as an
 override for pathological cases.
@@ -328,13 +332,14 @@ break-in produce one closure per over, with the rig's own hang), **TX-delay menu
 each closure from hot-switching**, and per-element keying is only ever sent to amps built
 for it (PIN diodes or QSK-rated relays). Consequences for this design:
 
-- In SSB/PTT and semi break-in, the sensed line arrives *pre-hung* by the rig — the Key
-  agent's hang just adds margin (the two compose additively; harmless).
+- In SSB/PTT and semi break-in, the sensed line arrives *pre-hung* by the rig — agent
+  hang is **0** on that class (no extra margin, no software debounce).
 - In full QSK with a PIN-switched amp, the line is dit-by-dit — **this is the case that
   makes the agent-side hang time (§3) mandatory**, since WIMS must treat the whole CW
   stream as one band occupancy.
-- The Icom early-SEND-drop quirk is absorbed by the same hang (even the 20 ms
-  long-closure debounce ≫ 3 ms).
+- The Icom early-SEND-drop quirk (~2–3 ms before RF ends) is a station-wiring
+  tolerance, not an agent timer. Long-closure hang is 0; do not keep a debounce
+  “just in case.”
 - Electrically, the Keyline J1 sense (§4.1.2: ~3.3 V / 2 kΩ wetting through the FTDI
   pull-up, 4.7 V zener clamp) parallels safely across modern solid-state/relay KEY outputs
   — consistent with the SO4R interface spec (open collector, low true, 5–15 V). Connect it

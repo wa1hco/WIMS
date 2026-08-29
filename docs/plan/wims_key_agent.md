@@ -29,6 +29,11 @@ mentions nothing about WIMS).
 **Protocol:** same `tx_inhibit` datagrams as the gate and inhibit-test / inhibit-agent.  
 **Path:** still **direct UDP → gate**, never through the WIMS server.
 
+**Hang (same as inhibit-agent):** break-in CW only. Continuous KEY / SSB PTT releases
+immediately. **No software PTT debounce** — the sense path is for **manual switches
+that already debounce** (Keyline, footswitch, hand mic). Hang exists only so the
+WSJT-X radio’s PTT does not follow CW dits.
+
 **Order:** implement and harden **inhibit-agent** in wsjtx-inhibit first; WIMS Key agent later
 as a separate binary with target-list + WIMS integration.
 
