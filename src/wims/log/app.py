@@ -5,11 +5,12 @@
 
 """Log helper: fleet mcast Logged QSO -> local N1MM, with optional Tk status UI.
 
-Run on the N1MM PC. Joins 224.0.0.73:2237, filters to the pinned band, delivers
-the Log envelope to N1MM on localhost (UDP 2333 today; TCP 52001 preferred next).
+Band filter follows live N1MM RadioInfo (wait/drop until heard). See
+docs/decisions/2026-08-29-n1mm-live-band.md.
 
-  python -m wims.log --band 6m
-  python -m wims.log --band 6m --no-gui
+  python -m wims.log
+  python -m wims.log --no-gui
+  python -m wims.log --expect-band 6m   # optional mismatch warn only
 """
 
 from __future__ import annotations
@@ -26,7 +27,8 @@ from pathlib import Path
 from wims.core.bands import band_label
 from wims.helper_ui import HelperStatusModel, HelperStatusWindow
 from wims.log import GROUP, PORT
-from wims.log.check import resolve_pin, run_checks
+from wims.log.check import run_checks
+from wims.log.radioinfo import band_from_radioinfo_xml
 from wims.udp import messages as M
 from wims.udp.sink import open_socket
 
@@ -36,6 +38,7 @@ _ADIF_CALL = re.compile(r"<CALL:(\d+)>([^<]+)", re.I)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _HELPER_LOG = _REPO_ROOT / "scratch" / "log-helper.log"
+DEFAULT_RADIO_PORT = 12060
 
 
 def adif_band(adif: str) -> str | None:
@@ -89,7 +92,11 @@ class LogState:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.host = socket.gethostname()
-        self.pin: str | None = None
+        self.live_band: str | None = None
+        self.expect_band: str | None = None
+        self.radio_port = DEFAULT_RADIO_PORT
+        self.radio_error: str | None = None
+        self.last_radio_at: float | None = None
         self.group = GROUP
         self.mcast_port = PORT
         self.delivery = "127.0.0.1:2333"
@@ -98,6 +105,7 @@ class LogState:
         self.join_error: str | None = None
         self.n_fwd = 0
         self.n_drop = 0
+        self.n_wait = 0
         self.last_fwd: str | None = None
         self.last_error: str | None = None
         self.running = False
@@ -109,7 +117,11 @@ class LogState:
         with self._lock:
             return {
                 "host": self.host,
-                "pin": self.pin,
+                "live_band": self.live_band,
+                "expect_band": self.expect_band,
+                "radio_port": self.radio_port,
+                "radio_error": self.radio_error,
+                "last_radio_at": self.last_radio_at,
                 "group": self.group,
                 "mcast_port": self.mcast_port,
                 "delivery": self.delivery,
@@ -118,6 +130,7 @@ class LogState:
                 "join_error": self.join_error,
                 "n_fwd": self.n_fwd,
                 "n_drop": self.n_drop,
+                "n_wait": self.n_wait,
                 "last_fwd": self.last_fwd,
                 "last_error": self.last_error,
                 "running": self.running,
@@ -125,6 +138,20 @@ class LogState:
                 "check_severity": self.check_severity,
                 "site_url": self.site_url,
             }
+
+    def set_live_band(self, band: str) -> bool:
+        """Update filter band; return True if it changed."""
+        with self._lock:
+            self.last_radio_at = time.time()
+            if self.live_band == band:
+                return False
+            prev = self.live_band
+            self.live_band = band
+        _log_line(
+            f"log-helper: N1MM band -> {band}"
+            + (f" (was {prev})" if prev else " (first RadioInfo)")
+        )
+        return True
 
 
 def _log_line(text: str) -> None:
@@ -154,7 +181,9 @@ def rescan(state: LogState) -> None:
     else:
         joined = None
     rep = run_checks(
-        pin=snap["pin"],
+        live_band=snap["live_band"],
+        expect_band=snap["expect_band"],
+        radio_port=snap["radio_port"],
         group=snap["group"],
         mcast_port=snap["mcast_port"],
         delivery_host=host,
@@ -171,6 +200,12 @@ def rescan(state: LogState) -> None:
             )
             for it in rep.items
         ]
+    if snap["radio_error"]:
+        from wims.log.check import CheckItem
+        rep.items.insert(0, CheckItem(
+            "radio", "error",
+            f"RadioInfo listen failed on :{snap['radio_port']}: {snap['radio_error']}",
+        ))
     with state._lock:
         state.check_lines = rep.lines()
         state.check_severity = rep.severity
@@ -178,34 +213,44 @@ def rescan(state: LogState) -> None:
 
 def _status_model(state: LogState) -> HelperStatusModel:
     s = state.snapshot()
-    pin = s["pin"] or "?"
-    title = f"WIMS log helper — {pin}"
-    if not s["running"] and s["join_error"]:
-        level, banner = "err", f"Log helper failed to join — {pin}"
+    band = s["live_band"]
+    title = f"WIMS log helper — {band or 'waiting'}"
+    if s["join_error"] or s["radio_error"]:
+        level, banner = "err", "Log helper needs attention"
+    elif not band:
+        level, banner = "warn", "Waiting for N1MM band (RadioInfo)"
     elif s["check_severity"] == "error":
-        level, banner = "err", f"Log helper needs attention — {pin}"
-    elif not s["joined"]:
-        level, banner = "busy", f"Starting log helper — {pin}"
+        level, banner = "err", f"Log helper needs attention — {band}"
     elif s["check_severity"] == "warn":
-        level, banner = "warn", f"Log helper running — check warnings — {pin}"
+        level, banner = "warn", f"Log helper running — check warnings — {band}"
     else:
-        level, banner = "ok", f"Log helper running — {pin}"
+        level, banner = "ok", f"Log helper running — {band}"
 
+    age = ""
+    if s["last_radio_at"]:
+        age = f"  (RadioInfo {int(time.time() - s['last_radio_at'])}s ago)"
     status = [
         f"Host: {s['host']}",
-        f"Band pin: {pin}",
-        f"Forwarded: {s['n_fwd']}   Dropped (other band): {s['n_drop']}",
+        f"N1MM band filter: {band or '(waiting)'}{age}",
+        f"Forwarded: {s['n_fwd']}   Other-band drops: {s['n_drop']}   "
+        f"Waiting drops: {s['n_wait']}",
         f"Last FWD: {s['last_fwd'] or '(none yet)'}",
     ]
+    if s["expect_band"]:
+        status.append(f"Expected (optional): {s['expect_band']}")
     if s["last_error"]:
         status.append(f"Last error: {s['last_error']}")
 
     inter = [
+        f"RadioInfo listen: 127.0.0.1:{s['radio_port']}  "
+        + ("OK" if not s["radio_error"] else "FAILED"),
         f"Multicast: {s['group']}:{s['mcast_port']}  "
         + ("JOINED" if s["joined"] else ("FAILED" if s["join_error"] else "...")),
         f"Delivery: {'DRY-RUN' if s['dry_run'] else s['delivery']} (UDP today)",
         "N1MM WSJT UDP reader on this PC must be OFF.",
     ]
+    if s["radio_error"]:
+        inter.append(f"Radio listen error: {s['radio_error']}")
     if s["join_error"]:
         inter.append(f"Join error: {s['join_error']}")
 
@@ -220,9 +265,49 @@ def _status_model(state: LogState) -> HelperStatusModel:
     )
 
 
+def _open_radio_socket(port: int) -> socket.socket:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # Prefer loopback — N1MM Radio broadcast default is 127.0.0.1:12060.
+    sock.bind(("127.0.0.1", port))
+    sock.settimeout(0.5)
+    return sock
+
+
+def _radio_loop(state: LogState, stop: threading.Event) -> None:
+    try:
+        sock = _open_radio_socket(state.radio_port)
+    except OSError as e:
+        with state._lock:
+            state.radio_error = str(e)
+        _log_line(f"log-helper: RadioInfo listen failed: {e}")
+        rescan(state)
+        return
+    _log_line(
+        f"log-helper: listening for N1MM RadioInfo on 127.0.0.1:{state.radio_port}"
+    )
+    while not stop.is_set():
+        try:
+            data, _addr = sock.recvfrom(65535)
+        except socket.timeout:
+            continue
+        except OSError as e:
+            with state._lock:
+                state.last_error = f"RadioInfo recv: {e}"
+            break
+        text = data.decode("utf-8", "replace")
+        band, _meta = band_from_radioinfo_xml(text)
+        if not band or band == "?":
+            continue
+        if state.set_live_band(band):
+            rescan(state)
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
 def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Event) -> None:
-    pin = state.pin
-    assert pin is not None
     nhost, _, nport = args.n1mm.partition(":")
     n1mm = (nhost or "127.0.0.1", int(nport or "2333"))
     try:
@@ -244,9 +329,9 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     rescan(state)
     dest = "DRY-RUN" if args.dry_run else f"-> {args.n1mm}"
     _log_line(
-        f"log-helper: host={state.host}  pin={pin}  "
-        f"join {args.group}:{args.port}  {dest}"
+        f"log-helper: host={state.host}  join {args.group}:{args.port}  {dest}"
     )
+    _log_line("          Filter band comes from N1MM RadioInfo (waiting until heard).")
     _log_line("          N1MM WSJT UDP reader must be OFF on this PC (no 2237).")
 
     seen: set[tuple] = set()
@@ -276,6 +361,16 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             call = msg.dx_call
             adif = qso_to_adif(msg)
         else:
+            continue
+
+        pin = state.snapshot()["live_band"]
+        if not pin:
+            with state._lock:
+                state.n_wait += 1
+            _log_line(
+                f"{time.strftime('%H:%M:%S')}  WAIT {msg.id} {call} "
+                f"band={qband} (no N1MM band yet)  from {addr[0]}"
+            )
             continue
         if qband != pin:
             with state._lock:
@@ -328,8 +423,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--port", type=int, default=PORT)
     ap.add_argument("--iface", default="0.0.0.0",
                     help="LAN iface to join multicast (default: auto)")
-    ap.add_argument("--band", default=None,
-                    help="pin this band label (6m, 2m, ...); default from hostname")
+    ap.add_argument(
+        "--band", "--expect-band", dest="expect_band", default=None,
+        help="optional expected band for mismatch warn only (filter follows N1MM)",
+    )
+    ap.add_argument("--radio-port", type=int, default=DEFAULT_RADIO_PORT,
+                    help="UDP port for N1MM RadioInfo (default 12060)")
     ap.add_argument("--n1mm", default="127.0.0.1:2333")
     ap.add_argument("--dry-run", action="store_true",
                     help="print matching QSOs, do not send to N1MM")
@@ -339,19 +438,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="console only (lab / headless)")
     args = ap.parse_args(argv)
 
-    host = socket.gethostname()
-    pin = resolve_pin(args.band, hostname=host)
-    if not pin:
-        msg = (
-            f"log-helper: no band pin (hostname={host!r}).\n"
-            f"  Pass --band 6m   or set WIMS_BAND=6m\n"
-            f"  or name this PC ...-50 / ...-144 / ...-222 / ...-432"
-        )
-        print(msg, file=sys.stderr)
-        return 2
+    expect = (args.expect_band or os.environ.get("WIMS_BAND") or "").strip() or None
 
     state = LogState()
-    state.pin = pin
+    state.expect_band = expect
+    state.radio_port = args.radio_port
     state.group = args.group
     state.mcast_port = args.port
     state.delivery = args.n1mm
@@ -359,10 +450,14 @@ def main(argv: list[str] | None = None) -> int:
     rescan(state)
 
     stop = threading.Event()
-    thread = threading.Thread(
+    radio_thread = threading.Thread(
+        target=_radio_loop, args=(state, stop), daemon=True,
+    )
+    fwd_thread = threading.Thread(
         target=_forward_loop, args=(state, args, stop), daemon=True,
     )
-    thread.start()
+    radio_thread.start()
+    fwd_thread.start()
 
     if args.gui:
         try:
@@ -378,16 +473,20 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.gui:
         try:
-            while thread.is_alive():
-                thread.join(timeout=0.5)
+            while fwd_thread.is_alive() or radio_thread.is_alive():
+                fwd_thread.join(timeout=0.5)
         except KeyboardInterrupt:
             stop.set()
             _log_line("log-helper: quit")
             return 0
 
     stop.set()
-    thread.join(timeout=2.0)
-    return 0 if not state.snapshot().get("join_error") else 1
+    fwd_thread.join(timeout=2.0)
+    radio_thread.join(timeout=1.0)
+    snap = state.snapshot()
+    if snap.get("join_error") or snap.get("radio_error"):
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

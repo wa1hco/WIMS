@@ -5,8 +5,7 @@
 
 """Scoped config checks for the log helper (N1MM PC only).
 
-Checks only what this helper talks to: band pin, multicast join target,
-local N1MM delivery (TCP 52001 preferred / UDP 2333), and light N1MM presence.
+Primary band source is live N1MM RadioInfo (see 2026-08-29-n1mm-live-band.md).
 ASCII-only messages (Windows cp1252 consoles).
 """
 
@@ -18,7 +17,7 @@ import socket
 from dataclasses import dataclass, field
 from typing import Callable
 
-# Hostname suffix MHz -> band label (TRAILER-50, wims-test-50).
+# Hostname suffix MHz -> band label (TRAILER-50, wims-test-50) — lab bootstrap only.
 _MHZ_PIN = {
     50: "6m",
     144: "2m",
@@ -74,13 +73,11 @@ def resolve_pin(
     env: dict[str, str] | None = None,
     hostname: str | None = None,
 ) -> str | None:
+    """Optional expect-band / lab override — not the live filter source."""
     env = env if env is not None else os.environ
     pin = (band or env.get("WIMS_BAND") or "").strip() or None
     if not pin:
         pin = pin_from_hostname(hostname or socket.gethostname())
-    if pin and pin not in VALID_PINS:
-        # Allow unknown labels but normalize common aliases later if needed.
-        pass
     return pin
 
 
@@ -122,7 +119,9 @@ def _n1mm_presence() -> CheckItem:
 
 def run_checks(
     *,
-    pin: str | None,
+    live_band: str | None,
+    expect_band: str | None = None,
+    radio_port: int = 12060,
     group: str = "224.0.0.73",
     mcast_port: int = 2237,
     delivery_host: str = "127.0.0.1",
@@ -131,23 +130,38 @@ def run_checks(
     joined: bool | None = None,
     dry_run: bool = False,
     tcp_probe: Callable[[str, int], bool] | None = None,
+    # Backward-compat alias used by older callers/tests.
+    pin: str | None = None,
 ) -> CheckReport:
     """Build a scoped check report for the log helper."""
-    rep = CheckReport(pin=pin)
+    if live_band is None and pin is not None:
+        live_band = pin
+    rep = CheckReport(pin=live_band)
     tcp_probe = tcp_probe or probe_tcp
 
-    if not pin:
-        rep.items.append(CheckItem(
-            "band", "error",
-            "No band pin. Pass --band 6m, set WIMS_BAND, or name PC ...-50.",
-        ))
-    elif pin not in VALID_PINS:
+    if not live_band:
         rep.items.append(CheckItem(
             "band", "warn",
-            f"Band pin {pin!r} is unusual (expected 6m/2m/1.25m/70cm/33cm/23cm).",
+            f"Waiting for N1MM RadioInfo on UDP :{radio_port}. "
+            f"Enable Config > Broadcast Data > Radio to 127.0.0.1:{radio_port}. "
+            f"QSOs are dropped until a band is heard.",
+        ))
+    elif live_band not in VALID_PINS:
+        rep.items.append(CheckItem(
+            "band", "warn",
+            f"N1MM band {live_band!r} is unusual (expected 6m/2m/1.25m/70cm/33cm/23cm).",
         ))
     else:
-        rep.items.append(CheckItem("band", "ok", f"Band pin {pin}."))
+        rep.items.append(CheckItem(
+            "band", "ok",
+            f"Filtering Logged QSOs for {live_band} (from N1MM RadioInfo).",
+        ))
+
+    if expect_band and live_band and expect_band != live_band:
+        rep.items.append(CheckItem(
+            "expect", "warn",
+            f"Expected band {expect_band} but N1MM reports {live_band}.",
+        ))
 
     if joined is True:
         rep.items.append(CheckItem(

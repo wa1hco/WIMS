@@ -64,14 +64,14 @@ class RoleCatalogTests(unittest.TestCase):
         argv = log.build_argv()
         self.assertIn("wims.log", argv)
 
-    def test_log_agent_argv_passes_band(self):
+    def test_log_agent_argv_passes_expect_band(self):
         log = role_by_id("log")
         assert log is not None
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WIMS_BAND", None)
             argv = log.build_argv(band="2m")
-        self.assertIn("--band", argv)
-        self.assertEqual(argv[argv.index("--band") + 1], "2m")
+        self.assertIn("--expect-band", argv)
+        self.assertEqual(argv[argv.index("--expect-band") + 1], "2m")
         self.assertEqual(argv[:2], ["-m", "wims.log"])
 
     def test_log_agent_argv_from_env_band(self):
@@ -79,8 +79,17 @@ class RoleCatalogTests(unittest.TestCase):
         assert log is not None
         with mock.patch.dict(os.environ, {"WIMS_BAND": "70cm"}, clear=False):
             argv = log.build_argv()
-        self.assertIn("--band", argv)
-        self.assertEqual(argv[argv.index("--band") + 1], "70cm")
+        self.assertIn("--expect-band", argv)
+        self.assertEqual(argv[argv.index("--expect-band") + 1], "70cm")
+
+    def test_log_agent_argv_without_band(self):
+        log = role_by_id("log")
+        assert log is not None
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WIMS_BAND", None)
+            argv = log.build_argv()
+        self.assertNotIn("--expect-band", argv)
+        self.assertNotIn("--band", argv)
 
     def test_log_cli_dispatch(self):
         with mock.patch("wims.log.app.main", return_value=0) as m:

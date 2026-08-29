@@ -218,6 +218,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   **Log helper Tk status + scoped checks:** `python -m wims.log` / Start seat opens a
   compact window (Status / Interconnect / Config check). Shared `wims.helper_ui`;
   checks in `wims.log.check`. Windows hides the extra black console for the log child.
+  **Live N1MM band:** filter follows RadioInfo on `127.0.0.1:12060` (wait/drop until
+  heard; adapts on band change). Decision: `2026-08-29-n1mm-live-band.md`.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

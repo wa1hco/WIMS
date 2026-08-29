@@ -231,9 +231,9 @@ class LauncherApp:
         self._banner_text = tk.StringVar(value="Checking…")
         self._fix_text = tk.StringVar(value="")
         self._site_var = tk.StringVar(value=site_base_url())
-        # Log agent must know which band this N1MM owns (hostname …-50 or pick here).
+        # Optional expected band (warn-only); live filter follows N1MM RadioInfo.
         env_band = (os.environ.get("WIMS_BAND") or "").strip()
-        self._band_var = tk.StringVar(value=env_band or "6m")
+        self._band_var = tk.StringVar(value=env_band)
         self._card_widgets: dict[str, dict] = {}
 
         self._apply_icon()
@@ -321,18 +321,18 @@ class LauncherApp:
         band_row = tk.Frame(home, bg="#f4f4f4")
         band_row.pack(fill="x", pady=(6, 2))
         tk.Label(
-            band_row, text="This N1MM’s band:", font=_ui_font(11),
+            band_row, text="Expected band (optional):", font=_ui_font(11),
             bg="#f4f4f4", fg="#333333",
         ).pack(side="left")
-        band_choices = ("6m", "2m", "1.25m", "70cm", "33cm", "23cm")
+        band_choices = ("", "6m", "2m", "1.25m", "70cm", "33cm", "23cm")
         band_menu = tk.OptionMenu(band_row, self._band_var, *band_choices)
         band_menu.configure(font=_ui_font(11))
         band_menu.pack(side="left", padx=(8, 0))
         ToolTip(
             band_menu,
-            "Log agent only forwards QSOs for this band.\n"
-            "Must match the contest band this N1MM logs "
-            "(or name the PC …-50 / …-144).",
+            "Optional. The log helper follows N1MM’s live band via RadioInfo.\n"
+            "Pick a band here only to warn if N1MM disagrees.\n"
+            "N1MM must Broadcast Data → Radio to 127.0.0.1:12060.",
         )
 
         opts = tk.Frame(home, bg="#f4f4f4")
@@ -512,21 +512,22 @@ class LauncherApp:
         self.root.after(3000, self._refresh_status)
 
     def _start_n1mm_seat(self) -> None:
-        band = (self._band_var.get() or "").strip()
-        if not band:
-            self._set_banner(
-                "err",
-                "Pick this N1MM’s band",
-                "The log helper will not start without a band (6m, 2m, …).",
-            )
-            return
-        self._set_banner("busy", "Starting seat…", "One moment.")
+        expect = (self._band_var.get() or "").strip()
+        self._set_banner(
+            "busy",
+            "Starting seat…",
+            "Log helper waits for N1MM RadioInfo before forwarding QSOs.",
+        )
         os.environ["WIMS_SERVER"] = self._site_var.get().strip() or site_base_url()
-        os.environ["WIMS_BAND"] = band
+        if expect:
+            os.environ["WIMS_BAND"] = expect
+        else:
+            os.environ.pop("WIMS_BAND", None)
         if self._also_server.get() and not self._proc_running("server"):
             self._start_role(role_by_id("server"))
         if not self._proc_running("log"):
-            self._start_role(role_by_id("log"), band=band)
+            kwargs = {"band": expect} if expect else {}
+            self._start_role(role_by_id("log"), **kwargs)
         self.root.after(1500, self._refresh_status)
 
     def _stop_n1mm_seat(self) -> None:
@@ -655,24 +656,18 @@ class LauncherApp:
         if role.id == "solo":
             kwargs.setdefault("port", int(self._solo_port.get()))
         if role.id == "log" and not kwargs.get("band"):
-            kwargs["band"] = (
+            expect = (
                 self._band_var.get().strip()
                 or (os.environ.get("WIMS_BAND") or "").strip()
             )
+            if expect:
+                kwargs["band"] = expect
         if role.id == "log" and kwargs.get("band"):
             os.environ["WIMS_BAND"] = str(kwargs["band"]).strip()
         try:
             py_argv = role.build_argv(**kwargs)
         except TypeError:
             py_argv = role.build_argv()
-        if role.id == "log" and "--band" not in py_argv:
-            self._set_banner(
-                "err",
-                "Log helper needs a band",
-                "Pick “This N1MM’s band” above (or set WIMS_BAND / name the PC …-50).",
-            )
-            self._append_log("ERROR: refused to start log agent without --band")
-            return
         cmd = _python_cmd() + py_argv
         self._append_log(f"$ {' '.join(cmd)}")
         popen_kw: dict = {

@@ -75,11 +75,11 @@ def _wsjt_agent_argv() -> list[str]:
 
 def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
     # Product module: compact Tk status UI by default (--no-gui for lab).
+    # Live filter follows N1MM RadioInfo; --expect-band is optional warn-only.
     argv = ["-m", "wims.log"]
-    # Band pin required: hostname ...-50 / ...-144 or explicit --band.
     b = (band or os.environ.get("WIMS_BAND") or "").strip()
     if b:
-        argv += ["--band", b]
+        argv += ["--expect-band", b]
     if not gui:
         argv.append("--no-gui")
     return argv
@@ -112,15 +112,15 @@ ROLES: tuple[Role, ...] = (
     Role(
         id="log",
         title="Log agent (N1MM PC)",
-        summary="On the band’s N1MM PC: join fleet mcast, keep this band’s QSOs, "
-                "forward to local N1MM (TCP 52001 preferred).",
+        summary="On the N1MM PC: join fleet mcast, filter by N1MM’s live band "
+                "(RadioInfo), forward to local N1MM (TCP 52001 preferred).",
         tooltip=(
             "Required on each N1MM logger PC when WSJT-X is elsewhere on the LAN.\n\n"
-            "Listens on 224.0.0.73:2237, filters to this seat’s band, delivers the "
-            "Log envelope to N1MM on localhost. Prefer TCP 52001 (JTDX/Others); "
-            "UDP 2333 is a fallback — remote 2333 is untrusted.\n\n"
-            "Opens a small status window (config check + interconnect). "
-            "See docs/decisions/2026-08-22-remote-n1mm-logging.md."
+            "Listens on 224.0.0.73:2237. Band filter follows N1MM RadioInfo "
+            "(Broadcast Data → Radio to 127.0.0.1:12060). Drops QSOs until a "
+            "band is heard; adapts if the operator changes band.\n\n"
+            "Opens a small status window. "
+            "See docs/decisions/2026-08-29-n1mm-live-band.md."
         ),
         button="Start log agent",
         recommended=True,
