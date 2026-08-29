@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 
 from wims.agent.n1mm_probe import _parse_wsjt_udp_reader_from_ini, probe_wsjt_udp_reader
 from wims.log.check import pin_from_hostname, resolve_pin, run_checks
+from wims.log.app import adif_band, wrap_adif
 from wims.log.radioinfo import band_from_radioinfo_xml, n1mm_freq_units_to_hz
 
 
@@ -36,6 +37,21 @@ class PinTests(unittest.TestCase):
             resolve_pin(None, env={"WIMS_BAND": "70cm"}, hostname="x"),
             "70cm",
         )
+
+
+class AdifWrapTests(unittest.TestCase):
+    def test_band_2m_despite_hf_freq(self):
+        adif = "<CALL:4>K1AB<BAND:2>2M<FREQ:8>14.074000<MODE:3>FT8 <eor>"
+        self.assertEqual(adif_band(adif), "2m")
+
+    def test_band_from_freq_when_no_band(self):
+        adif = "<CALL:4>K1AB<FREQ:8>14.074000<MODE:3>FT8 <eor>"
+        self.assertEqual(adif_band(adif), "20m")
+
+    def test_n1mm_log_envelope(self):
+        payload = wrap_adif("<CALL:4>K1AB<BAND:2>2m <eor>")
+        self.assertTrue(payload.startswith(b"<command:3>Log <parameters:"))
+        self.assertIn(b"<CALL:4>K1AB", payload)
 
 
 class RadioInfoTests(unittest.TestCase):

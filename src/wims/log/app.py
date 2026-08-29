@@ -50,8 +50,14 @@ def adif_band(adif: str) -> str | None:
             "1.25m": "1.25m", "222": "1.25m", "70cm": "70cm",
             "432": "70cm", "33cm": "33cm", "902": "33cm",
             "23cm": "23cm", "1296": "23cm",
+            # HF (lab / accidental dial) — so filter DROPs are explainable.
+            "160m": "160m", "80m": "80m", "40m": "40m", "30m": "30m",
+            "20m": "20m", "17m": "17m", "15m": "15m", "12m": "12m", "10m": "10m",
         }
-        return aliases.get(key)
+        label = aliases.get(key)
+        if label:
+            return label
+        # Unknown BAND tag — fall through to FREQ.
     m = _ADIF_FREQ.search(adif or "")
     if m:
         try:
@@ -63,10 +69,15 @@ def adif_band(adif: str) -> str | None:
 
 
 def wrap_adif(adif: str) -> bytes:
+    """N1MM Secondary-UDP / JTDX-TCP ingest envelope (Sending Log Data).
+
+    ``<command:3>Log <parameters:N>`` + ADIF + EOR. Raw ADIF alone is often ignored.
+    """
     text = (adif or "").strip()
     if "<eor>" not in text.lower():
         text += " <eor>"
-    return text.encode("ascii", "replace")
+    raw = text.encode("ascii", "replace")
+    return f"<command:3>Log <parameters:{len(raw)}>".encode("ascii") + raw
 
 
 def qso_to_adif(msg: M.QSOLogged) -> str:
