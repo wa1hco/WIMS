@@ -5,8 +5,8 @@
 
 """Desktop GUI launcher — peer to N1MM / WSJT-X / GridTracker.
 
-Default view: **N1MM seat** one-button bring-up (tired-operator UX).
-Role catalog is under “Other PC types…”.
+Auto-detects **N1MM seat** vs **WSJT seat** home (tired-operator UX).
+Role catalog / overrides under “Other PC types…”.
 """
 
 from __future__ import annotations
@@ -34,6 +34,13 @@ from wims.launcher.roles import (
     console_urls,
     primary_roles,
     role_by_id,
+)
+from wims.launcher.seat_detect import (
+    SEAT_AMBIGUOUS,
+    SEAT_N1MM,
+    SEAT_WSJT,
+    probe_seat,
+    save_seat_type,
 )
 from wims.launcher.tooltips import ToolTip
 
@@ -263,14 +270,21 @@ def write_windows_shortcut() -> Path:
 
 
 class LauncherApp:
-    """Default: N1MM seat home. Advanced: full role catalog."""
+    """Auto seat home (N1MM or WSJT). Advanced: full role catalog."""
 
     def __init__(self, root: "tk.Tk") -> None:
         import tkinter as tk
 
         self.tk = tk
         self.root = root
-        self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
+        self._seat_probe = probe_seat()
+        self._seat_type = (
+            self._seat_probe.seat_type
+            if self._seat_probe.seat_type != SEAT_AMBIGUOUS
+            else SEAT_N1MM
+        )
+        label = "WSJT seat" if self._seat_type == SEAT_WSJT else "N1MM seat"
+        self.root.title(f"WIMS  ·  {label}  ·  v{__version__}")
         self.root.minsize(520, 420)
         self.root.configure(bg="#f4f4f4")
 
@@ -278,17 +292,25 @@ class LauncherApp:
         self._solo_port = tk.IntVar(value=DEFAULT_SOLO_PORT)
         self._show_advanced = tk.BooleanVar(value=False)
         self._also_server = tk.BooleanVar(value=False)
+        self._seat_choice = tk.StringVar(value=self._seat_type)
         self._banner_text = tk.StringVar(value="Checking…")
         self._fix_text = tk.StringVar(value="")
+        self._subtitle_var = tk.StringVar()
+        self._blurb_var = tk.StringVar()
         self._site_var = tk.StringVar(value=site_base_url())
         self._card_widgets: dict[str, dict] = {}
         self._discovering = False
+        self._last_wsjt_sev: str | None = None
+        self._last_wsjt_msg: str = ""
 
         self._apply_icon()
         self._build()
+        self._apply_seat_chrome()
         self.root.after(200, self._kick_site_discover)
         self.root.after(400, self._refresh_status)
         self.root.after(1000, self._poll_procs)
+        if self._seat_probe.seat_type == SEAT_AMBIGUOUS:
+            self.root.after(300, self._ask_seat_type)
 
     def _apply_icon(self) -> None:
         icon = find_icon_path()
@@ -306,23 +328,21 @@ class LauncherApp:
         tk = self.tk
         pad = {"padx": 16, "pady": 6}
 
-        # —— N1MM seat home (always visible) ——
+        # —— Seat home (N1MM or WSJT; chrome swapped by _apply_seat_chrome) ——
         home = tk.Frame(self.root, bg="#f4f4f4")
         home.pack(fill="x", **pad)
+        self._home = home
 
         tk.Label(
             home, text="WIMS", font=_ui_font(22, "bold"),
             bg="#f4f4f4", fg="#1a1a1a",
         ).pack(anchor="w")
         tk.Label(
-            home,
-            text="N1MM seat — logging helpers for this PC",
+            home, textvariable=self._subtitle_var,
             font=_ui_font(12), bg="#f4f4f4", fg="#333333",
         ).pack(anchor="w")
         tk.Label(
-            home,
-            text="Start N1MM yourself. This starts the WIMS helpers that make "
-                 "logging and interlock work with WSJT-X on other PCs.",
+            home, textvariable=self._blurb_var,
             font=_ui_font(11), bg="#f4f4f4", fg="#555555",
             wraplength=480, justify="left",
         ).pack(anchor="w", pady=(4, 8))
@@ -343,17 +363,13 @@ class LauncherApp:
         btns.pack(fill="x", pady=4)
         self._start_btn = tk.Button(
             btns, text="Start seat", font=_ui_font(14, "bold"),
-            command=self._start_n1mm_seat, padx=16, pady=8,
+            command=self._start_seat, padx=16, pady=8,
         )
         self._start_btn.pack(side="left")
-        ToolTip(
-            self._start_btn,
-            "Starts the log agent on this PC (and the site server if you check "
-            "the box below). That is all most N1MM seats need.",
-        )
+        self._start_tip = ToolTip(self._start_btn, "")
         self._stop_btn = tk.Button(
             btns, text="Stop", font=_ui_font(12),
-            command=self._stop_n1mm_seat, padx=12, pady=8,
+            command=self._stop_seat, padx=12, pady=8,
         )
         self._stop_btn.pack(side="left", padx=(10, 0))
         open_btn = tk.Button(
@@ -366,11 +382,19 @@ class LauncherApp:
             "Opens the fleet Operate/Status pages in your browser.\n"
             "Uses discovered / remembered site server — no typing on this screen.",
         )
+        self._local_btn = tk.Button(
+            btns, text="Open local status", font=_ui_font(12),
+            command=self._open_local_status, padx=12, pady=8,
+        )
+        ToolTip(
+            self._local_btn,
+            "Opens this PC’s WSJT seat monitor page (config check results).",
+        )
 
-        opts = tk.Frame(home, bg="#f4f4f4")
-        opts.pack(fill="x", pady=(8, 4))
+        self._opts = tk.Frame(home, bg="#f4f4f4")
+        self._opts.pack(fill="x", pady=(8, 4))
         cb = tk.Checkbutton(
-            opts,
+            self._opts,
             text="Also run the site server on this PC",
             variable=self._also_server,
             font=_ui_font(11), bg="#f4f4f4", activebackground="#f4f4f4",
@@ -396,11 +420,33 @@ class LauncherApp:
         adv_toggle.pack(anchor="w", padx=16, pady=(8, 0))
         ToolTip(
             adv_toggle,
-            "Site URL override, WSJT seat monitor, Solo lab, role cards. "
-            "Not needed for a normal N1MM seat bring-up.",
+            "Seat type override, site URL, Solo lab, individual role cards.",
         )
 
         self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
+
+        seat_box = tk.LabelFrame(
+            self._adv_frame, text="This PC is (override auto-detect)",
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=10, pady=6,
+        )
+        seat_box.pack(fill="x", padx=14, pady=4)
+        seat_row = tk.Frame(seat_box, bg="#f4f4f4")
+        seat_row.pack(fill="x")
+        for value, label in (
+            (SEAT_N1MM, "N1MM seat"),
+            (SEAT_WSJT, "WSJT seat"),
+        ):
+            tk.Radiobutton(
+                seat_row, text=label, value=value,
+                variable=self._seat_choice,
+                font=_ui_font(11), bg="#f4f4f4", activebackground="#f4f4f4",
+                highlightthickness=0,
+                command=self._on_seat_choice,
+            ).pack(side="left", padx=(0, 12))
+        ToolTip(
+            seat_box,
+            "Saved on this PC. Use when auto-detect picks the wrong home screen.",
+        )
 
         site_box = tk.LabelFrame(
             self._adv_frame, text="Site server URL (rare override)",
@@ -512,6 +558,83 @@ class LauncherApp:
         p = self._procs.get(role_id)
         return p is not None and p.poll() is None
 
+    def _apply_seat_chrome(self) -> None:
+        """Swap home labels/actions for N1MM vs WSJT without rebuilding the tree."""
+        if self._seat_type == SEAT_WSJT:
+            self.root.title(f"WIMS  ·  WSJT seat  ·  v{__version__}")
+            self._subtitle_var.set("WSJT seat — config check & monitor")
+            self._blurb_var.set(
+                "Start WSJT-X yourself. This checks wiring and reports seat "
+                "health to the site server. Decoding and TX stay in WSJT-X."
+            )
+            self._start_tip.set_text(
+                "Starts the WSJT seat monitor (local status page + periodic "
+                "config check / report to the site server)."
+            )
+            self._opts.pack_forget()
+            if not self._local_btn.winfo_ismapped():
+                self._local_btn.pack(side="left", padx=(10, 0))
+        else:
+            self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
+            self._subtitle_var.set("N1MM seat — logging helpers for this PC")
+            self._blurb_var.set(
+                "Start N1MM yourself. This starts the WIMS helpers that make "
+                "logging and interlock work with WSJT-X on other PCs."
+            )
+            self._start_tip.set_text(
+                "Starts the log helper on this PC (and the site server if you "
+                "check the box below)."
+            )
+            if self._local_btn.winfo_ismapped():
+                self._local_btn.pack_forget()
+            if not self._opts.winfo_ismapped():
+                self._opts.pack(fill="x", pady=(8, 4))
+        self._seat_choice.set(self._seat_type)
+        self._append_log(
+            f"Seat home: {self._seat_type} "
+            f"({self._seat_probe.source}: {self._seat_probe.detail})"
+        )
+
+    def _ask_seat_type(self) -> None:
+        """One-time chooser when neither N1MM nor WSJT is detected."""
+        import tkinter as tk
+
+        win = tk.Toplevel(self.root)
+        win.title("What is this PC?")
+        win.transient(self.root)
+        win.grab_set()
+        tk.Label(
+            win,
+            text="Could not tell if this is an N1MM or WSJT seat.\n"
+                 "Pick once — saved on this PC.",
+            font=_ui_font(12), justify="left", padx=16, pady=12,
+        ).pack()
+        row = tk.Frame(win)
+        row.pack(pady=(0, 12))
+
+        def pick(kind: str) -> None:
+            save_seat_type(kind)
+            self._seat_type = kind
+            self._seat_probe = probe_seat()
+            win.destroy()
+            self._apply_seat_chrome()
+            self._refresh_status()
+
+        tk.Button(row, text="N1MM seat", font=_ui_font(12),
+                  command=lambda: pick(SEAT_N1MM), padx=10).pack(side="left", padx=6)
+        tk.Button(row, text="WSJT seat", font=_ui_font(12),
+                  command=lambda: pick(SEAT_WSJT), padx=10).pack(side="left", padx=6)
+
+    def _on_seat_choice(self) -> None:
+        kind = self._seat_choice.get()
+        if kind not in (SEAT_N1MM, SEAT_WSJT):
+            return
+        save_seat_type(kind)
+        self._seat_type = kind
+        self._seat_probe = probe_seat()
+        self._apply_seat_chrome()
+        self._refresh_status()
+
     def _on_also_server_toggled(self) -> None:
         if self._also_server.get():
             local = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
@@ -557,17 +680,35 @@ class LauncherApp:
             )
         self._refresh_status()
 
+    def _fetch_wsjt_report(self) -> None:
+        """Pull last agent summary from local monitor (best-effort)."""
+        try:
+            with urlopen("http://127.0.0.1:8790/api/report", timeout=0.6) as r:  # noqa: S310
+                data = json.loads(r.read().decode("utf-8", errors="replace"))
+            summary = data.get("summary") or {}
+            self._last_wsjt_sev = summary.get("severity")
+            self._last_wsjt_msg = str(summary.get("message") or "")
+        except (URLError, OSError, ValueError, json.JSONDecodeError):
+            # Leave previous values; process liveness still drives red/green.
+            pass
+
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
         self._site_var.set(base)
         ok_site, base = site_reachable(base)
-        log_on = self._proc_running("log")
-        srv_on = self._proc_running("server")
 
         if ok_site:
             save_last_site_url(base)
             os.environ["WIMS_SERVER"] = base
 
+        if self._seat_type == SEAT_WSJT:
+            self._refresh_wsjt_status(ok_site, base)
+        else:
+            self._refresh_n1mm_status(ok_site, base)
+        self.root.after(3000, self._refresh_status)
+
+    def _refresh_n1mm_status(self, ok_site: bool, base: str) -> None:
+        log_on = self._proc_running("log")
         if ok_site and log_on:
             self._set_banner(
                 "ok",
@@ -593,7 +734,57 @@ class LauncherApp:
                 "Not ready — press Start seat",
                 f"Site console ({base}) not reachable, and log helper is not running.",
             )
-        self.root.after(3000, self._refresh_status)
+
+    def _refresh_wsjt_status(self, ok_site: bool, base: str) -> None:
+        mon_on = self._proc_running("wsjt_agent")
+        if mon_on:
+            self._fetch_wsjt_report()
+        sev = self._last_wsjt_sev
+        msg = self._last_wsjt_msg or "See Open local status for the full check."
+
+        if mon_on and ok_site and sev == "error":
+            self._set_banner("err", "WSJT config needs fixing", msg)
+        elif mon_on and ok_site and sev in ("warn", "ok", "busy", None):
+            if sev == "warn":
+                self._set_banner("warn", "Monitor running — config warnings", msg)
+            elif sev == "busy":
+                self._set_banner("busy", "Monitor starting — scanning WSJT-X", "One moment.")
+            else:
+                self._set_banner(
+                    "ok",
+                    "Ready — WSJT seat monitor running",
+                    "Use Open site console for the fleet, or Open local status for this PC.",
+                )
+        elif mon_on and not ok_site:
+            self._set_banner(
+                "warn",
+                "Monitor running — site console not reachable",
+                f"Cannot reach {base}. Start the site server or Find on LAN under Advanced.",
+            )
+        elif ok_site and not mon_on:
+            self._set_banner(
+                "warn",
+                "Site console is up — press Start seat",
+                "Starts the WSJT config monitor for this PC.",
+            )
+        else:
+            self._set_banner(
+                "err",
+                "Not ready — press Start seat",
+                f"Site console ({base}) not reachable, and seat monitor is not running.",
+            )
+
+    def _start_seat(self) -> None:
+        if self._seat_type == SEAT_WSJT:
+            self._start_wsjt_seat()
+        else:
+            self._start_n1mm_seat()
+
+    def _stop_seat(self) -> None:
+        if self._seat_type == SEAT_WSJT:
+            self._stop_wsjt_seat()
+        else:
+            self._stop_n1mm_seat()
 
     def _start_n1mm_seat(self) -> None:
         self._set_banner(
@@ -616,10 +807,48 @@ class LauncherApp:
     def _stop_n1mm_seat(self) -> None:
         self._stop_role("log")
         if self._also_server.get() or self._proc_running("server"):
-            # Only stop server if we started it from this seat checkbox session,
-            # or it is running under our procs table.
             self._stop_role("server")
         self.root.after(800, self._refresh_status)
+
+    def _start_wsjt_seat(self) -> None:
+        self._set_banner(
+            "busy",
+            "Starting WSJT seat monitor…",
+            "Checks WSJT-X UDP/iface settings and reports to the site server.",
+        )
+        base = self._site_var.get().strip() or site_base_url()
+        os.environ["WIMS_SERVER"] = base
+        if not self._proc_running("wsjt_agent"):
+            self._start_role(role_by_id("wsjt_agent"))
+        self.root.after(2000, self._refresh_status)
+
+    def _stop_wsjt_seat(self) -> None:
+        self._stop_role("wsjt_agent")
+        self._last_wsjt_sev = None
+        self._last_wsjt_msg = ""
+        self.root.after(800, self._refresh_status)
+
+    def _open_local_status(self) -> None:
+        url = "http://127.0.0.1:8790/"
+        self._append_log(f"Open {url}")
+        if not self._proc_running("wsjt_agent"):
+            self._set_banner(
+                "warn",
+                "Seat monitor is not running",
+                "Press Start seat first, then Open local status.",
+            )
+            return
+
+        def _open() -> None:
+            if _wait_tcp("127.0.0.1", 8790, 15.0):
+                webbrowser.open(url)
+            else:
+                self.root.after(
+                    0, self._append_log,
+                    "ERROR: local status :8790 did not open. See Details.",
+                )
+
+        threading.Thread(target=_open, daemon=True).start()
 
     def _open_site_console(self) -> None:
         base = self._site_var.get().strip() or site_base_url()

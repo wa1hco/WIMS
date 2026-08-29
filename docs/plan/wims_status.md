@@ -17,9 +17,9 @@ python -m wims                 # N1MM seat home by default (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#   N1MM PC: Start seat → log helper status window + green banner
-#   (band from N1MM RadioInfo; site URL from env / last-known / LAN discover)
-#   Other PC types / Solo / KEY / site URL override under Advanced
+#   Auto home: N1MM PC → log helper; WSJT-only PC → seat monitor/config check
+#   Start seat → green banner when helpers + site are ready
+#   Other PC types / seat override / Solo / KEY under Advanced
 #   Log helper CLI: python -m wims.log   (add --no-gui for console-only)
 
 # Solo single-PC (CLI / scripts still work):
@@ -225,6 +225,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `WIMS_SERVER` / last-known / LAN discover (Advanced override only).
   **Compact log helper UI:** green/yellow/red banner + fix line + few facts;
   Details/Copy optional (`wims.helper_ui`).
+  **WSJT seat home:** auto-detect WSJT-only PCs → Start seat runs seat monitor;
+  Open local status; Advanced can override seat type (`seat_detect.py`).
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
