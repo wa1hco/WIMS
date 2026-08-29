@@ -87,7 +87,10 @@ Extends [wims_design.md](../plan/wims_design.md) functions #7 and #9:
 
 ---
 
-## Out of scope here
+## Implementation notes
 
-Implementing the compact GUIs and 52001 delivery — tracked as follow-on code.
-This decision only sets the **role model** and launcher emphasis.
+- **Log helper compact GUI + scoped checks:** shipped as `python -m wims.log`
+  (Tk status window; Start seat opens it). TCP **52001** send path still follow-on
+  (checks already probe 52001; delivery remains UDP 2333 until that lands).
+- **Key helper GUI / daemon:** still follow-on.
+- This decision sets the **role model** and launcher emphasis.

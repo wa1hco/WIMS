@@ -17,8 +17,9 @@ python -m wims                 # N1MM seat home by default (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#   N1MM PC: pick This N1MM’s band → Start seat → Open site console (green = ready)
+#   N1MM PC: pick This N1MM’s band → Start seat → log helper status window + green banner
 #   Other PC types / Solo / KEY selftest live under Advanced
+#   Log helper CLI: python -m wims.log --band 6m   (add --no-gui for console-only)
 
 # Solo single-PC (CLI / scripts still work):
 python -m wims solo            # or: python -m wims.solo
@@ -214,6 +215,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (`scratch/launcher-details.log`) so Windows ops can paste errors without fighting
   a disabled text widget. Log agent startup prints are ASCII-only (Windows cp1252
   crashed on `→`); launcher sets `PYTHONUTF8` for child processes.
+  **Log helper Tk status + scoped checks:** `python -m wims.log` / Start seat opens a
+  compact window (Status / Interconnect / Config check). Shared `wims.helper_ui`;
+  checks in `wims.log.check`. Windows hides the extra black console for the log child.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

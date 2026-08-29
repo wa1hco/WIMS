@@ -675,12 +675,20 @@ class LauncherApp:
             return
         cmd = _python_cmd() + py_argv
         self._append_log(f"$ {' '.join(cmd)}")
+        popen_kw: dict = {
+            "cwd": str(_REPO_ROOT),
+            "env": _role_env(),
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "bufsize": 1,
+        }
+        # Log helper has its own Tk window — hide the extra black console on Windows.
+        if role.id == "log" and sys.platform.startswith("win"):
+            popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            self._append_log("Log helper status window should open on this PC.")
         try:
-            proc = subprocess.Popen(
-                cmd, cwd=str(_REPO_ROOT), env=_role_env(),
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, bufsize=1,
-            )
+            proc = subprocess.Popen(cmd, **popen_kw)
         except Exception as e:
             self._append_log(f"ERROR: {e}")
             self._set_banner("err", "Could not start", str(e))

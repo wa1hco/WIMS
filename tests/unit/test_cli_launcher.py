@@ -62,7 +62,7 @@ class RoleCatalogTests(unittest.TestCase):
         log = role_by_id("log")
         assert log is not None
         argv = log.build_argv()
-        self.assertTrue(any("log_agent" in a for a in argv))
+        self.assertIn("wims.log", argv)
 
     def test_log_agent_argv_passes_band(self):
         log = role_by_id("log")
@@ -72,7 +72,7 @@ class RoleCatalogTests(unittest.TestCase):
             argv = log.build_argv(band="2m")
         self.assertIn("--band", argv)
         self.assertEqual(argv[argv.index("--band") + 1], "2m")
-        self.assertTrue(argv[0].endswith("log_agent.py"))
+        self.assertEqual(argv[:2], ["-m", "wims.log"])
 
     def test_log_agent_argv_from_env_band(self):
         log = role_by_id("log")
@@ -81,6 +81,12 @@ class RoleCatalogTests(unittest.TestCase):
             argv = log.build_argv()
         self.assertIn("--band", argv)
         self.assertEqual(argv[argv.index("--band") + 1], "70cm")
+
+    def test_log_cli_dispatch(self):
+        with mock.patch("wims.log.app.main", return_value=0) as m:
+            code = cli_main(["log", "--band", "6m", "--no-gui"])
+        self.assertEqual(code, 0)
+        m.assert_called_once_with(["--band", "6m", "--no-gui"])
 
     def test_key_is_oneshot_selftest(self):
         key = role_by_id("key")

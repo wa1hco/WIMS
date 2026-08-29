@@ -19,6 +19,9 @@ untrained contest ops. Linux “works” is not enough if Windows seats need a m
 Start seat = **log agent** (and later **key agent** when productized). Optional checkbox:
 “Also run site server on this PC.”
 
+Start seat opens the log helper’s **small status window** (config check + interconnect),
+not only a black console.
+
 Green when: site console reachable **and** log agent running.  
 Red when: either missing — say which, in English.
 

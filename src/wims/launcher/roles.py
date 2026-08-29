@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable
 
 
@@ -74,16 +73,15 @@ def _wsjt_agent_argv() -> list[str]:
     return argv
 
 
-def _log_agent_argv(*, band: str | None = None) -> list[str]:
-    # Absolute path — Windows shortcuts often have a surprising cwd.
-    script = str(
-        Path(__file__).resolve().parents[3] / "testbed" / "log_agent.py"
-    )
-    argv = [script]
-    # Band pin required: hostname …-50 / …-144 or explicit --band.
+def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
+    # Product module: compact Tk status UI by default (--no-gui for lab).
+    argv = ["-m", "wims.log"]
+    # Band pin required: hostname ...-50 / ...-144 or explicit --band.
     b = (band or os.environ.get("WIMS_BAND") or "").strip()
     if b:
         argv += ["--band", b]
+    if not gui:
+        argv.append("--no-gui")
     return argv
 
 
@@ -121,13 +119,13 @@ ROLES: tuple[Role, ...] = (
             "Listens on 224.0.0.73:2237, filters to this seat’s band, delivers the "
             "Log envelope to N1MM on localhost. Prefer TCP 52001 (JTDX/Others); "
             "UDP 2333 is a fallback — remote 2333 is untrusted.\n\n"
-            "Includes a scoped config check for multicast join, band pin, and "
-            "N1MM delivery. See docs/decisions/2026-08-22-remote-n1mm-logging.md."
+            "Opens a small status window (config check + interconnect). "
+            "See docs/decisions/2026-08-22-remote-n1mm-logging.md."
         ),
         button="Start log agent",
         recommended=True,
         long_running=True,
-        build_argv=lambda band=None, **_: _log_agent_argv(band=band),
+        build_argv=lambda band=None, gui=True, **_: _log_agent_argv(band=band, gui=gui),
     ),
     Role(
         id="key",
