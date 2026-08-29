@@ -90,7 +90,8 @@ class WsjtUdpReaderIniTests(unittest.TestCase):
         self.assertTrue(rows[0]["enabled"])
         self.assertEqual(rows[0]["port"], 2333)
 
-    def test_probe_fleet_conflict_from_temp_ini(self):
+    def test_ini_true_without_runtime_is_not_conflict(self):
+        """Stale ini Enable=True must not yellow-warn if N1MM is not bound."""
         import tempfile
         with tempfile.TemporaryDirectory() as td:
             ini = Path(td) / "N1MM Logger.ini"
@@ -108,7 +109,35 @@ class WsjtUdpReaderIniTests(unittest.TestCase):
                     "wims.agent.n1mm_probe.n1mm_user_dirs",
                     return_value=[],
                 ):
-                    info = probe_wsjt_udp_reader()
+                    with mock.patch(
+                        "wims.agent.n1mm_probe.n1mm_fleet_udp_binds",
+                        return_value=[],
+                    ):
+                        info = probe_wsjt_udp_reader()
+        self.assertFalse(info["fleet_conflict"])
+        self.assertIn("not bound", info["summary"].lower())
+
+    def test_runtime_bind_is_conflict(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            ini = Path(td) / "N1MM Logger.ini"
+            ini.write_text(
+                "[ExternalProgramInput]\nEnableWSJTJTDXUDPReader=False\n",
+                encoding="utf-8",
+            )
+            with mock.patch(
+                "wims.agent.n1mm_probe._find_ini_files",
+                return_value=[ini],
+            ):
+                with mock.patch(
+                    "wims.agent.n1mm_probe.n1mm_user_dirs",
+                    return_value=[],
+                ):
+                    with mock.patch(
+                        "wims.agent.n1mm_probe.n1mm_fleet_udp_binds",
+                        return_value=[{"port": 2237, "pid": 99, "local": "0.0.0.0:2237"}],
+                    ):
+                        info = probe_wsjt_udp_reader()
         self.assertTrue(info["fleet_conflict"])
         self.assertIn("2237", info["summary"])
 
@@ -128,7 +157,11 @@ class WsjtUdpReaderIniTests(unittest.TestCase):
                     "wims.agent.n1mm_probe.n1mm_user_dirs",
                     return_value=[],
                 ):
-                    info = probe_wsjt_udp_reader()
+                    with mock.patch(
+                        "wims.agent.n1mm_probe.n1mm_fleet_udp_binds",
+                        return_value=[],
+                    ):
+                        info = probe_wsjt_udp_reader()
         self.assertFalse(info["fleet_conflict"])
         self.assertIn("off", info["summary"].lower())
 

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -281,6 +282,7 @@ def _parse_wsjt_udp_reader_from_ini(text: str) -> list[dict]:
     """
     # Flatten key=value ignoring sections (keys are unique enough).
     kv: dict[str, str] = {}
+    raw_lines: list[str] = []
     for raw in text.splitlines():
         line = raw.strip()
         if not line or line.startswith(";") or line.startswith("#") or line.startswith("["):
@@ -288,7 +290,11 @@ def _parse_wsjt_udp_reader_from_ini(text: str) -> list[dict]:
         if "=" not in line:
             continue
         k, _, v = line.partition("=")
-        kv[k.strip().lower()] = v.strip()
+        key = k.strip().lower()
+        val = v.strip()
+        kv[key] = val
+        if "wsjt" in key and "udp" in key:
+            raw_lines.append(f"{k.strip()}={val}")
 
     out: list[dict] = []
     for suffix, label in (("", "Radio1"), ("2", "Radio2")):
@@ -297,7 +303,7 @@ def _parse_wsjt_udp_reader_from_ini(text: str) -> list[dict]:
         port_key = f"wsjtjtdxudpport{suffix}"
         if suffix == "2" and en_key not in kv and ip_key not in kv and port_key not in kv:
             continue
-        enabled = _ini_truthy(kv.get(en_key))
+        enabled = _ini_truthy(kv.get(en_key)) if en_key in kv else False
         ip = kv.get(ip_key)
         port_raw = kv.get(port_key)
         port: int | None = None
@@ -315,73 +321,213 @@ def _parse_wsjt_udp_reader_from_ini(text: str) -> list[dict]:
             "ip": ip,
             "port": port,
             "key_present": en_key in kv,
+            "enable_raw": kv.get(en_key),
         })
+    # Attach raw_lines on first row for diagnostics (avoid changing return type).
+    if out:
+        out[0] = {**out[0], "raw_lines": raw_lines[:12]}
     return out
 
 
-def probe_wsjt_udp_reader() -> dict:
-    """Read N1MM Logger.ini for WSJT/JTDX UDP reader enable state.
-
-    Returns::
-        {
-          "found_ini": bool,
-          "ini_paths": [...],
-          "readers": [{"radio", "enabled", "ip", "port", ...}, ...],
-          "fleet_conflict": bool,  # enabled on a fleet decode port
-          "summary": str,
-        }
-    """
-    paths = _find_ini_files(n1mm_user_dirs())
-    # Prefer the newest ini that mentions the reader key (active config).
+def _n1mm_pids() -> set[int]:
+    """PIDs whose image name looks like N1MM Logger+."""
+    pids: set[int] = set()
     try:
-        paths = sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)
-    except OSError:
-        pass
-    readers: list[dict] = []
-    used_paths: list[str] = []
+        if sys.platform == "win32":
+            out = subprocess.check_output(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            for line in out.splitlines():
+                low = line.lower()
+                if "n1mmlogger" not in low:
+                    continue
+                # "N1MMLogger.net.exe","1234",...
+                parts = [p.strip().strip('"') for p in line.split(",")]
+                if len(parts) >= 2 and parts[1].isdigit():
+                    pids.add(int(parts[1]))
+        else:
+            out = subprocess.check_output(
+                ["ps", "-eo", "pid,comm"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+            )
+            for line in out.splitlines()[1:]:
+                parts = line.split(None, 1)
+                if len(parts) == 2 and "n1mm" in parts[1].lower():
+                    pids.add(int(parts[0]))
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return set()
+    return pids
+
+
+def n1mm_fleet_udp_binds() -> list[dict]:
+    """Runtime: fleet UDP ports currently held by an N1MM process (if detectable)."""
+    n1mm_pids = _n1mm_pids()
+    if not n1mm_pids:
+        return []
+    hits: list[dict] = []
+    try:
+        if sys.platform == "win32":
+            out = subprocess.check_output(
+                ["netstat", "-ano", "-p", "udp"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            # UDP    0.0.0.0:2237    *:*    1234
+            for line in out.splitlines():
+                if "UDP" not in line.upper():
+                    continue
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                local, pid_s = parts[1], parts[-1]
+                if not pid_s.isdigit():
+                    continue
+                pid = int(pid_s)
+                if pid not in n1mm_pids:
+                    continue
+                port_s = local.rsplit(":", 1)[-1]
+                if not port_s.isdigit():
+                    continue
+                port = int(port_s)
+                if port in _FLEET_UDP_PORTS:
+                    hits.append({"port": port, "pid": pid, "local": local})
+        else:
+            out = subprocess.check_output(
+                ["ss", "-ulnp"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+            )
+            for line in out.splitlines():
+                if "n1mm" not in line.lower():
+                    continue
+                for port in _FLEET_UDP_PORTS:
+                    if f":{port}" in line:
+                        hits.append({"port": port, "pid": None, "local": line.strip()[:120]})
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return []
+    return hits
+
+
+def _choose_n1mm_ini(paths: list[Path]) -> Path | None:
+    """Prefer UserDir\\N1MM Logger.ini, then exact name, then newest with reader keys."""
+    if not paths:
+        return None
+    ud = _win_user_dir()
+    exact: list[Path] = []
+    for p in paths:
+        if p.name.lower() == "n1mm logger.ini":
+            if ud is not None:
+                try:
+                    if p.resolve().parent == ud.resolve():
+                        return p
+                except OSError:
+                    pass
+            exact.append(p)
+    if exact:
+        try:
+            return sorted(exact, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+        except OSError:
+            return exact[0]
+
+    scored: list[tuple[float, Path]] = []
     for p in paths:
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        parsed = _parse_wsjt_udp_reader_from_ini(text)
-        if not any(r.get("key_present") for r in parsed):
-            # Keys absent: treat as off only for primary N1MM Logger.ini names.
-            if p.name.lower().startswith("n1mm") and not readers:
-                used_paths.append(str(p))
-                readers = [{
-                    "radio": "Radio1", "enabled": False, "ip": None,
-                    "port": None, "key_present": False,
-                }]
+        if "enablewsjtjtdxudpreader" not in text.lower():
             continue
-        used_paths = [str(p)]
-        readers = parsed
-        break
+        try:
+            scored.append((p.stat().st_mtime, p))
+        except OSError:
+            scored.append((0.0, p))
+    if scored:
+        scored.sort(reverse=True)
+        return scored[0][1]
+    try:
+        return sorted(paths, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    except OSError:
+        return paths[0]
 
-    fleet_hits = [
+
+def probe_wsjt_udp_reader() -> dict:
+    """Check whether N1MM's WSJT/JTDX UDP *fleet* reader is active.
+
+    Prefer **runtime** binds (N1MM process holding :2237/…). Ini Enable flags are
+    supporting evidence only — alternate/stale ini files often disagree with the UI.
+    """
+    paths = _find_ini_files(n1mm_user_dirs())
+    chosen = _choose_n1mm_ini(paths)
+    readers: list[dict] = []
+    raw_lines: list[str] = []
+    used_paths: list[str] = []
+    if chosen is not None:
+        used_paths = [str(chosen)]
+        try:
+            text = chosen.read_text(encoding="utf-8", errors="replace")
+            readers = _parse_wsjt_udp_reader_from_ini(text)
+            if readers:
+                raw_lines = list(readers[0].get("raw_lines") or [])
+        except OSError:
+            readers = []
+
+    runtime_hits = n1mm_fleet_udp_binds()
+    ini_fleet = [
         r for r in readers
-        if r.get("enabled") and (r.get("port") in _FLEET_UDP_PORTS or r.get("port") is None)
+        if r.get("enabled") and r.get("port") in _FLEET_UDP_PORTS
     ]
-    # port None + enabled already normalized to 2237 above when enabled.
-    fleet_conflict = any(
-        r.get("enabled") and r.get("port") in _FLEET_UDP_PORTS for r in readers
-    )
-    if not used_paths and not paths:
-        summary = "N1MM Logger.ini not found — cannot verify WSJT UDP reader."
-    elif not fleet_conflict and not any(r.get("enabled") for r in readers):
-        summary = "N1MM WSJT/JTDX UDP reader is off (Logger.ini)."
-    elif fleet_conflict:
-        parts = [
-            f"{r['radio']} port {r.get('port')}" + (f" @ {r['ip']}" if r.get("ip") else "")
-            for r in fleet_hits
-        ]
+
+    # Authoritative for "is it on?": runtime. Ini alone does not yellow-warn.
+    fleet_conflict = bool(runtime_hits)
+    detail_ini = ""
+    if readers:
+        bits = []
+        for r in readers:
+            if not r.get("key_present") and r.get("radio") == "Radio2":
+                continue
+            raw = r.get("enable_raw")
+            bits.append(
+                f"{r['radio']} Enable="
+                + (repr(raw) if raw is not None else "(absent)")
+                + (f" port={r.get('port')}" if r.get("port") else "")
+            )
+        detail_ini = "; ".join(bits)
+        if used_paths:
+            detail_ini += f" [{used_paths[0]}]"
+
+    if runtime_hits:
+        ports = sorted({h["port"] for h in runtime_hits})
         summary = (
-            "N1MM WSJT/JTDX UDP reader is ON for fleet decode port(s): "
-            + ", ".join(parts)
-            + " — turn OFF (Configurer > WSJT/JTDX Setup) so the log helper owns :2237."
+            "N1MM process is bound to fleet UDP port(s) "
+            + ", ".join(f":{p}" for p in ports)
+            + " — turn OFF Configurer > WSJT/JTDX Setup UDP Enable for Radio 1/2."
         )
+        if detail_ini:
+            summary += f" Ini: {detail_ini}"
+    elif ini_fleet:
+        # UI/runtime off, but an ini still says True — do not yell; explain.
+        summary = (
+            "N1MM is not bound to fleet UDP ports (readers look off at runtime). "
+            f"Stale/alternate ini still has Enable=True: {detail_ini}"
+        )
+        fleet_conflict = False
+    elif not used_paths and not paths:
+        summary = "N1MM Logger.ini not found; no N1MM fleet UDP binds seen."
+    elif not any(r.get("enabled") for r in readers):
+        summary = "N1MM WSJT/JTDX UDP reader off (runtime clear"
+        if detail_ini:
+            summary += f"; {detail_ini}"
+        summary += ")."
     else:
-        # Enabled but on 2333 / other — ADIF ingest, not fleet mcast join.
         en = [r for r in readers if r.get("enabled")]
         parts = [f"{r['radio']} port {r.get('port')}" for r in en]
         summary = (
@@ -389,10 +535,13 @@ def probe_wsjt_udp_reader() -> dict:
             + ", ".join(parts)
             + " (OK for local ADIF ingest)."
         )
+
     return {
         "found_ini": bool(paths),
         "ini_paths": used_paths or [str(p) for p in paths[:3]],
         "readers": readers,
+        "raw_lines": raw_lines,
+        "runtime_binds": runtime_hits,
         "fleet_conflict": fleet_conflict,
         "summary": summary,
     }
