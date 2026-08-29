@@ -709,6 +709,14 @@ class LauncherApp:
 
     def _refresh_n1mm_status(self, ok_site: bool, base: str) -> None:
         log_on = self._proc_running("log")
+        # Don't offer "Also run site server" when a site console is already up
+        # elsewhere (unless this PC is already running the server we started).
+        if ok_site and not self._proc_running("server"):
+            if self._opts.winfo_ismapped() and not self._also_server.get():
+                self._opts.pack_forget()
+        elif self._seat_type == SEAT_N1MM and not self._opts.winfo_ismapped():
+            self._opts.pack(fill="x", pady=(8, 4))
+
         if ok_site and log_on:
             self._set_banner(
                 "ok",
@@ -813,20 +821,58 @@ class LauncherApp:
     def _start_wsjt_seat(self) -> None:
         self._set_banner(
             "busy",
-            "Starting WSJT seat monitor…",
-            "Checks WSJT-X UDP/iface settings and reports to the site server.",
+            "Starting WSJT seat…",
+            "Running config check, then starting the seat monitor.",
         )
         base = self._site_var.get().strip() or site_base_url()
         os.environ["WIMS_SERVER"] = base
-        if not self._proc_running("wsjt_agent"):
-            self._start_role(role_by_id("wsjt_agent"))
-        self.root.after(2000, self._refresh_status)
+        # Config check is part of Start seat (results in Details + banner).
+        self._run_wsjt_check_inline(then_start_monitor=True)
 
     def _stop_wsjt_seat(self) -> None:
         self._stop_role("wsjt_agent")
         self._last_wsjt_sev = None
         self._last_wsjt_msg = ""
         self.root.after(800, self._refresh_status)
+
+    def _run_wsjt_check_inline(self, *, then_start_monitor: bool = False) -> None:
+        """Run WSJT config check in-process so Details always shows the report."""
+        self._append_log("— WSJT seat config check —")
+        self._set_banner("busy", "Checking WSJT-X setup…", "Full report goes to Details.")
+
+        def work() -> None:
+            try:
+                from wims.agent.report import build_report, format_report_text
+                rep = build_report(fleet=True)
+                text = format_report_text(rep)
+                summary = rep.get("summary") or {}
+                sev = summary.get("severity") or "unknown"
+                msg = str(summary.get("message") or "")
+            except Exception as e:
+                self.root.after(0, self._on_wsjt_check_done, f"Check failed: {e}", "error", str(e), then_start_monitor)
+                return
+            self.root.after(0, self._on_wsjt_check_done, text, sev, msg, then_start_monitor)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_wsjt_check_done(
+        self, text: str, sev: str, msg: str, then_start_monitor: bool,
+    ) -> None:
+        for line in (text or "").splitlines():
+            self._append_log(line)
+        self._last_wsjt_sev = sev
+        self._last_wsjt_msg = msg
+        if sev == "error":
+            self._set_banner("err", "WSJT config needs fixing", msg or "See Details.")
+        elif sev == "warn":
+            self._set_banner("warn", "WSJT config has warnings", msg or "See Details.")
+        else:
+            self._set_banner("ok", "WSJT config check OK", msg or "No config errors.")
+        if then_start_monitor:
+            if not self._proc_running("wsjt_agent"):
+                self._append_log("Starting seat monitor…")
+                self._start_role(role_by_id("wsjt_agent"))
+            self.root.after(2000, self._refresh_status)
 
     def _open_local_status(self) -> None:
         url = "http://127.0.0.1:8790/"
@@ -964,6 +1010,11 @@ class LauncherApp:
             return
         if role.id in self._procs and self._procs[role.id].poll() is None:
             self._append_log(f"{role.title} already running.")
+            return
+        # One-shot WSJT check: run in-process so Details always shows the report
+        # (subprocess discovery was easy to miss / looked like "no output").
+        if role.id == "wsjt_check":
+            self._run_wsjt_check_inline(then_start_monitor=False)
             return
         if role.id == "solo":
             kwargs.setdefault("port", int(self._solo_port.get()))

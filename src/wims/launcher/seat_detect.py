@@ -97,6 +97,11 @@ def _wsjt_signals() -> tuple[bool, bool]:
 
 
 def _n1mm_signals() -> tuple[bool, bool]:
+    """Return (data_found, process_running).
+
+    On Linux/macOS, a leftover Documents/N1MM Logger+ tree (shared home or
+    copied from Windows) must NOT imply this is an N1MM seat.
+    """
     found = False
     running = False
     try:
@@ -118,6 +123,16 @@ def _n1mm_signals() -> tuple[bool, bool]:
     return found, running
 
 
+def _n1mm_counts_as_seat(found: bool, running: bool) -> bool:
+    """True when this PC should get the N1MM seat home."""
+    if running:
+        return True
+    # Install/data alone only counts on Windows (real Logger+ installs).
+    if sys.platform.startswith("win") and found:
+        return True
+    return False
+
+
 def probe_seat() -> SeatProbe:
     """Return seat type from env, saved pref, or live detection."""
     env = (os.environ.get("WIMS_SEAT_TYPE") or "").strip().lower()
@@ -132,24 +147,39 @@ def probe_seat() -> SeatProbe:
     wsjt_ini, wsjt_running = _wsjt_signals()
     n1mm_found, n1mm_running = _n1mm_signals()
     wsjt = wsjt_ini or wsjt_running
-    n1mm = n1mm_found or n1mm_running
+    n1mm_seat = _n1mm_counts_as_seat(n1mm_found, n1mm_running)
 
-    if pref in _VALID:
-        return SeatProbe(
-            seat_type=pref, wsjt_ini=wsjt_ini, wsjt_running=wsjt_running,
-            n1mm_found=n1mm_found, n1mm_running=n1mm_running, source="pref",
-            detail=f"saved preference={pref}",
+    prefer_saved = pref in _VALID
+    if prefer_saved:
+        # Ignore stale "n1mm" pref on Linux when Logger is not running and WSJT is.
+        stale_linux_n1mm = (
+            pref == SEAT_N1MM
+            and not n1mm_running
+            and wsjt
+            and not sys.platform.startswith("win")
         )
+        if stale_linux_n1mm:
+            prefer_saved = False
+        else:
+            return SeatProbe(
+                seat_type=pref, wsjt_ini=wsjt_ini, wsjt_running=wsjt_running,
+                n1mm_found=n1mm_found, n1mm_running=n1mm_running, source="pref",
+                detail=f"saved preference={pref}",
+            )
 
-    if n1mm and not wsjt:
+    if n1mm_seat and not wsjt:
         kind, src, detail = SEAT_N1MM, "detect", "N1MM present, no WSJT-X"
-    elif wsjt and not n1mm:
-        kind, src, detail = SEAT_WSJT, "detect", "WSJT-X present, no N1MM"
-    elif n1mm and wsjt:
-        # Co-located logger+WSJT → N1MM seat helpers are the primary need.
-        kind, src, detail = SEAT_N1MM, "detect", "both present — default N1MM seat"
+    elif wsjt and not n1mm_seat:
+        kind, src, detail = SEAT_WSJT, "detect", "WSJT-X present, no N1MM running"
+        if n1mm_found and not n1mm_running:
+            detail += " (ignored leftover N1MM data folder)"
+    elif n1mm_seat and wsjt:
+        kind, src, detail = SEAT_N1MM, "detect", "N1MM running with WSJT — N1MM seat"
     else:
         kind, src, detail = SEAT_AMBIGUOUS, "ambiguous", "neither N1MM nor WSJT-X detected"
+
+    if kind in _VALID and not prefer_saved and pref == SEAT_N1MM and kind == SEAT_WSJT:
+        save_seat_type(kind)
 
     return SeatProbe(
         seat_type=kind, wsjt_ini=wsjt_ini, wsjt_running=wsjt_running,

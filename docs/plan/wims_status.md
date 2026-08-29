@@ -227,6 +227,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   Details/Copy optional (`wims.helper_ui`).
   **WSJT seat home:** auto-detect WSJT-only PCs → Start seat runs seat monitor;
   Open local status; Advanced can override seat type (`seat_detect.py`).
+  Linux: leftover `Documents/N1MM Logger+` without N1MM running no longer forces
+  N1MM home. Start seat runs an in-UI WSJT config check (Details). Hide “Also run
+  site server” when a site console is already reachable.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

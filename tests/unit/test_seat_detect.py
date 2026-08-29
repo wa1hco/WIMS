@@ -52,7 +52,22 @@ class SeatDetectTests(unittest.TestCase):
         self.assertEqual(p.seat_type, SEAT_WSJT)
         self.assertEqual(p.source, "detect")
 
-    def test_n1mm_only(self):
+    def test_n1mm_running_only(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WIMS_SEAT_TYPE", None)
+            with mock.patch("wims.launcher.seat_detect.load_seat_type", return_value=None):
+                with mock.patch(
+                    "wims.launcher.seat_detect._wsjt_signals",
+                    return_value=(False, False),
+                ):
+                    with mock.patch(
+                        "wims.launcher.seat_detect._n1mm_signals",
+                        return_value=(True, True),
+                    ):
+                        p = probe_seat()
+        self.assertEqual(p.seat_type, SEAT_N1MM)
+
+    def test_windows_n1mm_data_without_process(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WIMS_SEAT_TYPE", None)
             with mock.patch("wims.launcher.seat_detect.load_seat_type", return_value=None):
@@ -64,10 +79,11 @@ class SeatDetectTests(unittest.TestCase):
                         "wims.launcher.seat_detect._n1mm_signals",
                         return_value=(True, False),
                     ):
-                        p = probe_seat()
+                        with mock.patch("sys.platform", "win32"):
+                            p = probe_seat()
         self.assertEqual(p.seat_type, SEAT_N1MM)
 
-    def test_both_defaults_n1mm(self):
+    def test_both_running_defaults_n1mm(self):
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("WIMS_SEAT_TYPE", None)
             with mock.patch("wims.launcher.seat_detect.load_seat_type", return_value=None):
@@ -81,6 +97,47 @@ class SeatDetectTests(unittest.TestCase):
                     ):
                         p = probe_seat()
         self.assertEqual(p.seat_type, SEAT_N1MM)
+
+    def test_linux_leftover_n1mm_docs_with_wsjt_is_wsjt(self):
+        """Documents/N1MM Logger+ without N1MM process must not force N1MM home."""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WIMS_SEAT_TYPE", None)
+            with mock.patch("wims.launcher.seat_detect.load_seat_type", return_value=None):
+                with mock.patch(
+                    "wims.launcher.seat_detect._wsjt_signals",
+                    return_value=(True, True),
+                ):
+                    with mock.patch(
+                        "wims.launcher.seat_detect._n1mm_signals",
+                        return_value=(True, False),  # data found, not running
+                    ):
+                        with mock.patch("sys.platform", "linux"):
+                            p = probe_seat()
+        self.assertEqual(p.seat_type, SEAT_WSJT)
+        self.assertIn("leftover", p.detail)
+
+    def test_stale_linux_n1mm_pref_overridden(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("WIMS_SEAT_TYPE", None)
+            with mock.patch(
+                "wims.launcher.seat_detect.load_seat_type",
+                return_value=SEAT_N1MM,
+            ):
+                with mock.patch(
+                    "wims.launcher.seat_detect._wsjt_signals",
+                    return_value=(True, False),
+                ):
+                    with mock.patch(
+                        "wims.launcher.seat_detect._n1mm_signals",
+                        return_value=(True, False),
+                    ):
+                        with mock.patch("sys.platform", "linux"):
+                            with mock.patch(
+                                "wims.launcher.seat_detect.save_seat_type",
+                            ) as save:
+                                p = probe_seat()
+        self.assertEqual(p.seat_type, SEAT_WSJT)
+        save.assert_called_once_with(SEAT_WSJT)
 
     def test_neither_ambiguous(self):
         with mock.patch.dict(os.environ, {}, clear=False):
