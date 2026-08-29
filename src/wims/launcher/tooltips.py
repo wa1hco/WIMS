@@ -11,9 +11,12 @@ import tkinter as tk
 
 
 class ToolTip:
-    """Show ``text`` in a small light popup after a short hover delay."""
+    """Show ``text`` in a small light popup after a short hover delay.
 
-    def __init__(self, widget: tk.Misc, text: str, delay_ms: int = 450) -> None:
+    Call ``set_text`` to refresh content (helper status updates every second).
+    """
+
+    def __init__(self, widget: tk.Misc, text: str = "", delay_ms: int = 450) -> None:
         self.widget = widget
         self.text = text
         self.delay_ms = delay_ms
@@ -22,6 +25,14 @@ class ToolTip:
         widget.bind("<Enter>", self._schedule, add="+")
         widget.bind("<Leave>", self._hide, add="+")
         widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def set_text(self, text: str) -> None:
+        self.text = text or ""
+        # If a tip is visible, rebuild so the operator sees fresh detail.
+        if self._tip is not None:
+            self._hide()
+            if self.text:
+                self._show()
 
     def _schedule(self, _event=None) -> None:
         self._cancel()

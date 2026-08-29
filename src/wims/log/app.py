@@ -258,13 +258,24 @@ def _status_model(state: LogState) -> HelperStatusModel:
     if s["last_error"]:
         facts.append(f"Error: {s['last_error']}")
 
+    details = s["check_lines"] or []
+    hover_bits = [
+        banner,
+        fix,
+        "",
+        *facts,
+        "",
+        "Config check:",
+        *(details if details else ["(none yet — press Rescan)"]),
+    ]
     return HelperStatusModel(
         title=title,
         banner_level=level,
         banner_text=banner,
         fix_text=fix,
         fact_lines=facts,
-        detail_lines=s["check_lines"] or [],
+        detail_lines=details,
+        hover_text="\n".join(hover_bits),
         site_url=s["site_url"],
     )
 

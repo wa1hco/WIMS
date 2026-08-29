@@ -6,7 +6,7 @@
 """Compact Tk status shell for seat helpers (log / key / …).
 
 Tired-operator chrome: one green/yellow/red banner, a few fact lines,
-Rescan / Quit. No multi-panel config dump on the home face.
+Rescan / Quit. Extra detail lives on hover tooltips (and optional Details).
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+from wims.launcher.tooltips import ToolTip
 
 
 def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
@@ -49,8 +51,9 @@ class HelperStatusModel:
     banner_text: str = "Starting..."
     fix_text: str = ""
     fact_lines: list[str] = field(default_factory=list)
-    # Kept for callers / Copy details; not shown unless Details is opened.
+    # Shown on hover over banner / facts; also in Details / Copy.
     detail_lines: list[str] = field(default_factory=list)
+    hover_text: str = ""
     site_url: str | None = None
 
     # Backward-compatible aliases used by older call sites.
@@ -84,7 +87,7 @@ ActionFn = Callable[[], None]
 
 
 class HelperStatusWindow:
-    """Compact color-coded helper window."""
+    """Compact color-coded helper window with hover details."""
 
     def __init__(
         self,
@@ -122,40 +125,61 @@ class HelperStatusWindow:
         )
         self._banner.pack(fill="x", padx=10, pady=(10, 2))
 
-        tk.Label(
+        self._fix = tk.Label(
             self.root, textvariable=self._fix_var,
             font=_ui_font(11), bg="#f4f4f4", fg="#444444",
             anchor="w", justify="left", wraplength=390,
-        ).pack(fill="x", padx=12, pady=(0, 4))
+        )
+        self._fix.pack(fill="x", padx=12, pady=(0, 4))
 
-        tk.Label(
+        self._facts = tk.Label(
             self.root, textvariable=self._facts_var,
             font=_ui_font(12), bg="#f4f4f4", fg="#222222",
             anchor="w", justify="left", wraplength=390,
-        ).pack(fill="x", padx=12, pady=(0, 6))
+        )
+        self._facts.pack(fill="x", padx=12, pady=(0, 6))
+
+        # Dynamic hover text — updated each refresh with config-check detail.
+        self._tip_banner = ToolTip(self._banner, "Hover for status detail.")
+        self._tip_fix = ToolTip(self._fix, "")
+        self._tip_facts = ToolTip(self._facts, "")
 
         btns = tk.Frame(self.root, bg="#f4f4f4")
         btns.pack(fill="x", padx=10, pady=(0, 10))
-        tk.Button(
+        b_rescan = tk.Button(
             btns, text="Rescan", font=_ui_font(11),
             command=self._do_rescan,
-        ).pack(side="left")
-        tk.Button(
+        )
+        b_rescan.pack(side="left")
+        ToolTip(b_rescan, "Re-run interconnect / config checks now.")
+
+        b_site = tk.Button(
             btns, text="Site", font=_ui_font(11),
             command=self._open_site,
-        ).pack(side="left", padx=(6, 0))
-        tk.Button(
+        )
+        b_site.pack(side="left", padx=(6, 0))
+        ToolTip(b_site, "Open the site console (Operate / Status) in your browser.")
+
+        b_copy = tk.Button(
             btns, text="Copy", font=_ui_font(11),
             command=self._copy_details,
-        ).pack(side="left", padx=(6, 0))
-        tk.Button(
+        )
+        b_copy.pack(side="left", padx=(6, 0))
+        ToolTip(b_copy, "Copy banner + facts + full check list to the clipboard.")
+
+        b_details = tk.Button(
             btns, text="Details", font=_ui_font(11),
             command=self._toggle_details,
-        ).pack(side="left", padx=(6, 0))
-        tk.Button(
+        )
+        b_details.pack(side="left", padx=(6, 0))
+        ToolTip(b_details, "Show or hide the full config-check list.")
+
+        b_quit = tk.Button(
             btns, text="Quit", font=_ui_font(11),
             command=self._do_quit,
-        ).pack(side="right")
+        )
+        b_quit.pack(side="right")
+        ToolTip(b_quit, "Stop this helper and close the window.")
 
         self._details = tk.Text(
             self.root, height=6, font=_ui_font(10),
@@ -192,6 +216,18 @@ class HelperStatusWindow:
         self._apply(model)
         self.root.after(self._poll_ms, self._tick)
 
+    def _hover_blob(self, model: HelperStatusModel) -> str:
+        if model.hover_text.strip():
+            return model.hover_text.strip()
+        parts = [
+            model.banner_text,
+            model.fix_text,
+            "",
+            *(model.detail_lines or []),
+        ]
+        text = "\n".join(p for p in parts if p).strip()
+        return text or "No extra detail yet."
+
     def _apply(self, model: HelperStatusModel) -> None:
         bg, fg = _LEVEL_COLORS.get(model.banner_level, _LEVEL_COLORS["warn"])
         self._banner.configure(bg=bg, fg=fg)
@@ -202,6 +238,10 @@ class HelperStatusWindow:
         self.root.title(model.title)
         self._site_url = model.site_url
         self._detail_lines = list(model.detail_lines or [])
+        hover = self._hover_blob(model)
+        self._tip_banner.set_text(hover)
+        self._tip_fix.set_text(hover if model.fix_text else "")
+        self._tip_facts.set_text(hover)
         if self._details_open:
             self._details.delete("1.0", "end")
             body = "\n".join(self._detail_lines) if self._detail_lines else "(none)"
