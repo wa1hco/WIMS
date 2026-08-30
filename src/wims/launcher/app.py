@@ -194,6 +194,7 @@ def site_base_url() -> str:
 
 
 def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool, str]:
+    """Probe one console base URL. Returns (ok, base_used)."""
     base = (base or site_base_url()).rstrip("/")
     url = f"{base}/healthz"
     try:
@@ -201,12 +202,42 @@ def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool,
             raw = r.read(500)
         data = json.loads(raw.decode("utf-8", errors="replace"))
         if data.get("ok") and data.get("role") == "wims-site-server":
-            return True, base
+            # Prefer the server's advertised console_base when present.
+            advertised = (data.get("console_base") or "").rstrip("/")
+            return True, advertised or base
         if data.get("ok"):
             return True, base
         return False, base
     except (URLError, OSError, ValueError, json.JSONDecodeError):
         return False, base
+
+
+def probe_site_urls(
+    preferred: str | None = None,
+    *,
+    timeout: float = 0.8,
+) -> tuple[bool, str]:
+    """Try preferred, then localhost, then last-known / default.
+
+    Avoids false “not found” when the console is up on 127.0.0.1 but the
+    saved LAN URL briefly fails (or the reverse).
+    """
+    candidates: list[str] = []
+    for raw in (
+        preferred,
+        f"http://127.0.0.1:{DEFAULT_HTTP_PORT}",
+        load_last_site_url(),
+        site_base_url(),
+        _DEFAULT_SITE,
+    ):
+        u = (raw or "").strip().rstrip("/")
+        if u and u not in candidates:
+            candidates.append(u)
+    for base in candidates:
+        ok, used = site_reachable(base, timeout=timeout)
+        if ok:
+            return True, used
+    return False, (preferred or site_base_url()).rstrip("/")
 
 
 def find_icon_path() -> Path | None:
@@ -328,6 +359,11 @@ class LauncherApp:
         self._discovering = False
         self._last_wsjt_sev: str | None = None
         self._last_wsjt_msg: str = ""
+        self._site_ok = False
+        self._site_external = False  # reachable but not owned by this launcher
+        self._server_start_blocked = False  # dual-primary / refuse restart spam
+        self._browser_opened: set[str] = set()  # role_id → open at most once/session
+        self._status_after: str | None = None
         self._wanted = load_wanted_agents()
         self._user_override: set[str] = set()
         self._agent_vars = {
@@ -614,9 +650,12 @@ class LauncherApp:
             cur = bool(self._agent_vars[aid].get())
             if want and not cur:
                 self._agent_vars[aid].set(True)
-                self._start_agent(aid)
-            elif want and cur and not self._agent_running(aid):
-                self._start_agent(aid)
+                self._start_agent(aid, open_browser=False)
+            elif want and cur and not self._agent_effective(aid):
+                # Do not restart-spam Site server when one is already on the LAN.
+                if aid == AGENT_SERVER:
+                    continue
+                self._start_agent(aid, open_browser=False)
 
         # Local status button only when seat agent is up.
         if self._agent_running(AGENT_WSJT):
@@ -634,49 +673,100 @@ class LauncherApp:
     def _agent_running(self, agent_id: str) -> bool:
         return self._proc_running(self._agent_role[agent_id])
 
+    def _agent_effective(self, agent_id: str) -> bool:
+        """True if this agent’s job is already covered (owned proc or external site)."""
+        if self._agent_running(agent_id):
+            return True
+        if agent_id == AGENT_SERVER and self._site_ok:
+            return True
+        return False
+
     def _on_agent_toggle(self, agent_id: str) -> None:
         self._user_override.add(agent_id)
         if self._agent_vars[agent_id].get():
-            self._start_agent(agent_id)
+            if agent_id == AGENT_SERVER:
+                self._server_start_blocked = False
+            self._start_agent(agent_id, open_browser=True)
         else:
             self._stop_agent(agent_id)
         self._persist_wanted()
         self._refresh_status()
 
-    def _start_agent(self, agent_id: str) -> None:
+    def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
         role_id = self._agent_role[agent_id]
         if self._proc_running(role_id):
             return
+
+        # Site server: if already reachable, adopt it — never spawn a second primary.
+        if agent_id == AGENT_SERVER:
+            if self._server_start_blocked:
+                return
+            ok, base = probe_site_urls(self._site_var.get().strip() or None)
+            if ok:
+                self._site_ok = True
+                self._site_external = True
+                self._site_var.set(base)
+                os.environ["WIMS_SERVER"] = base
+                save_last_site_url(base)
+                self._agent_status[AGENT_SERVER].set("running (existing)")
+                self._append_log(
+                    f"Site server already up at {base} — not starting a second one."
+                )
+                if open_browser:
+                    self._open_url_once("server", base.rstrip("/") + "/status")
+                self._schedule_status(800)
+                return
+
         base = self._site_var.get().strip() or site_base_url()
         if agent_id == AGENT_SERVER:
+            # Prefer binding/advertise localhost when we are about to start one here.
             base = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
             self._site_var.set(base)
         os.environ["WIMS_SERVER"] = base
         if agent_id == AGENT_WSJT:
-            self._run_wsjt_check_inline(then_start_monitor=True)
+            self._run_wsjt_check_inline(then_start_monitor=True, open_browser=open_browser)
             return
         if agent_id == AGENT_LOG:
             os.environ.pop("WIMS_BAND", None)
         self._append_log(f"Starting {agent_id} agent…")
-        self._start_role(role_by_id(role_id))
-        self.root.after(1500, self._refresh_status)
+        self._start_role(role_by_id(role_id), open_browser=open_browser)
+        self._schedule_status(1500)
 
     def _stop_agent(self, agent_id: str) -> None:
         role_id = self._agent_role[agent_id]
         self._append_log(f"Stopping {agent_id} agent…")
+        if agent_id == AGENT_SERVER:
+            # Uncheck only stops a server *this* launcher owns.
+            if not self._proc_running("server"):
+                self._append_log(
+                    "Site server is external (not started by this launcher) — "
+                    "left running. Uncheck only clears the want-flag."
+                )
+                self._site_external = False
+                self._schedule_status(200)
+                return
         self._stop_role(role_id)
         if agent_id == AGENT_WSJT:
             self._last_wsjt_sev = None
             self._last_wsjt_msg = ""
-        self.root.after(800, self._refresh_status)
+        self._schedule_status(800)
 
     def _kick_site_discover(self) -> None:
         if self._discovering:
             return
-        # Env pin wins — do not override an explicit WIMS_SERVER.
-        if (os.environ.get("WIMS_SERVER") or "").strip():
-            self._site_var.set(site_base_url())
+        # Quick HTTP probe first (localhost + last-known) before UDP wait.
+        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        if ok:
+            self._apply_discovered_site(base)
             return
+        # Env pin wins for discovery target, but still allow LAN find when unset.
+        env = (os.environ.get("WIMS_SERVER") or "").strip()
+        if env:
+            self._site_var.set(env.rstrip("/"))
+            ok2, base2 = site_reachable(env)
+            if ok2:
+                self._apply_discovered_site(base2)
+                return
         self._discovering = True
         self._append_log("Looking for site server on the LAN…")
 
@@ -690,6 +780,10 @@ class LauncherApp:
             url = None
             if beacon:
                 url = (beacon.get("console_base") or "").rstrip("/") or None
+            if not url:
+                ok3, base3 = probe_site_urls(None)
+                if ok3:
+                    url = base3
             self.root.after(0, self._apply_discovered_site, url)
 
         threading.Thread(target=work, daemon=True).start()
@@ -700,9 +794,12 @@ class LauncherApp:
             self._site_var.set(url)
             os.environ["WIMS_SERVER"] = url
             save_last_site_url(url)
+            self._site_ok = True
+            if not self._proc_running("server"):
+                self._site_external = True
             self._append_log(f"Site server: {url}")
         else:
-            # Keep last-known / default already in _site_var.
+            self._site_ok = False
             self._append_log(
                 f"No site server heard — using {self._site_var.get() or site_base_url()}"
             )
@@ -720,14 +817,35 @@ class LauncherApp:
             # Leave previous values; process liveness still drives red/green.
             pass
 
+    def _schedule_status(self, delay_ms: int = 3000) -> None:
+        """Single outstanding status refresh — avoid stacked timers / focus storms."""
+        if self._status_after is not None:
+            try:
+                self.root.after_cancel(self._status_after)
+            except Exception:
+                pass
+        self._status_after = self.root.after(delay_ms, self._refresh_status)
+
+    def _open_url_once(self, key: str, url: str) -> None:
+        if key in self._browser_opened:
+            return
+        self._browser_opened.add(key)
+        self._append_log(f"Open {url}")
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            self._append_log(f"Browser error: {e}")
+
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
-        self._site_var.set(base)
-        ok_site, base = site_reachable(base)
-
+        ok_site, base = probe_site_urls(base)
+        self._site_ok = ok_site
         if ok_site:
+            self._site_var.set(base)
             save_last_site_url(base)
             os.environ["WIMS_SERVER"] = base
+            if not self._proc_running("server"):
+                self._site_external = True
 
         # Per-row status
         labels = {
@@ -738,8 +856,10 @@ class LauncherApp:
         }
         for aid, role_id in self._agent_role.items():
             checked = bool(self._agent_vars[aid].get())
-            running = self._proc_running(role_id)
-            if running:
+            owned = self._proc_running(role_id)
+            if aid == AGENT_SERVER and ok_site and not owned:
+                self._agent_status[aid].set("running (existing)")
+            elif owned:
                 self._agent_status[aid].set("running")
             elif checked:
                 self._agent_status[aid].set("starting…")
@@ -749,9 +869,9 @@ class LauncherApp:
         if self._proc_running("wsjt_agent"):
             self._fetch_wsjt_report()
 
-        # Banner from checked agents
+        # Banner from checked agents (site server counts if reachable).
         wanted = [a for a, v in self._agent_vars.items() if v.get()]
-        missing = [labels[a] for a in wanted if not self._agent_running(a)]
+        missing = [labels[a] for a in wanted if not self._agent_effective(a)]
         if not wanted:
             self._set_banner(
                 "busy",
@@ -770,21 +890,24 @@ class LauncherApp:
                 "Seat agent: WSJT config needs fixing",
                 self._last_wsjt_msg or "Open local status / Details.",
             )
-        elif not ok_site and not self._agent_running(AGENT_SERVER):
+        elif not ok_site and AGENT_SERVER not in wanted:
             self._set_banner(
                 "warn",
                 "Agents running — site console not reachable",
                 f"Cannot reach {base}. Check Site server, or Find on LAN under Other tools…",
             )
         else:
+            note = base if ok_site else "Use Open site console for the fleet."
             self._set_banner(
                 "ok",
                 "Ready — checked agents are running",
-                "Use Open site console for the fleet.",
+                note if ok_site else "Use Open site console for the fleet.",
             )
-        self.root.after(3000, self._refresh_status)
+        self._schedule_status(4000)
 
-    def _run_wsjt_check_inline(self, *, then_start_monitor: bool = False) -> None:
+    def _run_wsjt_check_inline(
+        self, *, then_start_monitor: bool = False, open_browser: bool = False,
+    ) -> None:
         """Run WSJT config check in-process so Details always shows the report."""
         self._append_log("— WSJT seat config check —")
         self._set_banner("busy", "Checking WSJT-X setup…", "Full report goes to Details.")
@@ -798,14 +921,20 @@ class LauncherApp:
                 sev = summary.get("severity") or "unknown"
                 msg = str(summary.get("message") or "")
             except Exception as e:
-                self.root.after(0, self._on_wsjt_check_done, f"Check failed: {e}", "error", str(e), then_start_monitor)
+                self.root.after(
+                    0, self._on_wsjt_check_done,
+                    f"Check failed: {e}", "error", str(e), then_start_monitor, open_browser,
+                )
                 return
-            self.root.after(0, self._on_wsjt_check_done, text, sev, msg, then_start_monitor)
+            self.root.after(
+                0, self._on_wsjt_check_done, text, sev, msg, then_start_monitor, open_browser,
+            )
 
         threading.Thread(target=work, daemon=True).start()
 
     def _on_wsjt_check_done(
         self, text: str, sev: str, msg: str, then_start_monitor: bool,
+        open_browser: bool = False,
     ) -> None:
         for line in (text or "").splitlines():
             self._append_log(line)
@@ -820,12 +949,13 @@ class LauncherApp:
         if then_start_monitor:
             if not self._proc_running("wsjt_agent"):
                 self._append_log("Starting seat monitor…")
-                self._start_role(role_by_id("wsjt_agent"))
-            self.root.after(2000, self._refresh_status)
+                self._start_role(
+                    role_by_id("wsjt_agent"), open_browser=open_browser,
+                )
+            self._schedule_status(2000)
 
     def _open_local_status(self) -> None:
         url = "http://127.0.0.1:8790/"
-        self._append_log(f"Open {url}")
         if not self._proc_running("wsjt_agent"):
             self._set_banner(
                 "warn",
@@ -836,7 +966,8 @@ class LauncherApp:
 
         def _open() -> None:
             if _wait_tcp("127.0.0.1", 8790, 15.0):
-                webbrowser.open(url)
+                # Explicit button — always open.
+                self.root.after(0, lambda: self._open_url_force(url))
             else:
                 self.root.after(
                     0, self._append_log,
@@ -845,21 +976,26 @@ class LauncherApp:
 
         threading.Thread(target=_open, daemon=True).start()
 
-    def _open_site_console(self) -> None:
-        base = self._site_var.get().strip() or site_base_url()
-        url = base.rstrip("/") + "/"
+    def _open_url_force(self, url: str) -> None:
         self._append_log(f"Open {url}")
-        ok, _ = site_reachable(base)
+        try:
+            webbrowser.open(url)
+        except Exception as e:
+            self._append_log(f"Browser error: {e}")
+
+    def _open_site_console(self) -> None:
+        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        if ok:
+            self._site_var.set(base)
+        url = (base if ok else (self._site_var.get().strip() or site_base_url())).rstrip("/") + "/"
         if not ok:
             self._set_banner(
                 "err",
                 "Site console not reachable",
                 f"Tried {url} — start the site server, or correct the address.",
             )
-        try:
-            webbrowser.open(url)
-        except Exception as e:
-            self._append_log(f"Browser error: {e}")
+        # Explicit button — always open (may still help the operator).
+        self._open_url_force(url)
 
     def _add_role_card(self, parent, role) -> None:
         if role is None:
@@ -954,7 +1090,7 @@ class LauncherApp:
         except Exception as e:
             self._append_log(f"Open log failed: {e}. Path: {path}")
 
-    def _start_role(self, role, **kwargs) -> None:
+    def _start_role(self, role, *, open_browser: bool = False, **kwargs) -> None:
         if role is None:
             return
         if role.id in self._procs and self._procs[role.id].poll() is None:
@@ -1004,25 +1140,44 @@ class LauncherApp:
                 "Key agent: set WIMS_KEY_DEVICE and WIMS_KEY_TARGETS "
                 "(CTS source + inhibit host:port list).",
             )
-        elif role.id == "solo":
-            self.root.after(1800, lambda: webbrowser.open(console_urls()["operate"]))
+        elif role.id == "solo" and open_browser:
+            self.root.after(
+                1800,
+                lambda: self._open_url_once("solo", console_urls()["operate"]),
+            )
         elif role.id == "wsjt_agent":
             self._append_log("Seat monitor UI: http://127.0.0.1:8790/")
+            if open_browser:
+                def _open() -> None:
+                    if _wait_tcp("127.0.0.1", 8790, 25.0):
+                        self.root.after(
+                            0,
+                            lambda: self._open_url_once(
+                                "wsjt_agent", "http://127.0.0.1:8790/",
+                            ),
+                        )
+                    else:
+                        self.root.after(
+                            0, self._append_log,
+                            "ERROR: seat UI :8790 did not open. See Details.",
+                        )
 
-            def _open() -> None:
-                if _wait_tcp("127.0.0.1", 8790, 25.0):
-                    webbrowser.open("http://127.0.0.1:8790/")
-                else:
-                    self.root.after(
-                        0, self._append_log,
-                        "ERROR: seat UI :8790 did not open. See Details.",
-                    )
-
-            threading.Thread(target=_open, daemon=True).start()
-        elif role.id == "server":
+                threading.Thread(target=_open, daemon=True).start()
+        elif role.id == "server" and open_browser:
             def _open_srv() -> None:
-                if _wait_tcp("127.0.0.1", DEFAULT_HTTP_PORT, 20.0):
-                    webbrowser.open(console_urls()["status"])
+                # Only if *our* child stayed up — dual-primary exits leave :8787
+                # owned by the old server; opening then steals focus every cycle.
+                time.sleep(1.0)
+                child = self._procs.get("server")
+                if child is None or child.poll() is not None:
+                    return
+                if _wait_tcp("127.0.0.1", DEFAULT_HTTP_PORT, 15.0):
+                    self.root.after(
+                        0,
+                        lambda: self._open_url_once(
+                            "server", console_urls()["status"],
+                        ),
+                    )
 
             threading.Thread(target=_open_srv, daemon=True).start()
 
@@ -1038,7 +1193,28 @@ class LauncherApp:
     def _on_proc_exit(self, role_id: str, code: int | None) -> None:
         role = role_by_id(role_id)
         title = role.title if role else role_id
-        if role_id == "log":
+        if role_id == "server" and code not in (None, 0):
+            # Dual-primary refuse (exit 2) or other fail — adopt existing server,
+            # do not restart-spam.
+            self._server_start_blocked = True
+            ok, base = probe_site_urls(self._site_var.get().strip() or None)
+            if ok:
+                self._site_ok = True
+                self._site_external = True
+                self._site_var.set(base)
+                os.environ["WIMS_SERVER"] = base
+                save_last_site_url(base)
+                self._append_log(
+                    f"{title} did not stay up (code {code}); "
+                    f"using existing site server at {base}."
+                )
+                self._agent_status[AGENT_SERVER].set("running (existing)")
+            else:
+                self._append_log(f"{title} exited with code {code}.")
+                self._agent_vars[AGENT_SERVER].set(False)
+                self._user_override.add(AGENT_SERVER)
+                self._persist_wanted()
+        elif role_id == "log":
             # Any exit means it is not a resident agent (Task Manager empty).
             self._set_banner(
                 "err",
@@ -1052,10 +1228,10 @@ class LauncherApp:
         elif code is not None:
             self._append_log(f"{title} exited with code {code}.")
         self._procs.pop(role_id, None)
-        # Keep the checkbox checked on crash so detect can restart the agent.
-        # User uncheck already cleared the var and set _user_override.
+        # Seat agents: keep checkbox checked so detect can restart.
+        # Site server: handled above (block restart / adopt existing).
         self._update_card_state(role_id)
-        self._refresh_status()
+        self._schedule_status(500)
 
     def _stop_role(self, role_id: str) -> None:
         proc = self._procs.get(role_id)

@@ -163,6 +163,19 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertTrue(path.is_file())
         self.assertEqual(path.name, "wims.png")
 
+    def test_probe_site_urls_falls_back_to_localhost(self):
+        from wims.launcher.app import probe_site_urls
+        with mock.patch("wims.launcher.app.site_reachable") as sr:
+            def side(base, timeout=1.0):
+                b = (base or "").rstrip("/")
+                if "127.0.0.1" in b:
+                    return True, b
+                return False, b
+            sr.side_effect = side
+            ok, used = probe_site_urls("http://10.0.0.9:8787")
+        self.assertTrue(ok)
+        self.assertIn("127.0.0.1", used)
+
 
 class CliTests(unittest.TestCase):
     def test_version(self):
