@@ -41,9 +41,7 @@ from wims.launcher.assets import (
     AGENT_SERVER,
     AGENT_WSJT,
     detect_assets,
-    load_wanted_agents,
-    save_wanted_agents,
-    suggested_checks,
+    live_checks,
 )
 from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import format_replace_banner, replace_seat_agents
@@ -365,13 +363,16 @@ class LauncherApp:
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
         self._last_snap = detect_assets()
-        self._wanted = load_wanted_agents()
-        self._user_override: set[str] = set()
+        # Checkboxes are live seat status — never restored from disk prefs.
+        # user_off: operator unchecked while component still live (don't auto-on).
+        # user_on: operator checked without live companion (Key / early Seat).
+        self._user_off: set[str] = set()
+        self._user_on: set[str] = set()
         self._agent_vars = {
-            AGENT_LOG: tk.BooleanVar(value=bool(self._wanted.get(AGENT_LOG))),
-            AGENT_WSJT: tk.BooleanVar(value=bool(self._wanted.get(AGENT_WSJT))),
-            AGENT_KEY: tk.BooleanVar(value=bool(self._wanted.get(AGENT_KEY))),
-            AGENT_SERVER: tk.BooleanVar(value=bool(self._wanted.get(AGENT_SERVER))),
+            AGENT_LOG: tk.BooleanVar(value=False),
+            AGENT_WSJT: tk.BooleanVar(value=False),
+            AGENT_KEY: tk.BooleanVar(value=False),
+            AGENT_SERVER: tk.BooleanVar(value=False),
         }
         self._agent_status = {
             AGENT_LOG: tk.StringVar(value=""),
@@ -559,9 +560,9 @@ class LauncherApp:
         )
         self._append_log(
             f"Launcher v{__version__} ({self._rev}).\n"
-            "Check boxes to start agents (N1MM→Log, WSJT-X→Seat, Key, Site server).\n"
-            "On open: leftover Log/Seat/Key on this PC are replaced; site server is left alone.\n"
-            "When the top bar is green, use Open site console.\n"
+            "Checkboxes = live seat status (not saved prefs): app up → agent up.\n"
+            "On open: leftover Log/Seat/Key replaced; site server left alone.\n"
+            "Green Ready needs checked agents up (and live WSJT-X for Seat).\n"
             f"Log also written to: {details_log_path()}"
         )
 
@@ -639,25 +640,48 @@ class LauncherApp:
         snap = detect_assets()
         self._last_snap = snap
         self._home_panel.update_asset_labels(snap)
-        # Clear overrides when the live app disappears so a later start can auto-check.
-        if not snap.n1mm_present:
-            self._user_override.discard(AGENT_LOG)
-        if not snap.wsjt_running:
-            self._user_override.discard(AGENT_WSJT)
 
-        suggested = suggested_checks(snap, self._wanted)
-        for aid, want in suggested.items():
-            if aid in self._user_override:
-                continue
+        # Probe site so Site-server checkbox reflects reachable status.
+        ok_site, base = probe_site_urls(self._site_var.get().strip() or None)
+        self._site_ok = ok_site
+        if ok_site:
+            self._site_var.set(base)
+            os.environ["WIMS_SERVER"] = base
+            save_last_site_url(base)
+
+        live = live_checks(snap, site_reachable=ok_site)
+        for aid, should in live.items():
             cur = bool(self._agent_vars[aid].get())
-            if want and not cur:
+
+            # Clear holds when live reality no longer conflicts with them.
+            if aid in self._user_off and not should:
+                self._user_off.discard(aid)
+            if aid in self._user_on and should:
+                self._user_on.discard(aid)
+
+            if aid in self._user_off:
+                # Operator forced off while component still live.
+                continue
+            if aid in self._user_on:
+                # Operator forced on (Key / Seat before app) — keep agent up.
+                if cur and not self._agent_effective(aid):
+                    if aid != AGENT_SERVER:
+                        self._start_agent(aid, open_browser=False)
+                continue
+
+            if should and not cur:
                 self._agent_vars[aid].set(True)
                 self._start_agent(aid, open_browser=False)
-            elif want and cur and not self._agent_effective(aid):
-                # Do not restart-spam Site server when one is already on the LAN.
+            elif should and cur and not self._agent_effective(aid):
                 if aid == AGENT_SERVER:
-                    continue
-                self._start_agent(aid, open_browser=False)
+                    # Reachable existing server — adopt, do not spawn.
+                    self._start_agent(aid, open_browser=False)
+                else:
+                    self._start_agent(aid, open_browser=False)
+            elif not should and cur:
+                # Companion app / site status gone → uncheck and stop agent.
+                self._agent_vars[aid].set(False)
+                self._stop_agent(aid)
 
         # Local status button only when seat agent is up.
         if self._agent_running(AGENT_WSJT):
@@ -665,12 +689,6 @@ class LauncherApp:
                 self._home_panel.local_btn.pack(side="left", padx=(10, 0))
         elif self._home_panel.local_btn.winfo_ismapped():
             self._home_panel.local_btn.pack_forget()
-
-        self._persist_wanted()
-
-    def _persist_wanted(self) -> None:
-        self._wanted = {k: bool(v.get()) for k, v in self._agent_vars.items()}
-        save_wanted_agents(self._wanted)
 
     def _agent_running(self, agent_id: str) -> bool:
         return self._proc_running(self._agent_role[agent_id])
@@ -684,14 +702,21 @@ class LauncherApp:
         return False
 
     def _on_agent_toggle(self, agent_id: str) -> None:
-        self._user_override.add(agent_id)
+        snap = self._last_snap
+        live = live_checks(snap, site_reachable=self._site_ok)
+        should = bool(live.get(agent_id))
         if self._agent_vars[agent_id].get():
+            self._user_off.discard(agent_id)
+            if not should:
+                self._user_on.add(agent_id)
             if agent_id == AGENT_SERVER:
                 self._server_start_blocked = False
             self._start_agent(agent_id, open_browser=True)
         else:
+            self._user_on.discard(agent_id)
+            if should:
+                self._user_off.add(agent_id)
             self._stop_agent(agent_id)
-        self._persist_wanted()
         self._refresh_status()
 
     def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
@@ -1225,8 +1250,8 @@ class LauncherApp:
             else:
                 self._append_log(f"{title} exited with code {code}.")
                 self._agent_vars[AGENT_SERVER].set(False)
-                self._user_override.add(AGENT_SERVER)
-                self._persist_wanted()
+                self._user_off.add(AGENT_SERVER)
+                self._user_on.discard(AGENT_SERVER)
         elif role_id == "log":
             # Any exit means it is not a resident agent (Task Manager empty).
             self._set_banner(

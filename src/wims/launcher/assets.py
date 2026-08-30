@@ -62,25 +62,13 @@ def _pref_path() -> Path:
 
 
 def load_wanted_agents() -> dict[str, bool]:
-    """Last checkbox state (which agents the op wants)."""
-    try:
-        raw = json.loads(_pref_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return {}
-    wanted = raw.get("wanted") or {}
-    return {k: bool(wanted.get(k)) for k in _ALL_AGENTS if k in wanted}
+    """Deprecated — checkboxes are live status, not prefs. Always empty."""
+    return {}
 
 
 def save_wanted_agents(wanted: dict[str, bool]) -> None:
-    path = _pref_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps({"schema": 1, "wanted": dict(wanted)}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-    except OSError:
-        pass
+    """Deprecated no-op — checkboxes are not remembered across launches."""
+    return
 
 
 def detect_assets() -> AssetSnapshot:
@@ -111,19 +99,31 @@ def detect_assets() -> AssetSnapshot:
     return snap
 
 
-def suggested_checks(snap: AssetSnapshot, wanted: dict[str, bool]) -> dict[str, bool]:
-    """Merge detection with saved wants.
+def live_checks(
+    snap: AssetSnapshot,
+    *,
+    site_reachable: bool = False,
+) -> dict[str, bool]:
+    """Which boxes should be on from **live** seat reality (not prefs).
 
-    Detected apps force their agent box on. Saved wants keep Key/Server across
-    restarts. Manual uncheck after detect is allowed until next detect pulse
-    re-asserts (caller can track user_overrides).
+    - N1MM / WSJT-X: companion process running → agent required.
+    - Key: never auto (no companion app).
+    - Site server: console reachable → status checked (do not imply we own it).
     """
-    out = {k: bool(wanted.get(k)) for k in _ALL_AGENTS}
-    if snap.n1mm_present:
-        out[AGENT_LOG] = True
-    # Auto-check Seat only when WSJT-X is actually running — .ini files alone
-    # must not look like a live seat (and must not force-start the agent).
-    if snap.wsjt_running:
-        out[AGENT_WSJT] = True
-    # Key / server: prefs only (no app to auto-detect for Key).
-    return out
+    return {
+        AGENT_LOG: bool(snap.n1mm_present),
+        AGENT_WSJT: bool(snap.wsjt_running),
+        AGENT_KEY: False,
+        AGENT_SERVER: bool(site_reachable),
+    }
+
+
+def suggested_checks(
+    snap: AssetSnapshot,
+    wanted: dict[str, bool] | None = None,
+    *,
+    site_reachable: bool = False,
+) -> dict[str, bool]:
+    """Compatibility wrapper — ``wanted`` is ignored (checkboxes are not prefs)."""
+    _ = wanted
+    return live_checks(snap, site_reachable=site_reachable)

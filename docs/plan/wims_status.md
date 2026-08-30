@@ -236,8 +236,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   on blue). Freedesktop does not render the Windows `.ico` reliably (looked
   transparent); launcher shortcut prefers PNG on Linux.
   **Site server adopt (no focus-steal):** if `:8787` already up, launcher marks
-  Site server “running (existing)” and does not spawn/reopen browser in a loop
+  Site server “up (existing)” and does not spawn/reopen browser in a loop
   (dual-primary exit used to restart + steal focus every few seconds).
+  **Checkboxes = live status (not prefs):** no `agent_boxes` restore; app up →
+  box on + agent up; app down → box off + agent stop.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

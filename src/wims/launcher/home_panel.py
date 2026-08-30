@@ -103,9 +103,8 @@ class AgentHomePanel:
 
         hint = tk.Label(
             frame,
-            text="Check a box to start that agent; uncheck to stop. "
-                 "Boxes auto-check when N1MM / WSJT-X is running "
-                 "(not merely installed).",
+            text="Boxes mirror live seat status (not remembered prefs). "
+                 "App running → box on + agent up; uncheck stops the agent.",
             font=_ui_font(10), bg="#f4f4f4", fg="#666666",
             wraplength=480, justify="left", anchor="w",
         )

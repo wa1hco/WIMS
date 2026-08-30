@@ -6,10 +6,8 @@
 from __future__ import annotations
 
 import sys
-import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -22,6 +20,7 @@ from wims.launcher.assets import (
     AGENT_SERVER,
     AGENT_WSJT,
     AssetSnapshot,
+    live_checks,
     load_wanted_agents,
     save_wanted_agents,
     suggested_checks,
@@ -29,11 +28,11 @@ from wims.launcher.assets import (
 
 
 class AssetsTests(unittest.TestCase):
-    def test_suggested_wsjt_and_n1mm(self):
+    def test_live_checks_from_running_apps(self):
         snap = AssetSnapshot(
             n1mm_running=True, wsjt_running=True, wsjt_ini_count=2,
         )
-        s = suggested_checks(snap, {})
+        s = live_checks(snap, site_reachable=False)
         self.assertTrue(s[AGENT_LOG])
         self.assertTrue(s[AGENT_WSJT])
         self.assertFalse(s[AGENT_KEY])
@@ -41,25 +40,25 @@ class AssetsTests(unittest.TestCase):
 
     def test_ini_alone_does_not_auto_check_seat(self):
         snap = AssetSnapshot(wsjt_running=False, wsjt_ini_count=6)
-        s = suggested_checks(snap, {})
+        s = live_checks(snap)
         self.assertFalse(s[AGENT_WSJT])
-        # Prefs can still keep Seat wanted without a live process.
-        s2 = suggested_checks(snap, {AGENT_WSJT: True})
-        self.assertTrue(s2[AGENT_WSJT])
 
-    def test_prefs_keep_key(self):
+    def test_site_reachable_checks_server_status(self):
         snap = AssetSnapshot()
-        s = suggested_checks(snap, {AGENT_KEY: True})
-        self.assertTrue(s[AGENT_KEY])
+        s = live_checks(snap, site_reachable=True)
+        self.assertTrue(s[AGENT_SERVER])
+        self.assertFalse(s[AGENT_KEY])
 
-    def test_save_load(self):
-        with tempfile.TemporaryDirectory() as td:
-            pref = Path(td) / "boxes.json"
-            with mock.patch.dict("os.environ", {"WIMS_AGENT_BOXES": str(pref)}):
-                save_wanted_agents({AGENT_LOG: True, AGENT_WSJT: False})
-                w = load_wanted_agents()
-                self.assertTrue(w[AGENT_LOG])
-                self.assertFalse(w.get(AGENT_WSJT, True))
+    def test_wanted_arg_ignored(self):
+        snap = AssetSnapshot()
+        s = suggested_checks(snap, {AGENT_KEY: True, AGENT_WSJT: True})
+        self.assertFalse(s[AGENT_KEY])
+        self.assertFalse(s[AGENT_WSJT])
+
+    def test_prefs_are_noop(self):
+        # Checkboxes are not remembered — API kept as no-op for old callers.
+        save_wanted_agents({AGENT_LOG: True})
+        self.assertEqual(load_wanted_agents(), {})
 
 
 if __name__ == "__main__":
