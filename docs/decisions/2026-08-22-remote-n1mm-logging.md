@@ -86,7 +86,9 @@ Ops risk: silent failure if helper isn’t up after reboot. Prefer agent that:
 
 ## Current lean (2026-08-29): prefer **TCP 52001** for agent → N1MM
 
-**Lean (not yet coded):** log agent on the N1MM PC should deliver the Log envelope to **`127.0.0.1:52001`** (N1MM “JTDX / Others TCP” enabled), not rely on UDP 2333.
+**Coded in `wims.log`:** deliver Log envelope to **`127.0.0.1:52001`** first (N1MM
+“JTDX / Others TCP”), fall back to UDP **2333**. UDP sendto alone can report FWD
+with no N1MM insert when nothing is listening.
 
 **Why:**
 

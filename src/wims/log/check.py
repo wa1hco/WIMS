@@ -190,15 +190,15 @@ def run_checks(
             rep.items.append(CheckItem(
                 "delivery", "ok",
                 f"N1MM TCP {delivery_host}:{delivery_tcp_port} accepts connections "
-                f"(preferred JTDX/Others path). UDP {delivery_udp_port} still used "
-                f"until TCP send lands.",
+                f"(preferred JTDX/Others path). Helper sends here first.",
             ))
         else:
             rep.items.append(CheckItem(
                 "delivery", "warn",
-                f"TCP {delivery_host}:{delivery_tcp_port} not open. "
-                f"Using UDP {delivery_host}:{delivery_udp_port} for now. "
-                f"In N1MM enable Config > Broadcast Data > JTDX/Others (TCP 52001).",
+                f"TCP {delivery_host}:{delivery_tcp_port} not open — "
+                f"UDP {delivery_host}:{delivery_udp_port} is fallback only "
+                f"(sendto can 'succeed' with no N1MM insert). "
+                f"Enable Configurer > WSJT/JTDX Setup > JTDX/Others TCP, then restart N1MM.",
             ))
 
     rep.items.append(_n1mm_presence())

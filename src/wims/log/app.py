@@ -22,6 +22,7 @@ import socket
 import sys
 import threading
 import time
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from wims.core.bands import band_label
@@ -35,10 +36,13 @@ from wims.udp.sink import open_socket
 _ADIF_BAND = re.compile(r"<BAND:(\d+)>([^<]+)", re.I)
 _ADIF_FREQ = re.compile(r"<FREQ:(\d+)>([^<]+)", re.I)
 _ADIF_CALL = re.compile(r"<CALL:(\d+)>([^<]+)", re.I)
+_ADIF_HAS_DATE = re.compile(r"<QSO_DATE:", re.I)
+_ADIF_HAS_TIME = re.compile(r"<TIME_ON:", re.I)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _HELPER_LOG = _REPO_ROOT / "scratch" / "log-helper.log"
 DEFAULT_RADIO_PORT = 12060
+DEFAULT_TCP_PORT = 52001
 
 
 def adif_band(adif: str) -> str | None:
@@ -68,12 +72,51 @@ def adif_band(adif: str) -> str | None:
     return None
 
 
+def _qt_datetime_to_adif(dt: dict | None) -> tuple[str, str]:
+    """Return (QSO_DATE yyyymmdd, TIME_ON hhmmss) from a parsed WSJT QDateTime."""
+    if not dt:
+        now = datetime.now(timezone.utc)
+        return now.strftime("%Y%m%d"), now.strftime("%H%M%S")
+    try:
+        # Qt Julian day → proleptic Gregorian ordinal.
+        d = date.fromordinal(int(dt["julian_day"]) - 1721425)
+    except (ValueError, OverflowError, KeyError, TypeError):
+        d = datetime.now(timezone.utc).date()
+    msecs = int(dt.get("msecs") or 0)
+    hh = (msecs // 3_600_000) % 24
+    mm = (msecs // 60_000) % 60
+    ss = (msecs // 1000) % 60
+    return d.strftime("%Y%m%d"), f"{hh:02d}{mm:02d}{ss:02d}"
+
+
+def _n1mm_band_token(label: str) -> str:
+    """N1MM examples use 20M / 2M style; keep our lowercase labels uppercased."""
+    return (label or "").strip().upper() or label
+
+
+def ensure_adif_datetime(adif: str, dt: dict | None = None) -> str:
+    """N1MM often ignores records without QSO_DATE / TIME_ON."""
+    text = (adif or "").strip()
+    extra = []
+    if not _ADIF_HAS_DATE.search(text) or not _ADIF_HAS_TIME.search(text):
+        qdate, qtime = _qt_datetime_to_adif(dt)
+        if not _ADIF_HAS_DATE.search(text):
+            extra.append(f"<QSO_DATE:{len(qdate)}>{qdate}")
+        if not _ADIF_HAS_TIME.search(text):
+            extra.append(f"<TIME_ON:{len(qtime)}>{qtime}")
+    if not extra:
+        return text
+    if text.lower().endswith("<eor>"):
+        return text[: -len("<eor>")].rstrip() + "".join(extra) + " <eor>"
+    return text + "".join(extra) + " <eor>"
+
+
 def wrap_adif(adif: str) -> bytes:
     """N1MM Secondary-UDP / JTDX-TCP ingest envelope (Sending Log Data).
 
     ``<command:3>Log <parameters:N>`` + ADIF + EOR. Raw ADIF alone is often ignored.
     """
-    text = (adif or "").strip()
+    text = ensure_adif_datetime((adif or "").strip())
     if "<eor>" not in text.lower():
         text += " <eor>"
     raw = text.encode("ascii", "replace")
@@ -82,19 +125,58 @@ def wrap_adif(adif: str) -> bytes:
 
 def qso_to_adif(msg: M.QSOLogged) -> str:
     mhz = (msg.tx_frequency or 0) / 1e6
-    band = band_label(msg.tx_frequency or 0)
+    band = _n1mm_band_token(band_label(msg.tx_frequency or 0))
+    qdate, qtime = _qt_datetime_to_adif(msg.datetime_off or msg.datetime_on)
     parts = [
         f"<CALL:{len(msg.dx_call or '')}>{msg.dx_call or ''}",
         f"<GRIDSQUARE:{len(msg.dx_grid or '')}>{msg.dx_grid or ''}",
         f"<MODE:{len(msg.mode or '')}>{msg.mode or ''}",
         f"<FREQ:{len(f'{mhz:.6f}')}>{mhz:.6f}",
         f"<BAND:{len(band)}>{band}",
+        f"<QSO_DATE:{len(qdate)}>{qdate}",
+        f"<TIME_ON:{len(qtime)}>{qtime}",
         f"<STATION_CALLSIGN:{len(msg.my_call or '')}>{msg.my_call or ''}",
         f"<MY_GRIDSQUARE:{len(msg.my_grid or '')}>{msg.my_grid or ''}",
         f"<RST_SENT:{len(msg.report_sent or '')}>{msg.report_sent or ''}",
         f"<RST_RCVD:{len(msg.report_received or '')}>{msg.report_received or ''}",
     ]
     return "".join(parts) + " <eor>"
+
+
+def deliver_to_n1mm(
+    payload: bytes,
+    *,
+    host: str = "127.0.0.1",
+    udp_port: int = 2333,
+    tcp_port: int = DEFAULT_TCP_PORT,
+    prefer_tcp: bool = True,
+) -> tuple[bool, str]:
+    """Deliver Log envelope to local N1MM. Prefer TCP 52001 (has a real handshake).
+
+    UDP 2333 sendto() always looks successful even when nothing is listening —
+    that is why helpers can report FWD with no N1MM insert.
+    """
+    errors: list[str] = []
+    if prefer_tcp:
+        try:
+            with socket.create_connection((host, tcp_port), timeout=1.0) as sock:
+                sock.sendall(payload)
+            return True, f"TCP {host}:{tcp_port}"
+        except OSError as e:
+            errors.append(f"TCP {tcp_port}: {e}")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.sendto(payload, (host, udp_port))
+        finally:
+            sock.close()
+        note = f"UDP {host}:{udp_port}"
+        if errors:
+            note += " (TCP failed: " + "; ".join(errors) + ")"
+        return True, note
+    except OSError as e:
+        errors.append(f"UDP {udp_port}: {e}")
+        return False, "; ".join(errors)
 
 
 class LogState:
@@ -111,6 +193,7 @@ class LogState:
         self.group = GROUP
         self.mcast_port = PORT
         self.delivery = "127.0.0.1:2333"
+        self.tcp_port = DEFAULT_TCP_PORT
         self.dry_run = False
         self.joined = False
         self.join_error: str | None = None
@@ -118,6 +201,7 @@ class LogState:
         self.n_drop = 0
         self.n_wait = 0
         self.last_fwd: str | None = None
+        self.last_delivery: str | None = None
         self.last_error: str | None = None
         self.running = False
         self.check_lines: list[str] = []
@@ -136,6 +220,7 @@ class LogState:
                 "group": self.group,
                 "mcast_port": self.mcast_port,
                 "delivery": self.delivery,
+                "tcp_port": self.tcp_port,
                 "dry_run": self.dry_run,
                 "joined": self.joined,
                 "join_error": self.join_error,
@@ -143,6 +228,7 @@ class LogState:
                 "n_drop": self.n_drop,
                 "n_wait": self.n_wait,
                 "last_fwd": self.last_fwd,
+                "last_delivery": self.last_delivery,
                 "last_error": self.last_error,
                 "running": self.running,
                 "check_lines": list(self.check_lines),
@@ -261,11 +347,14 @@ def _status_model(state: LogState) -> HelperStatusModel:
 
     mcast = "joined" if s["joined"] else ("failed" if s["join_error"] else "...")
     facts = [
-        f"Band {band or '—'}   FWD {s['n_fwd']}   DROP {s['n_drop']}   WAIT {s['n_wait']}",
-        f"Mcast {s['group']}:{s['mcast_port']} {mcast}   "
-        f"→ {'dry-run' if s['dry_run'] else s['delivery']}",
-        f"Last {s['last_fwd'] or '— none yet —'}",
+        f"Band {band or '-'}   FWD {s['n_fwd']}   DROP {s['n_drop']}   WAIT {s['n_wait']}",
+        f"Mcast {s['group']}:{s['mcast_port']} {mcast}",
+        f"Deliver TCP :{s.get('tcp_port', DEFAULT_TCP_PORT)} then UDP {s['delivery']}"
+        if not s["dry_run"] else "Deliver dry-run",
+        f"Last {s['last_fwd'] or '- none yet -'}",
     ]
+    if s.get("last_delivery"):
+        facts.append(f"Sent via {s['last_delivery']}")
     if s["last_error"]:
         facts.append(f"Error: {s['last_error']}")
 
@@ -335,7 +424,9 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
 
 def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Event) -> None:
     nhost, _, nport = args.n1mm.partition(":")
-    n1mm = (nhost or "127.0.0.1", int(nport or "2333"))
+    host = nhost or "127.0.0.1"
+    udp_port = int(nport or "2333")
+    tcp_port = int(getattr(args, "tcp_port", DEFAULT_TCP_PORT) or DEFAULT_TCP_PORT)
     try:
         sock = open_socket(args.iface, args.port, args.group)
     except OSError as e:
@@ -347,18 +438,19 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
         rescan(state)
         return
 
-    out = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     with state._lock:
         state.joined = True
         state.join_error = None
         state.running = True
+        state.tcp_port = tcp_port
     rescan(state)
-    dest = "DRY-RUN" if args.dry_run else f"-> {args.n1mm}"
+    dest = "DRY-RUN" if args.dry_run else f"TCP :{tcp_port} then UDP {host}:{udp_port}"
     _log_line(
         f"log-helper: host={state.host}  join {args.group}:{args.port}  {dest}"
     )
     _log_line("          Filter band comes from N1MM RadioInfo (waiting until heard).")
-    _log_line("          N1MM WSJT UDP reader must be OFF on this PC (no 2237).")
+    _log_line("          Enable N1MM Configurer > WSJT/JTDX Setup > JTDX/Others TCP "
+              f"(:{tcp_port}) — UDP :{udp_port} is fallback only.")
 
     seen: set[tuple] = set()
     sock.settimeout(0.5)
@@ -378,7 +470,7 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
         call = None
         qband = None
         if isinstance(msg, M.LoggedADIF) and msg.adif:
-            adif = msg.adif
+            adif = ensure_adif_datetime(msg.adif)
             qband = adif_band(adif)
             m = _ADIF_CALL.search(adif)
             call = m.group(2) if m else msg.id
@@ -422,20 +514,20 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)"
         )
         if not args.dry_run:
-            try:
-                out.sendto(payload, n1mm)
-            except OSError as e:
-                with state._lock:
-                    state.last_error = f"send failed: {e}"
-                _log_line(f"log-helper: send failed: {e}")
+            ok, how = deliver_to_n1mm(
+                payload, host=host, udp_port=udp_port, tcp_port=tcp_port,
+            )
+            with state._lock:
+                state.last_delivery = how
+                if not ok:
+                    state.last_error = how
+            _log_line(
+                f"{time.strftime('%H:%M:%S')}  SEND {'OK' if ok else 'FAIL'} via {how}"
+            )
     with state._lock:
         state.running = False
     try:
         sock.close()
-    except OSError:
-        pass
-    try:
-        out.close()
     except OSError:
         pass
 
@@ -455,7 +547,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--radio-port", type=int, default=DEFAULT_RADIO_PORT,
                     help="UDP port for N1MM RadioInfo (default 12060)")
-    ap.add_argument("--n1mm", default="127.0.0.1:2333")
+    ap.add_argument("--n1mm", default="127.0.0.1:2333",
+                    help="UDP fallback host:port for N1MM ADIF ingest (default 127.0.0.1:2333)")
+    ap.add_argument("--tcp-port", type=int, default=DEFAULT_TCP_PORT,
+                    help="N1MM JTDX/Others TCP port (default 52001; tried first)")
     ap.add_argument("--dry-run", action="store_true",
                     help="print matching QSOs, do not send to N1MM")
     ap.add_argument("--gui", dest="gui", action="store_true", default=True,
@@ -472,6 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     state.group = args.group
     state.mcast_port = args.port
     state.delivery = args.n1mm
+    state.tcp_port = args.tcp_port
     state.dry_run = args.dry_run
     rescan(state)
 

@@ -19,7 +19,7 @@ if str(SRC) not in sys.path:
 
 from wims.agent.n1mm_probe import _parse_wsjt_udp_reader_from_ini, probe_wsjt_udp_reader
 from wims.log.check import pin_from_hostname, resolve_pin, run_checks
-from wims.log.app import adif_band, wrap_adif
+from wims.log.app import adif_band, deliver_to_n1mm, ensure_adif_datetime, wrap_adif
 from wims.log.radioinfo import band_from_radioinfo_xml, n1mm_freq_units_to_hz
 
 
@@ -52,6 +52,29 @@ class AdifWrapTests(unittest.TestCase):
         payload = wrap_adif("<CALL:4>K1AB<BAND:2>2m <eor>")
         self.assertTrue(payload.startswith(b"<command:3>Log <parameters:"))
         self.assertIn(b"<CALL:4>K1AB", payload)
+        self.assertIn(b"<QSO_DATE:", payload)
+        self.assertIn(b"<TIME_ON:", payload)
+
+    def test_ensure_datetime_idempotent(self):
+        adif = "<CALL:4>K1AB<QSO_DATE:8>20260829<TIME_ON:6>120000 <eor>"
+        self.assertEqual(ensure_adif_datetime(adif), adif)
+
+    def test_deliver_prefers_tcp(self):
+        class FakeSock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def sendall(self, data):
+                self.data = data
+
+        with mock.patch("socket.create_connection", return_value=FakeSock()) as conn:
+            ok, how = deliver_to_n1mm(b"<command:3>Log <parameters:3>x", prefer_tcp=True)
+        self.assertTrue(ok)
+        self.assertTrue(how.startswith("TCP"))
+        conn.assert_called()
 
 
 class RadioInfoTests(unittest.TestCase):
