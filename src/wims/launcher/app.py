@@ -530,7 +530,8 @@ class LauncherApp:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         _append_details_file(f"\n===== WIMS launcher v{__version__}  {stamp} =====\n")
         self._append_log(
-            "Press Start seat. When the top bar is green, use Open site console.\n"
+            "Press Start seat to run WIMS helpers (banner is blue/yellow until they are up).\n"
+            "When the top bar is green, use Open site console.\n"
             f"Log also written to: {details_log_path()}"
         )
 
@@ -751,15 +752,16 @@ class LauncherApp:
                 "Other PC types… → Find on LAN / URL override.",
             )
         elif ok_site and not log_on:
+            # Blue = next action, not a fault. Green only after helpers are running.
             self._set_banner(
-                "warn",
-                "Site console is up — press Start seat",
-                "Logging from WSJT-X on other PCs needs the log helper on this N1MM PC.",
+                "busy",
+                "Press Start seat",
+                "Site console is up. Start seat runs the WIMS log helper.",
             )
         else:
             self._set_banner(
                 "err",
-                "Not ready — press Start seat",
+                "Press Start seat",
                 f"Site console ({base}) not reachable, and log helper is not running.",
             )
 
@@ -790,15 +792,16 @@ class LauncherApp:
                 f"Cannot reach {base}. Start the site server or Find on LAN under Advanced.",
             )
         elif ok_site and not mon_on:
+            # Blue = next action, not a fault. Green only after the monitor is up.
             self._set_banner(
-                "warn",
-                "Site console is up — press Start seat",
-                "Starts the WSJT config monitor for this PC.",
+                "busy",
+                "Press Start seat",
+                "Site console is up. Start seat runs the WSJT config monitor.",
             )
         else:
             self._set_banner(
                 "err",
-                "Not ready — press Start seat",
+                "Press Start seat",
                 f"Site console ({base}) not reachable, and seat monitor is not running.",
             )
 
