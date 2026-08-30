@@ -564,12 +564,14 @@ class LauncherApp:
             self.root.title(f"WIMS  ·  WSJT seat  ·  v{__version__}")
             self._subtitle_var.set("WSJT seat — config check & monitor")
             self._blurb_var.set(
-                "Start WSJT-X yourself. This checks wiring and reports seat "
-                "health to the site server. Decoding and TX stay in WSJT-X."
+                "WSJT-X should already be running (WIMS uses it to recognize this "
+                "seat). Start seat only runs the WIMS monitor — config check and "
+                "health report. Decoding and TX stay in WSJT-X."
             )
             self._start_tip.set_text(
-                "Starts the WSJT seat monitor (local status page + periodic "
-                "config check / report to the site server)."
+                "Runs a WSJT-X config check and starts the seat monitor "
+                "(local status page + report to the site server). "
+                "WSJT-X itself should already be open."
             )
             self._opts.pack_forget()
             if not self._local_btn.winfo_ismapped():
@@ -578,12 +580,13 @@ class LauncherApp:
             self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
             self._subtitle_var.set("N1MM seat — logging helpers for this PC")
             self._blurb_var.set(
-                "Start N1MM yourself. This starts the WIMS helpers that make "
-                "logging and interlock work with WSJT-X on other PCs."
+                "N1MM should already be running (band comes from RadioInfo). "
+                "Start seat only runs the WIMS log helper for QSOs from WSJT-X "
+                "on other PCs."
             )
             self._start_tip.set_text(
                 "Starts the log helper on this PC (and the site server if you "
-                "check the box below)."
+                "check the box below). N1MM itself should already be open."
             )
             if self._local_btn.winfo_ismapped():
                 self._local_btn.pack_forget()

@@ -53,7 +53,8 @@ Secondary: **Open local status** (no port number in the banner).
 Green when: site reachable **and** monitor running **and** last check is not error.  
 Yellow/red: site down, config warnings/errors, or monitor not running — one fix line.
 
-Copy: *Start WSJT-X yourself. This checks wiring and reports seat health.*
+Copy: *WSJT-X should already be running (seat detect + live check). Start seat
+runs the WIMS monitor only.*
 
 ## Follow-ons
 
