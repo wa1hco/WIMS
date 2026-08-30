@@ -46,7 +46,7 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertIn("log", primary)
         self.assertIn("wsjt_check", primary)
         self.assertNotIn("solo", primary)  # lab only
-        self.assertNotIn("key", primary)  # advanced selftest until product daemon
+        self.assertIn("key", primary)  # key agent is a first-class checkbox agent
 
     def test_server_is_recommended(self):
         server = role_by_id("server")
@@ -103,14 +103,14 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertEqual(code, 0)
         m.assert_called_once_with(["--band", "6m", "--no-gui"])
 
-    def test_key_is_oneshot_selftest(self):
+    def test_key_is_long_running_daemon(self):
         key = role_by_id("key")
         assert key is not None
-        self.assertTrue(key.advanced)
-        self.assertFalse(key.long_running)
+        self.assertFalse(key.advanced)
+        self.assertTrue(key.long_running)
         argv = key.build_argv()
         self.assertIn("wims.key", argv)
-        self.assertIn("selftest", argv)
+        self.assertIn("daemon", argv)
 
     def test_band_ports_skip_2240(self):
         ports = [p for _, p in BAND_PORTS]

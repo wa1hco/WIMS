@@ -86,8 +86,8 @@ def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
 
 
 def _key_agent_argv() -> list[str]:
-    # Product key daemon not shipped yet — selftest only (exits in ~1s).
-    return ["-m", "wims.key", "selftest"]
+    # Long-running stub: CTS + inhibit-target config check (product fan-out later).
+    return ["-m", "wims.key", "daemon"]
 
 
 ROLES: tuple[Role, ...] = (
@@ -129,18 +129,17 @@ ROLES: tuple[Role, ...] = (
     ),
     Role(
         id="key",
-        title="Key selftest (lab)",
-        summary="One-shot KEY→inhibit lab test. Does NOT stay running — not a seat daemon yet.",
+        title="Key agent",
+        summary="KEY/CTS sense → inhibit targets. Checks device + target list; "
+                "product fan-out still lab.",
         tooltip=(
-            "Product key agent (resident KEY sense → inhibit) is not shipped yet.\n\n"
-            "This button only runs a short selftest and exits. You will not see a "
-            "lasting process in Task Manager. For contest seats, use Start seat "
-            "(log agent) on the N1MM PC; key daemon comes next."
+            "Long-running Key agent. Set WIMS_KEY_DEVICE and WIMS_KEY_TARGETS.\n"
+            "No companion desktop app — this agent is the KEY path."
         ),
-        button="Run KEY selftest",
+        button="Start Key agent",
         recommended=False,
-        advanced=True,
-        long_running=False,
+        advanced=False,
+        long_running=True,
         build_argv=lambda **_: _key_agent_argv(),
     ),
     Role(

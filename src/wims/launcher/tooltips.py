@@ -13,7 +13,7 @@ import tkinter as tk
 class ToolTip:
     """Show ``text`` in a small light popup after a short hover delay.
 
-    Call ``set_text`` to refresh content (helper status updates every second).
+    Call ``set_text`` to refresh content (agent status updates every second).
     """
 
     def __init__(self, widget: tk.Misc, text: str = "", delay_ms: int = 450) -> None:

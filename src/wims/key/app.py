@@ -51,9 +51,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub.add_parser("gate", help="lab gate stand-in (pass remaining flags after --)")
     sub.add_parser("agent", help="lab key agent (pass remaining flags after --)")
+    sub.add_parser(
+        "daemon",
+        help="long-running Key agent UI/stub (CTS source + inhibit target check)",
+    )
     args, rest = ap.parse_known_args(argv)
 
     cmd = args.cmd or "selftest"
+    if cmd == "daemon":
+        from wims.key.daemon import main as daemon_main
+        return int(daemon_main(rest) or 0)
+
     try:
         spike = _load_spike()
     except (FileNotFoundError, ImportError) as e:

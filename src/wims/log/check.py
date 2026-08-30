@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Scoped config checks for the log helper (N1MM PC only).
+"""Scoped config checks for the log agent (N1MM PC only).
 
 Primary band source is live N1MM RadioInfo (see 2026-08-29-n1mm-live-band.md).
 ASCII-only messages (Windows cp1252 consoles).
@@ -146,7 +146,7 @@ def run_checks(
     # Backward-compat alias used by older callers/tests.
     pin: str | None = None,
 ) -> CheckReport:
-    """Build a scoped check report for the log helper."""
+    """Build a scoped check report for the log agent."""
     if live_band is None and pin is not None:
         live_band = pin
     rep = CheckReport(pin=live_band)
@@ -203,7 +203,7 @@ def run_checks(
             rep.items.append(CheckItem(
                 "delivery", "ok",
                 f"N1MM TCP {delivery_host}:{delivery_tcp_port} accepts connections "
-                f"(preferred JTDX/Others path). Helper sends here first.",
+                f"(preferred JTDX/Others path). Log agent sends here first.",
             ))
         else:
             rep.items.append(CheckItem(
@@ -240,5 +240,5 @@ def _wsjt_udp_reader_conflict() -> CheckItem:
     # Off, or enabled only on 2333 / non-fleet — not a yellow warning.
     return CheckItem(
         "conflict", "ok",
-        info.get("summary") or "N1MM WSJT/JTDX UDP reader OK for log helper.",
+        info.get("summary") or "N1MM WSJT/JTDX UDP reader OK for log agent.",
     )

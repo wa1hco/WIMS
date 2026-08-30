@@ -13,14 +13,13 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ```
 # Desktop GUI launcher (recommended — peer to N1MM / WSJT-X icons):
-python -m wims                 # N1MM seat home by default (tired-operator UX)
+python -m wims                 # Checkbox agent console (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#   Auto home: N1MM PC → log helper; WSJT-only PC → seat monitor/config check
-#   Start seat → green banner when helpers + site are ready
-#   Other PC types / seat override / Solo / KEY under Advanced
-#   Log helper CLI: python -m wims.log   (add --no-gui for console-only)
+#   Checkbox agents: N1MM→Log, WSJT-X→Seat, Key, Site server (auto-check on detect)
+#   Green when checked agents are running; Other tools… for Solo / overrides
+#   Log agent CLI: python -m wims.log   (add --no-gui for console-only)
 
 # Solo single-PC (CLI / scripts still work):
 python -m wims solo            # or: python -m wims.solo
@@ -225,11 +224,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `WIMS_SERVER` / last-known / LAN discover (Advanced override only).
   **Compact log helper UI:** green/yellow/red banner + fix line + few facts;
   Details/Copy optional (`wims.helper_ui`).
-  **WSJT seat home:** auto-detect WSJT-only PCs → Start seat runs seat monitor;
-  Open local status; Advanced can override seat type (`seat_detect.py`).
-  Linux: leftover `Documents/N1MM Logger+` without N1MM running no longer forces
-  N1MM home. Start seat runs an in-UI WSJT config check (Details). Hide “Also run
-  site server” when a site console is already reachable.
+  **Checkbox agent console (2026-08-30):** no fixed seat role. Detect N1MM/WSJT-X,
+  check boxes, start Log / Seat / Key / Site server agents. Always say “agent”
+  (not helper). Key agent: `wims.key daemon` stub (CTS + targets). Shared Tk
+  chrome: `wims.agent_ui` (compat shim `wims.helper_ui`).
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

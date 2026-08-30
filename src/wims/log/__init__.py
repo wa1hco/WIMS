@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Log helper/agent — fleet mcast Logged QSO → local N1MM (N1MM PC)."""
+"""Log agent — fleet mcast Logged QSO → local N1MM (N1MM PC)."""
 
 from __future__ import annotations
 

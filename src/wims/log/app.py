@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Log helper: fleet mcast Logged QSO -> local N1MM, with optional Tk status UI.
+"""Log agent: fleet mcast Logged QSO -> local N1MM, with optional Tk status UI.
 
 Band filter follows live N1MM RadioInfo (wait/drop until heard). See
 docs/decisions/2026-08-29-n1mm-live-band.md.
@@ -26,7 +26,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from wims.core.bands import band_label
-from wims.helper_ui import HelperStatusModel, HelperStatusWindow
+from wims.agent_ui import AgentStatusModel, AgentStatusWindow
 from wims.log import GROUP, PORT
 from wims.log.check import run_checks
 from wims.log.radioinfo import band_from_radioinfo_xml
@@ -40,7 +40,7 @@ _ADIF_HAS_DATE = re.compile(r"<QSO_DATE:", re.I)
 _ADIF_HAS_TIME = re.compile(r"<TIME_ON:", re.I)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_HELPER_LOG = _REPO_ROOT / "scratch" / "log-helper.log"
+_HELPER_LOG = _REPO_ROOT / "scratch" / "log-agent.log"
 DEFAULT_RADIO_PORT = 12060
 DEFAULT_TCP_PORT = 52001
 
@@ -230,9 +230,9 @@ def deliver_to_n1mm(
     """Deliver Log envelope to local N1MM. Prefer TCP 52001 (has a real handshake).
 
     UDP 2333 sendto() always looks successful even when nothing is listening —
-    that is why helpers can report FWD with no N1MM insert.
+    that is why agents can report FWD with no N1MM insert.
 
-    Pass a long-lived ``tcp_client`` from the helper loop. One-shot connect /
+    Pass a long-lived ``tcp_client`` from the agent loop. One-shot connect /
     send / close makes N1MM pop an error box after a successful insert.
     """
     errors: list[str] = []
@@ -344,7 +344,7 @@ class LogState:
             prev = self.live_band
             self.live_band = band
         _log_line(
-            f"log-helper: N1MM band -> {band}"
+            f"log-agent: N1MM band -> {band}"
             + (f" (was {prev})" if prev else " (first RadioInfo)")
         )
         return True
@@ -413,10 +413,10 @@ def rescan(state: LogState) -> None:
         state.check_severity = rep.severity
 
 
-def _status_model(state: LogState) -> HelperStatusModel:
+def _status_model(state: LogState) -> AgentStatusModel:
     s = state.snapshot()
     band = s["live_band"]
-    title = f"WIMS log · {band or '...'}"
+    title = f"WIMS log agent · {band or '...'}"
 
     fix = ""
     if s["join_error"]:
@@ -432,7 +432,7 @@ def _status_model(state: LogState) -> HelperStatusModel:
         level, banner = "warn", "Waiting for N1MM band"
         fix = f"Enable Broadcast Data > Radio to 127.0.0.1:{s['radio_port']}"
     elif s["check_severity"] == "error":
-        level, banner = "err", f"Log helper — {band}"
+        level, banner = "err", f"Log agent — {band}"
         # First error line from checks, if any.
         for ln in s["check_lines"] or []:
             if ln.startswith("[XX]"):
@@ -473,7 +473,7 @@ def _status_model(state: LogState) -> HelperStatusModel:
         "Config check:",
         *(details if details else ["(none yet — press Rescan)"]),
     ]
-    return HelperStatusModel(
+    return AgentStatusModel(
         title=title,
         banner_level=level,
         banner_text=banner,
@@ -500,11 +500,11 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
     except OSError as e:
         with state._lock:
             state.radio_error = str(e)
-        _log_line(f"log-helper: RadioInfo listen failed: {e}")
+        _log_line(f"log-agent: RadioInfo listen failed: {e}")
         rescan(state)
         return
     _log_line(
-        f"log-helper: listening for N1MM RadioInfo on 127.0.0.1:{state.radio_port}"
+        f"log-agent: listening for N1MM RadioInfo on 127.0.0.1:{state.radio_port}"
     )
     while not stop.is_set():
         try:
@@ -544,7 +544,7 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             state.running = False
             state.tcp_client = None
         tcp_client.close()
-        _log_line(f"log-helper: join failed: {e}")
+        _log_line(f"log-agent: join failed: {e}")
         rescan(state)
         return
 
@@ -556,7 +556,7 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     rescan(state)
     dest = "DRY-RUN" if args.dry_run else f"TCP :{tcp_port} then UDP {host}:{udp_port}"
     _log_line(
-        f"log-helper: host={state.host}  join {args.group}:{args.port}  {dest}"
+        f"log-agent: host={state.host}  join {args.group}:{args.port}  {dest}"
     )
     _log_line("          Filter band comes from N1MM RadioInfo (waiting until heard).")
     _log_line("          Enable N1MM Configurer > WSJT/JTDX Setup > JTDX/Others TCP "
@@ -698,14 +698,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.gui:
         try:
-            win = HelperStatusWindow(
+            win = AgentStatusWindow(
                 refresh=lambda: _status_model(state),
                 on_rescan=lambda: rescan(state),
                 on_quit=lambda: stop.set(),
             )
             win.run()
         except Exception as e:
-            _log_line(f"log-helper: GUI unavailable ({e}); continuing console-only")
+            _log_line(f"log-agent: GUI unavailable ({e}); continuing console-only")
             args.gui = False
 
     if not args.gui:
@@ -714,7 +714,7 @@ def main(argv: list[str] | None = None) -> int:
                 fwd_thread.join(timeout=0.5)
         except KeyboardInterrupt:
             stop.set()
-            _log_line("log-helper: quit")
+            _log_line("log-agent: quit")
             return 0
 
     stop.set()
