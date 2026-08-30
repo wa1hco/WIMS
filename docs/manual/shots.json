@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "image_dir": "images",
+  "shots": [
+    {
+      "id": "site-operate",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/",
+      "width": 1280,
+      "height": 900,
+      "caption": "Site console — Operate (call roster). Click a line to Work; Halt TX always available.",
+      "section": "Call roster",
+      "status": "active"
+    },
+    {
+      "id": "site-status",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/status",
+      "width": 1280,
+      "height": 900,
+      "caption": "Site console — Status (fleet / instances / interlock).",
+      "section": "Site console",
+      "status": "active"
+    },
+    {
+      "id": "site-setup",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/setup",
+      "width": 1280,
+      "height": 900,
+      "caption": "Site console — Setup (log seed, resync, site options).",
+      "section": "Site console",
+      "status": "active"
+    },
+    {
+      "id": "seat-agent-local",
+      "kind": "url",
+      "url": "http://127.0.0.1:8790/",
+      "width": 1100,
+      "height": 800,
+      "caption": "Seat agent local page (:8790) — config check for WSJT-X on this PC.",
+      "section": "Desktop launcher and agents",
+      "status": "active"
+    },
+    {
+      "id": "launcher-home",
+      "kind": "placeholder",
+      "caption": "Desktop launcher — checkbox agents (N1MM→Log, WSJT-X→Seat, Key, Site server).",
+      "section": "Desktop launcher and agents",
+      "status": "stub",
+      "note": "Capture manually: open python -m wims, then replace docs/manual/images/launcher-home.png"
+    },
+    {
+      "id": "log-agent",
+      "kind": "placeholder",
+      "caption": "Log agent status window (N1MM PC) — band from RadioInfo, FWD/DROP counts.",
+      "section": "Logging",
+      "status": "stub",
+      "note": "Capture when Log agent GUI is open on an N1MM seat."
+    },
+    {
+      "id": "key-agent",
+      "kind": "placeholder",
+      "caption": "Key agent status — CTS source and inhibit target list.",
+      "section": "Inhibit",
+      "status": "stub",
+      "note": "Capture when Key agent daemon GUI is open."
+    }
+  ]
+}

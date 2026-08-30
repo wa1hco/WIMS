@@ -32,6 +32,7 @@ python -m wims solo            # or: python -m wims.solo
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
 #   Setup check only: python -m wims agent --solo   (Windows: Check-WimsSetup.cmd)
 #   Tester walkthrough: docs/tester_runbook.md
+#   Operator manual: docs/User-manual.md  (shots: scripts/capture-user-manual-shots.sh)
 #   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
 # Fleet / multi-host (site server):

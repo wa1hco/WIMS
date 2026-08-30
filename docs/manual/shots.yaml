@@ -1,0 +1,4 @@
+# Human-oriented mirror of shots.json (canonical for the capture script).
+# Edit shots.json; keep this file in sync if you prefer YAML for review.
+# See README.md for refresh instructions.
+canonical: shots.json
