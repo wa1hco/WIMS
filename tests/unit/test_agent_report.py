@@ -168,6 +168,40 @@ def test_unknown_process_list_does_not_mark_all_running():
             R._wsjtx_running_rig_names = old_run
 
 
+def test_empty_process_list_marks_nothing_running():
+    """Empty set means WSJT-X is not running — do not pretend default.ini is live."""
+    from wims.integrations import wsjtx_config as W
+    from wims.agent import report as R
+
+    with tempfile.TemporaryDirectory() as td:
+        good = Path(td) / "WSJT-X.ini"
+        good.write_text(
+            "UDPServer=224.0.0.73\nUDPServerPort=2237\n"
+            "UDPInterface=eth0\nAcceptUDPRequests=true\nMyCall=W1AW\nMyGrid=FN31\n",
+            encoding="utf-8",
+        )
+        old = W.discover_ini_paths
+        old_run = R._wsjtx_running_rig_names
+        old_proc = R._process_running
+        W.discover_ini_paths = lambda: [good]  # type: ignore
+        R._wsjtx_running_rig_names = lambda: set()  # type: ignore
+        R._process_running = lambda *a, **k: False  # type: ignore
+        try:
+            r = build_report(agent_id="vm1", fleet=True, now=1.0)
+            by_name = {c["name"]: c for c in r["wsjtx"]["configs"]}
+            assert by_name["(active/default)"]["running"] is False
+            assert r["wsjtx"]["running_names"] == []
+            assert r["apps"]["wsjtx_running"] is False
+            assert "not appear to be running" in r["summary"]["message"].lower()
+            text = format_report_text(r)
+            assert "not running on this PC" in text.lower()
+            assert "UDP 224.0.0.73" not in text  # do not audit as live
+        finally:
+            W.discover_ini_paths = old
+            R._wsjtx_running_rig_names = old_run
+            R._process_running = old_proc
+
+
 def test_livefleet_accept_agent_and_snapshot():
     live = LiveFleet()
     body = {
