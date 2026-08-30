@@ -122,11 +122,47 @@ def test_idle_bad_profile_does_not_override_running_ok():
             by_name = {c["name"]: c for c in r["wsjtx"]["configs"]}
             assert by_name["(active/default)"]["running"] is True
             assert by_name["IC7300"]["running"] is False
+            # Idle issues must not remain severity=error in the report.
+            assert all(i["severity"] != "error" for i in by_name["IC7300"]["issues"])
             text = format_report_text(r)
             assert "(active/default)" in text
             assert "224.0.0.73" in text
             assert "IC7300" not in text  # idle profiles hidden from operator text
             assert "unused profile" in text.lower()
+        finally:
+            W.discover_ini_paths = old
+            R._wsjtx_running_rig_names = old_run
+
+
+def test_unknown_process_list_does_not_mark_all_running():
+    """If argv detection fails, named idles must not drive a red UDP headline."""
+    from wims.integrations import wsjtx_config as W
+    from wims.agent import report as R
+
+    with tempfile.TemporaryDirectory() as td:
+        good = Path(td) / "WSJT-X.ini"
+        bad = Path(td) / "WSJT-X - IC7300.ini"
+        good.write_text(
+            "UDPServer=224.0.0.73\nUDPServerPort=2237\n"
+            "UDPInterface=eth0\nAcceptUDPRequests=true\nMyCall=W1AW\nMyGrid=FN31\n",
+            encoding="utf-8",
+        )
+        bad.write_text(
+            "UDPServer=127.0.0.1\nUDPServerPort=2237\n"
+            "UDPInterface=@Invalid()\nAcceptUDPRequests=false\nMyCall=W1AW\nMyGrid=FN31\n",
+            encoding="utf-8",
+        )
+        old = W.discover_ini_paths
+        old_run = R._wsjtx_running_rig_names
+        W.discover_ini_paths = lambda: [good, bad]  # type: ignore
+        R._wsjtx_running_rig_names = lambda: None  # type: ignore  # detection failed
+        try:
+            r = build_report(agent_id="vm1", fleet=True, now=1.0)
+            assert r["summary"]["severity"] == "ok"
+            assert "127.0.0.1" not in r["summary"]["message"]
+            text = format_report_text(r)
+            assert "IC7300" not in text
+            assert "!!" not in text or "127.0.0.1" not in text
         finally:
             W.discover_ini_paths = old
             R._wsjtx_running_rig_names = old_run

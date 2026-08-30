@@ -209,25 +209,34 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
             error_count += 1
             continue
         for c in parsed:
-            issues = [{"severity": sev, "message": msg}
-                      for sev, msg in W.validate(c, fleet=fleet, solo=solo)]
-            # If we know which instances are live, only those drive hard errors.
-            if running_names is None:
-                is_running = True  # unknown — treat all as in-scope (legacy)
-            elif not running_names:
-                is_running = False
-            else:
+            raw_issues = [{"severity": sev, "message": msg}
+                          for sev, msg in W.validate(c, fleet=fleet, solo=solo)]
+            # Never treat every on-disk --rig-name profile as live. If process
+            # detection fails, only "(active/default)" is in-scope for errors.
+            if running_names:
                 is_running = c.name in running_names
-            n_err = sum(1 for i in issues if i["severity"] == "error")
-            n_warn = sum(1 for i in issues if i["severity"] == "warn")
+            else:
+                # None (unknown) or empty (none detected): do not mark named
+                # idles as running — that caused red "UDP is 127.0.0.1" from
+                # unused IC7300.ini while the live instance was fine.
+                is_running = c.name == "(active/default)"
+            n_err = sum(1 for i in raw_issues if i["severity"] == "error")
+            n_warn = sum(1 for i in raw_issues if i["severity"] == "warn")
             if is_running:
+                issues = raw_issues
                 error_count += n_err
                 warn_count += n_warn
             else:
                 idle_error_count += n_err
-                # Idle profile problems are noise for the seat operator — demote.
-                if n_err:
-                    warn_count += 1
+                # Idle profiles: keep for JSON tooling, but never as operator errors.
+                issues = [
+                    {
+                        "severity": "info",
+                        "message": f"Unused profile (not running): {i['message']}",
+                    }
+                    for i in raw_issues
+                    if i["severity"] in ("error", "warn")
+                ]
             configs.append({
                 "name": c.name,
                 "source": c.source or str(path),
@@ -463,13 +472,18 @@ def format_report_text(report: dict) -> str:
     lines.append("WSJT-X")
     lines.append("-" * 48)
     configs = wx.get("configs") or []
-    # Operator view: only the live instance(s). Idle --rig-name profiles stay in
-    # the JSON report for tooling, but clutter the seat check if listed.
+    # Operator view: only the live instance(s). Never dump every on-disk ini.
     shown = [c for c in configs if c.get("running")]
     if not shown and configs:
-        # Nothing marked running (WSJT down, or process list unknown) — show all.
-        shown = configs
-    idle_n = max(0, len(configs) - len(shown)) if shown is not configs else 0
+        shown = [c for c in configs if c.get("name") == "(active/default)"]
+    if not shown and configs:
+        shown = [
+            c for c in configs
+            if str(c.get("udp_server") or "").startswith("224.")
+        ][:1]
+    if not shown and configs:
+        shown = configs[:1]
+    idle_n = max(0, len(configs) - len(shown))
     if not configs:
         lines.append("  (no WSJT-X configs found)")
     for c in shown:
