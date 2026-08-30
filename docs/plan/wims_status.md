@@ -17,6 +17,7 @@ python -m wims                 # Checkbox agent console (tired-operator UX)
 #   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
+#            icon: scripts/assets/wims.png (white W + wims on blue; .ico is blank on Linux)
 #   Checkbox agents: N1MM→Log, WSJT-X→Seat, Key, Site server (auto-check on detect)
 #   On open: replace leftover Log/Seat/Key on this PC; site server left alone
 #   Green when checked agents are running; Other tools… for Solo / overrides
@@ -231,6 +232,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   chrome: `wims.agent_ui` (compat shim `wims.helper_ui`).
   **Safe seat replace on start:** `launcher/process_replace.py` stops orphan
   Log/Seat/Key by cmdline; never auto-kills site server / WSJT-X / N1MM.
+  **Linux desktop icon:** `scripts/assets/wims.png` (white abstract W + “wims”
+  on blue). Freedesktop does not render the Windows `.ico` reliably (looked
+  transparent); launcher shortcut prefers PNG on Linux.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

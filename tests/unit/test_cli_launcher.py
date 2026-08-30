@@ -152,6 +152,17 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertEqual(path.name, "launcher-details.log")
         self.assertEqual(path.parent.name, "scratch")
 
+    def test_linux_icon_prefers_png(self):
+        from wims.launcher.app import find_icon_path
+        if sys.platform.startswith("win"):
+            self.skipTest("Windows uses .ico")
+        path = find_icon_path()
+        self.assertIsNotNone(path)
+        assert path is not None
+        self.assertEqual(path.suffix.lower(), ".png")
+        self.assertTrue(path.is_file())
+        self.assertEqual(path.name, "wims.png")
+
 
 class CliTests(unittest.TestCase):
     def test_version(self):

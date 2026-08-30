@@ -52,6 +52,8 @@ from wims.launcher.tooltips import ToolTip
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC = _REPO_ROOT / "src"
 _ICON_ICO = _REPO_ROOT / "scripts" / "windows" / "assets" / "wims.ico"
+# Linux/.desktop needs PNG — .ico often renders blank/transparent in GNOME/KDE.
+_ICON_PNG = _REPO_ROOT / "scripts" / "assets" / "wims.png"
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = "http://192.168.1.119:8787"
@@ -208,9 +210,24 @@ def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool,
 
 
 def find_icon_path() -> Path | None:
+    """Best icon for this platform (.desktop / shortcut / window)."""
+    if sys.platform.startswith("win"):
+        if _ICON_ICO.is_file():
+            return _ICON_ICO
+        if _ICON_PNG.is_file():
+            return _ICON_PNG
+        return None
+    # Linux / macOS: prefer PNG for freedesktop + Tk iconphoto.
+    if _ICON_PNG.is_file():
+        return _ICON_PNG
     if _ICON_ICO.is_file():
         return _ICON_ICO
     return None
+
+
+def find_window_icon_path() -> Path | None:
+    """Tk window icon — PNG on Linux, ICO on Windows when available."""
+    return find_icon_path()
 
 
 def desktop_dir() -> Path:
@@ -343,9 +360,18 @@ class LauncherApp:
         self.root.after(4000, self._pulse_detect)
 
     def _apply_icon(self) -> None:
-        icon = find_icon_path()
+        icon = find_window_icon_path()
         if not icon:
             return
+        # Linux: iconbitmap(.ico) often fails / looks blank — use PNG via iconphoto.
+        if icon.suffix.lower() == ".png":
+            try:
+                img = self.tk.PhotoImage(file=str(icon))
+                self.root.iconphoto(True, img)
+                self._icon_image = img  # keep ref
+                return
+            except Exception:
+                pass
         try:
             self.root.iconbitmap(default=str(icon))
         except Exception:
