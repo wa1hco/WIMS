@@ -116,14 +116,17 @@ def test_idle_bad_profile_does_not_override_running_ok():
         try:
             r = build_report(agent_id="vm1", fleet=True, now=1.0)
             assert r["wsjtx"]["error_count"] == 0  # only running instance
-            assert r["summary"]["severity"] in ("ok", "warn")
+            assert r["summary"]["severity"] == "ok"
             assert "127.0.0.1" not in r["summary"]["message"]
+            assert "IC7300" not in r["summary"]["message"]
             by_name = {c["name"]: c for c in r["wsjtx"]["configs"]}
             assert by_name["(active/default)"]["running"] is True
             assert by_name["IC7300"]["running"] is False
             text = format_report_text(r)
-            assert "RUNNING" in text
-            assert "idle" in text.lower()
+            assert "(active/default)" in text
+            assert "224.0.0.73" in text
+            assert "IC7300" not in text  # idle profiles hidden from operator text
+            assert "unused profile" in text.lower()
         finally:
             W.discover_ini_paths = old
             R._wsjtx_running_rig_names = old_run

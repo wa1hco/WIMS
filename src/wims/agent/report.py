@@ -313,19 +313,12 @@ def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
             i.get("severity") == "error"
             for c in running for i in (c.get("issues") or [])
         ):
-            msg = (
-                f"Running WSJT-X OK "
-                f"({', '.join(c.get('name') or '?' for c in running)})"
-            )
-            if idle_bad:
-                msg += (
-                    f"; idle unused profiles still wrong on disk: "
-                    f"{', '.join(idle_bad[:4])}"
-                    + ("…" if len(idle_bad) > 4 else "")
-                    + " (not affecting the live instance)"
-                )
-            # Live instance OK → green; idle junk is informational in Details.
-            return {"severity": "ok", "message": msg}
+            names = ", ".join(c.get("name") or "?" for c in running)
+            # Keep the headline about the live instance only.
+            return {
+                "severity": "ok",
+                "message": f"Running WSJT-X OK ({names})",
+            }
         return {
             "severity": "ok",
             "message": (
@@ -469,19 +462,18 @@ def format_report_text(report: dict) -> str:
     wx = report.get("wsjtx") or {}
     lines.append("WSJT-X")
     lines.append("-" * 48)
-    if wx.get("ini_paths"):
-        for p in wx["ini_paths"]:
-            lines.append(f"  ini: {p}")
-    else:
-        lines.append("  (no ini paths)")
-    run_names = wx.get("running_names")
-    if run_names is not None:
-        lines.append(
-            f"  running instances: {', '.join(run_names) if run_names else '(none)'}"
-        )
-    for c in wx.get("configs") or []:
-        state = "RUNNING" if c.get("running") else "idle"
-        lines.append(f"  [{c.get('name')}] ({state})  ({c.get('source')})")
+    configs = wx.get("configs") or []
+    # Operator view: only the live instance(s). Idle --rig-name profiles stay in
+    # the JSON report for tooling, but clutter the seat check if listed.
+    shown = [c for c in configs if c.get("running")]
+    if not shown and configs:
+        # Nothing marked running (WSJT down, or process list unknown) — show all.
+        shown = configs
+    idle_n = max(0, len(configs) - len(shown)) if shown is not configs else 0
+    if not configs:
+        lines.append("  (no WSJT-X configs found)")
+    for c in shown:
+        lines.append(f"  [{c.get('name')}]  ({c.get('source')})")
         lines.append(
             f"    UDP {c.get('udp_server') or '-'}:{c.get('udp_port') or '-'} "
             f"iface={c.get('udp_iface') or '(empty)'} "
@@ -489,16 +481,10 @@ def format_report_text(report: dict) -> str:
         )
         lines.append(f"    Stn {c.get('my_call') or '-'} / {c.get('my_grid') or '-'}")
         for iss in c.get("issues") or []:
-            # Soften idle-profile errors in the text dump so they don't look live.
-            sev = iss["severity"]
-            if not c.get("running") and sev == "error":
-                sev = "warn"
-                tag = " ~"
-                prefix = "idle profile: "
-            else:
-                tag = {"error": "!!", "warn": " ~", "info": "  "}.get(sev, "  ")
-                prefix = ""
-            lines.append(f"    {tag} [{sev}] {prefix}{iss['message']}")
+            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
+            lines.append(f"    {tag} [{iss['severity']}] {iss['message']}")
+    if idle_n:
+        lines.append(f"  ({idle_n} unused profile(s) on disk — not shown)")
     for iss in wx.get("issues") or []:
         lines.append(f"  !! [{iss['severity']}] {iss['message']}")
 
@@ -550,8 +536,11 @@ def _solo_body(report: dict) -> tuple[list[str], int, int]:
     body.append("WSJT-X")
     if not configs:
         add(BAD, "No WSJT-X settings found on this PC. Is WSJT-X installed here?")
-    for c in configs:
-        if len(configs) > 1:
+    shown = [c for c in configs if c.get("running")]
+    if not shown:
+        shown = configs
+    for c in shown:
+        if len(shown) > 1:
             body.append(f"  [{c.get('name')}]")
         server, port = c.get("udp_server") or "", c.get("udp_port") or "2237"
         accept = (c.get("accept_udp") or "").lower() == "true"
