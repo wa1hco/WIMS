@@ -18,6 +18,7 @@ python -m wims                 # Checkbox agent console (tired-operator UX)
 #            or Start-WimsLauncher.cmd
 #   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
 #   Checkbox agents: N1MM→Log, WSJT-X→Seat, Key, Site server (auto-check on detect)
+#   On open: replace leftover Log/Seat/Key on this PC; site server left alone
 #   Green when checked agents are running; Other tools… for Solo / overrides
 #   Log agent CLI: python -m wims.log   (add --no-gui for console-only)
 
@@ -228,6 +229,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   check boxes, start Log / Seat / Key / Site server agents. Always say “agent”
   (not helper). Key agent: `wims.key daemon` stub (CTS + targets). Shared Tk
   chrome: `wims.agent_ui` (compat shim `wims.helper_ui`).
+  **Safe seat replace on start:** `launcher/process_replace.py` stops orphan
+  Log/Seat/Key by cmdline; never auto-kills site server / WSJT-X / N1MM.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

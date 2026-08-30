@@ -46,6 +46,7 @@ from wims.launcher.assets import (
     suggested_checks,
 )
 from wims.launcher.home_panel import AgentHomePanel
+from wims.launcher.process_replace import format_replace_banner, replace_seat_agents
 from wims.launcher.tooltips import ToolTip
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -334,8 +335,9 @@ class LauncherApp:
 
         self._apply_icon()
         self._build()
+        self._replace_done = False
+        self.root.after(100, self._startup_replace_seat_agents)
         self.root.after(200, self._kick_site_discover)
-        self.root.after(300, self._sync_detect_and_agents)
         self.root.after(400, self._refresh_status)
         self.root.after(1000, self._poll_procs)
         self.root.after(4000, self._pulse_detect)
@@ -495,6 +497,7 @@ class LauncherApp:
         self._append_log(
             f"Launcher v{__version__} ({self._rev}).\n"
             "Check boxes to start agents (N1MM→Log, WSJT-X→Seat, Key, Site server).\n"
+            "On open: leftover Log/Seat/Key on this PC are replaced; site server is left alone.\n"
             "When the top bar is green, use Open site console.\n"
             f"Log also written to: {details_log_path()}"
         )
@@ -523,12 +526,53 @@ class LauncherApp:
         p = self._procs.get(role_id)
         return p is not None and p.poll() is None
 
-    def _pulse_detect(self) -> None:
+    def _startup_replace_seat_agents(self) -> None:
+        """Stop orphan Log/Seat/Key on this PC; never auto-kill site server."""
+        self._set_banner(
+            "busy",
+            "Replacing local seat agents…",
+            "Log / Seat / Key leftovers are stopped so this launcher owns them. "
+            "Site server is left alone.",
+        )
+
+        def work() -> None:
+            try:
+                report = replace_seat_agents()
+            except Exception as e:  # noqa: BLE001
+                self.root.after(0, self._on_replace_done_error, str(e))
+                return
+            self.root.after(0, self._on_replace_done, report)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_replace_done_error(self, err: str) -> None:
+        self._append_log(f"Seat-agent replace failed: {err}")
+        self._replace_done = True
         self._sync_detect_and_agents()
+
+    def _on_replace_done(self, report) -> None:
+        for line in report.lines:
+            self._append_log(line)
+        for p in report.found:
+            self._append_log(f"  saw {p.kind} pid={p.pid}: {p.cmdline}")
+        level, msg = format_replace_banner(report)
+        fix = (
+            "Site server left running." if report.skipped_server
+            else "Detecting apps and starting checked agents…"
+        )
+        self._set_banner(level, msg, fix)
+        self._replace_done = True
+        self._sync_detect_and_agents()
+
+    def _pulse_detect(self) -> None:
+        if self._replace_done:
+            self._sync_detect_and_agents()
         self.root.after(5000, self._pulse_detect)
 
     def _sync_detect_and_agents(self) -> None:
         """Detect apps → auto-check boxes (unless user overrode) → start if checked."""
+        if not self._replace_done:
+            return
         snap = detect_assets()
         self._home_panel.update_asset_labels(snap)
         # Clear overrides when asset disappears so a later start can auto-check again.

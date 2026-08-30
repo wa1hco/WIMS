@@ -25,6 +25,14 @@ Checkboxes (auto-check when the related app is detected):
 - Agents own their config checks.
 - Advanced / Other tools remains an escape hatch.
 
+## Startup replace (orphans)
+
+On every launcher open, **replace local seat agents** (Log / Seat / Key) so this
+UI owns them — cmdline match only (`-m wims.log`, `wims.agent --daemon`,
+`wims.key daemon`). **Never auto-kill the site server**, WSJT-X, or N1MM.
+Site server start/stop is checkbox-only. Server outage does not stop N1MM
+logging (Log agent is independent of `:8787`).
+
 ## Banner
 
 - **Green:** all checked agents running; no hard config error on seat agent.
