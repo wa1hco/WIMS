@@ -82,11 +82,24 @@ def resolve_pin(
 
 
 def probe_tcp(host: str, port: int, timeout: float = 0.4) -> bool:
+    """True if N1MM's JTDX/Others TCP port accepts a connection.
+
+    Close with FIN (shutdown) rather than a Windows RST — N1MM's
+    LoggingTCPListening treats an abortive close as a popup error.
+    """
     try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
+        sock = socket.create_connection((host, port), timeout=timeout)
     except OSError:
         return False
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+    return True
 
 
 def _n1mm_presence() -> CheckItem:

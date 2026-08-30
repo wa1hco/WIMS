@@ -61,20 +61,67 @@ class AdifWrapTests(unittest.TestCase):
 
     def test_deliver_prefers_tcp(self):
         class FakeSock:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
-
             def sendall(self, data):
                 self.data = data
+
+            def shutdown(self, *_a):
+                pass
+
+            def settimeout(self, *_a):
+                pass
+
+            def recv(self, *_a):
+                return b""
+
+            def close(self):
+                pass
 
         with mock.patch("socket.create_connection", return_value=FakeSock()) as conn:
             ok, how = deliver_to_n1mm(b"<command:3>Log <parameters:3>x", prefer_tcp=True)
         self.assertTrue(ok)
         self.assertTrue(how.startswith("TCP"))
         conn.assert_called()
+
+    def test_tcp_client_reuses_socket(self):
+        from wims.log.app import N1mmTcpClient
+
+        class FakeSock:
+            def __init__(self):
+                self.n_send = 0
+                self.n_close = 0
+
+            def sendall(self, data):
+                self.n_send += 1
+                self.data = data
+
+            def setsockopt(self, *_a):
+                pass
+
+            def settimeout(self, *_a):
+                pass
+
+            def shutdown(self, *_a):
+                pass
+
+            def recv(self, *_a):
+                return b""
+
+            def close(self):
+                self.n_close += 1
+
+        sock = FakeSock()
+        client = N1mmTcpClient("127.0.0.1", 52001)
+        with mock.patch("socket.create_connection", return_value=sock) as conn:
+            ok1, how1 = deliver_to_n1mm(b"one", prefer_tcp=True, tcp_client=client)
+            ok2, how2 = deliver_to_n1mm(b"two", prefer_tcp=True, tcp_client=client)
+        self.assertTrue(ok1 and ok2)
+        self.assertTrue(how1.startswith("TCP") and how2.startswith("TCP"))
+        self.assertEqual(conn.call_count, 1)
+        self.assertEqual(sock.n_send, 2)
+        self.assertEqual(sock.n_close, 0)
+        client.close()
+        self.assertEqual(sock.n_close, 1)
+        self.assertFalse(client.alive)
 
 
 class RadioInfoTests(unittest.TestCase):

@@ -90,6 +90,12 @@ Ops risk: silent failure if helper isn’t up after reboot. Prefer agent that:
 “JTDX / Others TCP”), fall back to UDP **2333**. UDP sendto alone can report FWD
 with no N1MM insert when nothing is listening.
 
+**Keep the TCP session open** (JTDX does). Connect-send-close per QSO still
+inserts the contact, then N1MM `LoggingTCPListening` pops an error box:
+`Unable to read data from the transport connection` / WSAECONNABORTED
+(lab 2026-08-29, `logerror.txt`). Helper holds one socket for the process
+lifetime and FIN-closes it only on quit.
+
 **Why:**
 
 - Same envelope; N1MM documents it as a first-class ingest beside 2333.

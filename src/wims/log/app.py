@@ -123,6 +123,81 @@ def wrap_adif(adif: str) -> bytes:
     return f"<command:3>Log <parameters:{len(raw)}>".encode("ascii") + raw
 
 
+def _graceful_close(sock: socket.socket) -> None:
+    """FIN then drain, then close — avoid a Windows RST.
+
+    N1MM ``LoggingTCPListening`` treats an abortive close (WSAECONNABORTED)
+    as a popup even after it has already inserted the QSO.
+    """
+    try:
+        sock.shutdown(socket.SHUT_WR)
+    except (OSError, AttributeError):
+        pass
+    try:
+        sock.settimeout(0.3)
+    except (OSError, AttributeError):
+        pass
+    try:
+        while True:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+    except (OSError, TimeoutError, socket.timeout, AttributeError):
+        pass
+    try:
+        sock.close()
+    except (OSError, AttributeError):
+        pass
+
+
+class N1mmTcpClient:
+    """Long-lived TCP client for N1MM JTDX/Others logging (:52001).
+
+    JTDX keeps this socket open for the session. Connect-send-close per QSO
+    inserts the contact, then N1MM pops ``Unable to read data from the
+    transport connection`` (see logerror.txt / WSJTCode.LoggingTCPListening).
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_TCP_PORT) -> None:
+        self.host = host
+        self.port = port
+        self._sock: socket.socket | None = None
+
+    @property
+    def alive(self) -> bool:
+        return self._sock is not None
+
+    def send(self, payload: bytes) -> None:
+        sock = self._ensure()
+        try:
+            sock.sendall(payload)
+        except OSError:
+            self.close()
+            sock = self._ensure()
+            sock.sendall(payload)
+
+    def _ensure(self) -> socket.socket:
+        if self._sock is not None:
+            return self._sock
+        sock = socket.create_connection((self.host, self.port), timeout=1.0)
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        except (OSError, AttributeError):
+            pass
+        try:
+            sock.settimeout(1.0)
+        except (OSError, AttributeError):
+            pass
+        self._sock = sock
+        return sock
+
+    def close(self) -> None:
+        sock = self._sock
+        self._sock = None
+        if sock is not None:
+            _graceful_close(sock)
+
+
 def qso_to_adif(msg: M.QSOLogged) -> str:
     mhz = (msg.tx_frequency or 0) / 1e6
     band = _n1mm_band_token(band_label(msg.tx_frequency or 0))
@@ -150,20 +225,43 @@ def deliver_to_n1mm(
     udp_port: int = 2333,
     tcp_port: int = DEFAULT_TCP_PORT,
     prefer_tcp: bool = True,
+    tcp_client: N1mmTcpClient | None = None,
 ) -> tuple[bool, str]:
     """Deliver Log envelope to local N1MM. Prefer TCP 52001 (has a real handshake).
 
     UDP 2333 sendto() always looks successful even when nothing is listening —
     that is why helpers can report FWD with no N1MM insert.
+
+    Pass a long-lived ``tcp_client`` from the helper loop. One-shot connect /
+    send / close makes N1MM pop an error box after a successful insert.
     """
     errors: list[str] = []
     if prefer_tcp:
         try:
-            with socket.create_connection((host, tcp_port), timeout=1.0) as sock:
-                sock.sendall(payload)
+            if tcp_client is not None:
+                tcp_client.host = host
+                tcp_client.port = tcp_port
+                tcp_client.send(payload)
+            else:
+                sock = socket.create_connection((host, tcp_port), timeout=1.0)
+                try:
+                    try:
+                        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                    except (OSError, AttributeError):
+                        pass
+                    sock.sendall(payload)
+                except BaseException:
+                    try:
+                        sock.close()
+                    except OSError:
+                        pass
+                    raise
+                _graceful_close(sock)
             return True, f"TCP {host}:{tcp_port}"
         except OSError as e:
             errors.append(f"TCP {tcp_port}: {e}")
+            if tcp_client is not None:
+                tcp_client.close()
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -194,6 +292,7 @@ class LogState:
         self.mcast_port = PORT
         self.delivery = "127.0.0.1:2333"
         self.tcp_port = DEFAULT_TCP_PORT
+        self.tcp_client: N1mmTcpClient | None = None
         self.dry_run = False
         self.joined = False
         self.join_error: str | None = None
@@ -277,6 +376,11 @@ def rescan(state: LogState) -> None:
         joined = False
     else:
         joined = None
+    with state._lock:
+        tcp_live = bool(state.tcp_client and state.tcp_client.alive)
+    # Do not connect-and-close :52001 while we already hold the JTDX session —
+    # that RST is what pops N1MM's error box.
+    tcp_probe = (lambda _h, _p: True) if tcp_live else None
     rep = run_checks(
         live_band=snap["live_band"],
         expect_band=snap["expect_band"],
@@ -287,6 +391,7 @@ def rescan(state: LogState) -> None:
         delivery_udp_port=udp_port,
         joined=joined,
         dry_run=snap["dry_run"],
+        tcp_probe=tcp_probe,
     )
     if snap["join_error"]:
         from wims.log.check import CheckItem
@@ -427,6 +532,9 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     host = nhost or "127.0.0.1"
     udp_port = int(nport or "2333")
     tcp_port = int(getattr(args, "tcp_port", DEFAULT_TCP_PORT) or DEFAULT_TCP_PORT)
+    tcp_client = N1mmTcpClient(host, tcp_port)
+    with state._lock:
+        state.tcp_client = tcp_client
     try:
         sock = open_socket(args.iface, args.port, args.group)
     except OSError as e:
@@ -434,6 +542,8 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             state.join_error = str(e)
             state.joined = False
             state.running = False
+            state.tcp_client = None
+        tcp_client.close()
         _log_line(f"log-helper: join failed: {e}")
         rescan(state)
         return
@@ -450,86 +560,91 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     )
     _log_line("          Filter band comes from N1MM RadioInfo (waiting until heard).")
     _log_line("          Enable N1MM Configurer > WSJT/JTDX Setup > JTDX/Others TCP "
-              f"(:{tcp_port}) — UDP :{udp_port} is fallback only.")
+              f"(:{tcp_port}) — keep that TCP session open; UDP :{udp_port} is fallback only.")
 
     seen: set[tuple] = set()
     sock.settimeout(0.5)
-    while not stop.is_set():
-        try:
-            data, addr = sock.recvfrom(65535)
-        except socket.timeout:
-            continue
-        except OSError as e:
-            with state._lock:
-                state.last_error = str(e)
-            break
-        msg = M.parse(data)
-        if msg is None:
-            continue
-        adif = None
-        call = None
-        qband = None
-        if isinstance(msg, M.LoggedADIF) and msg.adif:
-            adif = ensure_adif_datetime(msg.adif)
-            qband = adif_band(adif)
-            m = _ADIF_CALL.search(adif)
-            call = m.group(2) if m else msg.id
-        elif isinstance(msg, M.QSOLogged):
-            qband = band_label(msg.tx_frequency or 0)
-            call = msg.dx_call
-            adif = qso_to_adif(msg)
-        else:
-            continue
-
-        pin = state.snapshot()["live_band"]
-        if not pin:
-            with state._lock:
-                state.n_wait += 1
-            _log_line(
-                f"{time.strftime('%H:%M:%S')}  WAIT {msg.id} {call} "
-                f"band={qband} (no N1MM band yet)  from {addr[0]}"
-            )
-            continue
-        if qband != pin:
-            with state._lock:
-                state.n_drop += 1
-            _log_line(
-                f"{time.strftime('%H:%M:%S')}  DROP {msg.id} {call} "
-                f"band={qband} (want {pin})  from {addr[0]}"
-            )
-            continue
-        key = (msg.id, call, qband)
-        if key in seen:
-            continue
-        seen.add(key)
-        payload = wrap_adif(adif or "")
-        with state._lock:
-            state.n_fwd += 1
-            state.last_fwd = (
-                f"{time.strftime('%H:%M:%S')} {call} {qband} ({len(payload)} B)"
-            )
-            n_fwd, n_drop = state.n_fwd, state.n_drop
-        _log_line(
-            f"{time.strftime('%H:%M:%S')}  FWD  {msg.id} {call} {qband}  "
-            f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)"
-        )
-        if not args.dry_run:
-            ok, how = deliver_to_n1mm(
-                payload, host=host, udp_port=udp_port, tcp_port=tcp_port,
-            )
-            with state._lock:
-                state.last_delivery = how
-                if not ok:
-                    state.last_error = how
-            _log_line(
-                f"{time.strftime('%H:%M:%S')}  SEND {'OK' if ok else 'FAIL'} via {how}"
-            )
-    with state._lock:
-        state.running = False
     try:
-        sock.close()
-    except OSError:
-        pass
+        while not stop.is_set():
+            try:
+                data, addr = sock.recvfrom(65535)
+            except socket.timeout:
+                continue
+            except OSError as e:
+                with state._lock:
+                    state.last_error = str(e)
+                break
+            msg = M.parse(data)
+            if msg is None:
+                continue
+            adif = None
+            call = None
+            qband = None
+            if isinstance(msg, M.LoggedADIF) and msg.adif:
+                adif = ensure_adif_datetime(msg.adif)
+                qband = adif_band(adif)
+                m = _ADIF_CALL.search(adif)
+                call = m.group(2) if m else msg.id
+            elif isinstance(msg, M.QSOLogged):
+                qband = band_label(msg.tx_frequency or 0)
+                call = msg.dx_call
+                adif = qso_to_adif(msg)
+            else:
+                continue
+
+            pin = state.snapshot()["live_band"]
+            if not pin:
+                with state._lock:
+                    state.n_wait += 1
+                _log_line(
+                    f"{time.strftime('%H:%M:%S')}  WAIT {msg.id} {call} "
+                    f"band={qband} (no N1MM band yet)  from {addr[0]}"
+                )
+                continue
+            if qband != pin:
+                with state._lock:
+                    state.n_drop += 1
+                _log_line(
+                    f"{time.strftime('%H:%M:%S')}  DROP {msg.id} {call} "
+                    f"band={qband} (want {pin})  from {addr[0]}"
+                )
+                continue
+            key = (msg.id, call, qband)
+            if key in seen:
+                continue
+            seen.add(key)
+            payload = wrap_adif(adif or "")
+            with state._lock:
+                state.n_fwd += 1
+                state.last_fwd = (
+                    f"{time.strftime('%H:%M:%S')} {call} {qband} ({len(payload)} B)"
+                )
+                n_fwd, n_drop = state.n_fwd, state.n_drop
+            _log_line(
+                f"{time.strftime('%H:%M:%S')}  FWD  {msg.id} {call} {qband}  "
+                f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)"
+            )
+            if not args.dry_run:
+                ok, how = deliver_to_n1mm(
+                    payload, host=host, udp_port=udp_port, tcp_port=tcp_port,
+                    tcp_client=tcp_client,
+                )
+                with state._lock:
+                    state.last_delivery = how
+                    if not ok:
+                        state.last_error = how
+                _log_line(
+                    f"{time.strftime('%H:%M:%S')}  SEND {'OK' if ok else 'FAIL'} via {how}"
+                )
+    finally:
+        with state._lock:
+            state.running = False
+            state.tcp_client = None
+        try:
+            sock.close()
+        except OSError:
+            pass
+        tcp_client.close()
 
 
 def main(argv: list[str] | None = None) -> int:
