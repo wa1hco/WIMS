@@ -52,6 +52,20 @@ _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 _DEFAULT_SITE = "http://192.168.1.119:8787"
 
 
+def _git_rev() -> str:
+    """Short git SHA for the running tree (so ops can see if the launcher is current)."""
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(_REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+        return out.strip() or "?"
+    except (OSError, subprocess.SubprocessError):
+        return "?"
+
+
 def details_log_path() -> Path:
     """Session transcript for the launcher Details pane (easy to open/paste)."""
     return _DETAILS_LOG
@@ -283,8 +297,9 @@ class LauncherApp:
             if self._seat_probe.seat_type != SEAT_AMBIGUOUS
             else SEAT_N1MM
         )
+        self._rev = _git_rev()
         label = "WSJT seat" if self._seat_type == SEAT_WSJT else "N1MM seat"
-        self.root.title(f"WIMS  ·  {label}  ·  v{__version__}")
+        self.root.title(f"WIMS  ·  {label}  ·  v{__version__} ({self._rev})")
         self.root.minsize(520, 420)
         self.root.configure(bg="#f4f4f4")
 
@@ -390,10 +405,13 @@ class LauncherApp:
             self._local_btn,
             "Opens this PC’s WSJT seat monitor page (config check results).",
         )
+        # Second row so “Start site server” is not clipped off a crowded button bar.
+        self._server_row = tk.Frame(home, bg="#f4f4f4")
         self._server_btn = tk.Button(
-            btns, text="Start site server", font=_ui_font(12),
+            self._server_row, text="Start site server", font=_ui_font(12, "bold"),
             command=self._start_site_server, padx=12, pady=8,
         )
+        self._server_btn.pack(side="left")
         ToolTip(
             self._server_btn,
             "Start the WIMS site console on this PC (:8787).\n"
@@ -537,10 +555,14 @@ class LauncherApp:
         self._log.bind("<Key>", self._details_key)
         self._log.bind("<<Paste>>", lambda _e: "break")
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        _append_details_file(f"\n===== WIMS launcher v{__version__}  {stamp} =====\n")
+        _append_details_file(
+            f"\n===== WIMS launcher v{__version__} ({self._rev})  {stamp} =====\n"
+        )
         self._append_log(
-            "Press Start seat to run WIMS helpers (banner is blue/yellow until they are up).\n"
+            f"Launcher v{__version__} ({self._rev}).\n"
+            "Press Start seat to run WIMS helpers (banner is blue until they are up).\n"
             "When the top bar is green, use Open site console.\n"
+            "If site console is down, use Start site server on this PC.\n"
             f"Log also written to: {details_log_path()}"
         )
 
@@ -572,7 +594,7 @@ class LauncherApp:
         """Swap home labels/actions for N1MM vs WSJT without rebuilding the tree."""
         probe = self._seat_probe
         if self._seat_type == SEAT_WSJT:
-            self.root.title(f"WIMS  ·  WSJT seat  ·  v{__version__}")
+            self.root.title(f"WIMS  ·  WSJT seat  ·  v{__version__} ({self._rev})")
             self._subtitle_var.set("WSJT seat — config check & monitor")
             if probe.wsjt_running:
                 # App already defines this seat — keep the face clean.
@@ -597,7 +619,7 @@ class LauncherApp:
                 self._local_btn.pack(side="left", padx=(10, 0))
             # Site server button visibility is driven by _update_server_btn.
         else:
-            self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
+            self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__} ({self._rev})")
             self._subtitle_var.set("N1MM seat — logging helpers for this PC")
             if probe.n1mm_running:
                 self._blurb_var.set(
@@ -724,13 +746,13 @@ class LauncherApp:
             pass
 
     def _update_server_btn(self, ok_site: bool) -> None:
-        """Show Start site server only when the console is missing (or we own it)."""
+        """Show Start site server when the console is missing (or we own it)."""
         ours = self._proc_running("server")
         show = (not ok_site) or ours
-        if show and not self._server_btn.winfo_ismapped():
-            self._server_btn.pack(side="left", padx=(10, 0))
-        elif not show and self._server_btn.winfo_ismapped():
-            self._server_btn.pack_forget()
+        if show and not self._server_row.winfo_ismapped():
+            self._server_row.pack(fill="x", pady=(4, 0))
+        elif not show and self._server_row.winfo_ismapped():
+            self._server_row.pack_forget()
         if ours:
             self._server_btn.configure(text="Site server running", state="disabled")
         else:
