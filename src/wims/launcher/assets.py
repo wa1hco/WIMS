@@ -34,6 +34,7 @@ class AssetSnapshot:
 
     @property
     def wsjt_present(self) -> bool:
+        """Installed or running — for labels. Auto-start uses ``wsjt_running``."""
         return self.wsjt_running or self.wsjt_ini_count > 0
 
     @property
@@ -120,7 +121,9 @@ def suggested_checks(snap: AssetSnapshot, wanted: dict[str, bool]) -> dict[str, 
     out = {k: bool(wanted.get(k)) for k in _ALL_AGENTS}
     if snap.n1mm_present:
         out[AGENT_LOG] = True
-    if snap.wsjt_present:
+    # Auto-check Seat only when WSJT-X is actually running — .ini files alone
+    # must not look like a live seat (and must not force-start the agent).
+    if snap.wsjt_running:
         out[AGENT_WSJT] = True
     # Key / server: prefs only (no app to auto-detect for Key).
     return out

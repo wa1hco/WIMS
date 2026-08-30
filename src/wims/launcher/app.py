@@ -364,6 +364,7 @@ class LauncherApp:
         self._server_start_blocked = False  # dual-primary / refuse restart spam
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
+        self._last_snap = detect_assets()
         self._wanted = load_wanted_agents()
         self._user_override: set[str] = set()
         self._agent_vars = {
@@ -636,11 +637,12 @@ class LauncherApp:
         if not self._replace_done:
             return
         snap = detect_assets()
+        self._last_snap = snap
         self._home_panel.update_asset_labels(snap)
-        # Clear overrides when asset disappears so a later start can auto-check again.
+        # Clear overrides when the live app disappears so a later start can auto-check.
         if not snap.n1mm_present:
             self._user_override.discard(AGENT_LOG)
-        if not snap.wsjt_present:
+        if not snap.wsjt_running:
             self._user_override.discard(AGENT_WSJT)
 
         suggested = suggested_checks(snap, self._wanted)
@@ -708,7 +710,7 @@ class LauncherApp:
                 self._site_var.set(base)
                 os.environ["WIMS_SERVER"] = base
                 save_last_site_url(base)
-                self._agent_status[AGENT_SERVER].set("running (existing)")
+                self._agent_status[AGENT_SERVER].set("Site server up (existing)")
                 self._append_log(
                     f"Site server already up at {base} — not starting a second one."
                 )
@@ -847,7 +849,7 @@ class LauncherApp:
             if not self._proc_running("server"):
                 self._site_external = True
 
-        # Per-row status
+        # Per-row status — name the *agent*, never imply the ham app is live.
         labels = {
             AGENT_LOG: "Log agent",
             AGENT_WSJT: "Seat agent",
@@ -857,21 +859,25 @@ class LauncherApp:
         for aid, role_id in self._agent_role.items():
             checked = bool(self._agent_vars[aid].get())
             owned = self._proc_running(role_id)
+            name = labels[aid]
             if aid == AGENT_SERVER and ok_site and not owned:
-                self._agent_status[aid].set("running (existing)")
+                self._agent_status[aid].set(f"{name} up (existing)")
             elif owned:
-                self._agent_status[aid].set("running")
+                self._agent_status[aid].set(f"{name} up")
             elif checked:
-                self._agent_status[aid].set("starting…")
+                self._agent_status[aid].set(f"{name} starting…")
             else:
                 self._agent_status[aid].set("off")
 
         if self._proc_running("wsjt_agent"):
             self._fetch_wsjt_report()
 
+        snap = self._last_snap
         # Banner from checked agents (site server counts if reachable).
         wanted = [a for a, v in self._agent_vars.items() if v.get()]
         missing = [labels[a] for a in wanted if not self._agent_effective(a)]
+        seat_up = self._agent_running(AGENT_WSJT)
+        wsjt_live = bool(snap and snap.wsjt_running)
         if not wanted:
             self._set_banner(
                 "busy",
@@ -884,23 +890,30 @@ class LauncherApp:
                 "Waiting for: " + ", ".join(missing),
                 "Uncheck to cancel, or wait for the agent window/process.",
             )
-        elif self._agent_running(AGENT_WSJT) and self._last_wsjt_sev == "error":
+        elif seat_up and self._last_wsjt_sev == "error":
             self._set_banner(
                 "err",
                 "Seat agent: WSJT config needs fixing",
                 self._last_wsjt_msg or "Open local status / Details.",
             )
+        elif seat_up and not wsjt_live:
+            self._set_banner(
+                "warn",
+                "Seat agent up — WSJT-X is not running",
+                "Start WSJT-X on this PC (or uncheck Seat agent). "
+                "Green Ready needs a live WSJT-X process.",
+            )
         elif not ok_site and AGENT_SERVER not in wanted:
             self._set_banner(
                 "warn",
-                "Agents running — site console not reachable",
+                "Agents up — site console not reachable",
                 f"Cannot reach {base}. Check Site server, or Find on LAN under Other tools…",
             )
         else:
             note = base if ok_site else "Use Open site console for the fleet."
             self._set_banner(
                 "ok",
-                "Ready — checked agents are running",
+                "Ready — checked agents are up",
                 note if ok_site else "Use Open site console for the fleet.",
             )
         self._schedule_status(4000)
@@ -1208,7 +1221,7 @@ class LauncherApp:
                     f"{title} did not stay up (code {code}); "
                     f"using existing site server at {base}."
                 )
-                self._agent_status[AGENT_SERVER].set("running (existing)")
+                self._agent_status[AGENT_SERVER].set("Site server up (existing)")
             else:
                 self._append_log(f"{title} exited with code {code}.")
                 self._agent_vars[AGENT_SERVER].set(False)

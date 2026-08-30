@@ -104,7 +104,8 @@ class AgentHomePanel:
         hint = tk.Label(
             frame,
             text="Check a box to start that agent; uncheck to stop. "
-                 "Boxes auto-check when N1MM / WSJT-X is detected.",
+                 "Boxes auto-check when N1MM / WSJT-X is running "
+                 "(not merely installed).",
             font=_ui_font(10), bg="#f4f4f4", fg="#666666",
             wraplength=480, justify="left", anchor="w",
         )
@@ -125,14 +126,19 @@ class AgentHomePanel:
         ToolTip(self.local_btn, "WSJT seat agent local page (when that agent is running).")
 
     def update_asset_labels(self, snap: AssetSnapshot) -> None:
-        """Refresh checkbox labels with live asset counts."""
+        """Refresh checkbox labels with live asset state (never imply app==agent)."""
         wsjt = self._rows[AGENT_WSJT]["cb"]
         n = len(snap.wsjt_running_names) or (1 if snap.wsjt_running else 0)
         if snap.wsjt_running and n:
-            wsjt.configure(text=f"WSJT-X ({n})")
+            wsjt.configure(text=f"WSJT-X ({n} live)")
         elif snap.wsjt_ini_count:
-            wsjt.configure(text=f"WSJT-X ({snap.wsjt_ini_count} ini)")
+            wsjt.configure(text=f"WSJT-X (off, {snap.wsjt_ini_count} ini)")
         else:
             wsjt.configure(text="WSJT-X")
         n1 = self._rows[AGENT_LOG]["cb"]
-        n1.configure(text="N1MM" + (" (running)" if snap.n1mm_running else ""))
+        if snap.n1mm_running:
+            n1.configure(text="N1MM (live)")
+        elif snap.n1mm_found:
+            n1.configure(text="N1MM (off)")
+        else:
+            n1.configure(text="N1MM")

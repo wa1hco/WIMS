@@ -35,8 +35,11 @@ logging (Log agent is independent of `:8787`).
 
 ## Banner
 
-- **Green:** all checked agents running; no hard config error on seat agent.
-- **Yellow/red:** name which agent / what’s missing.
+- **Green:** checked agents are up **and** (for Seat) WSJT-X process is live.
+- **Yellow:** Seat agent up but WSJT-X not running; or site unreachable; waiting…
+- **Red:** hard seat config error.
+- Status column says **“Seat agent up”**, never bare “running” next to “WSJT-X”.
+- Auto-check Seat only when WSJT-X is **running** (`.ini` alone is “off, N ini”).
 
 ## Naming
 

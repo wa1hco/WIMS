@@ -39,6 +39,14 @@ class AssetsTests(unittest.TestCase):
         self.assertFalse(s[AGENT_KEY])
         self.assertFalse(s[AGENT_SERVER])
 
+    def test_ini_alone_does_not_auto_check_seat(self):
+        snap = AssetSnapshot(wsjt_running=False, wsjt_ini_count=6)
+        s = suggested_checks(snap, {})
+        self.assertFalse(s[AGENT_WSJT])
+        # Prefs can still keep Seat wanted without a live process.
+        s2 = suggested_checks(snap, {AGENT_WSJT: True})
+        self.assertTrue(s2[AGENT_WSJT])
+
     def test_prefs_keep_key(self):
         snap = AssetSnapshot()
         s = suggested_checks(snap, {AGENT_KEY: True})
