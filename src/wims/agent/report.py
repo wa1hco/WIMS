@@ -67,6 +67,76 @@ def _lan_ips() -> list[str]:
     return sorted(ips)
 
 
+def _wsjtx_running_rig_names() -> set[str] | None:
+    """Rig-names of live ``wsjtx`` processes (not jt9 helpers).
+
+    Returns:
+      - ``None`` if process list unavailable
+      - empty set if WSJT-X is not running
+      - ``{"(active/default)"}`` and/or named ``--rig-name`` values
+    """
+    try:
+        if os.name == "nt":
+            # Windows: wmic is slow/fragile; fall back to "something running" only.
+            # Prefer PowerShell-less: tasklist cannot show args. Use WMIC if present.
+            try:
+                out = subprocess.check_output(
+                    ["wmic", "process", "where", "name='wsjtx.exe'", "get", "CommandLine"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=8,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+            except (OSError, subprocess.SubprocessError):
+                running = _process_running(("wsjtx.exe", "wsjtx"), substrings=("wsjtx",))
+                if running:
+                    return {"(active/default)"}
+                if running is False:
+                    return set()
+                return None
+            lines = [ln.strip() for ln in out.splitlines() if ln.strip() and "CommandLine" not in ln]
+        else:
+            out = subprocess.check_output(
+                ["ps", "-eo", "args="],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=8,
+            )
+            lines = []
+            for ln in out.splitlines():
+                s = ln.strip()
+                # Match wsjtx binary; skip jt9 helpers and our own python agent.
+                low = s.lower()
+                if "jt9" in low:
+                    continue
+                if "wsjtx" not in low:
+                    continue
+                if "wims" in low and "agent" in low:
+                    continue
+                # Prefer real binary argv (…/wsjtx or wsjtx.exe), not editors.
+                parts = s.split()
+                if not parts:
+                    continue
+                base = Path(parts[0]).name.lower()
+                if base in ("wsjtx", "wsjtx.exe") or base.endswith("wsjtx"):
+                    lines.append(s)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    if not lines:
+        return set()
+
+    import re
+    names: set[str] = set()
+    for s in lines:
+        m = re.search(r"--rig-name(?:=|\s+)(\S+)", s)
+        if m:
+            names.add(m.group(1).strip("\"'"))
+        else:
+            names.add("(active/default)")
+    return names
+
+
 def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()) -> bool | None:
     """Return True/False if we can list processes; None if unknown.
 
@@ -121,9 +191,11 @@ def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()
 
 def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
     paths = W.discover_ini_paths()
+    running_names = _wsjtx_running_rig_names()
     configs: list[dict] = []
     error_count = 0
     warn_count = 0
+    idle_error_count = 0
     for path in paths:
         try:
             parsed = W.parse_ini(path)
@@ -131,6 +203,7 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
             configs.append({
                 "name": path.name,
                 "source": str(path),
+                "running": False,
                 "issues": [{"severity": "error", "message": f"cannot read: {e}"}],
             })
             error_count += 1
@@ -138,11 +211,27 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
         for c in parsed:
             issues = [{"severity": sev, "message": msg}
                       for sev, msg in W.validate(c, fleet=fleet, solo=solo)]
-            error_count += sum(1 for i in issues if i["severity"] == "error")
-            warn_count += sum(1 for i in issues if i["severity"] == "warn")
+            # If we know which instances are live, only those drive hard errors.
+            if running_names is None:
+                is_running = True  # unknown — treat all as in-scope (legacy)
+            elif not running_names:
+                is_running = False
+            else:
+                is_running = c.name in running_names
+            n_err = sum(1 for i in issues if i["severity"] == "error")
+            n_warn = sum(1 for i in issues if i["severity"] == "warn")
+            if is_running:
+                error_count += n_err
+                warn_count += n_warn
+            else:
+                idle_error_count += n_err
+                # Idle profile problems are noise for the seat operator — demote.
+                if n_err:
+                    warn_count += 1
             configs.append({
                 "name": c.name,
                 "source": c.source or str(path),
+                "running": is_running,
                 "udp_server": c.g("UDPServer"),
                 "udp_port": c.g("UDPServerPort"),
                 "udp_iface": c.g("UDPInterface"),
@@ -158,6 +247,8 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
             "configs": [],
             "error_count": 1,
             "warn_count": 0,
+            "idle_error_count": 0,
+            "running_names": sorted(running_names) if running_names is not None else None,
             "issues": [{
                 "severity": "warn",
                 "message": (
@@ -171,18 +262,33 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
         "configs": configs,
         "error_count": error_count,
         "warn_count": warn_count,
+        "idle_error_count": idle_error_count,
+        "running_names": sorted(running_names) if running_names is not None else None,
         "issues": [],
     }
 
 
 def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
-    """One plain-language headline for the operator and the dashboard."""
+    """One plain-language headline for the operator and the dashboard.
+
+    Prefer issues on **running** WSJT-X instances. Idle ``--rig-name`` profiles
+    (e.g. an old IC7300.ini while hamlib NET rigctl is in use) must not claim
+    the UDP server is 127.0.0.1 when the live instance is correct.
+    """
     msgs: list[tuple[str, str]] = []  # severity, message
+    idle_bad: list[str] = []
 
     for cfg in wsjtx.get("configs") or []:
+        name = cfg.get("name") or "?"
+        running = cfg.get("running", True)
         for iss in cfg.get("issues") or []:
-            if iss["severity"] in ("error", "warn"):
-                msgs.append((iss["severity"], f"WSJT-X [{cfg.get('name')}]: {iss['message']}"))
+            if iss["severity"] not in ("error", "warn"):
+                continue
+            if running:
+                msgs.append((iss["severity"], f"WSJT-X [{name}]: {iss['message']}"))
+            elif iss["severity"] == "error" and name not in idle_bad:
+                idle_bad.append(name)
+
     for iss in wsjtx.get("issues") or []:
         if iss["severity"] in ("error", "warn"):
             msgs.append((iss["severity"], iss["message"]))
@@ -195,12 +301,31 @@ def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
     if apps.get("n1mm_running") is False and n1mm.get("found"):
         msgs.append(("info", "N1MM does not appear to be running on this PC"))
 
-    # Prefer first error, else first warn, else ok.
+    # Prefer first error on a running instance, else first warn, else ok.
     for want in ("error", "warn"):
         for sev, msg in msgs:
             if sev == want:
                 return {"severity": sev, "message": msg}
+
     if wsjtx.get("configs"):
+        running = [c for c in wsjtx["configs"] if c.get("running")]
+        if running and not any(
+            i.get("severity") == "error"
+            for c in running for i in (c.get("issues") or [])
+        ):
+            msg = (
+                f"Running WSJT-X OK "
+                f"({', '.join(c.get('name') or '?' for c in running)})"
+            )
+            if idle_bad:
+                msg += (
+                    f"; idle unused profiles still wrong on disk: "
+                    f"{', '.join(idle_bad[:4])}"
+                    + ("…" if len(idle_bad) > 4 else "")
+                    + " (not affecting the live instance)"
+                )
+            # Live instance OK → green; idle junk is informational in Details.
+            return {"severity": "ok", "message": msg}
         return {
             "severity": "ok",
             "message": (
@@ -349,8 +474,14 @@ def format_report_text(report: dict) -> str:
             lines.append(f"  ini: {p}")
     else:
         lines.append("  (no ini paths)")
+    run_names = wx.get("running_names")
+    if run_names is not None:
+        lines.append(
+            f"  running instances: {', '.join(run_names) if run_names else '(none)'}"
+        )
     for c in wx.get("configs") or []:
-        lines.append(f"  [{c.get('name')}]  ({c.get('source')})")
+        state = "RUNNING" if c.get("running") else "idle"
+        lines.append(f"  [{c.get('name')}] ({state})  ({c.get('source')})")
         lines.append(
             f"    UDP {c.get('udp_server') or '-'}:{c.get('udp_port') or '-'} "
             f"iface={c.get('udp_iface') or '(empty)'} "
@@ -358,8 +489,16 @@ def format_report_text(report: dict) -> str:
         )
         lines.append(f"    Stn {c.get('my_call') or '-'} / {c.get('my_grid') or '-'}")
         for iss in c.get("issues") or []:
-            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
-            lines.append(f"    {tag} [{iss['severity']}] {iss['message']}")
+            # Soften idle-profile errors in the text dump so they don't look live.
+            sev = iss["severity"]
+            if not c.get("running") and sev == "error":
+                sev = "warn"
+                tag = " ~"
+                prefix = "idle profile: "
+            else:
+                tag = {"error": "!!", "warn": " ~", "info": "  "}.get(sev, "  ")
+                prefix = ""
+            lines.append(f"    {tag} [{sev}] {prefix}{iss['message']}")
     for iss in wx.get("issues") or []:
         lines.append(f"  !! [{iss['severity']}] {iss['message']}")
 

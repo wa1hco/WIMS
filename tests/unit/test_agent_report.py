@@ -50,6 +50,7 @@ def test_build_report_shape():
 def test_build_report_with_synthetic_ini(monkeypatch=None):
     # Write a bad fleet ini and force discover to see it.
     from wims.integrations import wsjtx_config as W
+    from wims.agent import report as R
 
     with tempfile.TemporaryDirectory() as td:
         ini = Path(td) / "WSJT-X.ini"
@@ -63,7 +64,10 @@ def test_build_report_with_synthetic_ini(monkeypatch=None):
             encoding="utf-8",
         )
         old = W.discover_ini_paths
+        old_run = R._wsjtx_running_rig_names
         W.discover_ini_paths = lambda: [ini]  # type: ignore
+        # Pretend this default profile is the live instance.
+        R._wsjtx_running_rig_names = lambda: {"(active/default)"}  # type: ignore
         try:
             r = build_report(agent_id="vm1", fleet=True, now=1.0)
             assert r["wsjtx"]["error_count"] >= 1
@@ -71,10 +75,58 @@ def test_build_report_with_synthetic_ini(monkeypatch=None):
             assert r["wsjtx"]["configs"]
             cfg = r["wsjtx"]["configs"][0]
             assert cfg["udp_server"] == "127.0.0.1"
+            assert cfg.get("running") is True
             sevs = {i["severity"] for i in cfg["issues"]}
             assert "error" in sevs
         finally:
             W.discover_ini_paths = old
+            R._wsjtx_running_rig_names = old_run
+
+
+def test_idle_bad_profile_does_not_override_running_ok():
+    """Unused IC7300.ini on loopback must not headline when live instance is OK."""
+    from wims.integrations import wsjtx_config as W
+    from wims.agent import report as R
+
+    with tempfile.TemporaryDirectory() as td:
+        good = Path(td) / "WSJT-X.ini"
+        bad = Path(td) / "WSJT-X - IC7300.ini"
+        good.write_text(
+            "UDPServer=224.0.0.73\n"
+            "UDPServerPort=2237\n"
+            "UDPInterface=enp13s0f1\n"
+            "AcceptUDPRequests=true\n"
+            "MyCall=W1AW\n"
+            "MyGrid=FN31\n",
+            encoding="utf-8",
+        )
+        bad.write_text(
+            "UDPServer=127.0.0.1\n"
+            "UDPServerPort=2237\n"
+            "UDPInterface=@Invalid()\n"
+            "AcceptUDPRequests=false\n"
+            "MyCall=W1AW\n"
+            "MyGrid=FN31\n",
+            encoding="utf-8",
+        )
+        old = W.discover_ini_paths
+        old_run = R._wsjtx_running_rig_names
+        W.discover_ini_paths = lambda: [good, bad]  # type: ignore
+        R._wsjtx_running_rig_names = lambda: {"(active/default)"}  # type: ignore
+        try:
+            r = build_report(agent_id="vm1", fleet=True, now=1.0)
+            assert r["wsjtx"]["error_count"] == 0  # only running instance
+            assert r["summary"]["severity"] in ("ok", "warn")
+            assert "127.0.0.1" not in r["summary"]["message"]
+            by_name = {c["name"]: c for c in r["wsjtx"]["configs"]}
+            assert by_name["(active/default)"]["running"] is True
+            assert by_name["IC7300"]["running"] is False
+            text = format_report_text(r)
+            assert "RUNNING" in text
+            assert "idle" in text.lower()
+        finally:
+            W.discover_ini_paths = old
+            R._wsjtx_running_rig_names = old_run
 
 
 def test_livefleet_accept_agent_and_snapshot():
