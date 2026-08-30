@@ -390,6 +390,15 @@ class LauncherApp:
             self._local_btn,
             "Opens this PC’s WSJT seat monitor page (config check results).",
         )
+        self._server_btn = tk.Button(
+            btns, text="Start site server", font=_ui_font(12),
+            command=self._start_site_server, padx=12, pady=8,
+        )
+        ToolTip(
+            self._server_btn,
+            "Start the WIMS site console on this PC (:8787).\n"
+            "Use when nothing on the LAN is serving the fleet UI.",
+        )
 
         self._opts = tk.Frame(home, bg="#f4f4f4")
         self._opts.pack(fill="x", pady=(8, 4))
@@ -586,6 +595,7 @@ class LauncherApp:
             self._opts.pack_forget()
             if not self._local_btn.winfo_ismapped():
                 self._local_btn.pack(side="left", padx=(10, 0))
+            # Site server button visibility is driven by _update_server_btn.
         else:
             self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
             self._subtitle_var.set("N1MM seat — logging helpers for this PC")
@@ -713,6 +723,31 @@ class LauncherApp:
             # Leave previous values; process liveness still drives red/green.
             pass
 
+    def _update_server_btn(self, ok_site: bool) -> None:
+        """Show Start site server only when the console is missing (or we own it)."""
+        ours = self._proc_running("server")
+        show = (not ok_site) or ours
+        if show and not self._server_btn.winfo_ismapped():
+            self._server_btn.pack(side="left", padx=(10, 0))
+        elif not show and self._server_btn.winfo_ismapped():
+            self._server_btn.pack_forget()
+        if ours:
+            self._server_btn.configure(text="Site server running", state="disabled")
+        else:
+            self._server_btn.configure(text="Start site server", state="normal")
+
+    def _start_site_server(self) -> None:
+        """Start site console on this PC — launcher-managed (has Stop via Stop seat)."""
+        local = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
+        self._site_var.set(local)
+        os.environ["WIMS_SERVER"] = local
+        self._also_server.set(True)
+        self._set_banner("busy", "Starting site server…", "One moment.")
+        if not self._proc_running("server"):
+            self._start_role(role_by_id("server"))
+            self._append_log("Started site server on this PC (launcher-managed).")
+        self.root.after(2000, self._refresh_status)
+
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
         self._site_var.set(base)
@@ -721,6 +756,8 @@ class LauncherApp:
         if ok_site:
             save_last_site_url(base)
             os.environ["WIMS_SERVER"] = base
+
+        self._update_server_btn(ok_site)
 
         if self._seat_type == SEAT_WSJT:
             self._refresh_wsjt_status(ok_site, base)
@@ -748,8 +785,8 @@ class LauncherApp:
             self._set_banner(
                 "warn",
                 "Log helper is running — site console not reachable",
-                f"Cannot reach {base}. Start the site server, or use "
-                "Other PC types… → Find on LAN / URL override.",
+                f"Cannot reach {base}. Press Start site server, or Find on LAN "
+                "under Advanced.",
             )
         elif ok_site and not log_on:
             # Blue = next action, not a fault. Green only after helpers are running.
@@ -761,8 +798,9 @@ class LauncherApp:
         else:
             self._set_banner(
                 "err",
-                "Press Start seat",
-                f"Site console ({base}) not reachable, and log helper is not running.",
+                "Site console not reachable",
+                f"Cannot reach {base}. Press Start site server (this PC), "
+                "then Start seat.",
             )
 
     def _refresh_wsjt_status(self, ok_site: bool, base: str) -> None:
@@ -789,7 +827,8 @@ class LauncherApp:
             self._set_banner(
                 "warn",
                 "Monitor running — site console not reachable",
-                f"Cannot reach {base}. Start the site server or Find on LAN under Advanced.",
+                f"Cannot reach {base}. Press Start site server on this PC, "
+                "or Find on LAN under Advanced.",
             )
         elif ok_site and not mon_on:
             # Blue = next action, not a fault. Green only after the monitor is up.
@@ -801,8 +840,9 @@ class LauncherApp:
         else:
             self._set_banner(
                 "err",
-                "Press Start seat",
-                f"Site console ({base}) not reachable, and seat monitor is not running.",
+                "Site console not reachable",
+                f"Cannot reach {base}. Press Start site server (this PC), "
+                "then Start seat.",
             )
 
     def _start_seat(self) -> None:
@@ -854,6 +894,9 @@ class LauncherApp:
 
     def _stop_wsjt_seat(self) -> None:
         self._stop_role("wsjt_agent")
+        if self._also_server.get() or self._proc_running("server"):
+            self._stop_role("server")
+            self._also_server.set(False)
         self._last_wsjt_sev = None
         self._last_wsjt_msg = ""
         self.root.after(800, self._refresh_status)
