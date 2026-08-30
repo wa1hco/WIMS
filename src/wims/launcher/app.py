@@ -560,34 +560,51 @@ class LauncherApp:
 
     def _apply_seat_chrome(self) -> None:
         """Swap home labels/actions for N1MM vs WSJT without rebuilding the tree."""
+        probe = self._seat_probe
         if self._seat_type == SEAT_WSJT:
             self.root.title(f"WIMS  ·  WSJT seat  ·  v{__version__}")
             self._subtitle_var.set("WSJT seat — config check & monitor")
-            self._blurb_var.set(
-                "WSJT-X should already be running (WIMS uses it to recognize this "
-                "seat). Start seat only runs the WIMS monitor — config check and "
-                "health report. Decoding and TX stay in WSJT-X."
-            )
-            self._start_tip.set_text(
-                "Runs a WSJT-X config check and starts the seat monitor "
-                "(local status page + report to the site server). "
-                "WSJT-X itself should already be open."
-            )
+            if probe.wsjt_running:
+                # App already defines this seat — keep the face clean.
+                self._blurb_var.set(
+                    "Start seat runs the WIMS monitor (config check + health report). "
+                    "Decoding and TX stay in WSJT-X."
+                )
+                self._start_tip.set_text(
+                    "Runs a WSJT-X config check and starts the seat monitor "
+                    "(local status page + report to the site server)."
+                )
+            else:
+                self._blurb_var.set(
+                    "WSJT-X is not running — start it so WIMS can check this seat, "
+                    "then press Start seat for the WIMS monitor."
+                )
+                self._start_tip.set_text(
+                    "Start WSJT-X first, then Start seat for the WIMS monitor."
+                )
             self._opts.pack_forget()
             if not self._local_btn.winfo_ismapped():
                 self._local_btn.pack(side="left", padx=(10, 0))
         else:
             self.root.title(f"WIMS  ·  N1MM seat  ·  v{__version__}")
             self._subtitle_var.set("N1MM seat — logging helpers for this PC")
-            self._blurb_var.set(
-                "N1MM should already be running (band comes from RadioInfo). "
-                "Start seat only runs the WIMS log helper for QSOs from WSJT-X "
-                "on other PCs."
-            )
-            self._start_tip.set_text(
-                "Starts the log helper on this PC (and the site server if you "
-                "check the box below). N1MM itself should already be open."
-            )
+            if probe.n1mm_running:
+                self._blurb_var.set(
+                    "Start seat runs the WIMS log helper for QSOs from WSJT-X "
+                    "on other PCs."
+                )
+                self._start_tip.set_text(
+                    "Starts the log helper on this PC (and the site server if you "
+                    "check the box below)."
+                )
+            else:
+                self._blurb_var.set(
+                    "N1MM is not running — start it so the log helper can read "
+                    "band (RadioInfo), then press Start seat."
+                )
+                self._start_tip.set_text(
+                    "Start N1MM first, then Start seat for the WIMS log helper."
+                )
             if self._local_btn.winfo_ismapped():
                 self._local_btn.pack_forget()
             if not self._opts.winfo_ismapped():
@@ -595,7 +612,7 @@ class LauncherApp:
         self._seat_choice.set(self._seat_type)
         self._append_log(
             f"Seat home: {self._seat_type} "
-            f"({self._seat_probe.source}: {self._seat_probe.detail})"
+            f"({probe.source}: {probe.detail})"
         )
 
     def _ask_seat_type(self) -> None:
