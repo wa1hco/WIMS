@@ -33,6 +33,7 @@ python -m wims solo            # or: python -m wims.solo
 #   Setup check only: python -m wims agent --solo   (Windows: Check-WimsSetup.cmd)
 #   Tester walkthrough: docs/tester_runbook.md
 #   Operator manual: docs/User-manual.md  (shots: scripts/capture-user-manual-shots.sh)
+#   Windows: Install-Wims.cmd once; Update-Wims.cmd / launcher Update button (git pull main)
 #   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
 # Fleet / multi-host (site server):
@@ -241,6 +242,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (dual-primary exit used to restart + steal focus every few seconds).
   **Checkboxes = live status (not prefs):** no `agent_boxes` restore; app up →
   box on + agent up; app down → box off + agent stop.
+  **Windows update (2026-08-31):** `Update-Wims.cmd` + launcher **Update WIMS**
+  button when behind `origin/main` (`update_check.py`); Install-Wims also places
+  Desktop **WIMS** + **Update WIMS** shortcuts.
 
 - **2026-08-28** — Desktop GUI launcher (`python -m wims` / `wims.launcher`): role cards
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,

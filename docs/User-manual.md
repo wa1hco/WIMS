@@ -55,6 +55,27 @@ python -m wims server
 
 Checkboxes on the launcher are **live seat status** (not remembered prefs): when N1MM or WSJT-X is running, the matching agent should be up.
 
+### Install on Windows (first time)
+
+1. Get the tree onto the PC (`git clone https://github.com/wa1hco/WIMS.git` or USB copy).  
+2. Double-click **`scripts\windows\Install-Wims.cmd`** (Run as administrator once on a golden image).  
+3. That installs Python + Git if needed, pulls/clones the repo, and creates Desktop **WIMS** and **Update WIMS**.  
+4. Day-to-day: open Desktop **WIMS** only.  
+
+Details: [scripts/windows/README.md](../scripts/windows/README.md).
+
+### Update on Windows (one click)
+
+When GitHub `main` is ahead of this PC, the launcher shows a yellow banner:
+
+**Update available — oldsha → newsha**
+
+Click **Update WIMS** (or the Desktop **Update WIMS** shortcut). That runs `git pull --ff-only`, leaves any site server running, and restarts the launcher. You can ignore the banner mid-contest and update later.
+
+```text
+scripts\windows\Update-Wims.cmd
+```
+
 ---
 
 ## Site console

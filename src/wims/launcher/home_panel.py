@@ -60,10 +60,12 @@ class AgentHomePanel:
         on_toggle: Callable[[str], None],
         on_open_site: Callable[[], None],
         on_open_local: Callable[[], None],
+        on_update: Callable[[], None] | None = None,
     ) -> None:
         self.tk = tk
         self._on_toggle = on_toggle
         self._rows: dict[str, dict] = {}
+        self._on_update = on_update
 
         frame = tk.LabelFrame(
             parent, text="Agents on this PC",
@@ -123,6 +125,23 @@ class AgentHomePanel:
             command=on_open_local, padx=12, pady=6,
         )
         ToolTip(self.local_btn, "WSJT seat agent local page (when that agent is running).")
+        self.update_btn = tk.Button(
+            btns, text="Update WIMS", font=_ui_font(12),
+            command=(on_update or (lambda: None)), padx=12, pady=6,
+        )
+        ToolTip(
+            self.update_btn,
+            "Pull latest from GitHub main (one click). "
+            "Site server on this PC is left running; seat agents restart after.",
+        )
+        # Shown only when an update is available (see show_update_button).
+
+    def show_update_button(self, show: bool) -> None:
+        if show:
+            if not self.update_btn.winfo_ismapped():
+                self.update_btn.pack(side="left", padx=(10, 0))
+        elif self.update_btn.winfo_ismapped():
+            self.update_btn.pack_forget()
 
     def update_asset_labels(self, snap: AssetSnapshot) -> None:
         """Refresh checkbox labels with live asset state (never imply app==agent)."""

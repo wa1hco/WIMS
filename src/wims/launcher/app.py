@@ -46,6 +46,13 @@ from wims.launcher.assets import (
 from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import format_replace_banner, replace_seat_agents
 from wims.launcher.tooltips import ToolTip
+from wims.launcher.update_check import (
+    UpdateInfo,
+    apply_git_update,
+    check_git_update,
+    env_skip_update_check,
+    update_script_path,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC = _REPO_ROOT / "src"
@@ -395,6 +402,7 @@ class LauncherApp:
         self.root.after(200, self._kick_site_discover)
         self.root.after(400, self._refresh_status)
         self.root.after(1000, self._poll_procs)
+        self.root.after(2500, self._kick_update_check)
         self.root.after(4000, self._pulse_detect)
 
     def _apply_icon(self) -> None:
@@ -448,6 +456,7 @@ class LauncherApp:
             wraplength=500, justify="left", anchor="w",
         ).pack(fill="x", pady=(0, 8))
 
+        self._update_info: UpdateInfo | None = None
         self._home_panel = AgentHomePanel(
             home,
             tk=tk,
@@ -456,6 +465,7 @@ class LauncherApp:
             on_toggle=self._on_agent_toggle,
             on_open_site=self._open_site_console,
             on_open_local=self._open_local_status,
+            on_update=self._do_update,
         )
 
         # —— Advanced role catalog (hidden) ——
@@ -627,6 +637,135 @@ class LauncherApp:
         self._set_banner(level, msg, fix)
         self._replace_done = True
         self._sync_detect_and_agents()
+
+    def _kick_update_check(self) -> None:
+        if env_skip_update_check():
+            return
+
+        def work() -> None:
+            try:
+                info = check_git_update(_REPO_ROOT, fetch=True)
+            except Exception as e:  # noqa: BLE001
+                self.root.after(0, self._append_log, f"(update check: {e})")
+                return
+            self.root.after(0, self._on_update_check, info)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_check(self, info: UpdateInfo) -> None:
+        self._update_info = info
+        if not info.is_git:
+            return
+        if not info.available:
+            if info.detail and "fetch failed" in info.detail:
+                self._append_log(f"Update check: {info.detail}")
+            return
+        self._home_panel.show_update_button(True)
+        subj = f" — {info.remote_subject}" if info.remote_subject else ""
+        dirty = " (local edits present)" if info.dirty else ""
+        self._set_banner(
+            "warn",
+            f"Update available — {info.local_short} → {info.remote_short}{subj}",
+            f"Click Update WIMS to pull GitHub main{dirty}. "
+            "Site server stays up; seat agents restart after.",
+        )
+        self._append_log(
+            f"Update available: {info.local_short} → {info.remote_short}{subj}"
+        )
+
+    def _do_update(self) -> None:
+        """One-click pull from origin/main, then relaunch this launcher."""
+        self._home_panel.show_update_button(False)
+        self._set_banner(
+            "busy",
+            "Updating WIMS…",
+            "Pulling origin/main. Site server left alone.",
+        )
+        # Stop owned seat agents only (not site server).
+        for aid in (AGENT_LOG, AGENT_WSJT, AGENT_KEY):
+            if self._agent_running(aid):
+                self._stop_agent(aid)
+
+        def work() -> None:
+            # Prefer Windows script when present; else stdlib git helper.
+            script = update_script_path(_REPO_ROOT)
+            if sys.platform.startswith("win") and script.is_file():
+                try:
+                    proc = subprocess.run(
+                        [
+                            "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                            "-File", str(script.with_suffix(".ps1")),
+                            "-NoPause",
+                        ],
+                        cwd=str(script.parent),
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    out = (proc.stdout or "") + (proc.stderr or "")
+                    ok = proc.returncode == 0
+                    msg = out.strip() or ("ok" if ok else f"exit {proc.returncode}")
+                except Exception as e:  # noqa: BLE001
+                    ok, msg = False, str(e)
+            else:
+                ok, msg = apply_git_update(_REPO_ROOT)
+            self.root.after(0, self._on_update_done, ok, msg)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_update_done(self, ok: bool, msg: str) -> None:
+        for line in (msg or "").splitlines()[-40:]:
+            self._append_log(line)
+        if not ok:
+            self._home_panel.show_update_button(True)
+            self._set_banner(
+                "err",
+                "Update failed",
+                "See Details. Often local edits block ff-only pull — "
+                "fix tree or use Update-Wims.ps1 -ResetHard in lab.",
+            )
+            return
+        self._set_banner(
+            "ok",
+            "Updated — restarting launcher…",
+            "New process will replace seat agents; site server stays up.",
+        )
+        self._append_log("Update OK — relaunching…")
+        self.root.after(600, self._relaunch_self)
+
+    def _relaunch_self(self) -> None:
+        try:
+            if sys.platform.startswith("win"):
+                starter = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.cmd"
+                if starter.is_file():
+                    subprocess.Popen(
+                        ["cmd", "/c", str(starter)],
+                        cwd=str(starter.parent),
+                        close_fds=True,
+                    )
+                else:
+                    subprocess.Popen(
+                        _python_cmd() + ["-m", "wims.launcher"],
+                        cwd=str(_REPO_ROOT),
+                        env=_role_env(),
+                        close_fds=True,
+                    )
+            else:
+                subprocess.Popen(
+                    _python_cmd() + ["-m", "wims.launcher"],
+                    cwd=str(_REPO_ROOT),
+                    env=_role_env(),
+                    start_new_session=True,
+                )
+        except Exception as e:
+            self._append_log(f"Relaunch failed: {e}")
+            self._set_banner("err", "Updated but relaunch failed", str(e))
+            return
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        raise SystemExit(0)
 
     def _pulse_detect(self) -> None:
         if self._replace_done:
@@ -903,6 +1042,7 @@ class LauncherApp:
         missing = [labels[a] for a in wanted if not self._agent_effective(a)]
         seat_up = self._agent_running(AGENT_WSJT)
         wsjt_live = bool(snap and snap.wsjt_running)
+        update_pending = bool(self._update_info and self._update_info.available)
         if not wanted:
             self._set_banner(
                 "busy",
@@ -921,6 +1061,17 @@ class LauncherApp:
                 "Seat agent: WSJT config needs fixing",
                 self._last_wsjt_msg or "Open local status / Details.",
             )
+        elif update_pending:
+            info = self._update_info
+            assert info is not None
+            subj = f" — {info.remote_subject}" if info.remote_subject else ""
+            self._set_banner(
+                "warn",
+                f"Update available — {info.local_short} → {info.remote_short}{subj}",
+                "Click Update WIMS to pull GitHub main. "
+                "Site server stays up; seat agents restart after.",
+            )
+            self._home_panel.show_update_button(True)
         elif seat_up and not wsjt_live:
             self._set_banner(
                 "warn",

@@ -42,13 +42,22 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 
 | File | What it does |
 |------|----------------|
-| **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — Solo / Check / Site server / Seat agent / KEY lab, with tooltips. |
+| **`Install-Wims.cmd`** | **First install** — Python, Git, clone/pull repo, firewall, Desktop **WIMS** + **Update WIMS**. |
+| **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — checkbox agents, site console, Update when behind `main`. |
+| **`Update-Wims.cmd`** | **One-click update** — `git pull --ff-only origin/main` (also offered inside the launcher). |
 | **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (GUI launcher + `assets\wims.ico`) **+** **WIMS Agent** (green). Run once. |
 | **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (green icon → continuous agent). |
 | **`WIMS.cmd`** | Text **seat menu** (packs, Startup, firewall) — still available; not the primary Desktop icon. |
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
-After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).
+After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).  
+When GitHub `main` moves ahead, the launcher shows a yellow **Update available** banner — click **Update WIMS** (or the Desktop **Update WIMS** shortcut). Site server is left running.
+
+### Install then update (short)
+
+1. **Once:** `Install-Wims.cmd` (admin preferred on golden images).  
+2. **Daily:** Desktop **WIMS**.  
+3. **When offered:** **Update WIMS** (one click). Mid-contest you can ignore the banner.
 
 ### Other scripts (menu calls these; rarely opened by hand)
 

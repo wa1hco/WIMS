@@ -558,6 +558,32 @@ try {
             $icoServer = Join-Path $assets "wims.ico"
             $icoAgent = Join-Path $assets "wims-agent.ico"
 
+            # Primary: GUI launcher (peer to N1MM / WSJT-X)
+            $launchCmd = Join-Path $launcherDir "Start-WimsLauncher.cmd"
+            if (Test-Path -LiteralPath $launchCmd) {
+                $lnkL = Join-Path $desk "WIMS.lnk"
+                $ll = $wsh.CreateShortcut($lnkL)
+                $ll.TargetPath = $launchCmd
+                $ll.WorkingDirectory = $launcherDir
+                $ll.Description = "WIMS — agents + site console"
+                if (Test-Path -LiteralPath $icoServer) { $ll.IconLocation = "$icoServer,0" }
+                $ll.Save()
+                Ok $lnkL
+            }
+
+            # One-click update from GitHub main
+            $updCmd = Join-Path $launcherDir "Update-Wims.cmd"
+            if (Test-Path -LiteralPath $updCmd) {
+                $lnkU = Join-Path $desk "Update WIMS.lnk"
+                $lu = $wsh.CreateShortcut($lnkU)
+                $lu.TargetPath = $updCmd
+                $lu.WorkingDirectory = $launcherDir
+                $lu.Description = "Pull latest WIMS from GitHub main"
+                if (Test-Path -LiteralPath $icoServer) { $lu.IconLocation = "$icoServer,0" }
+                $lu.Save()
+                Ok $lnkU
+            }
+
             # Site server (this PC may be the console host)
             $lnkPath = Join-Path $desk "WIMS Server.lnk"
             $lnk = $wsh.CreateShortcut($lnkPath)
