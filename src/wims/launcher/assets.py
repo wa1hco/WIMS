@@ -86,9 +86,9 @@ def detect_assets() -> AssetSnapshot:
             )
         )
         snap.n1mm_found = bool(probe_n1mm().get("found"))
+        # wsjtx.exe only — jt9 orphan must not auto-check Seat / claim "live".
         snap.wsjt_running = bool(
-            _process_running(("wsjtx.exe", "wsjtx", "jt9.exe", "jt9"),
-                             substrings=("wsjtx", "jt9"))
+            _process_running(("wsjtx.exe", "wsjtx"), substrings=())
         )
         snap.wsjt_ini_count = len(discover_ini_paths())
         names = _wsjtx_running_rig_names()

@@ -135,7 +135,7 @@ def test_idle_bad_profile_does_not_override_running_ok():
 
 
 def test_unknown_process_list_does_not_mark_all_running():
-    """If argv detection fails, named idles must not drive a red UDP headline."""
+    """If argv detection fails, do not score .ini as live (no loopback red banner)."""
     from wims.integrations import wsjtx_config as W
     from wims.agent import report as R
 
@@ -154,18 +154,33 @@ def test_unknown_process_list_does_not_mark_all_running():
         )
         old = W.discover_ini_paths
         old_run = R._wsjtx_running_rig_names
+        old_proc = R._process_running
         W.discover_ini_paths = lambda: [good, bad]  # type: ignore
         R._wsjtx_running_rig_names = lambda: None  # type: ignore  # detection failed
+        R._process_running = lambda *a, **k: False  # type: ignore
         try:
             r = build_report(agent_id="vm1", fleet=True, now=1.0)
-            assert r["summary"]["severity"] == "ok"
+            assert all(not c.get("running") for c in r["wsjtx"]["configs"])
             assert "127.0.0.1" not in r["summary"]["message"]
             text = format_report_text(r)
+            assert "not running on this PC" in text.lower()
             assert "IC7300" not in text
-            assert "!!" not in text or "127.0.0.1" not in text
         finally:
             W.discover_ini_paths = old
             R._wsjtx_running_rig_names = old_run
+            R._process_running = old_proc
+
+
+def test_wmic_no_instance_noise_is_not_running():
+    """Windows WMIC empty noise must not mark (active/default) as live."""
+    from wims.agent.report import _looks_like_wsjtx_cmdline
+
+    assert not _looks_like_wsjtx_cmdline("No Instance(s) Available.")
+    assert not _looks_like_wsjtx_cmdline("CommandLine")
+    assert _looks_like_wsjtx_cmdline(
+        r'"C:\Program Files\WSJT-X\wsjtx.exe" --rig-name=IC9700'
+    )
+    assert _looks_like_wsjtx_cmdline(r"C:\WSJT\wsjtx.exe")
 
 
 def test_empty_process_list_marks_nothing_running():

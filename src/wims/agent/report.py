@@ -67,6 +67,63 @@ def _lan_ips() -> list[str]:
     return sorted(ips)
 
 
+def _looks_like_wsjtx_cmdline(s: str) -> bool:
+    """True if *s* is a real wsjtx.exe command line (not WMIC noise)."""
+    low = (s or "").lower().strip()
+    if not low:
+        return False
+    # WMIC / CIM empty-result noise that must never count as "running".
+    if "no instance" in low:
+        return False
+    if low in ("commandline", "name", "processid"):
+        return False
+    if "wims" in low and "agent" in low:
+        return False
+    if "jt9" in low and "wsjtx" not in low:
+        return False
+    # Require the binary name somewhere (path or bare).
+    if "wsjtx.exe" in low:
+        return True
+    parts = low.split()
+    if not parts:
+        return False
+    base = Path(parts[0].strip('"')).name
+    return base in ("wsjtx", "wsjtx.exe") or base.endswith("wsjtx.exe")
+
+
+def _windows_wsjtx_cmdlines() -> list[str] | None:
+    """Return wsjtx.exe CommandLine strings, or None if process list unavailable."""
+    creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    # Prefer CIM/PowerShell — WMIC is removed/broken on many Win11 images and
+    # often prints "No Instance(s) Available." which must not look like argv.
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"Name='wsjtx.exe'\" | "
+        "ForEach-Object { $_.CommandLine }"
+    )
+    try:
+        out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=12,
+            creationflags=creation,
+        )
+        return [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        out = subprocess.check_output(
+            ["wmic", "process", "where", "name='wsjtx.exe'", "get", "CommandLine"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=8,
+            creationflags=creation,
+        )
+        return [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def _wsjtx_running_rig_names() -> set[str] | None:
     """Rig-names of live ``wsjtx`` processes (not jt9 helpers).
 
@@ -77,24 +134,15 @@ def _wsjtx_running_rig_names() -> set[str] | None:
     """
     try:
         if os.name == "nt":
-            # Windows: wmic is slow/fragile; fall back to "something running" only.
-            # Prefer PowerShell-less: tasklist cannot show args. Use WMIC if present.
-            try:
-                out = subprocess.check_output(
-                    ["wmic", "process", "where", "name='wsjtx.exe'", "get", "CommandLine"],
-                    stderr=subprocess.DEVNULL,
-                    text=True,
-                    timeout=8,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-            except (OSError, subprocess.SubprocessError):
-                running = _process_running(("wsjtx.exe", "wsjtx"), substrings=("wsjtx",))
+            lines = _windows_wsjtx_cmdlines()
+            if lines is None:
+                # Last resort: image-name only (no --rig-name).
+                running = _process_running(("wsjtx.exe", "wsjtx"), substrings=())
                 if running:
                     return {"(active/default)"}
                 if running is False:
                     return set()
                 return None
-            lines = [ln.strip() for ln in out.splitlines() if ln.strip() and "CommandLine" not in ln]
         else:
             out = subprocess.check_output(
                 ["ps", "-eo", "args="],
@@ -104,22 +152,8 @@ def _wsjtx_running_rig_names() -> set[str] | None:
             )
             lines = []
             for ln in out.splitlines():
-                s = ln.strip()
-                # Match wsjtx binary; skip jt9 helpers and our own python agent.
-                low = s.lower()
-                if "jt9" in low:
-                    continue
-                if "wsjtx" not in low:
-                    continue
-                if "wims" in low and "agent" in low:
-                    continue
-                # Prefer real binary argv (…/wsjtx or wsjtx.exe), not editors.
-                parts = s.split()
-                if not parts:
-                    continue
-                base = Path(parts[0]).name.lower()
-                if base in ("wsjtx", "wsjtx.exe") or base.endswith("wsjtx"):
-                    lines.append(s)
+                if _looks_like_wsjtx_cmdline(ln):
+                    lines.append(ln.strip())
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -212,10 +246,11 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
             raw_issues = [{"severity": sev, "message": msg}
                           for sev, msg in W.validate(c, fleet=fleet, solo=solo)]
             # Never treat every on-disk --rig-name profile as live.
-            # running_names is None → process list unavailable (only default in-scope).
-            # running_names is empty set → WSJT-X is definitely not running.
+            # empty set → not running (config does not matter).
+            # None (unknown) → also do not score as live; loopback .ini must not
+            # red-banner a seat where WSJT-X is simply closed.
             if running_names is None:
-                is_running = c.name == "(active/default)"
+                is_running = False
             else:
                 is_running = c.name in running_names
             n_err = sum(1 for i in raw_issues if i["severity"] == "error")
@@ -402,9 +437,10 @@ def build_report(
     wsjtx = _wsjtx_section(fleet=fleet, solo=solo)
     n1mm = probe_n1mm()
     apps = {
+        # wsjtx.exe only — orphan jt9 must not look like "WSJT-X is running".
         "wsjtx_running": _process_running(
-            ("wsjtx.exe", "wsjtx", "jt9.exe", "jt9"),
-            substrings=("wsjtx",),
+            ("wsjtx.exe", "wsjtx"),
+            substrings=(),
         ),
         # N1MM Logger+ ships as N1MMLogger.net.exe (not "N1MM Logger+.exe").
         "n1mm_running": _process_running(
