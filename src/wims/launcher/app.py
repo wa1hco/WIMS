@@ -455,6 +455,7 @@ class LauncherApp:
         ).pack(fill="x", pady=(0, 8))
 
         self._update_info: UpdateInfo | None = None
+        self._updating = False  # block sync from restarting agents mid-update
         self._home_panel = AgentHomePanel(
             home,
             tk=tk,
@@ -673,6 +674,7 @@ class LauncherApp:
     def _do_update(self) -> None:
         """One-click pull from origin/main, then relaunch this launcher."""
         self._home_panel.show_update_button(False)
+        self._updating = True
         self._set_banner(
             "busy",
             "Updating WIMS…",
@@ -714,20 +716,22 @@ class LauncherApp:
         for line in (msg or "").splitlines()[-40:]:
             self._append_log(line)
         if not ok:
+            self._updating = False
             self._home_panel.show_update_button(True)
             self._set_banner(
                 "err",
                 "Update failed",
-                "See Details. Often local edits block ff-only pull — "
+                "See Details. Often local edits block ff-only pull - "
                 "fix tree or use Update-Wims.ps1 -ResetHard in lab.",
             )
+            self._sync_detect_and_agents()
             return
         self._set_banner(
             "ok",
-            "Updated — restarting launcher…",
+            "Updated - restarting launcher…",
             "New process will replace seat agents; site server stays up.",
         )
-        self._append_log("Update OK — relaunching…")
+        self._append_log("Update OK - relaunching…")
         self.root.after(600, self._relaunch_self)
 
     def _relaunch_self(self) -> None:
@@ -790,12 +794,14 @@ class LauncherApp:
             os.environ["WIMS_SERVER"] = base
             save_last_site_url(base)
 
-        want = agents_for_intent(self._current_intent())
-        for aid, should in want.items():
-            if should and not self._agent_effective(aid):
-                self._start_agent(aid, open_browser=False)
-            elif not should and self._agent_running(aid):
-                self._stop_agent(aid)
+        # During Update WIMS, do not restart agents that were stopped for the pull.
+        if not self._updating:
+            want = agents_for_intent(self._current_intent())
+            for aid, should in want.items():
+                if should and not self._agent_effective(aid):
+                    self._start_agent(aid, open_browser=False)
+                elif not should and self._agent_running(aid):
+                    self._stop_agent(aid)
 
         self._home_panel.update_running(
             snap,

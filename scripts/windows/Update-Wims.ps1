@@ -81,33 +81,43 @@ try {
     if (-not $before) { $before = "?" }
     Log "Before: $before"
 
-    Log "git fetch $Remote $Branch ..."
-    git fetch --quiet $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
-    if ($LASTEXITCODE -ne 0) {
-        Log "FAIL: git fetch failed (network?). See update-log.txt" "Red"
-        if (-not $NoPause) { pause }
-        exit 1
-    }
-
-    $remoteSha = (git rev-parse --short "$Remote/$Branch" 2>$null)
-    Log "Remote $Remote/$Branch = $remoteSha"
-
-    if ($ResetHard) {
-        Log "git reset --hard $Remote/$Branch (explicit)" "Yellow"
-        git reset --hard "$Remote/$Branch" 2>&1 | ForEach-Object { Log "  $_" }
+    # git writes progress to stderr; with $ErrorActionPreference=Stop that becomes
+    # a NativeCommandError even on success ("From https://github.com/...").
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        Log "git fetch $Remote $Branch ..."
+        git fetch --quiet $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
         if ($LASTEXITCODE -ne 0) {
-            Log "FAIL: reset --hard failed" "Red"
+            Log "FAIL: git fetch failed (network?). See update-log.txt" "Red"
             if (-not $NoPause) { pause }
             exit 1
         }
-    } else {
-        Log "git pull --ff-only $Remote $Branch ..."
-        git pull --ff-only $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
-        if ($LASTEXITCODE -ne 0) {
-            Log "FAIL: pull --ff-only failed (local changes?). Fix or re-run with -ResetHard in lab." "Red"
-            if (-not $NoPause) { pause }
-            exit 1
+
+        $remoteSha = (git rev-parse --short "$Remote/$Branch" 2>$null)
+        Log "Remote $Remote/$Branch = $remoteSha"
+
+        if ($ResetHard) {
+            Log "git reset --hard $Remote/$Branch (explicit)" "Yellow"
+            git reset --hard "$Remote/$Branch" 2>&1 | ForEach-Object { Log "  $_" }
+            $gitCode = $LASTEXITCODE
+            if ($gitCode -ne 0) {
+                Log "FAIL: reset --hard failed (exit $gitCode)" "Red"
+                if (-not $NoPause) { pause }
+                exit 1
+            }
+        } else {
+            Log "git pull --ff-only $Remote $Branch ..."
+            git pull --ff-only $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
+            $gitCode = $LASTEXITCODE
+            if ($gitCode -ne 0) {
+                Log "FAIL: pull --ff-only failed (exit $gitCode). Local changes? Check SHA below." "Red"
+                if (-not $NoPause) { pause }
+                exit 1
+            }
         }
+    } finally {
+        $ErrorActionPreference = $prevEap
     }
 
     $after = (git rev-parse --short HEAD 2>$null)

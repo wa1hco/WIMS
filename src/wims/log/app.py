@@ -559,8 +559,9 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
         f"log-agent: host={state.host}  join {args.group}:{args.port}  {dest}"
     )
     _log_line("          Filter band comes from N1MM RadioInfo (waiting until heard).")
+    # ASCII-only: Windows cp1252 consoles mangle em-dashes.
     _log_line("          Enable N1MM Configurer > WSJT/JTDX Setup > JTDX/Others TCP "
-              f"(:{tcp_port}) — keep that TCP session open; UDP :{udp_port} is fallback only.")
+              f"(:{tcp_port}) - keep that TCP session open; UDP :{udp_port} is fallback only.")
 
     seen: set[tuple] = set()
     sock.settimeout(0.5)
