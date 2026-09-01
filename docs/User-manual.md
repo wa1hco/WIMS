@@ -53,7 +53,9 @@ python -m wims server
 - **Linux:** `scripts/install-wims-desktop.sh` (needs `python3-tk`)  
 - Site console (when the site server is up): `http://<server>:8787/`  
 
-Checkboxes on the launcher are **live seat status** (not remembered prefs): when N1MM or WSJT-X is running, the matching agent should be up.
+The launcher has two panels: **Running on this PC** (live apps/agents) and
+**This seat will run** (remembered intent). Check N1MM / WSJT-X / SSB-CW KEY /
+Site server to start Log / Seat / Key / site-server agents.
 
 ### Install on Windows (first time)
 

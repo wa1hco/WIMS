@@ -40,8 +40,15 @@ from wims.launcher.assets import (
     AGENT_LOG,
     AGENT_SERVER,
     AGENT_WSJT,
+    INTENT_N1MM,
+    INTENT_SERVER,
+    INTENT_SSB_CW,
+    INTENT_TO_AGENT,
+    INTENT_WSJT,
+    agents_for_intent,
     detect_assets,
-    live_checks,
+    load_seat_intent,
+    save_seat_intent,
 )
 from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import format_replace_banner, replace_seat_agents
@@ -370,22 +377,13 @@ class LauncherApp:
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
         self._last_snap = detect_assets()
-        # Checkboxes are live seat status — never restored from disk prefs.
-        # user_off: operator unchecked while component still live (don't auto-on).
-        # user_on: operator checked without live companion (Key / early Seat).
-        self._user_off: set[str] = set()
-        self._user_on: set[str] = set()
-        self._agent_vars = {
-            AGENT_LOG: tk.BooleanVar(value=False),
-            AGENT_WSJT: tk.BooleanVar(value=False),
-            AGENT_KEY: tk.BooleanVar(value=False),
-            AGENT_SERVER: tk.BooleanVar(value=False),
-        }
-        self._agent_status = {
-            AGENT_LOG: tk.StringVar(value=""),
-            AGENT_WSJT: tk.StringVar(value=""),
-            AGENT_KEY: tk.StringVar(value=""),
-            AGENT_SERVER: tk.StringVar(value=""),
+        # Seat intent (remembered) — separate from Running list.
+        self._intent = load_seat_intent()
+        self._intent_vars = {
+            INTENT_N1MM: tk.BooleanVar(value=bool(self._intent.get(INTENT_N1MM))),
+            INTENT_WSJT: tk.BooleanVar(value=bool(self._intent.get(INTENT_WSJT))),
+            INTENT_SSB_CW: tk.BooleanVar(value=bool(self._intent.get(INTENT_SSB_CW))),
+            INTENT_SERVER: tk.BooleanVar(value=bool(self._intent.get(INTENT_SERVER))),
         }
         # role_id mapping for _procs / _start_role
         self._agent_role = {
@@ -460,9 +458,8 @@ class LauncherApp:
         self._home_panel = AgentHomePanel(
             home,
             tk=tk,
-            vars_by_id=self._agent_vars,
-            status_vars=self._agent_status,
-            on_toggle=self._on_agent_toggle,
+            intent_vars=self._intent_vars,
+            on_intent_toggle=self._on_intent_toggle,
             on_open_site=self._open_site_console,
             on_open_local=self._open_local_status,
             on_update=self._do_update,
@@ -570,9 +567,9 @@ class LauncherApp:
         )
         self._append_log(
             f"Launcher v{__version__} ({self._rev}).\n"
-            "Checkboxes = live seat status (not saved prefs): app up → agent up.\n"
+            "Running list = live apps/agents. Intent checkboxes = what this seat will run "
+            "(remembered); they start Log / Seat / Key / Site server agents.\n"
             "On open: leftover Log/Seat/Key replaced; site server left alone.\n"
-            "Green Ready needs checked agents up (and live WSJT-X for Seat).\n"
             f"Log also written to: {details_log_path()}"
         )
 
@@ -772,15 +769,20 @@ class LauncherApp:
             self._sync_detect_and_agents()
         self.root.after(5000, self._pulse_detect)
 
+    def _current_intent(self) -> dict[str, bool]:
+        return {k: bool(v.get()) for k, v in self._intent_vars.items()}
+
+    def _persist_intent(self) -> None:
+        self._intent = self._current_intent()
+        save_seat_intent(self._intent)
+
     def _sync_detect_and_agents(self) -> None:
-        """Detect apps → auto-check boxes (unless user overrode) → start if checked."""
+        """Refresh Running list; start/stop agents from seat intent."""
         if not self._replace_done:
             return
         snap = detect_assets()
         self._last_snap = snap
-        self._home_panel.update_asset_labels(snap)
 
-        # Probe site so Site-server checkbox reflects reachable status.
         ok_site, base = probe_site_urls(self._site_var.get().strip() or None)
         self._site_ok = ok_site
         if ok_site:
@@ -788,41 +790,24 @@ class LauncherApp:
             os.environ["WIMS_SERVER"] = base
             save_last_site_url(base)
 
-        live = live_checks(snap, site_reachable=ok_site)
-        for aid, should in live.items():
-            cur = bool(self._agent_vars[aid].get())
-
-            # Clear holds when live reality no longer conflicts with them.
-            if aid in self._user_off and not should:
-                self._user_off.discard(aid)
-            if aid in self._user_on and should:
-                self._user_on.discard(aid)
-
-            if aid in self._user_off:
-                # Operator forced off while component still live.
-                continue
-            if aid in self._user_on:
-                # Operator forced on (Key / Seat before app) — keep agent up.
-                if cur and not self._agent_effective(aid):
-                    if aid != AGENT_SERVER:
-                        self._start_agent(aid, open_browser=False)
-                continue
-
-            if should and not cur:
-                self._agent_vars[aid].set(True)
+        want = agents_for_intent(self._current_intent())
+        for aid, should in want.items():
+            if should and not self._agent_effective(aid):
                 self._start_agent(aid, open_browser=False)
-            elif should and cur and not self._agent_effective(aid):
-                if aid == AGENT_SERVER:
-                    # Reachable existing server — adopt, do not spawn.
-                    self._start_agent(aid, open_browser=False)
-                else:
-                    self._start_agent(aid, open_browser=False)
-            elif not should and cur:
-                # Companion app / site status gone → uncheck and stop agent.
-                self._agent_vars[aid].set(False)
+            elif not should and self._agent_running(aid):
                 self._stop_agent(aid)
 
-        # Local status button only when seat agent is up.
+        self._home_panel.update_running(
+            snap,
+            log_up=self._agent_running(AGENT_LOG),
+            seat_up=self._agent_running(AGENT_WSJT),
+            key_up=self._agent_running(AGENT_KEY),
+            server_up=self._agent_effective(AGENT_SERVER),
+            server_existing=bool(
+                self._site_ok and not self._agent_running(AGENT_SERVER)
+            ),
+        )
+
         if self._agent_running(AGENT_WSJT):
             if not self._home_panel.local_btn.winfo_ismapped():
                 self._home_panel.local_btn.pack(side="left", padx=(10, 0))
@@ -840,21 +825,14 @@ class LauncherApp:
             return True
         return False
 
-    def _on_agent_toggle(self, agent_id: str) -> None:
-        snap = self._last_snap
-        live = live_checks(snap, site_reachable=self._site_ok)
-        should = bool(live.get(agent_id))
-        if self._agent_vars[agent_id].get():
-            self._user_off.discard(agent_id)
-            if not should:
-                self._user_on.add(agent_id)
+    def _on_intent_toggle(self, intent_id: str) -> None:
+        self._persist_intent()
+        agent_id = INTENT_TO_AGENT[intent_id]
+        if self._intent_vars[intent_id].get():
             if agent_id == AGENT_SERVER:
                 self._server_start_blocked = False
             self._start_agent(agent_id, open_browser=True)
         else:
-            self._user_on.discard(agent_id)
-            if should:
-                self._user_off.add(agent_id)
             self._stop_agent(agent_id)
         self._refresh_status()
 
@@ -874,7 +852,6 @@ class LauncherApp:
                 self._site_var.set(base)
                 os.environ["WIMS_SERVER"] = base
                 save_last_site_url(base)
-                self._agent_status[AGENT_SERVER].set("Site server up (existing)")
                 self._append_log(
                     f"Site server already up at {base} — not starting a second one."
                 )
@@ -1013,49 +990,49 @@ class LauncherApp:
             if not self._proc_running("server"):
                 self._site_external = True
 
-        # Per-row status — name the *agent*, never imply the ham app is live.
+        if self._proc_running("wsjt_agent"):
+            self._fetch_wsjt_report()
+
+        snap = self._last_snap
+        intent = self._current_intent()
+        want = agents_for_intent(intent)
         labels = {
             AGENT_LOG: "Log agent",
             AGENT_WSJT: "Seat agent",
             AGENT_KEY: "Key agent",
             AGENT_SERVER: "Site server",
         }
-        for aid, role_id in self._agent_role.items():
-            checked = bool(self._agent_vars[aid].get())
-            owned = self._proc_running(role_id)
-            name = labels[aid]
-            if aid == AGENT_SERVER and ok_site and not owned:
-                self._agent_status[aid].set(f"{name} up (existing)")
-            elif owned:
-                self._agent_status[aid].set(f"{name} up")
-            elif checked:
-                self._agent_status[aid].set(f"{name} starting…")
-            else:
-                self._agent_status[aid].set("off")
-
-        if self._proc_running("wsjt_agent"):
-            self._fetch_wsjt_report()
-
-        snap = self._last_snap
-        # Banner from checked agents (site server counts if reachable).
-        wanted = [a for a, v in self._agent_vars.items() if v.get()]
+        wanted = [a for a, on in want.items() if on]
         missing = [labels[a] for a in wanted if not self._agent_effective(a)]
         seat_up = self._agent_running(AGENT_WSJT)
+        wsjt_intent = bool(intent.get(INTENT_WSJT))
         wsjt_live = bool(snap and snap.wsjt_running)
+        n1mm_intent = bool(intent.get(INTENT_N1MM))
+        n1mm_live = bool(snap and snap.n1mm_running)
         update_pending = bool(self._update_info and self._update_info.available)
+
+        self._home_panel.update_running(
+            snap or detect_assets(),
+            log_up=self._agent_running(AGENT_LOG),
+            seat_up=seat_up,
+            key_up=self._agent_running(AGENT_KEY),
+            server_up=self._agent_effective(AGENT_SERVER),
+            server_existing=bool(ok_site and not self._agent_running(AGENT_SERVER)),
+        )
+
         if not wanted:
             self._set_banner(
                 "busy",
-                "Check an agent to start",
-                "N1MM → Log agent · WSJT-X → Seat agent · Key → Key agent · Site server.",
+                "Set seat intent below",
+                "Check N1MM / WSJT-X / SSB-CW KEY / Site server for what this PC will run.",
             )
         elif missing:
             self._set_banner(
                 "warn",
                 "Waiting for: " + ", ".join(missing),
-                "Uncheck to cancel, or wait for the agent window/process.",
+                "Agents start from seat intent. See Details if one exits.",
             )
-        elif seat_up and self._last_wsjt_sev == "error":
+        elif seat_up and wsjt_live and self._last_wsjt_sev == "error":
             self._set_banner(
                 "err",
                 "Seat agent: WSJT config needs fixing",
@@ -1072,24 +1049,29 @@ class LauncherApp:
                 "Site server stays up; seat agents restart after.",
             )
             self._home_panel.show_update_button(True)
-        elif seat_up and not wsjt_live:
+        elif wsjt_intent and not wsjt_live:
             self._set_banner(
                 "warn",
-                "Seat agent up — WSJT-X is not running",
-                "Start WSJT-X on this PC (or uncheck Seat agent). "
-                "Green Ready needs a live WSJT-X process.",
+                "WSJT-X intent on — app not running",
+                "Start WSJT-X when ready (Seat agent audits live instances only).",
             )
-        elif not ok_site and AGENT_SERVER not in wanted:
+        elif n1mm_intent and not n1mm_live:
+            self._set_banner(
+                "warn",
+                "N1MM intent on — app not running",
+                "Start N1MM when ready (Log agent waits for RadioInfo / QSOs).",
+            )
+        elif not ok_site and not intent.get(INTENT_SERVER):
             self._set_banner(
                 "warn",
                 "Agents up — site console not reachable",
-                f"Cannot reach {base}. Check Site server, or Find on LAN under Other tools…",
+                f"Cannot reach {base}. Check Site server intent, or Find on LAN under Other tools…",
             )
         else:
             note = base if ok_site else "Use Open site console for the fleet."
             self._set_banner(
                 "ok",
-                "Ready — checked agents are up",
+                "Ready — seat intent agents are up",
                 note if ok_site else "Use Open site console for the fleet.",
             )
         self._schedule_status(4000)
@@ -1397,19 +1379,16 @@ class LauncherApp:
                     f"{title} did not stay up (code {code}); "
                     f"using existing site server at {base}."
                 )
-                self._agent_status[AGENT_SERVER].set("Site server up (existing)")
             else:
                 self._append_log(f"{title} exited with code {code}.")
-                self._agent_vars[AGENT_SERVER].set(False)
-                self._user_off.add(AGENT_SERVER)
-                self._user_on.discard(AGENT_SERVER)
+                self._intent_vars[INTENT_SERVER].set(False)
+                self._persist_intent()
         elif role_id == "log":
-            # Any exit means it is not a resident agent (Task Manager empty).
             self._set_banner(
                 "err",
                 "Log agent stopped",
                 "It exited instead of staying running. Check Details, "
-                "then check N1MM again to restart. (Task Manager will not show it if it quit.)",
+                "then toggle N1MM intent off/on to restart.",
             )
             self._append_log(f"{title} exited with code {code}.")
         elif code == 0:

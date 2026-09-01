@@ -6,8 +6,10 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
@@ -19,46 +21,57 @@ from wims.launcher.assets import (
     AGENT_LOG,
     AGENT_SERVER,
     AGENT_WSJT,
+    INTENT_N1MM,
+    INTENT_SERVER,
+    INTENT_SSB_CW,
+    INTENT_WSJT,
     AssetSnapshot,
-    live_checks,
-    load_wanted_agents,
-    save_wanted_agents,
-    suggested_checks,
+    agents_for_intent,
+    load_seat_intent,
+    save_seat_intent,
 )
 
 
-class AssetsTests(unittest.TestCase):
-    def test_live_checks_from_running_apps(self):
+class SeatIntentTests(unittest.TestCase):
+    def test_agents_for_intent_mapping(self):
+        a = agents_for_intent({
+            INTENT_N1MM: True,
+            INTENT_WSJT: True,
+            INTENT_SSB_CW: False,
+            INTENT_SERVER: False,
+        })
+        self.assertTrue(a[AGENT_LOG])
+        self.assertTrue(a[AGENT_WSJT])
+        self.assertFalse(a[AGENT_KEY])
+        self.assertFalse(a[AGENT_SERVER])
+
+    def test_ssb_cw_starts_key_agent(self):
+        a = agents_for_intent({INTENT_SSB_CW: True})
+        self.assertTrue(a[AGENT_KEY])
+
+    def test_save_load_intent(self):
+        with tempfile.TemporaryDirectory() as td:
+            pref = Path(td) / "seat_intent.json"
+            with mock.patch.dict("os.environ", {"WIMS_SEAT_INTENT": str(pref)}):
+                save_seat_intent({
+                    INTENT_N1MM: True,
+                    INTENT_WSJT: False,
+                    INTENT_SSB_CW: True,
+                    INTENT_SERVER: False,
+                })
+                got = load_seat_intent()
+                self.assertTrue(got[INTENT_N1MM])
+                self.assertFalse(got[INTENT_WSJT])
+                self.assertTrue(got[INTENT_SSB_CW])
+                self.assertFalse(got[INTENT_SERVER])
+
+    def test_snapshot_wsjt_names(self):
         snap = AssetSnapshot(
-            n1mm_running=True, wsjt_running=True, wsjt_ini_count=2,
+            wsjt_running=True,
+            wsjt_running_names=["IC9700", "flexA"],
         )
-        s = live_checks(snap, site_reachable=False)
-        self.assertTrue(s[AGENT_LOG])
-        self.assertTrue(s[AGENT_WSJT])
-        self.assertFalse(s[AGENT_KEY])
-        self.assertFalse(s[AGENT_SERVER])
-
-    def test_ini_alone_does_not_auto_check_seat(self):
-        snap = AssetSnapshot(wsjt_running=False, wsjt_ini_count=6)
-        s = live_checks(snap)
-        self.assertFalse(s[AGENT_WSJT])
-
-    def test_site_reachable_checks_server_status(self):
-        snap = AssetSnapshot()
-        s = live_checks(snap, site_reachable=True)
-        self.assertTrue(s[AGENT_SERVER])
-        self.assertFalse(s[AGENT_KEY])
-
-    def test_wanted_arg_ignored(self):
-        snap = AssetSnapshot()
-        s = suggested_checks(snap, {AGENT_KEY: True, AGENT_WSJT: True})
-        self.assertFalse(s[AGENT_KEY])
-        self.assertFalse(s[AGENT_WSJT])
-
-    def test_prefs_are_noop(self):
-        # Checkboxes are not remembered — API kept as no-op for old callers.
-        save_wanted_agents({AGENT_LOG: True})
-        self.assertEqual(load_wanted_agents(), {})
+        self.assertTrue(snap.wsjt_running)
+        self.assertEqual(len(snap.wsjt_running_names), 2)
 
 
 if __name__ == "__main__":
