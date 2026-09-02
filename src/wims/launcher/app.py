@@ -414,6 +414,14 @@ class LauncherApp:
         self.root.after(400, self._refresh_status)
         self.root.after(1000, self._poll_procs)
         self.root.after(2500, self._kick_update_check)
+        # Mid-contest gentle re-check while launcher stays open (default 45 min).
+        try:
+            self._update_period_ms = int(
+                float(os.environ.get("WIMS_UPDATE_CHECK_S") or 45 * 60) * 1000
+            )
+        except ValueError:
+            self._update_period_ms = 45 * 60 * 1000
+        self.root.after(max(60_000, self._update_period_ms), self._kick_update_check_periodic)
         self.root.after(4000, self._pulse_detect)
 
     def _apply_icon(self) -> None:
@@ -663,6 +671,10 @@ class LauncherApp:
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _kick_update_check_periodic(self) -> None:
+        self._kick_update_check()
+        self.root.after(max(60_000, self._update_period_ms), self._kick_update_check_periodic)
+
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
         if not info.is_git:
@@ -683,6 +695,21 @@ class LauncherApp:
         self._append_log(
             f"Update available: {info.local_short} → {info.remote_short}{subj}"
         )
+        # Gentle OS toast once per remote SHA (no focus steal).
+        try:
+            from wims.launcher.update_notify import (
+                already_nagged, mark_nagged, notify_no_focus,
+            )
+            if not already_nagged(info.remote_sha):
+                subj2 = info.remote_subject or "bugfix on main"
+                if notify_no_focus(
+                    "WIMS update available",
+                    f"{info.local_short} -> {info.remote_short}: {subj2}. "
+                    "Run Desktop Update WIMS when convenient.",
+                ):
+                    mark_nagged(info.remote_sha)
+        except Exception:
+            pass
 
     def _do_update(self) -> None:
         """One-click pull from origin/main, then relaunch this launcher."""

@@ -68,11 +68,14 @@ Details: [scripts/windows/README.md](../scripts/windows/README.md).
 
 ### Update on Windows (one click)
 
-When GitHub `main` is ahead of this PC, the launcher shows a yellow banner:
+When GitHub `main` is ahead of this PC:
 
-**Update available — oldsha → newsha**
+- Launcher (on open, and about every 45 minutes while open): yellow banner + **Update WIMS**
+- Seat agent daemon: gentle **desktop toast** once per new version (does **not** steal
+  focus from N1MM/WSJT) and a note on `http://127.0.0.1:8790/`
+- You still **click** Desktop **Update WIMS** to install — nothing auto-pulls mid-contact
 
-Click **Update WIMS** (or the Desktop **Update WIMS** shortcut). That runs `git pull --ff-only`, leaves any site server running, and restarts the launcher. You can ignore the banner mid-contest and update later.
+Early `0.0.x` releases may ship bug fixes during a contest; the toast is the soft prod.
 
 ```text
 scripts\windows\Update-Wims.cmd

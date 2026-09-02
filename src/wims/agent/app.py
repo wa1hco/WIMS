@@ -73,6 +73,15 @@ class AgentState:
         self.agent_id: str | None = None
         self.seat_id: str | None = None
         self.presence_iface: str = "0.0.0.0"
+        self.update_info: dict | None = None  # gentle mid-contest update nudge
+
+    def set_update_info(self, info: dict | None) -> None:
+        with self._lock:
+            self.update_info = info
+
+    def get_update_info(self) -> dict | None:
+        with self._lock:
+            return dict(self.update_info) if self.update_info else None
 
     def refresh(self) -> dict:
         r = build_report(
@@ -199,6 +208,19 @@ def _page_html(state: AgentState) -> bytes:
         exp_line = "No site server URL yet (waiting for presence or --server)."
 
     presence_html = _presence_block_html(state)
+    upd = state.get_update_info()
+    update_html = ""
+    if upd and upd.get("available"):
+        update_html = (
+            '<div class="panel" style="border-color:#d4a72c;background:#fff8c5">'
+            "<b>WIMS update available</b> "
+            f"{html.escape(str(upd.get('local_short') or ''))} → "
+            f"{html.escape(str(upd.get('remote_short') or ''))}"
+            f"{(' — ' + html.escape(str(upd.get('subject') or ''))) if upd.get('subject') else ''}"
+            "<div class=\"meta\">When convenient: Desktop <b>Update WIMS</b> "
+            "(one click; does not auto-install). Early 0.0.x releases may ship "
+            "bug fixes during a contest.</div></div>"
+        )
     refresh_s = "3" if scanning else "15"
 
     body = f"""<!doctype html>
@@ -234,6 +256,7 @@ def _page_html(state: AgentState) -> bytes:
   <a href="/api/report">JSON</a> ·
   <a href="/export">export now</a></div>
   <div class="sum">[{html.escape(sev.upper())}] {html.escape(str(msg))}</div>
+  {update_html}
   {presence_html}
   <div class="meta">{html.escape(exp_line)}</div>
 </header>
@@ -330,6 +353,10 @@ def make_handler(state: AgentState):
 
 
 def _bg_loop(state: AgentState, interval: float, export: bool):
+    # Mid-contest gentle update nudge (~45 min). First check after ~2 min so a
+    # seat left running still hears bugfix pushes without staring at launcher.
+    update_every_s = float(os.environ.get("WIMS_UPDATE_CHECK_S") or 45 * 60)
+    last_update_check = time.monotonic() - update_every_s + 120.0
     while True:
         try:
             # Refresh discovery so clickable links stay current.
@@ -340,9 +367,38 @@ def _bg_loop(state: AgentState, interval: float, export: bool):
             rep = state.refresh()
             if export and state.server_url:
                 state.set_export(export_report(rep, state.server_url))
+            now = time.monotonic()
+            if now - last_update_check >= update_every_s:
+                last_update_check = now
+                _maybe_nudge_update(state)
         except Exception as e:
             state.set_export({"ok": False, "error": f"refresh/export: {e}"})
         time.sleep(max(5.0, interval))
+
+
+def _maybe_nudge_update(state: AgentState) -> None:
+    """Soft-fail git check + one toast per remote SHA; also paint local agent UI."""
+    try:
+        from wims.launcher.update_notify import check_and_nudge
+        info = check_and_nudge()
+    except Exception:
+        return
+    if info is None:
+        return
+    if info.available:
+        state.set_update_info({
+            "available": True,
+            "local_short": info.local_short,
+            "remote_short": info.remote_short,
+            "subject": info.remote_subject,
+        })
+        print(
+            f"update available: {info.local_short} -> {info.remote_short} "
+            f"(run Desktop Update WIMS when convenient)",
+            flush=True,
+        )
+    else:
+        state.set_update_info(None)
 
 
 def main(argv: list[str] | None = None) -> int:
