@@ -841,17 +841,22 @@ class LauncherApp:
                 if should and not self._agent_effective(aid):
                     self._start_agent(aid, open_browser=False)
                 elif not should and self._agent_running(aid):
+                    # Site server started outside this launcher: never "stop" it on
+                    # every sync pulse (that only spammed Details and did nothing).
+                    if aid == AGENT_SERVER and not self._proc_running(
+                        self._agent_role[AGENT_SERVER]
+                    ):
+                        continue
                     self._stop_agent(aid)
 
+        owned_server = self._proc_running(self._agent_role[AGENT_SERVER])
         self._home_panel.update_running(
             snap,
             log_up=self._agent_running(AGENT_LOG),
             seat_up=self._agent_running(AGENT_WSJT),
             key_up=self._agent_running(AGENT_KEY),
             server_up=self._agent_effective(AGENT_SERVER),
-            server_existing=bool(
-                self._site_ok and not self._agent_running(AGENT_SERVER)
-            ),
+            server_existing=bool(self._site_ok and not owned_server),
         )
 
         if self._agent_running(AGENT_WSJT):
@@ -953,17 +958,21 @@ class LauncherApp:
         self._append_log(f"Stopping {agent_id} agent…")
         self._starting.discard(agent_id)
         if agent_id == AGENT_SERVER:
-            # Uncheck only stops a server *this* launcher owns.
+            # Uncheck only stops a server *this* launcher owns — never kill an
+            # external site server (and do not hunt system "server" PIDs).
             if not self._proc_running("server"):
                 self._append_log(
-                    "Site server is external (not started by this launcher) — "
+                    "Site server is external (not started by this launcher) - "
                     "left running. Uncheck only clears the want-flag."
                 )
                 self._site_external = False
                 self._schedule_status(200)
                 return
+            self._stop_role(role_id)
+            self._schedule_status(800)
+            return
         self._stop_role(role_id)
-        # Also stop any orphan copies of this agent kind on the PC.
+        # Also stop any orphan copies of this agent kind on the PC (log/seat/key).
         for p in self._system_agent_procs(agent_id):
             self._append_log(f"Stopping leftover {agent_id} pid={p.pid}")
             try:
