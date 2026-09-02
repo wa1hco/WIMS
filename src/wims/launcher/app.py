@@ -898,7 +898,9 @@ class LauncherApp:
                 self._server_start_blocked = False
             self._start_agent(agent_id, open_browser=True)
         else:
-            self._stop_agent(agent_id)
+            # Explicit operator uncheck — for site server, stop owned *or* local
+            # orphan server on this PC (user asked). Sync must never do that alone.
+            self._stop_agent(agent_id, explicit=True)
         self._refresh_status()
 
     def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
@@ -953,24 +955,46 @@ class LauncherApp:
         self._starting.discard(agent_id)
         self._schedule_status(1500)
 
-    def _stop_agent(self, agent_id: str) -> None:
+    def _stop_agent(self, agent_id: str, *, explicit: bool = False) -> None:
         role_id = self._agent_role[agent_id]
-        self._append_log(f"Stopping {agent_id} agent…")
         self._starting.discard(agent_id)
         if agent_id == AGENT_SERVER:
-            # Uncheck only stops a server *this* launcher owns — never kill an
-            # external site server (and do not hunt system "server" PIDs).
-            if not self._proc_running("server"):
-                self._append_log(
-                    "Site server is external (not started by this launcher) - "
-                    "left running. Uncheck only clears the want-flag."
-                )
-                self._site_external = False
-                self._schedule_status(200)
+            owned = self._proc_running("server")
+            orphans = self._system_agent_procs(AGENT_SERVER)
+            if owned:
+                self._append_log("Stopping site server (started by this launcher)...")
+                self._stop_role(role_id)
+                self._schedule_status(800)
                 return
-            self._stop_role(role_id)
-            self._schedule_status(800)
+            if explicit and orphans:
+                # Operator unchecked Site server — stop local wims.server processes.
+                for p in orphans:
+                    self._append_log(f"Stopping local site server pid={p.pid}...")
+                    try:
+                        stop_pid(p.pid)
+                    except Exception as e:
+                        self._append_log(f"Stop pid {p.pid} failed: {e}")
+                self._server_start_blocked = False
+                self._site_external = False
+                self.root.after(1200, self._verify_server_stopped)
+                self._schedule_status(800)
+                return
+            # Non-explicit (should not reach here often) or nothing local to stop.
+            if explicit:
+                if self._site_ok:
+                    self._append_log(
+                        "Site server intent cleared. Console still reachable "
+                        f"at {self._site_var.get()} (likely on another PC) - "
+                        "nothing local to stop."
+                    )
+                else:
+                    self._append_log(
+                        "Site server intent cleared. No local site server process."
+                    )
+            self._site_external = False
+            self._schedule_status(200)
             return
+        self._append_log(f"Stopping {agent_id} agent...")
         self._stop_role(role_id)
         # Also stop any orphan copies of this agent kind on the PC (log/seat/key).
         for p in self._system_agent_procs(agent_id):
@@ -983,6 +1007,23 @@ class LauncherApp:
             self._last_wsjt_sev = None
             self._last_wsjt_msg = ""
         self._schedule_status(800)
+
+    def _verify_server_stopped(self) -> None:
+        left = self._system_agent_procs(AGENT_SERVER)
+        ok, _ = probe_site_urls(self._site_var.get().strip() or None)
+        self._site_ok = ok
+        if left:
+            pids = ", ".join(str(p.pid) for p in left[:4])
+            self._append_log(
+                f"Site server still present (pid {pids}) after stop attempt."
+            )
+        elif ok:
+            self._append_log(
+                "Local site server process gone; console still reachable "
+                "(server is on another host)."
+            )
+        else:
+            self._append_log("Local site server stopped.")
 
     def _kick_site_discover(self) -> None:
         if self._discovering:
