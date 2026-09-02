@@ -218,8 +218,18 @@ def _page_html(state: AgentState) -> bytes:
             f"{html.escape(str(upd.get('remote_short') or ''))}"
             f"{(' — ' + html.escape(str(upd.get('subject') or ''))) if upd.get('subject') else ''}"
             "<div class=\"meta\">When convenient: Desktop <b>Update WIMS</b> "
-            "(one click; does not auto-install). Early 0.0.x releases may ship "
-            "bug fixes during a contest.</div></div>"
+            "(Windows) or launcher <b>Update WIMS</b> / "
+            "<code>git pull --ff-only origin main</code> (Linux). "
+            "Does not auto-install.</div></div>"
+        )
+    elif upd and upd.get("checked"):
+        detail = html.escape(str(upd.get("detail") or "up to date"))
+        local = html.escape(str(upd.get("local_short") or "?"))
+        update_html = (
+            '<div class="panel">'
+            f"<b>Update check</b>: {detail}"
+            f'<div class="meta">This tree: {local}. '
+            "Use <b>Check for updates</b> anytime; install is still a manual click.</div></div>"
         )
     refresh_s = "3" if scanning else "15"
 
@@ -265,6 +275,7 @@ def _page_html(state: AgentState) -> bytes:
     <form method="post" action="/refresh"><button type="submit">Re-scan now</button></form>
     <form method="post" action="/export"><button type="submit">Export to server</button></form>
     <form method="post" action="/discover"><button type="submit">Find site server</button></form>
+    <form method="post" action="/check-update"><button type="submit">Check for updates</button></form>
   </div>
   <pre>{html.escape(text)}</pre>
   <p class="meta">This is the seat agent, not the site server. Open the site console via the
@@ -323,6 +334,11 @@ def make_handler(state: AgentState):
                 self.send_response(303)
                 self.send_header("Location", "/")
                 self.end_headers()
+            elif path == "/check-update":
+                _maybe_nudge_update(state, force=True)
+                self.send_response(303)
+                self.send_header("Location", "/")
+                self.end_headers()
             elif path == "/export":
                 self._do_export()
             else:
@@ -376,29 +392,65 @@ def _bg_loop(state: AgentState, interval: float, export: bool):
         time.sleep(max(5.0, interval))
 
 
-def _maybe_nudge_update(state: AgentState) -> None:
-    """Soft-fail git check + one toast per remote SHA; also paint local agent UI."""
+def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
+    """Soft-fail git check + one toast per remote SHA; also paint local agent UI.
+
+    ``force=True`` is the operator clicking Check for updates on :8790.
+    """
     try:
-        from wims.launcher.update_notify import check_and_nudge
-        info = check_and_nudge()
-    except Exception:
+        from wims.launcher.update_check import check_git_update, env_skip_update_check
+        from wims.launcher.update_notify import (
+            already_nagged, mark_nagged, notify_no_focus,
+        )
+        if env_skip_update_check():
+            state.set_update_info({
+                "checked": True, "available": False,
+                "detail": "update checks disabled (WIMS_SKIP_UPDATE_CHECK)",
+            })
+            return
+        info = check_git_update(fetch=True)
+    except Exception as e:
+        state.set_update_info({
+            "checked": True, "available": False,
+            "detail": f"check failed: {e}",
+        })
         return
     if info is None:
         return
     if info.available:
         state.set_update_info({
+            "checked": True,
             "available": True,
             "local_short": info.local_short,
             "remote_short": info.remote_short,
             "subject": info.remote_subject,
+            "detail": "update available",
         })
         print(
             f"update available: {info.local_short} -> {info.remote_short} "
-            f"(run Desktop Update WIMS when convenient)",
+            f"(run Update WIMS when convenient)",
             flush=True,
         )
+        # Toast once per SHA (force click still refreshes the page banner).
+        if not already_nagged(info.remote_sha):
+            subj = info.remote_subject or "bugfix on main"
+            if notify_no_focus(
+                "WIMS update available",
+                f"{info.local_short} -> {info.remote_short}: {subj}. "
+                "Run Update WIMS when convenient.",
+            ):
+                mark_nagged(info.remote_sha)
     else:
-        state.set_update_info(None)
+        state.set_update_info({
+            "checked": True,
+            "available": False,
+            "local_short": info.local_short or "?",
+            "remote_short": info.remote_short or "",
+            "detail": info.detail or "up to date",
+        })
+        if force:
+            print(f"update check: {info.detail or 'up to date'} "
+                  f"(local {info.local_short})", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
