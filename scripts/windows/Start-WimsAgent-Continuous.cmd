@@ -49,6 +49,18 @@ echo  Site:   %WIMS_SERVER%/
 echo  Stop:   close the minimized "WIMS Agent" window
 echo.
 
+REM Already running? Do not start a second copy (browser would just hit the first).
+netstat -ano 2>nul | findstr /R /C:":8790 .*LISTENING" >nul
+if not errorlevel 1 (
+  echo  Seat agent already listening on 127.0.0.1:8790 — not starting a second copy.
+  echo  Opening the existing agent UI.
+  if /I not "%WIMS_AGENT_NO_BROWSER%"=="1" (
+    start "" "http://127.0.0.1:8790/"
+  )
+  if /I not "%~1"=="/nopause" pause
+  exit /b 0
+)
+
 start "WIMS Agent" /MIN /D "%ROOT%" "%PYTHON_EXE%" -u -m wims.agent --daemon --local-port 8790 --server "%WIMS_SERVER%" %SEAT_ARGS% %*
 
 REM Wait up to ~25s for 8790 (avoids Chrome "Unable to connect" race).

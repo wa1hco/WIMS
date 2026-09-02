@@ -675,6 +675,22 @@ def main(argv: list[str] | None = None) -> int:
                     help="console only (lab / headless)")
     args = ap.parse_args(argv)
 
+    # Singleton — second Log agent on the same PC must fail (not silently double-FWD).
+    try:
+        from wims.launcher.process_replace import other_agent_running
+        other = other_agent_running("log")
+    except Exception:
+        other = None
+    if other is not None:
+        print(
+            f"ERROR: log agent already running (pid {other.pid}).\n"
+            f"  {other.cmdline}\n"
+            f"  Stop the existing Log agent before starting another.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+
     expect = (args.expect_band or os.environ.get("WIMS_BAND") or "").strip() or None
 
     state = LogState()

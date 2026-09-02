@@ -315,6 +315,12 @@ def find_procs_by_kind(
     ]
 
 
+def other_agent_running(kind: Kind) -> ProcInfo | None:
+    """Return another process of ``kind`` if any (excludes this PID / parent)."""
+    found = find_procs_by_kind(kind)
+    return found[0] if found else None
+
+
 def _terminate_pid(pid: int) -> None:
     if os.name == "nt":
         # taskkill is clearer than os.kill on Windows python services.

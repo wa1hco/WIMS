@@ -534,6 +534,24 @@ def main(argv: list[str] | None = None) -> int:
         _print_next_steps(state)
         return 0
 
+    # Singleton: refuse a second seat agent even if started outside the launcher
+    # (Desktop Start-WimsAgent-Continuous.cmd, second window, etc.).
+    try:
+        from wims.launcher.process_replace import other_agent_running
+        other = other_agent_running("seat")
+    except Exception:
+        other = None
+    if other is not None:
+        print(
+            f"ERROR: seat agent already running (pid {other.pid}).\n"
+            f"  {other.cmdline}\n"
+            f"  Open http://127.0.0.1:{args.local_port}/ for the existing agent.\n"
+            f"  Do not start a second copy.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
+
     # Daemon: bind local UI FIRST so the browser never races discovery/report.
     try:
         httpd = ThreadingHTTPServer((args.bind, args.local_port), make_handler(state))
@@ -541,6 +559,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: cannot bind agent UI on {args.bind}:{args.local_port}: {e}",
               file=sys.stderr, flush=True)
         print(f"  Is another agent already using port {args.local_port}?",
+              file=sys.stderr, flush=True)
+        print(f"  Open http://127.0.0.1:{args.local_port}/ — that is the running agent.",
               file=sys.stderr, flush=True)
         return 2
 

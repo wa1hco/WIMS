@@ -20,6 +20,7 @@ from wims.launcher.process_replace import (
     classify_argv,
     find_procs_by_kind,
     iter_wims_procs,
+    other_agent_running,
     replace_seat_agents,
 )
 
@@ -144,6 +145,17 @@ class ReplaceTests(unittest.TestCase):
         self.assertEqual([p.pid for p in logs], [10])
         seats = find_procs_by_kind("seat", table=table)
         self.assertEqual([p.pid for p in seats], [11])
+
+    def test_other_agent_running_with_table(self):
+        from unittest import mock
+        table = [(42, ["python", "-m", "wims.agent", "--daemon", "--local-port", "8790"])]
+        with mock.patch(
+            "wims.launcher.process_replace.iter_wims_procs",
+            return_value=find_procs_by_kind("seat", table=table),
+        ):
+            other = other_agent_running("seat")
+        self.assertIsNotNone(other)
+        self.assertEqual(other.pid, 42)
 
 
 if __name__ == "__main__":
