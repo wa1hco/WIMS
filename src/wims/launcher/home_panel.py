@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable
 
 from wims.launcher.assets import (
@@ -175,7 +176,9 @@ class AgentHomePanel:
         """Refresh the observational Running list."""
         if snap.n1mm_running:
             self._run_labels["n1mm"].set("live")
-        elif snap.n1mm_found:
+        elif snap.n1mm_found and sys.platform.startswith("win"):
+            # Windows only: Logger+ data dirs mean "installed but not running".
+            # Linux often has leftover Documents/N1MM trees; N1MM does not run here.
             self._run_labels["n1mm"].set("off (installed)")
         else:
             self._run_labels["n1mm"].set("off")
