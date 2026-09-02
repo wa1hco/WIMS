@@ -245,7 +245,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   **Windows update (2026-08-31):** `Update-Wims.cmd` + launcher **Update WIMS**
   button when behind `origin/main` (`update_check.py`); Install-Wims also places
   Desktop **WIMS** + **Update WIMS** shortcuts.
-  **Seat intent vs Running (2026-09-01):** launcher splits observational
+  **Seat intent vs Running (2026-09-01):**
+  **Ingest self-heal (2026-09-02):** ingest loop heartbeat + watchdog restarts
+  dead/stuck ingest in-process (not keyed on rx — quiet VHF/UHF is normal);
+  per-datagram errors no longer kill the ingest thread.
+ launcher splits observational
   “Running on this PC” from remembered “This seat will run” (N1MM / WSJT-X /
   SSB-CW KEY / Site server → Log / Seat / Key / server agents).
 

@@ -112,6 +112,13 @@ class LiveFleet:
         self._condition = condition
         self.wsjt_pkts = 0
         self.n1mm_pkts = 0
+        # Ingest liveness (traffic-independent): updated every select cycle.
+        self.ingest_heartbeat_mono: float = 0.0
+        self.ingest_errors: int = 0
+        self.ingest_restarts: int = 0
+        self._ingest_generation: int = 0
+        self._ingest_thread: threading.Thread | None = None
+        self._ingest_watchdog_stop = threading.Event()
         self._last_n1mm: float | None = None       # last datagram on the N1MM port
         self._last_qso: dict | None = None         # last QSO folded into the log copy
         self._seed: dict | None = None             # seed meta (count, source, contest…)
@@ -783,6 +790,21 @@ class LiveFleet:
             d = fleet_to_dict(self._tracker, now,
                               wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts,
                               share_policies=self._share_policies)
+            # Lab/Status visibility only — not an operator action prompt.
+            hb = self.ingest_heartbeat_mono
+            d["ingest"] = {
+                "alive": (
+                    self._ingest_thread is not None
+                    and self._ingest_thread.is_alive()
+                    and hb > 0.0
+                    and (time.monotonic() - hb) < 8.0
+                ),
+                "errors": self.ingest_errors,
+                "restarts": self.ingest_restarts,
+                "heartbeat_age_s": (
+                    round(time.monotonic() - hb, 2) if hb > 0.0 else None
+                ),
+            }
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
             d["interlock"] = interlock_to_dict(
                 self._overlap, self.group_of, self._grouping,
@@ -877,9 +899,23 @@ class LiveFleet:
             return result
 
 
-def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None,
-                gt_bridge: GridTrackerBridge | None = None):
-    """Ingest WSJT-X on band ports + optional N1MM + optional GridTracker bridge."""
+def ingest_loop(
+    live: LiveFleet,
+    wsjt_socks: list,
+    s_n1mm: socket.socket | None,
+    gt_bridge: GridTrackerBridge | None = None,
+    *,
+    generation: int = 0,
+):
+    """Ingest WSJT-X on band ports + optional N1MM + optional GridTracker bridge.
+
+    Heartbeat: every select cycle (including idle timeouts) bumps
+    ``live.ingest_heartbeat_mono`` so a watchdog can detect a dead/stuck
+    thread without requiring WSJT traffic (quiet VHF/UHF is normal).
+
+    One bad datagram must never kill this thread — observe/GT errors are
+    counted and skipped.
+    """
     if not isinstance(wsjt_socks, (list, tuple)):
         wsjt_socks = [wsjt_socks]
     wsjt_set = {s for s in wsjt_socks if s is not None}
@@ -889,27 +925,109 @@ def ingest_loop(live: LiveFleet, wsjt_socks: list, s_n1mm: socket.socket | None,
     gt_sock = gt_bridge.sock if gt_bridge is not None else None
     if gt_sock is not None:
         socks.append(gt_sock)
-    while True:
-        ready, _, _ = select.select(socks, [], [], 1.0)
+    if not socks:
+        return
+    while generation == live._ingest_generation:
+        live.ingest_heartbeat_mono = time.monotonic()
+        try:
+            ready, _, _ = select.select(socks, [], [], 1.0)
+        except (OSError, ValueError):
+            # Socket closed during shutdown/restart.
+            break
         now = time.time()
         for s in ready:
             try:
                 data, addr = s.recvfrom(65535)
             except OSError:
                 continue
-            if gt_sock is not None and s is gt_sock:
-                # GT Call Roster click (Reply/Halt/…) or other traffic to bridge port.
-                gt_bridge.handle_gt_datagram(data, addr, now=now)
-            elif s in wsjt_set:
-                msg = M.parse(data)
-                if msg is not None:
-                    # addr[1] is MessageClient's ephemeral control port — required for Reply.
-                    live.observe_wsjtx(msg, now, addr[0], addr[1])
-                # Forward raw bytes even if parse failed (GT may still want them).
-                if gt_bridge is not None and data:
-                    gt_bridge.forward_wsjt(data, now=now)
-            else:
-                live.observe_n1mm(data.decode("utf-8", "replace"), now, addr[0])
+            try:
+                if gt_sock is not None and s is gt_sock:
+                    # GT Call Roster click (Reply/Halt/…) or other traffic to bridge port.
+                    gt_bridge.handle_gt_datagram(data, addr, now=now)
+                elif s in wsjt_set:
+                    msg = M.parse(data)
+                    if msg is not None:
+                        # addr[1] is MessageClient's ephemeral control port — required for Reply.
+                        live.observe_wsjtx(msg, now, addr[0], addr[1])
+                    # Forward raw bytes even if parse failed (GT may still want them).
+                    if gt_bridge is not None and data:
+                        gt_bridge.forward_wsjt(data, now=now)
+                else:
+                    live.observe_n1mm(data.decode("utf-8", "replace"), now, addr[0])
+            except Exception as e:  # noqa: BLE001 — never kill ingest on one datagram
+                live.ingest_errors += 1
+                if live.ingest_errors <= 5 or live.ingest_errors % 100 == 0:
+                    print(
+                        f"ingest: datagram error #{live.ingest_errors}: {e!r}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+
+
+def start_ingest(
+    live: LiveFleet,
+    wsjt_socks: list,
+    s_n1mm: socket.socket | None,
+    gt_bridge: GridTrackerBridge | None = None,
+) -> threading.Thread:
+    """Start (or replace) the ingest thread on already-bound sockets."""
+    live._ingest_generation += 1
+    gen = live._ingest_generation
+    live.ingest_heartbeat_mono = time.monotonic()
+    th = threading.Thread(
+        target=ingest_loop,
+        kwargs={
+            "live": live,
+            "wsjt_socks": wsjt_socks,
+            "s_n1mm": s_n1mm,
+            "gt_bridge": gt_bridge,
+            "generation": gen,
+        },
+        name=f"wims-ingest-{gen}",
+        daemon=True,
+    )
+    live._ingest_thread = th
+    th.start()
+    return th
+
+
+def start_ingest_watchdog(
+    live: LiveFleet,
+    wsjt_socks: list,
+    s_n1mm: socket.socket | None,
+    gt_bridge: GridTrackerBridge | None = None,
+    *,
+    stall_s: float = 8.0,
+    period_s: float = 2.0,
+) -> threading.Thread:
+    """Restart ingest if its loop heartbeat stalls (thread dead or wedged).
+
+    Does **not** key off rx packet counters — quiet bands are normal.
+    """
+
+    def _watch() -> None:
+        while not live._ingest_watchdog_stop.wait(period_s):
+            age = time.monotonic() - (live.ingest_heartbeat_mono or 0.0)
+            th = live._ingest_thread
+            dead = th is not None and not th.is_alive()
+            stalled = live.ingest_heartbeat_mono > 0.0 and age > stall_s
+            if not (dead or stalled):
+                continue
+            live.ingest_restarts += 1
+            why = "thread dead" if dead else f"heartbeat stalled {age:.1f}s"
+            print(
+                f"ingest: {why} — restarting ingest (restart #{live.ingest_restarts})",
+                file=sys.stderr,
+                flush=True,
+            )
+            try:
+                start_ingest(live, wsjt_socks, s_n1mm, gt_bridge)
+            except Exception as e:  # noqa: BLE001
+                print(f"ingest: restart failed: {e!r}", file=sys.stderr, flush=True)
+
+    w = threading.Thread(target=_watch, name="wims-ingest-watchdog", daemon=True)
+    w.start()
+    return w
 
 
 def make_handler(live: LiveFleet, refresh: float):
@@ -1421,8 +1539,8 @@ def main() -> None:
             ap.error(f"GT bridge bind 0.0.0.0:{bind_port} failed: {e} "
                      f"(is another process using that port?)")
 
-    threading.Thread(target=ingest_loop, daemon=True,
-                     args=(live, s_wsjt_list, s_n1mm, gt_bridge)).start()
+    start_ingest(live, s_wsjt_list, s_n1mm, gt_bridge)
+    start_ingest_watchdog(live, s_wsjt_list, s_n1mm, gt_bridge)
 
     httpd = _QuietThreadingHTTPServer(
         ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
