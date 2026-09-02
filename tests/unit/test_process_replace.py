@@ -18,6 +18,7 @@ if str(SRC) not in sys.path:
 
 from wims.launcher.process_replace import (
     classify_argv,
+    find_procs_by_kind,
     iter_wims_procs,
     replace_seat_agents,
 )
@@ -132,6 +133,17 @@ class ReplaceTests(unittest.TestCase):
         )
         self.assertEqual(calls, [])
         self.assertEqual(len(report.stopped), 1)
+
+    def test_find_procs_by_kind(self):
+        table = [
+            (10, ["python", "-m", "wims.log"]),
+            (11, ["python", "-m", "wims.agent", "--daemon"]),
+            (12, ["python", "-m", "wims.server.app"]),
+        ]
+        logs = find_procs_by_kind("log", table=table)
+        self.assertEqual([p.pid for p in logs], [10])
+        seats = find_procs_by_kind("seat", table=table)
+        self.assertEqual([p.pid for p in seats], [11])
 
 
 if __name__ == "__main__":

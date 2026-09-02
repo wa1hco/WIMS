@@ -302,6 +302,19 @@ def iter_wims_procs(
     return out
 
 
+def find_procs_by_kind(
+    kind: Kind,
+    *,
+    table: Iterable[tuple[int, list[str]]] | None = None,
+    exclude_pids: Iterable[int] | None = None,
+) -> list[ProcInfo]:
+    """Return processes of one kind (log / seat / key / server)."""
+    return [
+        p for p in iter_wims_procs(table, exclude_pids=exclude_pids)
+        if p.kind == kind
+    ]
+
+
 def _terminate_pid(pid: int) -> None:
     if os.name == "nt":
         # taskkill is clearer than os.kill on Windows python services.

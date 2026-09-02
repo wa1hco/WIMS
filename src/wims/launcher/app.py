@@ -51,7 +51,12 @@ from wims.launcher.assets import (
     save_seat_intent,
 )
 from wims.launcher.home_panel import AgentHomePanel
-from wims.launcher.process_replace import format_replace_banner, replace_seat_agents
+from wims.launcher.process_replace import (
+    find_procs_by_kind,
+    format_replace_banner,
+    replace_seat_agents,
+    stop_pid,
+)
 from wims.launcher.tooltips import ToolTip
 from wims.launcher.update_check import (
     UpdateInfo,
@@ -392,6 +397,14 @@ class LauncherApp:
             AGENT_KEY: "key",
             AGENT_SERVER: "server",
         }
+        # process_replace kind for system-wide singleton check
+        self._agent_kind = {
+            AGENT_LOG: "log",
+            AGENT_WSJT: "seat",
+            AGENT_KEY: "key",
+            AGENT_SERVER: "server",
+        }
+        self._starting: set[str] = set()  # prevent double-start races
 
         self._apply_icon()
         self._build()
@@ -820,11 +833,25 @@ class LauncherApp:
         elif self._home_panel.local_btn.winfo_ismapped():
             self._home_panel.local_btn.pack_forget()
 
+    def _system_agent_procs(self, agent_id: str):
+        kind = self._agent_kind.get(agent_id)
+        if not kind:
+            return []
+        try:
+            return find_procs_by_kind(kind)  # type: ignore[arg-type]
+        except Exception:
+            return []
+
     def _agent_running(self, agent_id: str) -> bool:
-        return self._proc_running(self._agent_role[agent_id])
+        """True if this launcher owns it OR any matching process exists on the PC."""
+        if self._proc_running(self._agent_role[agent_id]):
+            return True
+        if agent_id in self._starting:
+            return True
+        return bool(self._system_agent_procs(agent_id))
 
     def _agent_effective(self, agent_id: str) -> bool:
-        """True if this agent’s job is already covered (owned proc or external site)."""
+        """True if this agent’s job is already covered (owned, system, or external site)."""
         if self._agent_running(agent_id):
             return True
         if agent_id == AGENT_SERVER and self._site_ok:
@@ -844,7 +871,18 @@ class LauncherApp:
 
     def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
         role_id = self._agent_role[agent_id]
-        if self._proc_running(role_id):
+        if self._proc_running(role_id) or agent_id in self._starting:
+            self._append_log(f"{agent_id} agent already starting/running — not starting a second copy.")
+            return
+
+        # System-wide singleton: refuse if another copy already exists.
+        existing = self._system_agent_procs(agent_id)
+        if existing:
+            pids = ", ".join(str(p.pid) for p in existing[:4])
+            self._append_log(
+                f"{agent_id} agent already running (pid {pids}) — not starting a second copy."
+            )
+            self._schedule_status(500)
             return
 
         # Site server: if already reachable, adopt it — never spawn a second primary.
@@ -872,6 +910,7 @@ class LauncherApp:
             base = f"http://127.0.0.1:{DEFAULT_HTTP_PORT}"
             self._site_var.set(base)
         os.environ["WIMS_SERVER"] = base
+        self._starting.add(agent_id)
         if agent_id == AGENT_WSJT:
             self._run_wsjt_check_inline(then_start_monitor=True, open_browser=open_browser)
             return
@@ -879,11 +918,13 @@ class LauncherApp:
             os.environ.pop("WIMS_BAND", None)
         self._append_log(f"Starting {agent_id} agent…")
         self._start_role(role_by_id(role_id), open_browser=open_browser)
+        self._starting.discard(agent_id)
         self._schedule_status(1500)
 
     def _stop_agent(self, agent_id: str) -> None:
         role_id = self._agent_role[agent_id]
         self._append_log(f"Stopping {agent_id} agent…")
+        self._starting.discard(agent_id)
         if agent_id == AGENT_SERVER:
             # Uncheck only stops a server *this* launcher owns.
             if not self._proc_running("server"):
@@ -895,6 +936,13 @@ class LauncherApp:
                 self._schedule_status(200)
                 return
         self._stop_role(role_id)
+        # Also stop any orphan copies of this agent kind on the PC.
+        for p in self._system_agent_procs(agent_id):
+            self._append_log(f"Stopping leftover {agent_id} pid={p.pid}")
+            try:
+                stop_pid(p.pid)
+            except Exception as e:
+                self._append_log(f"Stop pid {p.pid} failed: {e}")
         if agent_id == AGENT_WSJT:
             self._last_wsjt_sev = None
             self._last_wsjt_msg = ""
@@ -1124,12 +1172,22 @@ class LauncherApp:
         else:
             self._set_banner("ok", "WSJT config check OK", msg or "No config errors.")
         if then_start_monitor:
-            if not self._proc_running("wsjt_agent"):
+            existing = self._system_agent_procs(AGENT_WSJT)
+            if self._proc_running("wsjt_agent") or existing:
+                if existing and not self._proc_running("wsjt_agent"):
+                    pids = ", ".join(str(p.pid) for p in existing[:4])
+                    self._append_log(
+                        f"Seat agent already running (pid {pids}) — not starting a second copy."
+                    )
+            else:
                 self._append_log("Starting seat monitor…")
                 self._start_role(
                     role_by_id("wsjt_agent"), open_browser=open_browser,
                 )
+            self._starting.discard(AGENT_WSJT)
             self._schedule_status(2000)
+        else:
+            self._starting.discard(AGENT_WSJT)
 
     def _open_local_status(self) -> None:
         url = "http://127.0.0.1:8790/"
