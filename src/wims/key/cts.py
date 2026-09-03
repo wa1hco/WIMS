@@ -13,12 +13,21 @@ Special device ``sim:down`` / ``sim:up`` for lab without hardware.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 
 
 TIOCMGET = 0x5415
 TIOCM_CTS = 0x020
+
+
+def win_com_path(device: str) -> str:
+    """CreateFileW needs \\\\.\\COM10 for ports >= COM10; accept plain COMx."""
+    dev = (device or "").strip()
+    if re.fullmatch(r"(?i)COM\d+", dev):
+        return "\\\\.\\" + dev.upper()
+    return dev
 
 
 @dataclass
@@ -67,7 +76,7 @@ class CtsSource:
         GENERIC_WRITE = 0x40000000
         OPEN_EXISTING = 3
         handle = kernel32.CreateFileW(
-            self.device, GENERIC_READ | GENERIC_WRITE, 0, None,
+            win_com_path(self.device), GENERIC_READ | GENERIC_WRITE, 0, None,
             OPEN_EXISTING, 0, None,
         )
         INVALID = wintypes.HANDLE(-1).value

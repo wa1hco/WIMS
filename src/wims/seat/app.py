@@ -94,18 +94,28 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         if snap.get("last_fwd"):
             details.append(f"Last FWD {snap['last_fwd']}")
 
+    warn_note = ""
     if do_key and key is not None:
         ks = key.state.snapshot()
         n_tgt = len(ks["targets"])
         facts.append(
             f"Key {'DOWN' if ks['keyed'] else 'up'}  "
             f"hold={'yes' if ks['holding'] else 'no'}  "
-            f"targets {n_tgt}"
+            f"device {key.device or '(none)'}  targets {n_tgt}"
         )
         details.append(f"Controller {ks['controller_id']}")
         if ks.get("cts_error"):
+            # Keep the banner about the seat/band; the device problem goes to
+            # the fix line so log info stays visible alongside it.
             if level == "ok":
-                level, banner = "warn", f"Key device: {ks['cts_error']}"
+                level = "warn"
+                warn_note = ("key device missing"
+                             if "no KEY device" in str(ks["cts_error"])
+                             else "key device error")
+                fix = (
+                    f"Key: {ks['cts_error']} — set WIMS_KEY_DEVICE "
+                    f"(COM port of the keyline interface; sim:up/sim:down for lab)"
+                )
             details.append(f"[!] CTS {ks['cts_error']}")
         else:
             details.append(f"[OK] KEY device {key.device or '(none)'}")
@@ -123,13 +133,14 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         if not band and not key.override:
             details.append("Key fail-closed until live band known")
 
-    if level == "ok" and band:
-        if do_key and do_log:
-            banner = f"Seat ready — {band}"
-        elif do_key:
-            banner = f"Key ready — {band}"
+    # Band known and nothing fatal: banner always names the seat + band, so
+    # log and key info stay visible together (warnings live on the fix line).
+    if band and level != "err":
+        label = "Seat" if (do_key and do_log) else ("Key" if do_key else "Log")
+        if level == "ok":
+            banner = f"{label} ready — {band}"
         else:
-            banner = f"Log ready — {band}"
+            banner = f"{label} — {band} · {warn_note or 'warnings (see below)'}"
 
     return AgentStatusModel(
         title=title,
