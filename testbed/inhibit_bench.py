@@ -16,13 +16,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""TX-inhibit spike — NetworkMessage type-18 lab path.
+"""TX-inhibit bench — NetworkMessage type-18 lab path.
 
+Lab harness (not the product Key agent). Same role as sister-repo
+inhibit-test: prove gate + agent over real UDP without WSJT-X.
 Wire: docs/protocols/wsjtx_tx_inhibit.md (authority: wsjtx-inhibit TX_INHIBIT.md).
 Product context: docs/plan/wims_tx_inhibit.md (JSON §11.3 is historical).
 
-Two small programs and a selftest, exercising ``wims.interlock.inhibit`` over
-real UDP — no WSJT-X involved:
+Modes:
 
   gate      WSJT-X-side stand-in: bind the inhibit port (22372, else
             ephemeral), print state transitions with timestamps; with
@@ -36,9 +37,9 @@ real UDP — no WSJT-X involved:
             latency.  Exits nonzero on failure.
 
 Examples:
-  python testbed/inhibit_spike.py selftest
-  python testbed/inhibit_spike.py gate --rts /dev/ttyUSB1
-  python testbed/inhibit_spike.py agent --targets 192.168.1.42:22372 \\
+  python testbed/inhibit_bench.py selftest
+  python testbed/inhibit_bench.py gate --rts /dev/ttyUSB1
+  python testbed/inhibit_bench.py agent --targets 192.168.1.42:22372 \\
       --controller-id $(hostname)-ssb --script "k0.7 c0.4 k0.05 c0.05 k0.05 c2.0"
 """
 
@@ -64,7 +65,7 @@ TICK_S = 0.02  # gate/agent loop period; well under the 0.2 s keepalive
 
 # ---------------------------------------------------------------- serial I/O
 # Linux-only, stdlib-only (fcntl ioctl on the tty).  Windows would use
-# WaitCommEvent via ctypes — out of spike scope, noted in the design doc.
+# WaitCommEvent via ctypes — out of bench scope, noted in the design doc.
 
 TIOCMGET = 0x5415
 TIOCMBIS = 0x5416

@@ -30,7 +30,7 @@ from datetime import date, datetime, timezone
 
 from wims.udp.messages import (
     MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, CONFIGURE,
-    QSO_LOGGED, LOGGED_ADIF, QUINT32_MAX,
+    QSO_LOGGED, LOGGED_ADIF, INHIBIT_STATUS, QUINT32_MAX,
 )
 
 # Qt QDate Julian day for 1970-01-01 (UTC civil date).
@@ -67,6 +67,9 @@ class _Writer:
 
     def boolean(self, v: bool) -> None:
         self.buf += struct.pack(">B", 1 if v else 0)
+
+    def u16(self, v: int) -> None:
+        self.buf += struct.pack(">H", v & 0xFFFF)
 
     def u32(self, v: int) -> None:
         self.buf += struct.pack(">I", v & 0xFFFFFFFF)
@@ -242,4 +245,28 @@ def build_logged_adif(mid: str, adif: str, *, schema: int = 2) -> bytes:
     if text and "<eor>" not in text.lower():
         text += " <eor>"
     w.utf8(text)
+    return w.bytes()
+
+
+def build_inhibit_status(
+    mid: str,
+    inhibit_port: int,
+    *,
+    inhibited: bool = False,
+    source_station: str = "",
+    hold_rx: int = 0,
+    release_rx: int = 0,
+    expiries: int = 0,
+    invalid: int = 0,
+    schema: int = 3,
+) -> bytes:
+    """InhibitStatus (msg 17): digi seat announce inhibit listen port + counters."""
+    w = _Writer(schema, INHIBIT_STATUS, mid)
+    w.u16(int(inhibit_port))
+    w.boolean(inhibited)
+    w.utf8(source_station)
+    w.u32(hold_rx)
+    w.u32(release_rx)
+    w.u32(expiries)
+    w.u32(invalid)
     return w.bytes()

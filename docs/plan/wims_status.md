@@ -68,7 +68,7 @@ python -m wims solo            # or: python -m wims.solo
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
 `test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual` ·
-`test_rotator` · `test_last_log` · `test_inhibit`
+`test_rotator` · `test_last_log` · `test_inhibit` · `test_key_discovery`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -258,7 +258,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   Open Operate/Status/Setup, Put-on-Desktop shortcut helper. Windows Desktop **WIMS** icon
   now points at `Start-WimsLauncher.cmd` (`assets\wims.ico`); Linux
   `scripts/install-wims-desktop.sh`. Top-level CLI roles (`solo`/`server`/`agent`/`key`/
-  `version`); `wims.solo --port`; thin `wims.key` wrapping inhibit spike selftest.
+  `version`); `wims.solo --port`; thin `wims.key` wrapping inhibit bench selftest.
   Tests: `test_cli_launcher.py`. Docs: tester_roles + how-to-run.
 - **2026-06-17** — §3.1 parser + read-only console monitor. N1MM log layer (DXLOG seed +
   `contactinfo` → `LoggedQso` → SQLite log copy with dupe/rover/mult + resync). Decode-activity
@@ -504,5 +504,20 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   per-`controller_id` leases OR'd (release clears one row only); JSON rejected
   as invalid. `KeyAgentScheduler` requires `controller_id`; hang aligned to
   TX_INHIBIT.md (**10.5 × dit**, clamp 0.315–1.260 s). Spike `--controller-id`;
-  `test_inhibit` 30/30 + `inhibit_spike.py selftest` green. Still out: Key
+  `test_inhibit` 30/30 + inhibit bench selftest green. Still out: Key
   daemon product fan-out, InhibitStatus type-17 target discovery.
+- **2026-09-02** — **Rename lab harness:** `testbed/inhibit_spike.py` →
+  `testbed/inhibit_bench.py` (talk about the **inhibit bench**, same family as
+  `interlock_bench.py` / sister-repo inhibit-test). `python -m wims.key`
+  {selftest,gate,agent} loads the bench; historical build-log “spike” means this.
+- **2026-09-03** — **N1MM/SSB-CW seat agent:** `python -m wims.seat --log/--key`
+  shares RadioInfo live band; Key runtime = same-band policy, Status+InhibitStatus
+  discovery, CTS→type-18. Launcher N1MM + SSB/CW intents start one `n1mm_seat`
+  process. Parse type 17 in `udp.messages`. Tests: `test_key_discovery`, messages.
+- **2026-09-03** — **RadioInfo goes multicast:** log/seat agents now join
+  `224.0.0.73:12060` for N1MM RadioInfo (bind `0.0.0.0`, unicast still heard;
+  `--radio-group` to override) — fixes Windows seat never hearing fleet N1MM
+  (old listener bound `127.0.0.1` only). Seat/log singleton checks corrected:
+  `wims.seat` counts as `n1mm_seat` (WSJT monitor no longer blocks the seat;
+  a second forwarder is refused). Tests: `test_log_check` (radio socket + check
+  text), `test_cli_launcher` (role catalog).

@@ -16,7 +16,7 @@ import sys
 
 from wims import __version__
 
-_ROLES = ("gui", "solo", "server", "agent", "log", "key", "version")
+_ROLES = ("gui", "solo", "server", "agent", "log", "key", "seat", "version")
 
 
 def _dispatch(role: str, role_argv: list[str]) -> int:
@@ -53,6 +53,10 @@ def _dispatch(role: str, role_argv: list[str]) -> int:
         from wims.key.app import main as key_main
         return int(key_main(role_argv) or 0)
 
+    if role == "seat":
+        from wims.seat.app import main as seat_main
+        return int(seat_main(role_argv) or 0)
+
     print(f"unknown role: {role}", file=sys.stderr)
     return 2
 
@@ -81,6 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             "  python -m wims agent [opts]    Seat agent\n"
             "  python -m wims log [opts]      Log agent (N1MM PC)\n"
             "  python -m wims key [cmd]       Key agent / inhibit tools\n"
+            "  python -m wims seat [--log] [--key]  N1MM/SSB-CW seat agent\n"
             "  python -m wims version         Print version\n\n"
             "Desktop: use Put WIMS on Desktop inside the GUI, or\n"
             "  python -m wims --install-shortcut\n"

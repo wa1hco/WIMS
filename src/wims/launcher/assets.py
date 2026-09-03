@@ -18,9 +18,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Agent process ids (launcher _procs / roles).
-AGENT_LOG = "log"
+AGENT_LOG = "log"          # legacy id; N1MM intent now starts AGENT_N1MM_SEAT
 AGENT_WSJT = "wsjt"
-AGENT_KEY = "key"
+AGENT_KEY = "key"          # legacy id; SSB/CW intent now starts AGENT_N1MM_SEAT
+AGENT_N1MM_SEAT = "n1mm_seat"  # combined wims.seat (--log / --key)
 AGENT_SERVER = "server"
 
 # Seat intent checkbox ids (remembered prefs).
@@ -29,14 +30,14 @@ INTENT_WSJT = "wsjt"
 INTENT_SSB_CW = "ssb_cw"
 INTENT_SERVER = "server"
 
-_ALL_AGENTS = (AGENT_LOG, AGENT_WSJT, AGENT_KEY, AGENT_SERVER)
+_ALL_AGENTS = (AGENT_LOG, AGENT_WSJT, AGENT_KEY, AGENT_N1MM_SEAT, AGENT_SERVER)
 _ALL_INTENTS = (INTENT_N1MM, INTENT_WSJT, INTENT_SSB_CW, INTENT_SERVER)
 
-# Intent → agent to start/stop.
+# Intent → agent to start/stop (N1MM + SSB/CW share one seat process).
 INTENT_TO_AGENT: dict[str, str] = {
-    INTENT_N1MM: AGENT_LOG,
+    INTENT_N1MM: AGENT_N1MM_SEAT,
     INTENT_WSJT: AGENT_WSJT,
-    INTENT_SSB_CW: AGENT_KEY,
+    INTENT_SSB_CW: AGENT_N1MM_SEAT,
     INTENT_SERVER: AGENT_SERVER,
 }
 
@@ -128,10 +129,20 @@ def detect_assets() -> AssetSnapshot:
 
 def agents_for_intent(intent: dict[str, bool]) -> dict[str, bool]:
     """Which agents should be running given seat intent."""
-    return {
-        agent: bool(intent.get(intent_id))
-        for intent_id, agent in INTENT_TO_AGENT.items()
+    want: dict[str, bool] = {
+        AGENT_WSJT: bool(intent.get(INTENT_WSJT)),
+        AGENT_SERVER: bool(intent.get(INTENT_SERVER)),
+        AGENT_N1MM_SEAT: bool(intent.get(INTENT_N1MM) or intent.get(INTENT_SSB_CW)),
+        # Legacy keys for older UI/tests — same process as n1mm_seat.
+        AGENT_LOG: bool(intent.get(INTENT_N1MM)),
+        AGENT_KEY: bool(intent.get(INTENT_SSB_CW)),
     }
+    return want
+
+
+def n1mm_seat_flags(intent: dict[str, bool]) -> tuple[bool, bool]:
+    """Return (want_log, want_key) for the combined seat process."""
+    return bool(intent.get(INTENT_N1MM)), bool(intent.get(INTENT_SSB_CW))
 
 
 # --- Backward-compat stubs (older tests / imports) ----------------------------

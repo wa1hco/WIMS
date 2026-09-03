@@ -55,6 +55,16 @@ class ClassifyTests(unittest.TestCase):
             "other",
         )
 
+    def test_n1mm_seat_module(self):
+        self.assertEqual(
+            classify_argv(["python", "-m", "wims.seat", "--log", "--key"]),
+            "n1mm_seat",
+        )
+        self.assertEqual(
+            classify_argv(["python", "-m", "wims", "seat", "--log"]),
+            "n1mm_seat",
+        )
+
     def test_server_protected_class(self):
         self.assertEqual(
             classify_argv(["python", "-u", "-m", "wims.server.app"]),

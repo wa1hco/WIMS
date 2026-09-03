@@ -36,16 +36,17 @@ def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
 
 # intent_id -> (label, agent blurb, tip)
 _INTENT_ROWS = (
-    (INTENT_N1MM, "N1MM", "→ Log agent",
-     "This PC will run N1MM. WIMS starts the Log agent "
-     "(fleet Logged QSOs → local N1MM)."),
-    (INTENT_WSJT, "WSJT-X", "→ Seat agent",
+    (INTENT_N1MM, "N1MM", "→ seat Log",
+     "This PC will run N1MM. WIMS starts the seat Log path "
+     "(fleet Logged QSOs → local N1MM; shared band with KEY if both checked)."),
+    (INTENT_WSJT, "WSJT-X", "→ WSJT monitor",
      "This PC will run WSJT-X (one or more instances). "
-     "WIMS starts one Seat agent that audits all live instances."),
-    (INTENT_SSB_CW, "SSB/CW KEY", "→ Key agent",
-     "This PC has an SSB/CW KEY/CTS interface. "
-     "WIMS starts the Key agent (set WIMS_KEY_DEVICE / WIMS_KEY_TARGETS). "
-     "Multi-serial ↔ band mapping is a later slice."),
+     "WIMS starts one monitor agent that audits all live instances."),
+    (INTENT_SSB_CW, "SSB/CW KEY", "→ seat Key (same-band inhibit)",
+     "This PC has an SSB/CW KEY/CTS interface. With N1MM, WIMS runs one seat "
+     "process (shared live band). Key holds digi seats on that band "
+     "(Status + InhibitStatus discovery, or WIMS_KEY_TARGETS). "
+     "Set WIMS_KEY_DEVICE for the CTS path."),
     (INTENT_SERVER, "Site server", "→ Site console",
      "Optional: run the fleet site server on this PC (:8787). "
      "Only one site server on the LAN — adopts existing if already up."),

@@ -364,7 +364,7 @@ for it (PIN diodes or QSK-rated relays). Consequences for this design:
 |-----|--------:|-------|
 | KEY contact → CTS pin | ~0 | Wire |
 | USB-serial reports modem-status change | **1–16 ms** | FTDI parts report status at the *latency timer* interval — **default 16 ms, set to 1 ms** (sysfs `latency_timer` on Linux, FTDI driver property page on Windows). CP210x/CH34x similar ballpark. This is the dominant term and it is configurable. |
-| OS wakes the watcher | <1 ms | Linux: blocking `ioctl(TIOCMIWAIT)` (edge-triggered wait, no polling). Windows: `WaitCommEvent(EV_CTS)`. Event-driven, not a poll loop — and it is the gate thread itself waiting, no extra thread. **Measured 2026-07-31: the Linux `cp210x` driver returns `ENOTTY` for `TIOCMIWAIT`** — edge-wait is FTDI-only among parts on hand, so non-FTDI dongles use a 1 ms `TIOCMGET` poll fallback (implemented in the spike). Keyline boards (FT230X) are unaffected. This matters beyond the lab: the common **Digirig** PTT dongle is a CP2102N *and does not bring CTS out to its connectors* — so a Digirig seat gets no local KEY input at all (the §4.1 same-port convention is physically inapplicable there); such seats rely on the UDP source, or take a Keyline board. |
+| OS wakes the watcher | <1 ms | Linux: blocking `ioctl(TIOCMIWAIT)` (edge-triggered wait, no polling). Windows: `WaitCommEvent(EV_CTS)`. Event-driven, not a poll loop — and it is the gate thread itself waiting, no extra thread. **Measured 2026-07-31: the Linux `cp210x` driver returns `ENOTTY` for `TIOCMIWAIT`** — edge-wait is FTDI-only among parts on hand, so non-FTDI dongles use a 1 ms `TIOCMGET` poll fallback (implemented in the inhibit bench). Keyline boards (FT230X) are unaffected. This matters beyond the lab: the common **Digirig** PTT dongle is a CP2102N *and does not bring CTS out to its connectors* — so a Digirig seat gets no local KEY input at all (the §4.1 same-port convention is physically inapplicable there); such seats rely on the UDP source, or take a Keyline board. |
 
 #### 4.1.2 The dongle: **Keyline_Interface** (a build item, not a purchase)
 
@@ -617,7 +617,7 @@ appears — there is no UDP enable.
 1. **Unit (no radio):** gate and Key-agent state machines — assert/release through each §3
    scenario; agent-side hang against scripted CW keying trains (dit-speed edge streams);
    deadman expiry and alarm paths. Same self-running style as `tests/unit/`.
-   *(Done — `tests/unit/test_inhibit.py`, 15 tests, plus the `inhibit_spike.py` selftest.)*
+   *(Done — `tests/unit/test_inhibit.py`, plus the `inhibit_bench.py` selftest.)*
 2. **Latency bench (no RF):** loopback rig — GPIO/serial toggles CTS, patched WSJT-X (or the
    watcher module standalone) timestamps INHIBIT flip; measure distribution vs latency-timer
    setting (1 ms vs 16 ms) on Linux and Windows. Same for the UDP path with the agent on a
@@ -720,7 +720,7 @@ WSJT-X.
 
 > **Historical — do not implement.** Current wire =
 > [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md)
-> (type **18** + Controller ID leases). The JSON below is the early spike format;
+> (type **18** + Controller ID leases). The JSON below is the early lab format;
 > patched WSJT-X ignores it.
 
 Compact single-datagram JSON (debuggable with tcpdump/netcat; size is irrelevant at this
@@ -845,8 +845,8 @@ with them:
    just waiting out the TTL — which also proves the deadman + its alarm) → badge off, RF
    resumes mid-waveform. That is the complete acceptance demo, plus `tcpdump`/`nc -lu` to
    watch InhibitStatus. The richer harness (scripted CW keying trains, latency selftest,
-   deadman scenarios) is `testbed/inhibit_spike.py` in the WIMS repo — also the **reference
-   implementation**: its unit-tested Python `InhibitGate` defines the semantics the C++
+   deadman scenarios) is `testbed/inhibit_bench.py` in the WIMS repo — also the **reference
+   lab path**: its unit-tested Python `InhibitGate` defines the semantics the C++
    transplant must match, test case by test case.
 
 2. **Risk surface is one path, and it is the most-exercised path.** Everything in the patch

@@ -332,3 +332,17 @@ class KeyAgentScheduler:
     @property
     def holding(self):
         return self._holding
+
+    def force_release(self, now):
+        """Emit release immediately if holding (band change / shutdown).
+
+        Clears hang bookkeeping. If the key is still down, caller should
+        ``set_key(True, …)`` again afterward to re-assert.
+        """
+        if not self._holding:
+            self._release_at = None
+            return []
+        self._holding = False
+        self._release_at = None
+        self._next_keepalive = None
+        return [self._emit(0)]

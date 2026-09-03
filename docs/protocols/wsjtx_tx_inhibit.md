@@ -4,8 +4,8 @@
 **Authority (wire + gate):** sister repo
 [`wsjtx-inhibit`](https://github.com/wa1hco/wsjtx-inhibit)
 [`docs/TX_INHIBIT.md`](https://github.com/wa1hco/wsjtx-inhibit/blob/main/docs/TX_INHIBIT.md).  
-**This file:** what WIMS must change so `wims-key-agent` and lab spike code speak
-the **shipped** protocol. Do not treat older WIMS JSON examples as current.
+**This file:** what WIMS must change so `wims-key-agent` and the inhibit bench
+speak the **shipped** protocol. Do not treat older WIMS JSON examples as current.
 
 WIMS still owns: target-list assignment, InhibitStatus discovery, band policy
 (`interlock` vs `coordinated`), and fleet UX. The datagram on UDP **22372** is
@@ -15,7 +15,7 @@ defined by wsjtx-inhibit.
 
 ## 1. Why this transfer
 
-Early WIMS / spike design used a compact **JSON** hold on `:22372`:
+Early WIMS lab design used a compact **JSON** hold on `:22372`:
 
 ```json
 {"tx_inhibit":1,"ttl_ms":600,"station":"ROY-222-SSB","band":"222","seq":4711}
@@ -28,7 +28,7 @@ WSJT-X station.
 
 Two algorithmic changes came with the new wire:
 
-| Old WIMS spike / `wims_tx_inhibit.md` §11.3 | Current (wsjtx-inhibit) |
+| Old WIMS lab / `wims_tx_inhibit.md` §11.3 | Current (wsjtx-inhibit) |
 |---------------------------------------------|-------------------------|
 | JSON UTF-8 object | Binary `NetworkMessage` type **18** |
 | One global hold; any release clears | **Per-Controller ID leases**, OR’d |
@@ -191,18 +191,20 @@ once the target list (or last list) is known.
 
 ### 6.1 Code
 
-**Lab path done (2026-09-02):** `inhibit.py` + unit tests + spike speak type 18
-with per-controller leases. Key **daemon** product fan-out and InhibitStatus
-discovery remain later.
+**Lab + seat Key path (2026-09-03):** type-18 leases in `inhibit.py`; **inhibit bench**;
+**`wims.seat --key`** does CTS → same-band holds via Status + InhibitStatus discovery.
 
 | Area | Was (stale) | Now / remaining |
 |------|-------------|-----------------|
 | `src/wims/interlock/inhibit.py` encode/parse | JSON `tx_inhibit` | **Done** — type-18 QDataStream |
 | `InhibitGate` | Single global hold; any release clears | **Done** — per-`controller_id` leases OR’d |
 | `KeyAgentScheduler` emit path | JSON + `band`/`seq` | **Done** — `controller_id` + `station`; band off-wire |
-| `testbed/inhibit_spike.py` | Speaks JSON | **Done** — type-18; `--controller-id` |
+| `testbed/inhibit_bench.py` | Speaks JSON (was `inhibit_spike.py`) | **Done** — type-18; `--controller-id` |
 | `tests/unit/test_inhibit.py` | JSON / single-hold cases | **Done** — type-18; multi-OR; deadman |
-| `python -m wims.key` daemon | Config stub only | **Remaining** — emit type-18 on CTS; stable controller id |
+| InhibitStatus type 17 parse + same-band discovery | Missing | **Done** — `messages` + `key.discovery` + seat Key |
+| `python -m wims.seat --log --key` | N/A | **Done** — shared RadioInfo band |
+| Coordinated-band policy UI | — | **Remaining** (Key always interlock-style when enabled) |
+| Just-in-time type-17 band field in WSJT-X | — | Upstream wish; Status correlation works today |
 
 Suggested `controller_id` defaults: hostname + role (`{host}-ssb`, `{host}-cw`) or an
 explicit config field. Must be stable across keepalives for the same physical KEY seat.
@@ -252,11 +254,11 @@ hold** claims are wrong.
 ## 8. Suggested implementation order
 
 1. Replace encode/parse + `InhibitGate` leases in `inhibit.py`; fix unit tests.  
-2. Update spike / `wims.key` selftest to type-18.  
+2. Update inhibit bench / `wims.key` selftest to type-18.  
 3. Wire `wims.key` daemon / Key agent UI to emit type-18 with required Controller ID.  
 4. Consume InhibitStatus port in target resolution (if not already).  
 5. Align hang constants with TX_INHIBIT.md.  
-6. One live bench: patched WSJT-X + WIMS Key agent (or spike) on LAN.
+6. One live run: patched WSJT-X + WIMS Key agent (or inhibit bench) on LAN.
 
 Reference packets / tools in wsjtx-inhibit: `tools/send_inhibit_hold.py`,
 `tools/Send-InhibitHold.ps1`, `inhibit-agent`, unit tests under `tests/test_tx_inhibit_*`.

@@ -42,6 +42,9 @@ _ADIF_HAS_TIME = re.compile(r"<TIME_ON:", re.I)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _HELPER_LOG = _REPO_ROOT / "scratch" / "log-agent.log"
 DEFAULT_RADIO_PORT = 12060
+# Fleet N1MM broadcasts RadioInfo to the same multicast group as WSJT-X
+# (different port). See 2026-08-29-n1mm-live-band.md.
+DEFAULT_RADIO_GROUP = GROUP
 DEFAULT_TCP_PORT = 52001
 
 
@@ -286,7 +289,9 @@ class LogState:
         self.live_band: str | None = None
         self.expect_band: str | None = None
         self.radio_port = DEFAULT_RADIO_PORT
+        self.radio_group: str | None = DEFAULT_RADIO_GROUP
         self.radio_error: str | None = None
+        self.radio_note: str | None = None
         self.last_radio_at: float | None = None
         self.group = GROUP
         self.mcast_port = PORT
@@ -314,7 +319,9 @@ class LogState:
                 "live_band": self.live_band,
                 "expect_band": self.expect_band,
                 "radio_port": self.radio_port,
+                "radio_group": self.radio_group,
                 "radio_error": self.radio_error,
+                "radio_note": self.radio_note,
                 "last_radio_at": self.last_radio_at,
                 "group": self.group,
                 "mcast_port": self.mcast_port,
@@ -385,6 +392,7 @@ def rescan(state: LogState) -> None:
         live_band=snap["live_band"],
         expect_band=snap["expect_band"],
         radio_port=snap["radio_port"],
+        radio_group=snap["radio_group"],
         group=snap["group"],
         mcast_port=snap["mcast_port"],
         delivery_host=host,
@@ -417,6 +425,7 @@ def _status_model(state: LogState) -> AgentStatusModel:
     s = state.snapshot()
     band = s["live_band"]
     title = f"WIMS log agent · {band or '...'}"
+    radio_dest = f"{s['radio_group'] or 'this host'}:{s['radio_port']}"
 
     fix = ""
     if s["join_error"]:
@@ -426,11 +435,11 @@ def _status_model(state: LogState) -> AgentStatusModel:
         level, banner = "err", "Cannot hear N1MM RadioInfo"
         fix = (
             f"{s['radio_error']} — enable Broadcast Data > Radio "
-            f"to 127.0.0.1:{s['radio_port']}"
+            f"to {radio_dest}"
         )
     elif not band:
         level, banner = "warn", "Waiting for N1MM band"
-        fix = f"Enable Broadcast Data > Radio to 127.0.0.1:{s['radio_port']}"
+        fix = f"Enable Broadcast Data > Radio to {radio_dest}"
     elif s["check_severity"] == "error":
         level, banner = "err", f"Log agent — {band}"
         # First error line from checks, if any.
@@ -454,6 +463,7 @@ def _status_model(state: LogState) -> AgentStatusModel:
     facts = [
         f"Band {band or '-'}   FWD {s['n_fwd']}   DROP {s['n_drop']}   WAIT {s['n_wait']}",
         f"Mcast {s['group']}:{s['mcast_port']} {mcast}",
+        f"RadioInfo {radio_dest}" + (f" ({s['radio_note']})" if s["radio_note"] else ""),
         f"Deliver TCP :{s.get('tcp_port', DEFAULT_TCP_PORT)} then UDP {s['delivery']}"
         if not s["dry_run"] else "Deliver dry-run",
         f"Last {s['last_fwd'] or '- none yet -'}",
@@ -485,27 +495,59 @@ def _status_model(state: LogState) -> AgentStatusModel:
     )
 
 
-def _open_radio_socket(port: int) -> socket.socket:
+def _open_radio_socket(
+    port: int,
+    group: str | None = DEFAULT_RADIO_GROUP,
+    iface: str = "0.0.0.0",
+) -> tuple[socket.socket, str, str | None]:
+    """Open the N1MM RadioInfo listener; return (socket, where, warning).
+
+    Fleet N1MM broadcasts RadioInfo to multicast (224.0.0.73:12060). Joining
+    the group binds 0.0.0.0:port, so loopback / LAN unicast destinations
+    (e.g. a single-PC 127.0.0.1:12060 config) are still heard. If the IGMP
+    join fails (no LAN), fall back to a plain bind — unicast only — and
+    report that as the warning instead of dying.
+    """
+    import struct
+
+    from wims.udp.sink import _join_iface_ip
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    # Prefer loopback — N1MM Radio broadcast default is 127.0.0.1:12060.
-    sock.bind(("127.0.0.1", port))
+    try:
+        sock.bind(("", port))
+    except OSError:
+        sock.close()
+        raise
+    warn: str | None = None
+    if group:
+        try:
+            join_if = _join_iface_ip(iface)
+            mreq = struct.pack(
+                "4s4s", socket.inet_aton(group), socket.inet_aton(join_if))
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            sock.settimeout(0.5)
+            return sock, f"{group}:{port} (+unicast :{port})", None
+        except OSError as e:
+            warn = f"multicast join {group} failed ({e}); unicast :{port} only"
     sock.settimeout(0.5)
-    return sock
+    return sock, f"0.0.0.0:{port}", warn
 
 
 def _radio_loop(state: LogState, stop: threading.Event) -> None:
     try:
-        sock = _open_radio_socket(state.radio_port)
+        sock, where, warn = _open_radio_socket(state.radio_port, state.radio_group)
     except OSError as e:
         with state._lock:
             state.radio_error = str(e)
         _log_line(f"log-agent: RadioInfo listen failed: {e}")
         rescan(state)
         return
-    _log_line(
-        f"log-agent: listening for N1MM RadioInfo on 127.0.0.1:{state.radio_port}"
-    )
+    if warn:
+        with state._lock:
+            state.radio_note = warn
+        _log_line(f"log-agent: RadioInfo: {warn}")
+    _log_line(f"log-agent: listening for N1MM RadioInfo on {where}")
     while not stop.is_set():
         try:
             data, _addr = sock.recvfrom(65535)
@@ -663,6 +705,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--radio-port", type=int, default=DEFAULT_RADIO_PORT,
                     help="UDP port for N1MM RadioInfo (default 12060)")
+    ap.add_argument("--radio-group", default=DEFAULT_RADIO_GROUP,
+                    help="N1MM RadioInfo multicast group (default 224.0.0.73; "
+                         "'' = unicast-only bind)")
     ap.add_argument("--n1mm", default="127.0.0.1:2333",
                     help="UDP fallback host:port for N1MM ADIF ingest (default 127.0.0.1:2333)")
     ap.add_argument("--tcp-port", type=int, default=DEFAULT_TCP_PORT,
@@ -675,10 +720,16 @@ def main(argv: list[str] | None = None) -> int:
                     help="console only (lab / headless)")
     args = ap.parse_args(argv)
 
-    # Singleton — second Log agent on the same PC must fail (not silently double-FWD).
+    # Singleton — second Log agent on the same PC must fail (not silently
+    # double-FWD). A running merged seat (wims.seat --log, kind n1mm_seat)
+    # forwards too, so it counts.
+    other = None
     try:
         from wims.launcher.process_replace import other_agent_running
-        other = other_agent_running("log")
+        for kind in ("log", "n1mm_seat"):
+            other = other_agent_running(kind)  # type: ignore[arg-type]
+            if other is not None:
+                break
     except Exception:
         other = None
     if other is not None:
@@ -696,6 +747,7 @@ def main(argv: list[str] | None = None) -> int:
     state = LogState()
     state.expect_band = expect
     state.radio_port = args.radio_port
+    state.radio_group = (args.radio_group or "").strip() or None
     state.group = args.group
     state.mcast_port = args.port
     state.delivery = args.n1mm

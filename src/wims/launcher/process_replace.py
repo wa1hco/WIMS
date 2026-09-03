@@ -20,10 +20,12 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
-Kind = Literal["log", "seat", "key", "server", "other"]
+Kind = Literal["log", "seat", "key", "n1mm_seat", "server", "other"]
 
 # Only these are replaced on launcher start.
-_SEAT_KINDS = frozenset({"log", "seat", "key"})
+# n1mm_seat = combined log±key on the N1MM/SSB-CW PC (wims.seat).
+# "seat" remains the WSJT monitor (wims.agent --daemon).
+_SEAT_KINDS = frozenset({"log", "seat", "key", "n1mm_seat"})
 
 
 @dataclass(frozen=True)
@@ -91,6 +93,8 @@ def classify_argv(argv: Iterable[str]) -> Kind:
             return "other"  # this is the desktop launcher / meta
         if role == "log":
             return "log"
+        if role == "seat":
+            return "n1mm_seat"
         if role == "agent" and "--daemon" in args:
             return "seat"
         if role == "key" and "daemon" in args:
@@ -99,6 +103,8 @@ def classify_argv(argv: Iterable[str]) -> Kind:
             return "server"
         return "other"
 
+    if mod in ("wims.seat", "wims.seat.app"):
+        return "n1mm_seat"
     if mod in ("wims.log", "wims.log.app"):
         return "log"
     if mod in ("wims.agent", "wims.agent.app"):
@@ -107,8 +113,8 @@ def classify_argv(argv: Iterable[str]) -> Kind:
             return "seat"
         return "other"
     if mod in ("wims.key", "wims.key.app"):
-        # Product daemon subcommand; not selftest/gate/lab agent.
-        if "daemon" in args:
+        # Product daemon / seat --key wrapper; not selftest/gate/lab agent.
+        if "daemon" in args or "--key" in args:
             return "key"
         return "other"
     if mod in ("wims.server", "wims.server.app"):

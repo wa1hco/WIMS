@@ -130,6 +130,24 @@ def test_grid_extractor_excludes_signoffs():
     assert m.extract_grid("CQ DX K1ABC EM48bk") == "EM48BK"
 
 
+def test_inhibit_status_roundtrip():
+    from wims.udp import encode as E
+    raw = E.build_inhibit_status(
+        "ROY-144-A", 22372,
+        inhibited=True, source_station="ROY-SSB",
+        hold_rx=3, release_rx=1, expiries=0, invalid=2,
+    )
+    msg = m.parse(raw)
+    assert isinstance(msg, m.InhibitStatus)
+    assert msg.id == "ROY-144-A"
+    assert msg.inhibit_port == 22372
+    assert msg.inhibited is True
+    assert msg.source_station == "ROY-SSB"
+    assert msg.hold_rx == 3 and msg.release_rx == 1
+    assert msg.expiries == 0 and msg.invalid == 2
+    assert msg.type == m.INHIBIT_STATUS
+
+
 if __name__ == "__main__":
     import traceback
 

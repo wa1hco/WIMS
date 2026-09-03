@@ -38,6 +38,7 @@ from wims.launcher.roles import (
 from wims.launcher.assets import (
     AGENT_KEY,
     AGENT_LOG,
+    AGENT_N1MM_SEAT,
     AGENT_SERVER,
     AGENT_WSJT,
     INTENT_N1MM,
@@ -48,6 +49,7 @@ from wims.launcher.assets import (
     agents_for_intent,
     detect_assets,
     load_seat_intent,
+    n1mm_seat_flags,
     save_seat_intent,
 )
 from wims.launcher.home_panel import AgentHomePanel
@@ -392,19 +394,22 @@ class LauncherApp:
         }
         # role_id mapping for _procs / _start_role
         self._agent_role = {
-            AGENT_LOG: "log",
+            AGENT_N1MM_SEAT: "n1mm_seat",
+            AGENT_LOG: "n1mm_seat",   # legacy → combined seat
             AGENT_WSJT: "wsjt_agent",
-            AGENT_KEY: "key",
+            AGENT_KEY: "n1mm_seat",   # legacy → combined seat
             AGENT_SERVER: "server",
         }
         # process_replace kind for system-wide singleton check
         self._agent_kind = {
-            AGENT_LOG: "log",
+            AGENT_N1MM_SEAT: "n1mm_seat",
+            AGENT_LOG: "n1mm_seat",
             AGENT_WSJT: "seat",
-            AGENT_KEY: "key",
+            AGENT_KEY: "n1mm_seat",
             AGENT_SERVER: "server",
         }
         self._starting: set[str] = set()  # prevent double-start races
+        self._seat_flags: tuple[bool, bool] | None = None  # (log, key) last started
 
         self._apply_icon()
         self._build()
@@ -836,13 +841,32 @@ class LauncherApp:
 
         # During Update WIMS, do not restart agents that were stopped for the pull.
         if not self._updating:
-            want = agents_for_intent(self._current_intent())
-            for aid, should in want.items():
+            intent = self._current_intent()
+            want = agents_for_intent(intent)
+            # Combined N1MM seat: restart if log/key flags changed.
+            want_log, want_key = n1mm_seat_flags(intent)
+            if want.get(AGENT_N1MM_SEAT):
+                flags = (want_log, want_key)
+                running = self._agent_running(AGENT_N1MM_SEAT)
+                if not running:
+                    self._start_agent(AGENT_N1MM_SEAT, open_browser=False)
+                elif self._seat_flags is not None and self._seat_flags != flags:
+                    self._append_log(
+                        f"Seat flags changed {self._seat_flags} → {flags}; restarting…"
+                    )
+                    self._stop_agent(AGENT_N1MM_SEAT, explicit=True)
+                    self.root.after(
+                        600,
+                        lambda: self._start_agent(AGENT_N1MM_SEAT, open_browser=False),
+                    )
+            elif self._agent_running(AGENT_N1MM_SEAT):
+                self._stop_agent(AGENT_N1MM_SEAT)
+
+            for aid in (AGENT_WSJT, AGENT_SERVER):
+                should = bool(want.get(aid))
                 if should and not self._agent_effective(aid):
                     self._start_agent(aid, open_browser=False)
                 elif not should and self._agent_running(aid):
-                    # Site server started outside this launcher: never "stop" it on
-                    # every sync pulse (that only spammed Details and did nothing).
                     if aid == AGENT_SERVER and not self._proc_running(
                         self._agent_role[AGENT_SERVER]
                     ):
@@ -850,11 +874,13 @@ class LauncherApp:
                     self._stop_agent(aid)
 
         owned_server = self._proc_running(self._agent_role[AGENT_SERVER])
+        seat_up = self._agent_running(AGENT_N1MM_SEAT)
+        intent_now = self._current_intent()
         self._home_panel.update_running(
             snap,
-            log_up=self._agent_running(AGENT_LOG),
+            log_up=bool(seat_up and intent_now.get(INTENT_N1MM)),
             seat_up=self._agent_running(AGENT_WSJT),
-            key_up=self._agent_running(AGENT_KEY),
+            key_up=bool(seat_up and intent_now.get(INTENT_SSB_CW)),
             server_up=self._agent_effective(AGENT_SERVER),
             server_existing=bool(self._site_ok and not owned_server),
         )
@@ -893,6 +919,11 @@ class LauncherApp:
     def _on_intent_toggle(self, intent_id: str) -> None:
         self._persist_intent()
         agent_id = INTENT_TO_AGENT[intent_id]
+        if agent_id == AGENT_N1MM_SEAT:
+            # N1MM / SSB-CW share one process — sync flags (may restart).
+            self._sync_detect_and_agents()
+            self._refresh_status()
+            return
         if self._intent_vars[intent_id].get():
             if agent_id == AGENT_SERVER:
                 self._server_start_blocked = False
@@ -910,7 +941,14 @@ class LauncherApp:
             return
 
         # System-wide singleton: refuse if another copy already exists.
-        existing = self._system_agent_procs(agent_id)
+        existing = list(self._system_agent_procs(agent_id))
+        if agent_id == AGENT_N1MM_SEAT:
+            # Also treat legacy wims.log / wims.key daemon as occupying the seat.
+            try:
+                existing.extend(find_procs_by_kind("log"))
+                existing.extend(find_procs_by_kind("key"))
+            except Exception:
+                pass
         if existing:
             pids = ", ".join(str(p.pid) for p in existing[:4])
             self._append_log(
@@ -948,8 +986,23 @@ class LauncherApp:
         if agent_id == AGENT_WSJT:
             self._run_wsjt_check_inline(then_start_monitor=True, open_browser=open_browser)
             return
-        if agent_id == AGENT_LOG:
+        if agent_id == AGENT_N1MM_SEAT:
             os.environ.pop("WIMS_BAND", None)
+            want_log, want_key = n1mm_seat_flags(self._current_intent())
+            self._seat_flags = (want_log, want_key)
+            self._append_log(
+                f"Starting N1MM seat "
+                f"(log={'on' if want_log else 'off'}, key={'on' if want_key else 'off'})…"
+            )
+            self._start_role(
+                role_by_id(role_id),
+                open_browser=open_browser,
+                want_log=want_log,
+                want_key=want_key,
+            )
+            self._starting.discard(agent_id)
+            self._schedule_status(1500)
+            return
         self._append_log(f"Starting {agent_id} agent…")
         self._start_role(role_by_id(role_id), open_browser=open_browser)
         self._starting.discard(agent_id)
@@ -1415,7 +1468,7 @@ class LauncherApp:
             return
         if role.id == "solo":
             kwargs.setdefault("port", int(self._solo_port.get()))
-        if role.id == "log":
+        if role.id in ("log", "n1mm_seat"):
             # Live band from N1MM RadioInfo — do not pass a launcher pin.
             kwargs.pop("band", None)
             os.environ.pop("WIMS_BAND", None)
@@ -1433,8 +1486,8 @@ class LauncherApp:
             "text": True,
             "bufsize": 1,
         }
-        # Log/key agents have their own Tk window — hide extra console on Windows.
-        if role.id in ("log", "key") and sys.platform.startswith("win"):
+        # Seat/log/key agents have their own Tk window — hide extra console on Windows.
+        if role.id in ("log", "key", "n1mm_seat") and sys.platform.startswith("win"):
             popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
             self._append_log(f"{role.title} status window should open on this PC.")
         try:
@@ -1447,10 +1500,9 @@ class LauncherApp:
         self._update_card_state(role.id)
         threading.Thread(target=self._reader, args=(role.id, proc), daemon=True).start()
 
-        if role.id == "key":
+        if role.id in ("key", "n1mm_seat") and ("--key" in py_argv):
             self._append_log(
-                "Key agent: set WIMS_KEY_DEVICE and WIMS_KEY_TARGETS "
-                "(CTS source + inhibit host:port list).",
+                "Key: set WIMS_KEY_DEVICE; targets from discovery or WIMS_KEY_TARGETS.",
             )
         elif role.id == "solo" and open_browser:
             self.root.after(

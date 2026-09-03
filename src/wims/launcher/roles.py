@@ -74,9 +74,8 @@ def _wsjt_agent_argv() -> list[str]:
 
 
 def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
-    # Product module: compact Tk status UI by default (--no-gui for lab).
-    # Live filter follows N1MM RadioInfo; --expect-band is optional warn-only.
-    argv = ["-m", "wims.log"]
+    # Escape: log-only seat process (same RadioInfo band path).
+    argv = ["-m", "wims.seat", "--log"]
     b = (band or os.environ.get("WIMS_BAND") or "").strip()
     if b:
         argv += ["--expect-band", b]
@@ -86,8 +85,26 @@ def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
 
 
 def _key_agent_argv() -> list[str]:
-    # Long-running stub: CTS + inhibit-target config check (product fan-out later).
-    return ["-m", "wims.key", "daemon"]
+    # Escape: Key-only seat process.
+    return ["-m", "wims.seat", "--key"]
+
+
+def _n1mm_seat_argv(*, want_log: bool = True, want_key: bool = False,
+                    band: str | None = None, gui: bool = True) -> list[str]:
+    """Combined N1MM/SSB-CW seat: shared live band, optional log + Key."""
+    argv = ["-m", "wims.seat"]
+    if want_log:
+        argv.append("--log")
+    if want_key:
+        argv.append("--key")
+    if not want_log and not want_key:
+        argv.append("--log")  # should not happen; keep process meaningful
+    b = (band or os.environ.get("WIMS_BAND") or "").strip()
+    if b:
+        argv += ["--expect-band", b]
+    if not gui:
+        argv.append("--no-gui")
+    return argv
 
 
 ROLES: tuple[Role, ...] = (
@@ -110,35 +127,46 @@ ROLES: tuple[Role, ...] = (
         build_argv=lambda **_: _server_argv(),
     ),
     Role(
-        id="log",
-        title="Log agent (N1MM PC)",
-        summary="On the N1MM PC: join fleet mcast, filter by N1MM’s live band "
-                "(RadioInfo), forward to local N1MM (TCP 52001 preferred).",
+        id="n1mm_seat",
+        title="N1MM / SSB-CW seat",
+        summary="On the N1MM PC: shared live band (RadioInfo). "
+                "Log forward and/or KEY→same-band type-18 inhibit.",
         tooltip=(
-            "Required on each N1MM logger PC when WSJT-X is elsewhere on the LAN.\n\n"
-            "Listens on 224.0.0.73:2237. Band filter follows N1MM RadioInfo "
-            "(Broadcast Data → Radio to 127.0.0.1:12060). Drops QSOs until a "
-            "band is heard; adapts if the operator changes band.\n\n"
-            "Opens a small status window. "
-            "See docs/decisions/2026-08-29-n1mm-live-band.md."
+            "One process for the SSB/CW logger PC.\n\n"
+            "Band from N1MM RadioInfo. --log forwards digi QSOs to local N1MM; "
+            "--key senses CTS and holds digi seats on that band (Status + "
+            "InhibitStatus discovery, or WIMS_KEY_TARGETS override).\n\n"
+            "Launcher intents N1MM and SSB/CW KEY start this with the right flags."
         ),
-        button="Start log agent",
+        button="Start seat agent",
         recommended=True,
+        long_running=True,
+        build_argv=lambda want_log=True, want_key=False, band=None, gui=True, **_: (
+            _n1mm_seat_argv(want_log=want_log, want_key=want_key, band=band, gui=gui)
+        ),
+    ),
+    Role(
+        id="log",
+        title="Log agent (escape)",
+        summary="Log-only seat (--log). Prefer N1MM intent in the launcher.",
+        tooltip="Escape hatch: python -m wims.seat --log (or wims.log).",
+        button="Start log agent",
+        recommended=False,
+        advanced=True,
         long_running=True,
         build_argv=lambda band=None, gui=True, **_: _log_agent_argv(band=band, gui=gui),
     ),
     Role(
         id="key",
-        title="Key agent",
-        summary="KEY/CTS sense → inhibit targets. Checks device + target list; "
-                "product fan-out still lab.",
+        title="Key agent (escape)",
+        summary="Key-only seat (--key). Prefer SSB/CW KEY intent in the launcher.",
         tooltip=(
-            "Long-running Key agent. Set WIMS_KEY_DEVICE and WIMS_KEY_TARGETS.\n"
-            "No companion desktop app — this agent is the KEY path."
+            "Escape hatch: python -m wims.seat --key.\n"
+            "Set WIMS_KEY_DEVICE; targets from discovery or WIMS_KEY_TARGETS."
         ),
         button="Start Key agent",
         recommended=False,
-        advanced=False,
+        advanced=True,
         long_running=True,
         build_argv=lambda **_: _key_agent_argv(),
     ),

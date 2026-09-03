@@ -252,12 +252,96 @@ class WsjtUdpReaderIniTests(unittest.TestCase):
         self.assertIn("off", info["summary"].lower())
 
 
+class RadioSocketTests(unittest.TestCase):
+    """RadioInfo listener must hear fleet multicast AND plain unicast."""
+
+    def _free_port(self):
+        import socket as s
+        tmp = s.socket(s.AF_INET, s.SOCK_DGRAM)
+        tmp.bind(("127.0.0.1", 0))
+        port = tmp.getsockname()[1]
+        tmp.close()
+        return port
+
+    def test_unicast_still_heard_with_group_join(self):
+        import socket as s
+        from wims.log.app import _open_radio_socket
+        port = self._free_port()
+        sock, where, warn = _open_radio_socket(port, "224.0.0.73", "127.0.0.1")
+        try:
+            self.assertIn("224.0.0.73", where)
+            tx = s.socket(s.AF_INET, s.SOCK_DGRAM)
+            tx.sendto(b"<RadioInfo/>", ("127.0.0.1", port))
+            tx.close()
+            data, _ = sock.recvfrom(65535)
+            self.assertEqual(data, b"<RadioInfo/>")
+        finally:
+            sock.close()
+
+    def test_multicast_heard(self):
+        import socket as s
+        from wims.log.app import _open_radio_socket
+        port = self._free_port()
+        sock, where, warn = _open_radio_socket(port, "224.0.0.73", "127.0.0.1")
+        try:
+            tx = s.socket(s.AF_INET, s.SOCK_DGRAM)
+            tx.setsockopt(s.IPPROTO_IP, s.IP_MULTICAST_IF,
+                          s.inet_aton("127.0.0.1"))
+            tx.setsockopt(s.IPPROTO_IP, s.IP_MULTICAST_LOOP, 1)
+            tx.sendto(b"<RadioInfo><Freq>5017400</Freq></RadioInfo>",
+                      ("224.0.0.73", port))
+            tx.close()
+            sock.settimeout(2.0)
+            data, _ = sock.recvfrom(65535)
+            self.assertIn(b"5017400", data)
+        finally:
+            sock.close()
+
+    def test_no_group_plain_bind(self):
+        from wims.log.app import _open_radio_socket
+        port = self._free_port()
+        sock, where, warn = _open_radio_socket(port, None)
+        try:
+            self.assertIsNone(warn)
+            self.assertIn(str(port), where)
+        finally:
+            sock.close()
+
+    def test_bad_group_falls_back_to_unicast(self):
+        from wims.log.app import _open_radio_socket
+        port = self._free_port()
+        # Not a multicast address — the IGMP join fails, bind must survive.
+        sock, where, warn = _open_radio_socket(port, "10.9.9.9")
+        try:
+            self.assertIsNotNone(warn)
+            self.assertIn("unicast", warn)
+        finally:
+            sock.close()
+
+
 class CheckTests(unittest.TestCase):
     def test_waiting_for_band_is_warn(self):
         rep = run_checks(live_band=None, joined=None, tcp_probe=lambda h, p: False)
         self.assertEqual(rep.severity, "warn")
         self.assertTrue(any(i.id == "band" and i.severity == "warn" for i in rep.items))
         self.assertTrue(any("Waiting for N1MM" in i.message for i in rep.items))
+
+    def test_waiting_message_names_multicast_group(self):
+        rep = run_checks(
+            live_band=None, radio_group="224.0.0.73", joined=None,
+            tcp_probe=lambda h, p: False,
+        )
+        band = next(i for i in rep.items if i.id == "band")
+        self.assertIn("224.0.0.73:12060", band.message)
+
+    def test_waiting_message_unicast_when_no_group(self):
+        rep = run_checks(
+            live_band=None, radio_group=None, joined=None,
+            tcp_probe=lambda h, p: False,
+        )
+        band = next(i for i in rep.items if i.id == "band")
+        self.assertNotIn("224.0.0.73:12060", band.message)
+        self.assertIn("12060", band.message)
 
     def test_joined_and_tcp_ok(self):
         with mock.patch("wims.log.check._n1mm_presence") as n1:

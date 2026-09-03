@@ -11,8 +11,7 @@ instances on the LAN; one N1MM per band (SSB/CW op) is typical logger.
 | Priority | Role | Where it runs |
 |----------|------|----------------|
 | High | **Site server** | One PC (may be co-located with an N1MM seat) |
-| High | **Log agent** | Every **N1MM PC** |
-| High | **Key agent** | N1MM / SSB-CW PC (KEY sense → inhibit fan-out) |
+| High | **Seat agent (log ± Key)** | Every **N1MM / SSB-CW PC** (`wims.seat`) |
 | High | **Config check + monitor** (per agent) | Each agent’s compact GUI — checks only what *that* agent needs |
 | Medium | **WSJT seat agent** | WSJT-X PC(s) — not required to decode/TX; exists for **config audit + monitoring** |
 | Low | **Solo** | Home/lab single-PC only — **out of contest launcher primary UI** |
@@ -28,10 +27,9 @@ bring-up path.
   WSJT-X PC(s)                         N1MM / SSB-CW PC(s)
   ┌─────────────────────┐              ┌──────────────────────────────┐
   │ 1..N WSJT-X         │──mcast:2237──│ N1MM (band logger)           │
-  │ (often separate PC) │              │ Log agent  (mcast→localhost) │
-  │ optional: seat      │              │ Key agent  (KEY→inhibit)     │
-  │   agent = config +  │              │ optional: WIMS site server   │
-  │   monitor only      │              │ compact GUI per agent        │
+  │ (often separate PC) │              │ Seat agent (--log / --key)   │
+  │ optional: WSJT      │              │   shared RadioInfo band      │
+  │   monitor agent     │              │ optional: WIMS site server   │
   └─────────────────────┘              └──────────────────────────────┘
               │                                      │
               └──────────── WIMS site server ────────┘
@@ -39,7 +37,7 @@ bring-up path.
 ```
 
 - **Many** WSJT-X instances on the network; **more than one per PC** is normal.
-- N1MM PC is usually the **SSB/CW operator’s logging seat** → **log agent + key agent**.
+- N1MM PC is usually the **SSB/CW operator’s logging seat** → **`wims.seat --log --key`**.
 - That same PC **may also** run the WIMS site server (one server fleet-wide).
 
 ---
@@ -51,8 +49,8 @@ Move “is this PC set up right?” into **each WIMS role**, scoped to what that
 | Role | Config check focuses on |
 |------|-------------------------|
 | **Site server** | Bind/join of fleet UDP, HTTP console, presence, seed log path, no second server |
-| **Log agent** | Join `224.0.0.73:2237`, band pin, N1MM localhost delivery (TCP **52001** preferred), firewall/Private |
-| **Key agent** | KEY/CTS device, inhibit targets / assignment, band policy interlock vs coordinated |
+| **Seat agent (log)** | Join fleet mcast, RadioInfo band, N1MM TCP **52001** preferred |
+| **Seat agent (Key)** | KEY/CTS device, same-band Status+InhibitStatus targets (or `WIMS_KEY_TARGETS`) |
 | **WSJT seat agent** | Each local WSJT-X.ini: UDP group/port, outgoing iface, Accept UDP, unique `--rig-name`, Secondary UDP off if log agent owns logging |
 
 Do **not** require a WSJT seat agent for RF operation — decoding and CQ stay in WSJT-X.

@@ -5,9 +5,9 @@
 
 """KEY / TX-inhibit role entrypoint.
 
-Product surface for the desktop launcher. Today this wraps the lab spike
-(``testbed/inhibit_spike.py``) so Solo testers have one place to discover KEY
-tools. Fleet target-list assignment (docs/plan/wims_key_agent.md) is later.
+Product surface for the desktop launcher. Lab modes wrap the inhibit bench
+(``testbed/inhibit_bench.py``). Fleet target-list assignment
+(docs/plan/wims_key_agent.md) is later; ``daemon`` is still a config stub.
 """
 
 from __future__ import annotations
@@ -18,22 +18,22 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_SPIKE = _REPO_ROOT / "testbed" / "inhibit_spike.py"
+_BENCH = _REPO_ROOT / "testbed" / "inhibit_bench.py"
 
 
-def _load_spike():
-    if not _SPIKE.is_file():
+def _load_bench():
+    if not _BENCH.is_file():
         raise FileNotFoundError(
-            f"KEY lab spike not found at {_SPIKE}. "
+            f"KEY inhibit bench not found at {_BENCH}. "
             "Clone the full WIMS tree (include testbed/)."
         )
-    spec = importlib.util.spec_from_file_location("wims_inhibit_spike", _SPIKE)
+    spec = importlib.util.spec_from_file_location("wims_inhibit_bench", _BENCH)
     if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load {_SPIKE}")
+        raise ImportError(f"cannot load {_BENCH}")
     mod = importlib.util.module_from_spec(spec)
-    # Spike expects repo src on path for wims.interlock.inhibit — already true
+    # Bench expects repo src on path for wims.interlock.inhibit — already true
     # when launched via python -m wims.key.
-    sys.modules["wims_inhibit_spike"] = mod
+    sys.modules["wims_inhibit_bench"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -41,13 +41,14 @@ def _load_spike():
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m wims.key",
-        description="WIMS KEY agent (lab). SSB/CW key → TX-inhibit path. "
-                    "Not required for Solo FT8.",
+        description="WIMS KEY agent. Lab: inhibit bench (gate/agent/selftest). "
+                    "Daemon: long-running stub. Not required for Solo FT8.",
     )
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser(
         "selftest",
-        help="UDP loopback gate+agent assertions (same as testbed/inhibit_spike.py selftest)",
+        help="UDP loopback gate+agent assertions "
+             "(same as testbed/inhibit_bench.py selftest)",
     )
     sub.add_parser("gate", help="lab gate stand-in (pass remaining flags after --)")
     sub.add_parser("agent", help="lab key agent (pass remaining flags after --)")
@@ -63,13 +64,13 @@ def main(argv: list[str] | None = None) -> int:
         return int(daemon_main(rest) or 0)
 
     try:
-        spike = _load_spike()
+        bench = _load_bench()
     except (FileNotFoundError, ImportError) as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    # Re-dispatch through the spike CLI so gate/agent flags stay in one place.
-    return int(spike.main([cmd, *rest]) or 0)
+    # Re-dispatch through the bench CLI so gate/agent flags stay in one place.
+    return int(bench.main([cmd, *rest]) or 0)
 
 
 if __name__ == "__main__":

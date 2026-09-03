@@ -7,8 +7,9 @@
 
 1. The **log helper** does **not** permanently trust the launcher band picker / hostname pin
    as the QSO filter.
-2. It listens for N1MM **RadioInfo** UDP (Broadcast Data → Radio, typically
-   `127.0.0.1:12060`).
+2. It listens for N1MM **RadioInfo** UDP: joins fleet multicast `224.0.0.73:12060`
+   (bound `0.0.0.0:12060`, so loopback / LAN unicast destinations are also heard;
+   `--radio-group ''` for unicast-only).
 3. Band is derived from `<TXFreq>` / `<Freq>` (N1MM units = 10 Hz).
 4. **Until the first RadioInfo is heard, drop all Logged QSO / ADIF** (fail closed —
    wait, do not guess).
@@ -18,5 +19,6 @@
 
 ## Operator requirement
 
-N1MM: Config → Broadcast Data → enable **Radio** to at least `127.0.0.1:12060` on the
-logger PC. Without that, the helper stays in “Waiting for N1MM band.”
+N1MM: Config → Broadcast Data → enable **Radio** to the fleet group
+`224.0.0.73:12060` (a `127.0.0.1:12060` destination also works — the listener is
+bound to all interfaces). Without that, the helper stays in “Waiting for N1MM band.”

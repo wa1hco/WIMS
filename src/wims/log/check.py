@@ -135,6 +135,7 @@ def run_checks(
     live_band: str | None,
     expect_band: str | None = None,
     radio_port: int = 12060,
+    radio_group: str | None = "224.0.0.73",
     group: str = "224.0.0.73",
     mcast_port: int = 2237,
     delivery_host: str = "127.0.0.1",
@@ -152,11 +153,12 @@ def run_checks(
     rep = CheckReport(pin=live_band)
     tcp_probe = tcp_probe or probe_tcp
 
+    radio_dest = f"{radio_group}:{radio_port}" if radio_group else f"this host:{radio_port}"
     if not live_band:
         rep.items.append(CheckItem(
             "band", "warn",
             f"Waiting for N1MM RadioInfo on UDP :{radio_port}. "
-            f"Enable Config > Broadcast Data > Radio to 127.0.0.1:{radio_port}. "
+            f"Enable Config > Broadcast Data > Radio to {radio_dest}. "
             f"QSOs are dropped until a band is heard.",
         ))
     elif live_band not in VALID_PINS:

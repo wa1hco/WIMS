@@ -47,6 +47,8 @@ MAGIC = 0xADBCCBDA
 HEARTBEAT, STATUS, DECODE, CLEAR, REPLY, QSO_LOGGED, CLOSE = 0, 1, 2, 3, 4, 5, 6
 REPLAY, HALT_TX, FREE_TEXT, WSPR_DECODE, LOCATION, LOGGED_ADIF = 7, 8, 9, 10, 11, 12
 CONFIGURE = 15
+INHIBIT_STATUS = 17  # Out — TX Inhibit telemetry (wsjtx-inhibit)
+TX_INHIBIT = 18      # In  — hold/release (parsed elsewhere; not on plane A)
 
 QUINT32_MAX = 0xFFFFFFFF
 
@@ -74,6 +76,9 @@ class _Reader:
 
     def boolean(self) -> bool:
         return self._take(1)[0] != 0
+
+    def u16(self) -> int:
+        return struct.unpack(">H", self._take(2))[0]
 
     def u32(self) -> int:
         return struct.unpack(">I", self._take(4))[0]
@@ -224,6 +229,22 @@ class WSPRDecode(WsjtxMessage):
 @dataclass
 class LoggedADIF(WsjtxMessage):
     adif: str | None = None
+
+
+@dataclass
+class InhibitStatus(WsjtxMessage):
+    """NetworkMessage::InhibitStatus (type 17) — digi seat inhibit telemetry.
+
+    No band field on the wire today; correlate with Status dial_frequency by id.
+    """
+
+    inhibit_port: int = 0
+    inhibited: bool = False
+    source_station: str | None = None
+    hold_rx: int = 0
+    release_rx: int = 0
+    expiries: int = 0
+    invalid: int = 0
 
 
 @dataclass
@@ -450,5 +471,17 @@ def parse(data: bytes) -> WsjtxMessage | None:
 
     if mtype == LOGGED_ADIF:
         return LoggedADIF(schema, mtype, mid, adif=r.utf8())
+
+    if mtype == INHIBIT_STATUS:
+        return InhibitStatus(
+            schema, mtype, mid,
+            inhibit_port=r.u16(),
+            inhibited=r.boolean(),
+            source_station=r.utf8(),
+            hold_rx=r.u32(),
+            release_rx=r.u32(),
+            expiries=r.u32(),
+            invalid=r.u32(),
+        )
 
     return UnknownMessage(schema, mtype, mid)

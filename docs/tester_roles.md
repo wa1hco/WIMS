@@ -52,7 +52,8 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins all band ports | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
 | **Operator console** | Browser only — Operate / Status / Setup | `http://<host>:8787/` (buttons in GUI) | **Yes** (opened by Solo) |
 | **Seat agent** (= **station agent**) | Local config audit, optional continuous report to server, local UI `:8790` | GUI **Check** / **Start agent** · `Check-WimsSetup.cmd` · `python -m wims agent` | Optional on one PC; useful on seats |
-| **KEY agent** (SSB/CW → TX inhibit) | Lab selftest / spike; KEY → type-18 `TxInhibit` UDP | GUI advanced **KEY selftest** · `python -m wims key selftest` | **Lab only** (not needed for Solo FT8) |
+| **N1MM / SSB-CW seat** | Shared RadioInfo band; log ± KEY→same-band type-18 | Launcher N1MM + SSB/CW intents · `python -m wims.seat --log --key` | Contest N1MM PC |
+| **Inhibit bench** | Lab gate/agent/selftest | `python -m wims key selftest` · `testbed/inhibit_bench.py` | Lab only |
 | **Seat pack** (Flex 50 / IC-9700 144) | Starts radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
 **Naming:** “station agent” and “seat agent” are the **same** process (`wims.agent`). There
@@ -89,7 +90,8 @@ assignment is still design-only (`docs/plan/wims_key_agent.md`).
 | Layer | Location | Tester-facing? |
 |-------|----------|----------------|
 | Pure logic | `src/wims/interlock/inhibit.py` | No |
-| Lab spike | `python testbed/inhibit_spike.py {gate,agent,selftest}` | Lab only |
+| Inhibit bench | `python testbed/inhibit_bench.py {gate,agent,selftest}` | Lab only |
+| Seat agent | `python -m wims.seat --log --key` | N1MM / SSB-CW PC |
 | Gate inside WSJT-X | Separate repo [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) | Own CI/Releases; not the WIMS ZIP |
 
 Home evaluation (tracks A–C) does **not** require KEY agent or a patched WSJT-X.

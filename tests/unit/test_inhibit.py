@@ -250,6 +250,15 @@ def test_agent_requires_controller_id():
         raise AssertionError("empty controller_id should raise")
 
 
+def test_agent_force_release():
+    a = KeyAgentScheduler("S", hang_s=1.0)
+    assert a.force_release(0.0) == []
+    a.set_key(True, 0.0)
+    out = a.force_release(0.1)
+    assert len(out) == 1 and state_of(out[0]) == "release"
+    assert not a.holding
+
+
 # -- end-to-end (agent feeding gate, no transport) ---------------------------
 
 def test_agent_drives_gate_through_cw_burst():

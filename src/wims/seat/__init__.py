@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""WIMS KEY entry: lab bench tools + ``daemon`` → ``wims.seat --key``."""
+"""SSB/CW seat agent — log ± Key on the N1MM PC (shared live band)."""
 
 from __future__ import annotations
 
@@ -11,5 +11,5 @@ __all__ = ["main"]
 
 
 def main(argv: list[str] | None = None) -> int:
-    from wims.key.app import main as _main
+    from wims.seat.app import main as _main
     return _main(argv)

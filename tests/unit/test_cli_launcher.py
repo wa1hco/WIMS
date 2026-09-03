@@ -43,10 +43,11 @@ class RoleCatalogTests(unittest.TestCase):
         from wims.launcher.roles import primary_roles
         primary = {r.id for r in primary_roles()}
         self.assertIn("server", primary)
-        self.assertIn("log", primary)
+        self.assertIn("n1mm_seat", primary)  # merged log+key seat intent
         self.assertIn("wsjt_check", primary)
         self.assertNotIn("solo", primary)  # lab only
-        self.assertIn("key", primary)  # key agent is a first-class checkbox agent
+        self.assertNotIn("log", primary)   # escape hatch (advanced)
+        self.assertNotIn("key", primary)   # escape hatch (advanced)
 
     def test_server_is_recommended(self):
         server = role_by_id("server")
@@ -68,7 +69,9 @@ class RoleCatalogTests(unittest.TestCase):
         log = role_by_id("log")
         assert log is not None
         argv = log.build_argv()
-        self.assertIn("wims.log", argv)
+        self.assertIn("wims.seat", argv)
+        self.assertIn("--log", argv)
+        self.assertNotIn("--key", argv)
 
     def test_log_agent_argv_passes_expect_band(self):
         log = role_by_id("log")
@@ -78,7 +81,7 @@ class RoleCatalogTests(unittest.TestCase):
             argv = log.build_argv(band="2m")
         self.assertIn("--expect-band", argv)
         self.assertEqual(argv[argv.index("--expect-band") + 1], "2m")
-        self.assertEqual(argv[:2], ["-m", "wims.log"])
+        self.assertEqual(argv[:2], ["-m", "wims.seat"])
 
     def test_log_agent_argv_from_env_band(self):
         log = role_by_id("log")
@@ -106,11 +109,20 @@ class RoleCatalogTests(unittest.TestCase):
     def test_key_is_long_running_daemon(self):
         key = role_by_id("key")
         assert key is not None
-        self.assertFalse(key.advanced)
+        self.assertTrue(key.advanced)  # escape hatch; prefer n1mm_seat intent
         self.assertTrue(key.long_running)
         argv = key.build_argv()
-        self.assertIn("wims.key", argv)
-        self.assertIn("daemon", argv)
+        self.assertIn("wims.seat", argv)
+        self.assertIn("--key", argv)
+
+    def test_n1mm_seat_argv_combines_log_and_key(self):
+        seat = role_by_id("n1mm_seat")
+        assert seat is not None
+        self.assertTrue(seat.recommended)
+        argv = seat.build_argv(want_log=True, want_key=True)
+        self.assertEqual(argv[:2], ["-m", "wims.seat"])
+        self.assertIn("--log", argv)
+        self.assertIn("--key", argv)
 
     def test_band_ports_skip_2240(self):
         ports = [p for _, p in BAND_PORTS]
