@@ -63,18 +63,23 @@ class SeatStatusModelTests(unittest.TestCase):
         self.assertIn("key device missing", model.banner_text)
         # The remedy lives on the fix line.
         self.assertIn("WIMS_KEY_DEVICE", model.fix_text)
-        # Both halves show a fact line.
-        self.assertTrue(any(f.startswith("Log ") for f in model.fact_lines))
-        self.assertTrue(any(f.startswith("Key ") for f in model.fact_lines))
+        # Both halves get an explicit status row; KEY is red, LOG stays green.
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertEqual(set(by_label), {"LOG", "KEY"})
+        self.assertEqual(by_label["LOG"][0], "ok")
+        self.assertEqual(by_label["KEY"][0], "err")
+        self.assertIn("no KEY device", by_label["KEY"][1])
 
     def test_key_device_ok_seat_ready(self):
         key = _StubKeyRuntime(device="sim:up", keyed=True)
         model = _status_model(_log_state(), key, do_log=True, do_key=True)
         self.assertEqual(model.banner_level, "ok")
         self.assertEqual(model.banner_text, "Seat ready — 2m")
-        key_fact = next(f for f in model.fact_lines if f.startswith("Key "))
-        self.assertIn("device sim:up", key_fact)
-        self.assertIn("Key DOWN", key_fact)
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertEqual(by_label["KEY"][0], "ok")
+        self.assertIn("device sim:up", by_label["KEY"][1])
+        self.assertIn("DOWN", by_label["KEY"][1])
+        self.assertIn("FWD 0", by_label["LOG"][1])
 
     def test_log_only_banner(self):
         model = _status_model(_log_state(), None, do_log=True, do_key=False)

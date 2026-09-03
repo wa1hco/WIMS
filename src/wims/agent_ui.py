@@ -50,6 +50,9 @@ class AgentStatusModel:
     banner_level: str = "busy"  # ok | warn | err | busy
     banner_text: str = "Starting..."
     fix_text: str = ""
+    # Compact per-subsystem rows: (level, label, text), each colored by its
+    # own level — e.g. ("ok", "LOG", "2m · FWD 3 ...") / ("err", "KEY", ...).
+    status_rows: list[tuple[str, str, str]] = field(default_factory=list)
     fact_lines: list[str] = field(default_factory=list)
     # Shown on hover over banner / facts; also in Details / Copy.
     detail_lines: list[str] = field(default_factory=list)
@@ -132,6 +135,12 @@ class AgentStatusWindow:
         )
         self._fix.pack(fill="x", padx=12, pady=(0, 4))
 
+        # Per-subsystem rows (LOG / KEY / …), each colored by its own level.
+        self._rows_frame = tk.Frame(self.root, bg="#f4f4f4")
+        self._rows_frame.pack(fill="x", padx=12, pady=(0, 2))
+        self._row_labels: list[Any] = []
+        self._rows_text: list[str] = []
+
         self._facts = tk.Label(
             self.root, textvariable=self._facts_var,
             font=_ui_font(12), bg="#f4f4f4", fg="#222222",
@@ -153,12 +162,12 @@ class AgentStatusWindow:
         b_rescan.pack(side="left")
         ToolTip(b_rescan, "Re-run interconnect / config checks now.")
 
-        b_site = tk.Button(
+        # Site only shows when a server URL is known (see _apply).
+        self._b_site = tk.Button(
             btns, text="Site", font=_ui_font(11),
             command=self._open_site,
         )
-        b_site.pack(side="left", padx=(6, 0))
-        ToolTip(b_site, "Open the site console (Operate / Status) in your browser.")
+        ToolTip(self._b_site, "Open the site console (Operate / Status) in your browser.")
 
         b_copy = tk.Button(
             btns, text="Copy", font=_ui_font(11),
@@ -173,13 +182,8 @@ class AgentStatusWindow:
         )
         b_details.pack(side="left", padx=(6, 0))
         ToolTip(b_details, "Show or hide the full config-check list.")
-
-        b_quit = tk.Button(
-            btns, text="Quit", font=_ui_font(11),
-            command=self._do_quit,
-        )
-        b_quit.pack(side="right")
-        ToolTip(b_quit, "Stop this agent and close the window.")
+        # No Quit button: closing the window (X) stops the agent the same way
+        # (WM_DELETE_WINDOW → _do_quit below).
 
         self._details = tk.Text(
             self.root, height=6, font=_ui_font(10),
@@ -228,15 +232,42 @@ class AgentStatusWindow:
         text = "\n".join(p for p in parts if p).strip()
         return text or "No extra detail yet."
 
+    def _apply_rows(self, rows: list[tuple[str, str, str]]) -> None:
+        tk = self.tk
+        while len(self._row_labels) < len(rows):
+            lab = tk.Label(
+                self._rows_frame, font=_ui_font(12, "bold"),
+                anchor="w", justify="left", wraplength=380, padx=8, pady=3,
+            )
+            lab.pack(fill="x", pady=1)
+            self._row_labels.append(lab)
+        self._rows_text = []
+        for i, lab in enumerate(self._row_labels):
+            if i >= len(rows):
+                lab.pack_forget()
+                continue
+            lvl, name, text = rows[i]
+            bg, fg = _LEVEL_COLORS.get(lvl, _LEVEL_COLORS["warn"])
+            line = f"{name}: {text}"
+            lab.configure(text=line, bg=bg, fg=fg)
+            self._rows_text.append(line)
+            if not lab.winfo_manager():
+                lab.pack(fill="x", pady=1)
+
     def _apply(self, model: AgentStatusModel) -> None:
         bg, fg = _LEVEL_COLORS.get(model.banner_level, _LEVEL_COLORS["warn"])
         self._banner.configure(bg=bg, fg=fg)
         self._banner_var.set(model.banner_text)
         self._fix_var.set(model.fix_text or "")
+        self._apply_rows(list(model.status_rows or []))
         facts = [ln for ln in (model.fact_lines or []) if ln][:5]
         self._facts_var.set("\n".join(facts))
         self.root.title(model.title)
         self._site_url = model.site_url
+        if model.site_url and not self._b_site.winfo_manager():
+            self._b_site.pack(side="left", padx=(6, 0))
+        elif not model.site_url and self._b_site.winfo_manager():
+            self._b_site.pack_forget()
         self._detail_lines = list(model.detail_lines or [])
         hover = self._hover_blob(model)
         self._tip_banner.set_text(hover)
@@ -264,6 +295,7 @@ class AgentStatusWindow:
         parts = [
             self._banner_var.get(),
             self._fix_var.get(),
+            *self._rows_text,
             self._facts_var.get(),
             "",
             *self._detail_lines,

@@ -69,7 +69,7 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
     title = f"WIMS seat ({'+'.join(parts)}) · {band or '...'}"
 
     details: list[str] = []
-    facts: list[str] = []
+    rows: list[tuple[str, str, str]] = []
     level = "ok"
     banner = f"Ready — {band}" if band else "Waiting for N1MM band"
     fix = ""
@@ -83,13 +83,17 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         fix = f"Enable N1MM Broadcast Data → Radio to {radio_dest}"
 
     if do_log:
-        facts.append(
-            f"Log FWD {snap['n_fwd']}  DROP {snap['n_drop']}  WAIT {snap['n_wait']}"
-        )
+        counts = f"FWD {snap['n_fwd']} · DROP {snap['n_drop']} · WAIT {snap['n_wait']}"
         if snap.get("join_error"):
             level, banner = "err", "Log multicast join failed"
             fix = str(snap["join_error"])
-        elif snap.get("joined"):
+            rows.append(("err", "LOG", f"multicast join failed — {snap['join_error']}"))
+        elif not band:
+            rows.append(("warn", "LOG", f"waiting for N1MM band · {counts}"))
+        else:
+            deliver = "DRY-RUN" if snap.get("dry_run") else f"→ N1MM TCP :{snap.get('tcp_port', DEFAULT_TCP_PORT)}"
+            rows.append(("ok", "LOG", f"{band} · {counts} · {deliver}"))
+        if snap.get("joined"):
             details.append(f"[OK] Log joined {snap['group']}:{snap['mcast_port']}")
         if snap.get("last_fwd"):
             details.append(f"Last FWD {snap['last_fwd']}")
@@ -98,15 +102,11 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
     if do_key and key is not None:
         ks = key.state.snapshot()
         n_tgt = len(ks["targets"])
-        facts.append(
-            f"Key {'DOWN' if ks['keyed'] else 'up'}  "
-            f"hold={'yes' if ks['holding'] else 'no'}  "
-            f"device {key.device or '(none)'}  targets {n_tgt}"
-        )
         details.append(f"Controller {ks['controller_id']}")
         if ks.get("cts_error"):
-            # Keep the banner about the seat/band; the device problem goes to
-            # the fix line so log info stays visible alongside it.
+            # Key half is down (red row), but the seat still logs — banner
+            # stays about the seat/band and the remedy goes to the fix line.
+            rows.append(("err", "KEY", f"{ks['cts_error']}"))
             if level == "ok":
                 level = "warn"
                 warn_note = ("key device missing"
@@ -118,6 +118,15 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
                 )
             details.append(f"[!] CTS {ks['cts_error']}")
         else:
+            key_txt = (
+                f"{'DOWN' if ks['keyed'] else 'up'} · "
+                f"hold={'yes' if ks['holding'] else 'no'} · "
+                f"device {key.device} · targets {n_tgt}"
+            )
+            if not band and not key.override:
+                rows.append(("warn", "KEY", key_txt + " · fail-closed until band"))
+            else:
+                rows.append(("ok", "KEY", key_txt))
             details.append(f"[OK] KEY device {key.device or '(none)'}")
         if ks.get("discover_error"):
             details.append(f"[!] Discover {ks['discover_error']}")
@@ -130,8 +139,6 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
             details.append("[!] No same-band inhibit targets yet (need Status+type 17)")
         if ks.get("last_emit"):
             details.append(ks["last_emit"])
-        if not band and not key.override:
-            details.append("Key fail-closed until live band known")
 
     # Band known and nothing fatal: banner always names the seat + band, so
     # log and key info stay visible together (warnings live on the fix line).
@@ -147,7 +154,8 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         banner_level=level,
         banner_text=banner,
         fix_text=fix or (details[0] if details else ""),
-        fact_lines=facts[:4],
+        status_rows=rows,
+        fact_lines=[],
         detail_lines=details,
         hover_text="\n".join(details),
         site_url=snap.get("site_url"),

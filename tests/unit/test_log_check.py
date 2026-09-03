@@ -124,6 +124,58 @@ class AdifWrapTests(unittest.TestCase):
         self.assertFalse(client.alive)
 
 
+class QsoRecordTests(unittest.TestCase):
+    """One WSJT-X QSO arrives as BOTH type 5 and type 12 — keys must match."""
+
+    def _one_qso_both_types(self):
+        from datetime import datetime, timezone
+        from wims.udp import messages as M
+        from wims.udp.encode import build_logged_adif, build_qso_logged
+        now = datetime.now(timezone.utc)
+        d5 = build_qso_logged(
+            "WSJT-X - 2m", dx_call="K1ABC", dx_grid="FN42",
+            tx_frequency=144_174_000, mode="FT8",
+            report_sent="-10", report_received="-08",
+            my_call="WA1HCO", my_grid="FN32",
+            datetime_on=now, datetime_off=now,
+        )
+        # Real WSJT-X ADIF has a space before each next field (after the call).
+        d12 = build_logged_adif(
+            "WSJT-X - 2m",
+            "<call:5>K1ABC <gridsquare:4>FN42 <mode:3>FT8 <band:2>2m "
+            "<freq:10>144.174000 <qso_date:8>20260903 <time_on:6>120000 <eor>",
+        )
+        return M.parse(d5), M.parse(d12)
+
+    def test_type5_and_type12_dedup_to_same_key(self):
+        from wims.log.app import qso_record
+        m5, m12 = self._one_qso_both_types()
+        adif5, call5, band5 = qso_record(m5)
+        adif12, call12, band12 = qso_record(m12)
+        self.assertEqual(call5, "K1ABC")
+        self.assertEqual(call12, "K1ABC")  # trailing space must be stripped
+        self.assertEqual(band5, band12)
+        self.assertEqual(
+            (m5.id, call5.upper(), band5),
+            (m12.id, call12.upper(), band12),
+        )
+
+    def test_blank_call_returns_none_call(self):
+        from wims.udp import messages as M
+        from wims.udp.encode import build_qso_logged
+        from wims.log.app import qso_record
+        d = build_qso_logged("WSJT-X - 2m", dx_call="", tx_frequency=144_174_000,
+                             mode="FT8", report_sent="", report_received="")
+        _adif, call, _band = qso_record(M.parse(d))
+        self.assertIsNone(call)  # forward loop must SKIP, not insert blank
+
+    def test_non_qso_message_is_none(self):
+        from wims.udp import messages as M
+        from wims.udp.encode import build_heartbeat
+        from wims.log.app import qso_record
+        self.assertIsNone(qso_record(M.parse(build_heartbeat("WSJT-X - 2m"))))
+
+
 class RadioInfoTests(unittest.TestCase):
     def test_freq_units(self):
         self.assertEqual(n1mm_freq_units_to_hz("5012345"), 50_123_450)

@@ -201,6 +201,25 @@ class N1mmTcpClient:
             _graceful_close(sock)
 
 
+def qso_record(msg: M.WsjtxMessage) -> tuple[str, str | None, str | None] | None:
+    """Normalize a Logged-QSO message to (adif, call, band); None for others.
+
+    WSJT-X emits BOTH type 5 (QSOLogged) and type 12 (LoggedADIF) for one
+    logged QSO. The call is stripped here so the two agree — ADIF text
+    carries a trailing space before the next field, and an unequal call
+    used to defeat the forward-loop dedup (one QSO -> two N1MM inserts).
+    """
+    if isinstance(msg, M.LoggedADIF) and msg.adif:
+        adif = ensure_adif_datetime(msg.adif)
+        m = _ADIF_CALL.search(adif)
+        call = (m.group(2).strip() if m else "") or None
+        return adif, call, adif_band(adif)
+    if isinstance(msg, M.QSOLogged):
+        call = (msg.dx_call or "").strip() or None
+        return qso_to_adif(msg), call, band_label(msg.tx_frequency or 0)
+    return None
+
+
 def qso_to_adif(msg: M.QSOLogged) -> str:
     mhz = (msg.tx_frequency or 0) / 1e6
     band = _n1mm_band_token(band_label(msg.tx_frequency or 0))
@@ -620,19 +639,17 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             msg = M.parse(data)
             if msg is None:
                 continue
-            adif = None
-            call = None
-            qband = None
-            if isinstance(msg, M.LoggedADIF) and msg.adif:
-                adif = ensure_adif_datetime(msg.adif)
-                qband = adif_band(adif)
-                m = _ADIF_CALL.search(adif)
-                call = m.group(2) if m else msg.id
-            elif isinstance(msg, M.QSOLogged):
-                qband = band_label(msg.tx_frequency or 0)
-                call = msg.dx_call
-                adif = qso_to_adif(msg)
-            else:
+            rec = qso_record(msg)
+            if rec is None:
+                continue
+            adif, call, qband = rec
+            if not call:
+                # A record with no CALL is useless to N1MM (blank log row)
+                # and hints at a parse problem — surface it, don't forward.
+                _log_line(
+                    f"{time.strftime('%H:%M:%S')}  SKIP {msg.id} type={msg.type} "
+                    f"no CALL in record  from {addr[0]}"
+                )
                 continue
 
             pin = state.snapshot()["live_band"]
@@ -652,7 +669,7 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
                     f"band={qband} (want {pin})  from {addr[0]}"
                 )
                 continue
-            key = (msg.id, call, qband)
+            key = (msg.id, call.upper(), qband)
             if key in seen:
                 continue
             seen.add(key)
