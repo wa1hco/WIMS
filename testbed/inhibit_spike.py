@@ -16,30 +16,30 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""TX-inhibit spike (design doc wims_tx_inhibit.md §11.6 step 1).
+"""TX-inhibit spike — NetworkMessage type-18 lab path.
 
-Two small programs and a selftest, exercising the pure logic in
-``wims.interlock.inhibit`` over real UDP — no WSJT-X involved:
+Wire: docs/protocols/wsjtx_tx_inhibit.md (authority: wsjtx-inhibit TX_INHIBIT.md).
+Product context: docs/plan/wims_tx_inhibit.md (JSON §11.3 is historical).
+
+Two small programs and a selftest, exercising ``wims.interlock.inhibit`` over
+real UDP — no WSJT-X involved:
 
   gate      WSJT-X-side stand-in: bind the inhibit port (22372, else
             ephemeral), print state transitions with timestamps; with
             --rts /dev/ttyUSBn also drive the RTS line = NOT inhibited
             (Linux only) so a scope can measure the full path.
-  agent     SSB/CW Key-agent stand-in: send holds/keepalives/release to
-            --targets.  Key input from --script (offline timeline),
-            --serial /dev/ttyUSBn CTS (Linux, TIOCMIWAIT edge wait),
-            --keyboard (SPACE toggles the KEY line, q quits), or --evdev
-            (real time: hold SPACE = KEY down, via /dev/input).
-  selftest  Run agent logic against a gate over UDP loopback with a
-            CW-style keying script; assert behavior and print the
-            measured send->transition latency distribution.  Exits
-            nonzero on failure (usable as a slow test).
+  agent     SSB/CW Key-agent stand-in: send type-18 holds/keepalives/release
+            to --targets.  Requires --controller-id (lease key). Key input
+            from --script, --serial CTS, --keyboard, or --evdev.
+  selftest  Agent logic against a gate over UDP loopback with a CW-style
+            keying script; assert behavior and print send->transition
+            latency.  Exits nonzero on failure.
 
 Examples:
   python testbed/inhibit_spike.py selftest
   python testbed/inhibit_spike.py gate --rts /dev/ttyUSB1
-  python testbed/inhibit_spike.py agent --targets 192.168.1.42:22372 \
-      --script "k0.7 c0.4 k0.05 c0.05 k0.05 c2.0"
+  python testbed/inhibit_spike.py agent --targets 192.168.1.42:22372 \\
+      --controller-id $(hostname)-ssb --script "k0.7 c0.4 k0.05 c0.05 k0.05 c2.0"
 """
 
 from __future__ import annotations
@@ -154,8 +154,10 @@ def run_gate(args):
             if rts_fd is not None:
                 rts_set(rts_fd, not inhibited)
             who = gate.holding_station(now) or "-"
+            ctrls = ",".join(gate.live_controllers(now)) or "-"
             print(f"{now:14.6f}  {'INHIBITED' if inhibited else 'OPEN':9s}"
-                  f"  by={who}  hold_rx={gate.hold_rx}"
+                  f"  by={who}  controllers={ctrls}"
+                  f"  hold_rx={gate.hold_rx}"
                   f" release_rx={gate.release_rx} expiries={gate.expiries}"
                   f" invalid={gate.invalid}")
 
@@ -183,8 +185,14 @@ def parse_targets(text):
 
 def run_agent(args):
     targets = parse_targets(args.targets)
-    sched = KeyAgentScheduler(args.station, args.band,
-                              hang_s=args.hang, ttl_ms=args.ttl_ms)
+    controller_id = args.controller_id or args.station
+    sched = KeyAgentScheduler(
+        controller_id,
+        station=args.station,
+        band=args.band,
+        hang_s=args.hang,
+        ttl_ms=args.ttl_ms,
+    )
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
     def send(datagrams):
@@ -343,8 +351,10 @@ def run_selftest(_args):
     port = sock.getsockname()[1]
     gate = InhibitGate()
     tx = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sched = KeyAgentScheduler("SELFTEST-SSB", "222",
-                              hang_s=0.3, keepalive_s=0.1, ttl_ms=400)
+    sched = KeyAgentScheduler(
+        "SELFTEST-SSB", station="SELFTEST-SSB", band="222",
+        hang_s=0.3, keepalive_s=0.1, ttl_ms=400,
+    )
 
     latencies = []
     transitions = []                              # (t, inhibited)
@@ -425,7 +435,10 @@ def run_selftest(_args):
 
     # Scenario 3: agent death -> deadman releases and alarms.
     expiries_before = gate.expiries
-    sched2 = KeyAgentScheduler("DYING-SSB", "222", keepalive_s=0.1, ttl_ms=400)
+    sched2 = KeyAgentScheduler(
+        "DYING-SSB", station="DYING-SSB", band="222",
+        keepalive_s=0.1, ttl_ms=400,
+    )
     send_and_time(sched2.set_key(True, time.monotonic()))
     pump(time.monotonic() + 0.6)                  # no keepalives: ttl 400 ms
     if gate.inhibited(time.monotonic()):
@@ -463,10 +476,15 @@ def main(argv=None):
     a = sub.add_parser("agent", help="SSB/CW Key-agent stand-in")
     a.add_argument("--targets", required=True,
                    help="host:port[,host:port...] of gate(s)")
-    a.add_argument("--station", default="SPIKE-SSB")
-    a.add_argument("--band", default="222")
+    a.add_argument("--controller-id", default="",
+                   help="lease key on the wire (required non-empty; "
+                        "defaults to --station if omitted)")
+    a.add_argument("--station", default="SPIKE-SSB",
+                   help="human badge text (held by …)")
+    a.add_argument("--band", default="222",
+                   help="off-wire log label only (not on type-18)")
     a.add_argument("--hang", type=float, default=None,
-                   help="fixed hang override in s (default: §3 adaptive)")
+                   help="fixed hang override in s (default: adaptive 10.5×dit)")
     a.add_argument("--ttl-ms", type=int, default=600)
     a.add_argument("--script", help='keying timeline, e.g. "k0.7 c0.4 k0.05"')
     a.add_argument("--serial", help="watch CTS on this tty (Linux)")

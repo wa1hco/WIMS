@@ -68,7 +68,7 @@ python -m wims solo            # or: python -m wims.solo
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
 `test_scoring` · `test_roster` · `test_activity` · `test_fleet` · `test_n1mm_log` ·
 `test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual` ·
-`test_rotator` · `test_last_log`
+`test_rotator` · `test_last_log` · `test_inhibit`
 
 **One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
@@ -491,3 +491,18 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (`tools/inhibit-agent/`): CLI (`--port` + `--addr host:port`) for scripts; GUI
   (no args; auto Keyline + `127.0.0.1:22372`) for operators; Linux and Windows.
   Hang matches inhibit-test. Design copy: [inhibit_agent.md](inhibit_agent.md).
+- **2026-09-02** — **Inhibit wire transfer into WIMS (docs only):** sister
+  `wsjtx-inhibit` now ships **type-18** `NetworkMessage::TxInhibit` +
+  **per-Controller ID leases** (JSON hold obsolete). New implementation brief
+  [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md);
+  banners on [wims_tx_inhibit.md](wims_tx_inhibit.md) §11.3,
+  [wims_key_agent.md](wims_key_agent.md), [inhibit_agent.md](inhibit_agent.md).
+  **Code still JSON** (`src/wims/interlock/inhibit.py`, spike, `wims.key`) —
+  next: encode/parse + lease gate + Key agent Controller ID.
+- **2026-09-02** — **WIMS lab inhibit speaks type 18:** `interlock/inhibit.py`
+  encode/parse = `NetworkMessage::TxInhibit` (schema 3); `InhibitGate` =
+  per-`controller_id` leases OR'd (release clears one row only); JSON rejected
+  as invalid. `KeyAgentScheduler` requires `controller_id`; hang aligned to
+  TX_INHIBIT.md (**10.5 × dit**, clamp 0.315–1.260 s). Spike `--controller-id`;
+  `test_inhibit` 30/30 + `inhibit_spike.py selftest` green. Still out: Key
+  daemon product fan-out, InhibitStatus type-17 target discovery.

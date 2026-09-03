@@ -1,6 +1,16 @@
 # TX Inhibit — low-latency transmit gating for WSJT-X seats
 
-**Status: analysis & design for review — nothing here is built.** Companion to
+> **Wire protocol superseded (2026-09-02).** Shipped hold datagrams are
+> `NetworkMessage::TxInhibit` **type 18** with **per-Controller ID leases**, not
+> the JSON `{tx_inhibit, ttl_ms, station, band, seq}` examples in §11.3.
+> **WIMS implementation brief:**
+> [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md).
+> **Authority:** sister repo `wsjtx-inhibit` `docs/TX_INHIBIT.md`.
+> Product / latency / KEY-sense material below remains useful; treat §11.3 JSON
+> and “single global hold / any release clears” as historical.
+
+**Status: analysis & design for review — gate lives in wsjtx-inhibit; WIMS Key
+agent still needs the type-18 transfer.** Companion to
 [wims_design.md](wims_design.md) §3.4.1 (SSB/CW priority interlock) and the
 [Switchboard concept](wims_switchboard_concept.md) (F7). This document analyzes the WSJT-X
 transmit-enable path and designs an **Inhibit TX** function that gates the **PTT signal to the
@@ -34,7 +44,9 @@ WIMS keeps the Key agent, assignment UI, and pure-logic tests
 | **inhibit-agent** | wsjtx-inhibit | **[inhibit_agent.md](inhibit_agent.md)** — CTS → localhost gate (doc has no WIMS dependency; copy into wsjtx-inhibit) |
 | **WIMS Key agent** | WIMS | **[wims_key_agent.md](wims_key_agent.md)** — multi-target list from WIMS |
 
-Gate/protocol detail stays in **this** file. Datagrams are never routed through a WIMS server.
+Product / latency detail stays in **this** file. **Current wire format** is
+[`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md)
+(not §11.3 JSON). Datagrams are never routed through a WIMS server.
 
 ---
 
@@ -706,6 +718,11 @@ WSJT-X.
 
 ### 11.3 Datagram format
 
+> **Historical — do not implement.** Current wire =
+> [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md)
+> (type **18** + Controller ID leases). The JSON below is the early spike format;
+> patched WSJT-X ignores it.
+
 Compact single-datagram JSON (debuggable with tcpdump/netcat; size is irrelevant at this
 rate, and parsing cost is nanoseconds against a millisecond budget):
 
@@ -730,9 +747,9 @@ rate, and parsing cost is nanoseconds against a millisecond budget):
 
 ### 11.4 Discovery ("somehow", resolved)
 
-The thread announces itself in-band on plane A: a new WSJT-X UDP message type
-**InhibitStatus** (proposed type 18, above the current highest = 12–17 range check at build
-time), emitted at heartbeat cadence, carrying
+The thread announces itself in-band on plane A: WSJT-X UDP message type
+**InhibitStatus** (**type 17** as shipped; hold commands are separate type **18**),
+emitted at heartbeat cadence, carrying
 `{inhibit_port, gate_state, source_station (when inhibited), counters}`. Properties:
 
 - WIMS learns *instance → (host, inhibit port)* passively, the same way it learns everything

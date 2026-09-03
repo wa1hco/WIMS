@@ -52,7 +52,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins all band ports | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
 | **Operator console** | Browser only — Operate / Status / Setup | `http://<host>:8787/` (buttons in GUI) | **Yes** (opened by Solo) |
 | **Seat agent** (= **station agent**) | Local config audit, optional continuous report to server, local UI `:8790` | GUI **Check** / **Start agent** · `Check-WimsSetup.cmd` · `python -m wims agent` | Optional on one PC; useful on seats |
-| **KEY agent** (SSB/CW → TX inhibit) | Lab selftest / spike; KEY → `tx_inhibit` UDP | GUI advanced **KEY selftest** · `python -m wims key selftest` | **Lab only** (not needed for Solo FT8) |
+| **KEY agent** (SSB/CW → TX inhibit) | Lab selftest / spike; KEY → type-18 `TxInhibit` UDP | GUI advanced **KEY selftest** · `python -m wims key selftest` | **Lab only** (not needed for Solo FT8) |
 | **Seat pack** (Flex 50 / IC-9700 144) | Starts radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
 **Naming:** “station agent” and “seat agent” are the **same** process (`wims.agent`). There

@@ -26,7 +26,10 @@ mentions nothing about WIMS).
    coordinated ⇒ sense/report only, no holds.
 7. Multi-SSB / multi-beam assignment policy lives in WIMS design docs.
 
-**Protocol:** same `tx_inhibit` datagrams as the gate and inhibit-test / inhibit-agent.  
+**Protocol:** same **type-18** `NetworkMessage::TxInhibit` datagrams as the gate and
+inhibit-test / inhibit-agent (per-Controller ID leases). See
+[`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md).  
+JSON `tx_inhibit` from the early spike is obsolete and will not hold a patched station.  
 **Path:** still **direct UDP → gate**, never through the WIMS server.
 
 **Hang (same as inhibit-agent):** break-in CW only. Continuous KEY / SSB PTT releases
@@ -42,5 +45,6 @@ as a separate binary with target-list + WIMS integration.
 | Doc | Role |
 |-----|------|
 | [inhibit_agent.md](inhibit_agent.md) | **inhibit-agent** (wsjtx-inhibit; no WIMS content) |
-| [wims_tx_inhibit.md](wims_tx_inhibit.md) | Gate + protocol (WIMS tree copy / companion notes) |
+| [../protocols/wsjtx_tx_inhibit.md](../protocols/wsjtx_tx_inhibit.md) | **Current wire** (type 18 + leases) — implement from here |
+| [wims_tx_inhibit.md](wims_tx_inhibit.md) | Gate + product design (WIMS companion; §11.3 JSON historical) |
 | [wims_design.md](wims_design.md) §2.14, functions #5–#7 | Fleet policy / assignment |

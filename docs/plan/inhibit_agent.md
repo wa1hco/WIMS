@@ -18,8 +18,10 @@ and masks PTT. Programs that **send** those datagrams are inhibit generators:
 | **inhibit-test** | Existing lab / bench tool: keyboard, script, or serial → holds to a gate (often loopback). Proves the gate and protocol. |
 | **inhibit-agent** | **This document.** Production-simple sense of SSB/CW KEY (CTS) → holds to **localhost**. |
 
-Both speak the same **tx_inhibit** datagram protocol (see the project’s gate / protocol
-docs; field layout already used by inhibit-test and the gate).
+Both speak the same **type-18** hold protocol (Controller ID + TTL ms + Station).
+In this WIMS tree see
+[`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md);
+authority lives in wsjtx-inhibit `docs/TX_INHIBIT.md`. Early JSON `tx_inhibit` is obsolete.
 
 **History:** KEY sensing was briefly considered inside the same package as the gate. It was
 separated so the **gate** stays simple, reliable, and minimally configured. **inhibit-agent**

@@ -1277,7 +1277,10 @@ actuator ramp 2–5 ms (analog) or 10–30 ms (software audio API). The **actuat
 uncertain term**; the analog VCA is the only guaranteed-10 ms path.
 
 **Amendment (2026-07-30) — the reactive path is redesigned in
-[wims_tx_inhibit.md](wims_tx_inhibit.md); that document governs on conflicts.** Key changes:
+[wims_tx_inhibit.md](wims_tx_inhibit.md); that document governs on conflicts.**
+**Wire amendment (2026-09-02):** hold datagrams are type-18 + per-Controller ID
+leases — see [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md)
+(authority: sister `wsjtx-inhibit` `docs/TX_INHIBIT.md`). Key changes:
 
 - **TX Inhibit gate replaces Halt/Enable as the reactive mechanism.** A gate thread inside
   WSJT-X (improved-fork patch) computes `RTS = intent ∧ ¬inhibit` on a dedicated PTT serial
