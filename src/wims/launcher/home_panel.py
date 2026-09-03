@@ -65,7 +65,6 @@ class AgentHomePanel:
         on_intent_toggle: Callable[[str], None],
         on_open_site: Callable[[], None],
         on_open_local: Callable[[], None],
-        on_update: Callable[[], None] | None = None,
     ) -> None:
         self.tk = tk
         self._intent_vars = intent_vars
@@ -147,22 +146,8 @@ class AgentHomePanel:
             command=on_open_local, padx=12, pady=6,
         )
         ToolTip(self.local_btn, "Seat agent local page (:8790) when that agent is up.")
-        self.update_btn = tk.Button(
-            btns, text="Update WIMS", font=_ui_font(12),
-            command=(on_update or (lambda: None)), padx=12, pady=6,
-        )
-        ToolTip(
-            self.update_btn,
-            "Pull latest from GitHub main (one click). "
-            "Site server on this PC is left running; seat agents restart after.",
-        )
-
-    def show_update_button(self, show: bool) -> None:
-        if show:
-            if not self.update_btn.winfo_ismapped():
-                self.update_btn.pack(side="left", padx=(10, 0))
-        elif self.update_btn.winfo_ismapped():
-            self.update_btn.pack_forget()
+        # Update WIMS lives beside the launcher banner (next to the update
+        # message), not down here — see app._show_update_button.
 
     def update_running(
         self,

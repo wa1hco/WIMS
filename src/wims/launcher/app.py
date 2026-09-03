@@ -468,12 +468,26 @@ class LauncherApp:
             font=_ui_font(12), bg="#f4f4f4", fg="#333333",
         ).pack(anchor="w", pady=(0, 6))
 
+        # Banner row: message + action button side by side, so e.g. Update WIMS
+        # sits next to the "Update available" text instead of below the fold.
+        banner_row = tk.Frame(home, bg="#f4f4f4")
+        banner_row.pack(fill="x", pady=(0, 4))
         self._banner = tk.Label(
-            home, textvariable=self._banner_text,
+            banner_row, textvariable=self._banner_text,
             font=_ui_font(16, "bold"), bg="#eaeaea", fg="#333333",
-            padx=12, pady=14, anchor="w", justify="left",
+            padx=12, pady=14, anchor="w", justify="left", wraplength=390,
         )
-        self._banner.pack(fill="x", pady=(0, 4))
+        self._banner.pack(side="left", fill="x", expand=True)
+        self._update_btn = tk.Button(
+            banner_row, text="Update\nWIMS", font=_ui_font(12, "bold"),
+            command=self._do_update, padx=10, pady=6,
+        )
+        ToolTip(
+            self._update_btn,
+            "Pull latest from GitHub main (one click). "
+            "Site server on this PC is left running; seat agents restart after.",
+        )
+        # Packed by _show_update_button only while an update is pending.
         tk.Label(
             home, textvariable=self._fix_text,
             font=_ui_font(12), bg="#f4f4f4", fg="#444444",
@@ -489,7 +503,6 @@ class LauncherApp:
             on_intent_toggle=self._on_intent_toggle,
             on_open_site=self._open_site_console,
             on_open_local=self._open_local_status,
-            on_update=self._do_update,
         )
 
         # —— Advanced role catalog (hidden) ——
@@ -620,6 +633,19 @@ class LauncherApp:
         self._banner_text.set(title)
         self._fix_text.set(fix)
 
+    def _show_update_button(self, show: bool) -> None:
+        """Show/hide the Update WIMS button beside the banner message.
+
+        winfo_manager (not winfo_ismapped): ismapped stays False until the
+        widget is actually drawn, which would skip a hide that follows a
+        show before the window maps.
+        """
+        packed = bool(self._update_btn.winfo_manager())
+        if show and not packed:
+            self._update_btn.pack(side="right", padx=(8, 0))
+        elif not show and packed:
+            self._update_btn.pack_forget()
+
     def _proc_running(self, role_id: str) -> bool:
         p = self._procs.get(role_id)
         return p is not None and p.poll() is None
@@ -688,7 +714,7 @@ class LauncherApp:
             if info.detail and "fetch failed" in info.detail:
                 self._append_log(f"Update check: {info.detail}")
             return
-        self._home_panel.show_update_button(True)
+        self._show_update_button(True)
         subj = f" — {info.remote_subject}" if info.remote_subject else ""
         dirty = " (local edits present)" if info.dirty else ""
         self._set_banner(
@@ -718,7 +744,7 @@ class LauncherApp:
 
     def _do_update(self) -> None:
         """One-click pull from origin/main, then relaunch this launcher."""
-        self._home_panel.show_update_button(False)
+        self._show_update_button(False)
         self._updating = True
         self._set_banner(
             "busy",
@@ -762,7 +788,7 @@ class LauncherApp:
             self._append_log(line)
         if not ok:
             self._updating = False
-            self._home_panel.show_update_button(True)
+            self._show_update_button(True)
             self._set_banner(
                 "err",
                 "Update failed",
@@ -1232,7 +1258,7 @@ class LauncherApp:
                 "Click Update WIMS to pull GitHub main. "
                 "Site server stays up; seat agents restart after.",
             )
-            self._home_panel.show_update_button(True)
+            self._show_update_button(True)
         elif wsjt_intent and not wsjt_live:
             self._set_banner(
                 "warn",
