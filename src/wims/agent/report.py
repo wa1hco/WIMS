@@ -570,9 +570,10 @@ def format_report_text(report: dict) -> str:
 
     n1 = report.get("n1mm") or {}
     lines.append("")
-    lines.append("N1MM")
-    lines.append("-" * 48)
     if apps.get("n1mm_running"):
+        # Full section only when Logger+ is actually running on this PC.
+        lines.append("N1MM")
+        lines.append("-" * 48)
         lines.append(f"  running  user_dir={n1.get('user_dir') or '-'}")
         db_dirs = n1.get("databases_dirs") or (
             [n1["databases_dir"]] if n1.get("databases_dir") else []
@@ -587,27 +588,11 @@ def format_report_text(report: dict) -> str:
             lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
         if n1.get("ini_files"):
             lines.append(f"  ini files scanned: {len(n1['ini_files'])}")
-    elif n1.get("leftover_data") or (
-        n1.get("found") and not sys.platform.startswith("win")
-    ):
-        lines.append("  not running on this PC — not an N1MM seat")
-        for iss in n1.get("issues") or []:
-            lines.append(f"  [info] {iss.get('message')}")
-    elif n1.get("found"):
-        lines.append(
-            f"  installed/data found, not running  "
-            f"user_dir={n1.get('user_dir') or '-'}"
-        )
-        db_dirs = n1.get("databases_dirs") or (
-            [n1["databases_dir"]] if n1.get("databases_dir") else []
-        )
-        if db_dirs:
-            lines.append(f"  databases={', '.join(db_dirs)}")
-        for iss in n1.get("issues") or []:
-            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
-            lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
+    elif sys.platform.startswith("win") and n1.get("found") and not n1.get("leftover_data"):
+        lines.append("N1MM: installed, not running")
     else:
-        lines.append("  not found on this PC")
+        # Linux leftover Documents/N1MM trees, or nothing at all — one line only.
+        lines.append("N1MM: not on this PC")
 
     lines.append("")
     lines.append("Operator: fix ERROR/WARN items above, then re-run the agent.")

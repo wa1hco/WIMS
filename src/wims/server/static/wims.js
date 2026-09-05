@@ -782,7 +782,7 @@ const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
-  {key:"instance",      label:"Source",  cls:"",          cell:c=>esc(c.instance||"—")},
+  {key:"instance",      label:"Source",  cls:"",          cell:rosSource},
   {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
   {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
   {key:"snr",           label:"dB",      cls:"num", num:1, cell:c=>sgn(c.snr)},
@@ -822,6 +822,20 @@ function rosCalling(c) {
     return `<span class="qsy" title="WSJT-X Message System / QSY">${esc(t || "QSY")}</span>`;
   }
   return esc(t || "-");
+}
+/** Short Source label: rig-name only (drop redundant "WSJT-X - " prefix). */
+function rosSourceLabel(raw) {
+  const t = (raw || "").trim();
+  if (!t) return "—";
+  const bare = t.replace(/^wsjt-?x\s*[-–—:]\s*/i, "").trim();
+  if (!bare || /^wsjt-?x$/i.test(bare)) return "default";
+  return bare;
+}
+function rosSource(c) {
+  const raw = c.instance || "";
+  const short = rosSourceLabel(raw);
+  if (!raw || short === raw) return esc(short);
+  return `<span title="${esc(raw)}">${esc(short)}</span>`;
 }
 function rosAzDx(c) {
   // Clickable when a rotator is mapped — point antenna to this Az DX.
@@ -1125,12 +1139,9 @@ function rosDraw() {
     : "all bands";
   const colNote = vis.length === ROS_COLS.length ? "all cols"
     : `${vis.length}/${ROS_COLS.length} cols`;
-  const ageNote = maxAge > 0
-    ? (maxAge < 60 ? `≤${maxAge}s` : `≤${maxAge / 60}m`)
-    : "age off";
   $("ros-meta").textContent =
     `${r.needed} needed · ${r.not_needed} worked · ${r.count} heard` +
-    ` · showing ${rows.length} · ${bandNote} · ${colNote} · ${ageNote}`;
+    ` · showing ${rows.length} · ${bandNote} · ${colNote}`;
   const body = $("ros-body"); body.innerHTML = "";
   $("ros-empty").style.display = rows.length ? "none" : "block";
   // Drop prior fit widths before painting new cells so measure sees content.
