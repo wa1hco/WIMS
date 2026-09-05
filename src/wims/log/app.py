@@ -309,6 +309,7 @@ class LogState:
         self.expect_band: str | None = None
         self.radio_port = DEFAULT_RADIO_PORT
         self.radio_group: str | None = DEFAULT_RADIO_GROUP
+        self.radio_iface: str = "0.0.0.0"  # IGMP join for RadioInfo multicast
         self.radio_error: str | None = None
         self.radio_note: str | None = None
         self.last_radio_at: float | None = None
@@ -330,6 +331,7 @@ class LogState:
         self.check_lines: list[str] = []
         self.check_severity = "busy"
         self.site_url = (os.environ.get("WIMS_SERVER") or "").rstrip("/") or None
+        self.broadcast_fwd = None  # BroadcastForwarder | None
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -339,6 +341,7 @@ class LogState:
                 "expect_band": self.expect_band,
                 "radio_port": self.radio_port,
                 "radio_group": self.radio_group,
+                "radio_iface": self.radio_iface,
                 "radio_error": self.radio_error,
                 "radio_note": self.radio_note,
                 "last_radio_at": self.last_radio_at,
@@ -352,6 +355,10 @@ class LogState:
                 "n_fwd": self.n_fwd,
                 "n_drop": self.n_drop,
                 "n_wait": self.n_wait,
+                "broadcast": (
+                    self.broadcast_fwd.snapshot()
+                    if self.broadcast_fwd is not None else None
+                ),
                 "last_fwd": self.last_fwd,
                 "last_delivery": self.last_delivery,
                 "last_error": self.last_error,
@@ -444,7 +451,12 @@ def _status_model(state: LogState) -> AgentStatusModel:
     s = state.snapshot()
     band = s["live_band"]
     title = f"WIMS log agent · {band or '...'}"
-    radio_dest = f"{s['radio_group'] or 'this host'}:{s['radio_port']}"
+    # Hear = RadioInfo listen (fleet multicast). Deliver = localhost N1MM ingest.
+    radio_dest = f"{s['radio_group'] or '0.0.0.0'}:{s['radio_port']}"
+    if s.get("radio_group"):
+        radio_hear = f"Hear RadioInfo {radio_dest} (LAN multicast — not Tailscale 100.x)"
+    else:
+        radio_hear = f"Hear RadioInfo unicast-only :{s['radio_port']} (no multicast join)"
 
     fix = ""
     if s["join_error"]:
@@ -453,12 +465,15 @@ def _status_model(state: LogState) -> AgentStatusModel:
     elif s["radio_error"]:
         level, banner = "err", "Cannot hear N1MM RadioInfo"
         fix = (
-            f"{s['radio_error']} — enable Broadcast Data > Radio "
-            f"to {radio_dest}"
+            f"{s['radio_error']} — N1MM Broadcast Data > Radio → "
+            f"{radio_dest} (contest LAN / 224.0.0.73, not Tailscale)"
         )
     elif not band:
         level, banner = "warn", "Waiting for N1MM band"
-        fix = f"Enable Broadcast Data > Radio to {radio_dest}"
+        fix = (
+            f"N1MM Broadcast Data > Radio → {radio_dest} "
+            f"(not 127.0.0.1-only unless N1MM is this same hear path; not Tailscale 100.x)"
+        )
     elif s["check_severity"] == "error":
         level, banner = "err", f"Log agent — {band}"
         # First error line from checks, if any.
@@ -481,10 +496,13 @@ def _status_model(state: LogState) -> AgentStatusModel:
     mcast = "joined" if s["joined"] else ("failed" if s["join_error"] else "...")
     facts = [
         f"Band {band or '-'}   FWD {s['n_fwd']}   DROP {s['n_drop']}   WAIT {s['n_wait']}",
-        f"Mcast {s['group']}:{s['mcast_port']} {mcast}",
-        f"RadioInfo {radio_dest}" + (f" ({s['radio_note']})" if s["radio_note"] else ""),
-        f"Deliver TCP :{s.get('tcp_port', DEFAULT_TCP_PORT)} then UDP {s['delivery']}"
-        if not s["dry_run"] else "Deliver dry-run",
+        f"WSJT mcast {s['group']}:{s['mcast_port']} {mcast}",
+        radio_hear + (f" — {s['radio_note']}" if s["radio_note"] else ""),
+        (
+            f"Deliver to local N1MM TCP :{s.get('tcp_port', DEFAULT_TCP_PORT)} "
+            f"then UDP {s['delivery']} (localhost is correct here)"
+            if not s["dry_run"] else "Deliver dry-run"
+        ),
         f"Last {s['last_fwd'] or '- none yet -'}",
     ]
     if s.get("last_delivery"):
@@ -555,7 +573,11 @@ def _open_radio_socket(
 
 def _radio_loop(state: LogState, stop: threading.Event) -> None:
     try:
-        sock, where, warn = _open_radio_socket(state.radio_port, state.radio_group)
+        sock, where, warn = _open_radio_socket(
+            state.radio_port,
+            state.radio_group,
+            iface=getattr(state, "radio_iface", None) or "0.0.0.0",
+        )
     except OSError as e:
         with state._lock:
             state.radio_error = str(e)
@@ -566,7 +588,7 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
         with state._lock:
             state.radio_note = warn
         _log_line(f"log-agent: RadioInfo: {warn}")
-    _log_line(f"log-agent: listening for N1MM RadioInfo on {where}")
+    _log_line(f"log-agent: Broadcast listen on {where}")
     while not stop.is_set():
         try:
             data, _addr = sock.recvfrom(65535)
@@ -574,14 +596,19 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
             continue
         except OSError as e:
             with state._lock:
-                state.last_error = f"RadioInfo recv: {e}"
+                state.last_error = f"Broadcast recv: {e}"
             break
         text = data.decode("utf-8", "replace")
+        with state._lock:
+            state.last_radio_at = time.time()
         band, _meta = band_from_radioinfo_xml(text)
-        if not band or band == "?":
-            continue
-        if state.set_live_band(band):
-            rescan(state)
+        if band and band != "?":
+            if state.set_live_band(band):
+                rescan(state)
+        # Fleet: N1MM → 127.0.0.1:12060 → site server (presence + contacts).
+        fwd = state.broadcast_fwd
+        if fwd is not None:
+            fwd.maybe_forward(text)
     try:
         sock.close()
     except OSError:
@@ -765,11 +792,20 @@ def main(argv: list[str] | None = None) -> int:
     state.expect_band = expect
     state.radio_port = args.radio_port
     state.radio_group = (args.radio_group or "").strip() or None
+    state.radio_iface = (args.iface or "0.0.0.0").strip() or "0.0.0.0"
     state.group = args.group
     state.mcast_port = args.port
     state.delivery = args.n1mm
     state.tcp_port = args.tcp_port
     state.dry_run = args.dry_run
+    from wims.log.broadcast_fwd import (
+        BroadcastForwarder, default_agent_id, default_lan_ip,
+    )
+    state.broadcast_fwd = BroadcastForwarder(
+        site_url=state.site_url,
+        agent_id=default_agent_id(),
+        lan_ip=default_lan_ip(),
+    )
     rescan(state)
 
     stop = threading.Event()

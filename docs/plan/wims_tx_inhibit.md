@@ -392,12 +392,15 @@ canonical source lives in the SO4R_Interlock_V2 project). As built — netlist-v
 - 0402 passives with LCSC part numbers throughout — designed for board-house assembly, so
   "replicate the fleet standard" means *order more*, not *solder more*. **First production
   run: 10 boards on order (2026-07)** — hardware for the §9.2 latency bench and the fleet.
-- **The dongle self-identifies over USB:** the FT230X EEPROM is reprogrammed (FT_PROG) with
-  manufacturer **"FTDI WA1HCO"**, so software can find the Keyline board among a seat's
-  serial ports by descriptor instead of asking a human to pick a COM port. WSJT-X's port
-  picker can highlight it, the Key agent can auto-select its CTS source, and the setup
-  agent's readiness check can verify "Keyline dongle present" — the §11.2 zero-config
-  posture extended to *which port*, the one serial question that was still left to a human.
+- **The dongle self-identifies over USB:** the FT230X internal MTP is programmed
+  (Linux: [`hardware/keyline_interface/eeprom/`](../../hardware/keyline_interface/eeprom/);
+  Windows: FT_PROG) with manufacturer **"FTDI WA1HCO"**, product **"FT230X Keyline"**, and a
+  unique serial **`KLnnnn`**. VID:PID stays **0403:6015**. Software can then find the
+  board among a seat's serial ports by descriptor instead of asking a human to pick a
+  COM port. udev rule: [`hardware/keyline_interface/99-keyline.rules`](../../hardware/keyline_interface/99-keyline.rules).
+  The Key agent can auto-select its CTS source, and the setup agent's readiness check
+  can verify "Keyline dongle present" — the §11.2 zero-config posture extended to
+  *which port*, the one serial question that was still left to a human.
 - BOM identity resolved: U3 (schematic value "AT3H4X", from the chip marking) is an
   **Everlight EL3H4** — SSOP-4 phototransistor optocoupler, marking "3H4"; 3.75 kV
   isolation, 80 V output, CTR 20–300 %, 6–8 µs switching (microseconds against the 1 ms

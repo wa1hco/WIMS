@@ -478,6 +478,38 @@ class LiveFleet:
             "rotators_ingested": n_rot,
         }
 
+    def accept_n1mm_broadcast(self, body: dict, *, now: float | None = None) -> dict:
+        """Ingest N1MM Broadcast Data XML relayed by an N1MM agent.
+
+        Fleet policy: N1MM → ``127.0.0.1:12060`` → agent → this endpoint.
+        ``lan_ip`` is the contest-LAN address of the logger PC (for Status host).
+        """
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "body must be a JSON object"}
+        xml = body.get("xml")
+        if not isinstance(xml, str) or not xml.strip():
+            return {"ok": False, "error": "xml required"}
+        ts = now if now is not None else time.time()
+        try:
+            agent_ts = float(body.get("ts") or ts)
+        except (TypeError, ValueError):
+            agent_ts = ts
+        if abs(agent_ts - ts) > 600:
+            agent_ts = ts
+        lan_ip = (body.get("lan_ip") or "").strip() or None
+        agent_id = (body.get("agent_id") or "").strip() or None
+        # Prefer explicit LAN IP so Status shows .116/.120 not the HTTP peer.
+        src = lan_ip
+        if not src and agent_id and "-" in agent_id:
+            src = None
+        self.observe_n1mm(xml, agent_ts, src)
+        return {
+            "ok": True,
+            "agent_id": agent_id,
+            "lan_ip": lan_ip,
+            "bytes": len(xml),
+        }
+
     def list_agents(self, now: float | None = None) -> list:
         now = time.time() if now is None else now
         with self._lock:
@@ -748,6 +780,7 @@ class LiveFleet:
                     "ts": now, "instance": mid, "snr": msg.snr,
                     "df": msg.delta_frequency, "message": msg.message or "",
                     "is_cq": msg.is_cq,
+                    "band": band,
                 })
 
     def observe_n1mm(self, xml_text, now, src_ip):
@@ -1047,8 +1080,14 @@ def make_handler(live: LiveFleet, refresh: float):
                        json.dumps(obj).encode("utf-8"))
 
         # path -> static file (two pages share one SSE feed; see static/wims.js).
-        PAGES = {"/": "ops.html", "/index.html": "ops.html", "/ops": "ops.html",
-                 "/status": "status.html", "/setup": "setup.html"}
+        PAGES = {
+            "/": "ops.html", "/index.html": "ops.html", "/ops": "ops.html",
+            "/status": "status.html",
+            "/overview": "status.html",
+            "/wsjt": "status.html",
+            "/n1mm": "status.html",
+            "/setup": "setup.html",
+        }
         TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css",
                  ".js": "text/javascript", ".json": "application/json"}
 
@@ -1073,7 +1112,10 @@ def make_handler(live: LiveFleet, refresh: float):
                     "http_port": self.server.server_address[1],
                     "urls": {
                         "operate": f"{base}/",
-                        "status": f"{base}/status",
+                        "status": f"{base}/overview",
+                        "overview": f"{base}/overview",
+                        "wsjt": f"{base}/wsjt",
+                        "n1mm": f"{base}/n1mm",
                         "setup": f"{base}/setup",
                         "healthz": f"{base}/healthz",
                     },
@@ -1153,6 +1195,14 @@ def make_handler(live: LiveFleet, refresh: float):
             elif path == "/api/agents/report":
                 try:
                     result = live.accept_agent_report(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/n1mm/broadcast":
+                # N1MM agent relays Broadcast Data XML (localhost :12060 → site).
+                try:
+                    result = live.accept_n1mm_broadcast(body)
                     code = 200 if result.get("ok") else 400
                     self._send_json(code, result)
                 except Exception as e:
@@ -1273,10 +1323,11 @@ def main() -> None:
                          "50→2237 … 1296→2243; 2240 unused). "
                          "Only change for lab; seats never need this.")
     ap.add_argument("--n1mm-port", type=int, default=12060)
-    ap.add_argument("--n1mm-group", default=None,
+    ap.add_argument("--n1mm-group", default="224.0.0.73",
                     help="multicast group for N1MM External Broadcast XML "
-                         "(e.g. 224.0.0.73 — same group as WSJT-X is fine; different port). "
-                         "Omit for classic unicast/directed-broadcast to this host:12060")
+                         "(default 224.0.0.73 — same group as WSJT-X, port 12060; "
+                         "networking § plane B). Pass empty string to disable multicast "
+                         "join and only accept unicast/broadcast to this host:12060")
     ap.add_argument("--refresh", type=float, default=1.0, help="SSE push interval (s)")
     ap.add_argument("--group-by", choices=("instance", "band", "host"), default="instance",
                     help="interlock resource-group scheme until §3.14 profiles wire the real "
@@ -1495,16 +1546,21 @@ def main() -> None:
         # WSJT-X, different port). Multicast needs a real interface for IGMP join:
         # --iface 127.0.0.1 only receives loopback multicasts, not LAN traffic from a VM.
         try:
-            if args.n1mm_group:
+            n1mm_group = (args.n1mm_group or "").strip() or None
+            if n1mm_group:
                 # Prefer real LAN IP for IGMP when --iface is all-zeros.
                 n1mm_iface = args.iface
                 if n1mm_iface in ("0.0.0.0", "::", ""):
                     n1mm_iface = mcast_iface
-                s_n1mm = open_socket(n1mm_iface, args.n1mm_port, args.n1mm_group)
+                s_n1mm = open_socket(n1mm_iface, args.n1mm_port, n1mm_group)
+                print(f"  N1MM listen {n1mm_group}:{args.n1mm_port} "
+                      f"(iface {n1mm_iface})", flush=True)
             else:
-                # Unicast/broadcast: bind all interfaces so a LAN N1MM host is not
-                # dropped when --iface is loopback for the WSJT-X emulator path.
+                # Unicast/broadcast only: bind all interfaces so a LAN N1MM host
+                # is not dropped when --iface is loopback for the emulator path.
                 s_n1mm = open_socket("0.0.0.0", args.n1mm_port, None)
+                print(f"  N1MM listen 0.0.0.0:{args.n1mm_port} (unicast/broadcast)",
+                      flush=True)
         except OSError as e:
             print(f"  WARNING: N1MM listener :{args.n1mm_port} bind failed ({e}); "
                   f"N1MM ingest off", file=sys.stderr)

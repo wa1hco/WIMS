@@ -14,18 +14,25 @@ project in [inhibit_agent.md](inhibit_agent.md)).
 
 ## Packaging (chosen)
 
-On the N1MM / SSB-CW PC, **one seat process** owns live band from N1MM RadioInfo:
+On the N1MM PC, the **N1MM agent** (`wims.seat`) owns live band from Broadcast Data
+(RadioInfo). UI sections: **Broadcast** · **Log** · **KEY**.
 
 ```bash
 python -m wims.seat --log --key    # contest default when both intents on
-python -m wims.seat --log          # log only
-python -m wims.seat --key          # Key only
+python -m wims.seat --log          # Broadcast + Log
+python -m wims.seat --key          # Broadcast + KEY
 ```
 
-Launcher intents **N1MM** and **SSB/CW KEY** start that one process with the matching
-flags (restart if flags change). Escapes: `wims.log`, `wims.key daemon` → seat wrappers.
+| Section | Job |
+|---------|-----|
+| **Broadcast** | Hear N1MM Broadcast Data on `127.0.0.1:12060`; POST XML to site `/api/n1mm/broadcast` |
+| **Log** | Fleet digi Logged QSOs → local N1MM (`:52001` / `:2333`) |
+| **KEY** | CTS → same-band type-18 holds |
 
-Log forward and Key inhibit stay **separate modules**; they share **one live band**.
+Launcher intents **N1MM** and **SSB/CW KEY** start that one process with the matching
+flags. Escapes: `wims.log`, `wims.key daemon` → wrappers.
+
+Modules stay separate; they share **one live band**. Not N1MM networking **:12070**.
 
 ---
 

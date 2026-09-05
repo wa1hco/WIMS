@@ -48,8 +48,10 @@ from wims.launcher.assets import (
     INTENT_WSJT,
     agents_for_intent,
     detect_assets,
+    load_key_device,
     load_seat_intent,
     n1mm_seat_flags,
+    save_key_device,
     save_seat_intent,
 )
 from wims.launcher.home_panel import AgentHomePanel
@@ -392,6 +394,11 @@ class LauncherApp:
             INTENT_SSB_CW: tk.BooleanVar(value=bool(self._intent.get(INTENT_SSB_CW))),
             INTENT_SERVER: tk.BooleanVar(value=bool(self._intent.get(INTENT_SERVER))),
         }
+        # KEY/CTS device — persisted; mirrored to WIMS_KEY_DEVICE for seat child.
+        self._key_device_var = tk.StringVar(value=load_key_device())
+        if self._key_device_var.get().strip():
+            os.environ["WIMS_KEY_DEVICE"] = self._key_device_var.get().strip()
+        self._cts_monitor = None  # open only while sampling (not while seat Key owns port)
         # role_id mapping for _procs / _start_role
         self._agent_role = {
             AGENT_N1MM_SEAT: "n1mm_seat",
@@ -503,7 +510,15 @@ class LauncherApp:
             on_intent_toggle=self._on_intent_toggle,
             on_open_site=self._open_site_console,
             on_open_local=self._open_local_status,
+            key_device_var=self._key_device_var,
+            on_key_device_change=self._on_key_device_change,
+            on_refresh_key_ports=self._refresh_key_ports,
         )
+        self._refresh_key_ports()
+        self._home_panel.show_key_device_row(
+            bool(self._intent_vars[INTENT_SSB_CW].get()),
+        )
+        self.root.after(1500, self._pulse_key_cts)
 
         # —— Advanced role catalog (hidden) ——
         adv_toggle = tk.Checkbutton(
@@ -851,6 +866,88 @@ class LauncherApp:
         self._intent = self._current_intent()
         save_seat_intent(self._intent)
 
+    def _refresh_key_ports(self) -> None:
+        try:
+            from wims.key.ports import list_key_devices
+            ports = list_key_devices()
+        except Exception as e:
+            self._append_log(f"KEY port scan failed: {e}")
+            ports = ["sim:down", "sim:up"]
+        self._home_panel.set_key_port_choices(ports)
+        cur = (self._key_device_var.get() or "").strip()
+        if not cur and ports:
+            # Prefer first real port over sim:* when nothing saved yet.
+            pick = next((p for p in ports if not p.startswith("sim:")), "")
+            if pick:
+                self._key_device_var.set(pick)
+
+    def _on_key_device_change(self) -> None:
+        device = (self._key_device_var.get() or "").strip()
+        save_key_device(device)
+        self._close_cts_monitor()
+        self._append_log(f"KEY device → {device or '(none)'}")
+        # If Key seat is already up, restart so it picks up the new device.
+        intent = self._current_intent()
+        if intent.get(INTENT_SSB_CW) and self._agent_running(AGENT_N1MM_SEAT):
+            self._append_log("Restarting seat so Key uses the new device…")
+            self._stop_agent(AGENT_N1MM_SEAT, explicit=True)
+            self.root.after(
+                600,
+                lambda: self._start_agent(AGENT_N1MM_SEAT, open_browser=False),
+            )
+
+    def _close_cts_monitor(self) -> None:
+        mon = self._cts_monitor
+        self._cts_monitor = None
+        if mon is not None:
+            try:
+                mon.close()
+            except Exception:
+                pass
+
+    def _pulse_key_cts(self) -> None:
+        """Sample CTS for the launcher KEY-device row.
+
+        Does not hold the port while the seat Key path is running (Windows COM
+        is exclusive). Schedule is gentle so plug/unplug is visible.
+        """
+        try:
+            intent_on = bool(self._intent_vars[INTENT_SSB_CW].get())
+            self._home_panel.show_key_device_row(intent_on)
+            if not intent_on:
+                self._close_cts_monitor()
+                self._home_panel.set_key_cts_status("CTS: —")
+                return
+            device = (self._key_device_var.get() or "").strip()
+            if not device:
+                self._close_cts_monitor()
+                self._home_panel.set_key_cts_status("CTS: pick a port")
+                return
+            if self._agent_running(AGENT_N1MM_SEAT) and self._current_intent().get(
+                INTENT_SSB_CW,
+            ):
+                self._close_cts_monitor()
+                self._home_panel.set_key_cts_status("CTS: seat owns port")
+                return
+            from wims.key.cts import CtsSource
+            mon = self._cts_monitor
+            if mon is None or getattr(mon, "device", None) != device:
+                self._close_cts_monitor()
+                mon = CtsSource.open(device)
+                self._cts_monitor = mon
+            if mon.error:
+                self._home_panel.set_key_cts_status(f"CTS: {mon.error}")
+                self._close_cts_monitor()
+            elif mon.read():
+                self._home_panel.set_key_cts_status("CTS: KEY down")
+            else:
+                self._home_panel.set_key_cts_status("CTS: idle")
+        except Exception as e:
+            self._home_panel.set_key_cts_status(f"CTS: {e}")
+            self._close_cts_monitor()
+        finally:
+            self.root.after(1000, self._pulse_key_cts)
+
     def _sync_detect_and_agents(self) -> None:
         """Refresh Running list; start/stop agents from seat intent."""
         if not self._replace_done:
@@ -944,6 +1041,12 @@ class LauncherApp:
 
     def _on_intent_toggle(self, intent_id: str) -> None:
         self._persist_intent()
+        if intent_id == INTENT_SSB_CW:
+            self._home_panel.show_key_device_row(
+                bool(self._intent_vars[INTENT_SSB_CW].get()),
+            )
+            # Ensure child sees current device before seat start/restart.
+            save_key_device((self._key_device_var.get() or "").strip())
         agent_id = INTENT_TO_AGENT[intent_id]
         if agent_id == AGENT_N1MM_SEAT:
             # N1MM / SSB-CW share one process — sync flags (may restart).
@@ -1016,9 +1119,16 @@ class LauncherApp:
             os.environ.pop("WIMS_BAND", None)
             want_log, want_key = n1mm_seat_flags(self._current_intent())
             self._seat_flags = (want_log, want_key)
+            if want_key:
+                save_key_device((self._key_device_var.get() or "").strip())
             self._append_log(
                 f"Starting N1MM seat "
-                f"(log={'on' if want_log else 'off'}, key={'on' if want_key else 'off'})…"
+                f"(log={'on' if want_log else 'off'}, key={'on' if want_key else 'off'}"
+                + (
+                    f", device={self._key_device_var.get().strip() or '?'}"
+                    if want_key else ""
+                )
+                + ")…"
             )
             self._start_role(
                 role_by_id(role_id),
@@ -1527,8 +1637,10 @@ class LauncherApp:
         threading.Thread(target=self._reader, args=(role.id, proc), daemon=True).start()
 
         if role.id in ("key", "n1mm_seat") and ("--key" in py_argv):
+            dev = (os.environ.get("WIMS_KEY_DEVICE") or "").strip()
             self._append_log(
-                "Key: set WIMS_KEY_DEVICE; targets from discovery or WIMS_KEY_TARGETS.",
+                f"Key device={dev or '(none)'} — targets from discovery "
+                f"or WIMS_KEY_TARGETS.",
             )
         elif role.id == "solo" and open_browser:
             self.root.after(
@@ -1693,6 +1805,19 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"Created: {path}")
         return 0
+
+    from wims.launcher.singleton import try_acquire_launcher_lock
+    if not try_acquire_launcher_lock():
+        print(
+            "ERROR: WIMS launcher is already running on this PC.\n"
+            "  Use the existing window — a second copy would restart seat agents.\n"
+            "  If that window is gone, remove ~/.config/wims/launcher.lock "
+            "(or %APPDATA%\\wims\\launcher.lock) only after confirming no "
+            "python -m wims.launcher process is alive.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
 
     try:
         import tkinter as tk

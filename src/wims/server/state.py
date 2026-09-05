@@ -382,13 +382,16 @@ def activity_to_dict(amap, now: float | None = None) -> dict:
 def decodes_to_dict(buffer, now: float, limit: int = 120) -> list:
     """Recent decodes across the whole fleet, newest first (plan §2.2 decode log).
 
-    `buffer` is an iterable of stored decode dicts (ts/instance/snr/df/message/is_cq);
-    we project them and ship the epoch `ts` so the console formats the clock."""
+    `buffer` is an iterable of stored decode dicts
+    (ts/instance/snr/df/message/is_cq[/band]); we project them and ship the
+    epoch `ts` so the console formats the clock. ``instance`` is the WSJT-X
+    UDP id (``--rig-name``) — the decode source."""
     items = list(buffer)[-limit:]
     items.reverse()
     return [{
         "ts": e["ts"],
         "instance": e["instance"],
+        "band": e.get("band") or "",
         "snr": e["snr"],
         "df": e["df"],
         "message": e["message"],

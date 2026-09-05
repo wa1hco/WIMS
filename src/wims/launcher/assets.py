@@ -77,27 +77,62 @@ def _intent_pref_path() -> Path:
     return Path.home() / ".config" / "wims" / "seat_intent.json"
 
 
-def load_seat_intent() -> dict[str, bool]:
-    """Remembered seat intent checkboxes for this PC."""
+def _read_pref_raw() -> dict:
     try:
         raw = json.loads(_intent_pref_path().read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
     except (OSError, ValueError, json.JSONDecodeError):
-        return {k: False for k in _ALL_INTENTS}
+        return {}
+
+
+def _write_pref_raw(raw: dict) -> None:
+    path = _intent_pref_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(raw, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+
+
+def load_seat_intent() -> dict[str, bool]:
+    """Remembered seat intent checkboxes for this PC."""
+    raw = _read_pref_raw()
     intent = raw.get("intent") or {}
     return {k: bool(intent.get(k)) for k in _ALL_INTENTS}
 
 
 def save_seat_intent(intent: dict[str, bool]) -> None:
-    path = _intent_pref_path()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        body = {k: bool(intent.get(k)) for k in _ALL_INTENTS}
-        path.write_text(
-            json.dumps({"schema": 1, "intent": body}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-    except OSError:
-        pass
+    raw = _read_pref_raw()
+    raw["schema"] = max(2, int(raw.get("schema") or 1))
+    raw["intent"] = {k: bool(intent.get(k)) for k in _ALL_INTENTS}
+    _write_pref_raw(raw)
+
+
+def load_key_device() -> str:
+    """Remembered KEY/CTS device path (COM port or /dev/tty…)."""
+    env = (os.environ.get("WIMS_KEY_DEVICE") or "").strip()
+    if env:
+        return env
+    raw = _read_pref_raw()
+    return str(raw.get("key_device") or "").strip()
+
+
+def save_key_device(device: str) -> None:
+    """Persist KEY device; also mirrors into WIMS_KEY_DEVICE for child processes."""
+    device = (device or "").strip()
+    raw = _read_pref_raw()
+    raw["schema"] = max(2, int(raw.get("schema") or 1))
+    if "intent" not in raw:
+        raw["intent"] = {k: False for k in _ALL_INTENTS}
+    raw["key_device"] = device
+    _write_pref_raw(raw)
+    if device:
+        os.environ["WIMS_KEY_DEVICE"] = device
+    else:
+        os.environ.pop("WIMS_KEY_DEVICE", None)
 
 
 def detect_assets() -> AssetSnapshot:

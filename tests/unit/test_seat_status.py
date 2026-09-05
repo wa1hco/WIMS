@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Unit tests for the merged seat agent status model (log + key in one GUI)."""
+"""Unit tests for the N1MM agent status model (Broadcast / Log / KEY)."""
 
 from __future__ import annotations
 
@@ -57,25 +57,24 @@ class SeatStatusModelTests(unittest.TestCase):
         key = _StubKeyRuntime(device="", cts_error="no KEY device configured")
         model = _status_model(_log_state(), key, do_log=True, do_key=True)
         self.assertEqual(model.banner_level, "warn")
-        # Banner still names the seat + band, not the device error.
-        self.assertIn("Seat", model.banner_text)
+        self.assertIn("N1MM agent", model.banner_text)
         self.assertIn("2m", model.banner_text)
         self.assertIn("key device missing", model.banner_text)
-        # The remedy lives on the fix line.
         self.assertIn("WIMS_KEY_DEVICE", model.fix_text)
-        # Both halves get an explicit status row; KEY is red, LOG stays green.
         by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
-        self.assertEqual(set(by_label), {"LOG", "KEY"})
+        self.assertEqual(set(by_label), {"BROADCAST", "LOG", "KEY"})
+        self.assertEqual(by_label["BROADCAST"][0], "ok")
         self.assertEqual(by_label["LOG"][0], "ok")
         self.assertEqual(by_label["KEY"][0], "err")
         self.assertIn("no KEY device", by_label["KEY"][1])
 
-    def test_key_device_ok_seat_ready(self):
+    def test_key_device_ok_agent_ready(self):
         key = _StubKeyRuntime(device="sim:up", keyed=True)
         model = _status_model(_log_state(), key, do_log=True, do_key=True)
         self.assertEqual(model.banner_level, "ok")
-        self.assertEqual(model.banner_text, "Seat ready — 2m")
+        self.assertEqual(model.banner_text, "N1MM agent ready — 2m")
         by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertIn("BROADCAST", by_label)
         self.assertEqual(by_label["KEY"][0], "ok")
         self.assertIn("device sim:up", by_label["KEY"][1])
         self.assertIn("DOWN", by_label["KEY"][1])
@@ -83,14 +82,20 @@ class SeatStatusModelTests(unittest.TestCase):
 
     def test_log_only_banner(self):
         model = _status_model(_log_state(), None, do_log=True, do_key=False)
-        self.assertEqual(model.banner_text, "Log ready — 2m")
+        self.assertEqual(model.banner_text, "N1MM agent ready — 2m")
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertIn("BROADCAST", by_label)
+        self.assertIn("LOG", by_label)
+        self.assertNotIn("KEY", by_label)
 
     def test_no_band_still_waits(self):
         key = _StubKeyRuntime(device="sim:down")
         model = _status_model(_log_state(band=None), key, do_log=True, do_key=True)
         self.assertEqual(model.banner_level, "warn")
-        self.assertIn("Waiting for N1MM band", model.banner_text)
-        self.assertIn("224.0.0.73:12060", model.fix_text)
+        self.assertIn("Broadcast", model.banner_text)
+        self.assertIn("127.0.0.1:12060", model.fix_text)
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertEqual(by_label["BROADCAST"][0], "warn")
 
 
 class WinComPathTests(unittest.TestCase):

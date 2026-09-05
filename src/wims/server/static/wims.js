@@ -418,16 +418,44 @@ function renderActivity(list) {
 function renderDecodes(list) {
   const body = $("dlog-body");
   if (!body) return;
-  $("dlog-empty").style.display = (list && list.length) ? "none" : "block";
-  if (!list) return;
+  _dlogData = list || [];
+  dlogDraw();
+}
+
+let _dlogData = [];
+
+function dlogDraw() {
+  const body = $("dlog-body");
+  if (!body) return;
+  const list = _dlogData || [];
+  const opsCols = !!$("ros-bands");
+  const allowed = opsCols ? rosSelectedBands() : null;
+  const rows = list.filter(e => {
+    if (!allowed) return true;
+    // Keep unknown-band lines so operators still see traffic while Status catches up.
+    if (!e.band || e.band === "?") return true;
+    return allowed.has(e.band);
+  });
+  const empty = $("dlog-empty");
+  if (empty) empty.style.display = rows.length ? "none" : "block";
   body.innerHTML = "";
-  for (const e of list) {
+  for (const e of rows) {
     const tr = document.createElement("tr");
     if (e.is_cq) tr.className = "cqrow";
-    tr.innerHTML =
-      `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td><td>${e.instance}</td>` +
-      `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
-      `<td>${esc(e.message)}</td>`;
+    if (opsCols) {
+      tr.innerHTML =
+        `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td>` +
+        `<td title="WSJT-X --rig-name / UDP id">${esc(e.instance || "—")}</td>` +
+        `<td>${esc(e.band || "—")}</td>` +
+        `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
+        `<td>${esc(e.message)}</td>`;
+    } else {
+      tr.innerHTML =
+        `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td>` +
+        `<td title="WSJT-X --rig-name / UDP id">${esc(e.instance || "—")}</td>` +
+        `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
+        `<td>${esc(e.message)}</td>`;
+    }
     body.appendChild(tr);
   }
 }
@@ -759,13 +787,13 @@ function renderInterlock(il) {
 }
 
 // GridTracker-style call roster: one row per station heard, with the score kept as a
-// column. Rows filter by need (from the N1MM log copy) and band; every header sorts,
-// and the chosen sort/filter persist across live SSE re-renders (state below).
-// Click the *line* to Work (no Work button). UTC dropped — Age is enough.
+// column. Rows filter by need (from the N1MM log copy) and band checkboxes; every
+// header sorts. Click the *line* to Work (no Work button).
 const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
+  {key:"instance",      label:"Source",  cls:"",          cell:c=>esc(c.instance||"—")},
   {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
   {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
   {key:"snr",           label:"dB",      cls:"num", num:1, cell:c=>sgn(c.snr)},
@@ -775,12 +803,12 @@ const ROS_COLS = [
   {key:"delta_az",      label:"Δaz",     cls:"num", num:1, cell:c=>c.delta_az==null?"-":c.delta_az+"°"},
   {key:"distance_km",   label:"km",      cls:"num", num:1, cell:c=>c.distance_km==null?"-":c.distance_km},
   {key:"age",           label:"Age",     cls:"num", num:1, cell:c=>age(c.age)},
-  {key:"operator_call", label:"Op",      cls:"",          cell:c=>c.operator_call||"—"},
   {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
 ];
 let _rosData = null;                              // latest roster payload
 let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
+const ROS_BANDS_KEY = "wims.ops.bands";
 
 function rosCall(c) {
   const badges =
@@ -817,6 +845,71 @@ function rosBuildHead() {
   }).join("");
 }
 
+function rosLoadBandPref() {
+  try {
+    const raw = localStorage.getItem(ROS_BANDS_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : null;
+  } catch (_) { return null; }
+}
+
+function rosSaveBandPref(bands) {
+  try { localStorage.setItem(ROS_BANDS_KEY, JSON.stringify([...bands])); }
+  catch (_) {}
+}
+
+function rosSelectedBands() {
+  const wrap = $("ros-bands");
+  if (!wrap) return null; // Status / no filter UI → all bands
+  const boxes = [...wrap.querySelectorAll('input[type="checkbox"][data-band]')];
+  if (!boxes.length) return null;
+  const on = boxes.filter(b => b.checked).map(b => b.dataset.band);
+  return new Set(on);
+}
+
+let _rosBandListKey = "";
+
+function rosSyncBandChecks(bands) {
+  const wrap = $("ros-bands");
+  if (!wrap) return;
+  const key = bands.join("|");
+  // Only rebuild when the visible band set changes (SSE ticks must not wipe clicks).
+  if (key === _rosBandListKey && wrap.querySelector("input[data-band]")) return;
+  const knownBefore = _rosBandListKey ? _rosBandListKey.split("|").filter(Boolean) : [];
+  const prev = rosSelectedBands();
+  const pref = rosLoadBandPref();
+  _rosBandListKey = key;
+  wrap.innerHTML = "";
+  if (!bands.length) {
+    wrap.innerHTML = '<span class="meta">none yet</span>';
+    return;
+  }
+  for (const b of bands) {
+    const lab = document.createElement("label");
+    lab.className = "band-check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.band = b;
+    if (prev && knownBefore.length) {
+      // Keep prior checks; newly appeared bands default on so they are noticed.
+      cb.checked = knownBefore.includes(b) ? prev.has(b) : true;
+    } else if (pref && pref.length) {
+      cb.checked = pref.includes(b);
+    } else {
+      cb.checked = true;
+    }
+    cb.addEventListener("change", () => {
+      const sel = rosSelectedBands();
+      if (sel) rosSaveBandPref(sel);
+      rosDraw();
+    });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(b));
+    wrap.appendChild(lab);
+  }
+}
+
 function rosWire() {
   if (_rosWired) return;
   _rosWired = true;
@@ -827,8 +920,8 @@ function rosWire() {
     else _rosSort = {key, dir: (ROS_COLS.find(c=>c.key===key)||{}).num ? -1 : 1};
     rosDraw();
   });
-  $("ros-needed").addEventListener("change", rosDraw);
-  $("ros-band").addEventListener("change", rosDraw);
+  const needed = $("ros-needed");
+  if (needed) needed.addEventListener("change", rosDraw);
 }
 
 function renderRoster(r) {
@@ -840,16 +933,17 @@ function renderRoster(r) {
 
 function rosDraw() {
   const r = _rosData; if (!r) return;
-  // Band filter options, preserving the current selection.
-  const sel = $("ros-band"), cur = sel.value;
   const bands = [...new Set(r.candidates.map(c => c.band).filter(Boolean))].sort();
-  sel.innerHTML = '<option value="all">all</option>' +
-    bands.map(b => `<option value="${b}">${b}</option>`).join("");
-  sel.value = bands.includes(cur) || cur === "all" ? cur : "all";
-
-  const neededOnly = $("ros-needed").checked;
-  let rows = r.candidates.filter(c =>
-    (!neededOnly || c.is_needed) && (sel.value === "all" || c.band === sel.value));
+  rosSyncBandChecks(bands);
+  const selected = rosSelectedBands();
+  const neededOnly = $("ros-needed") ? $("ros-needed").checked : false;
+  let rows = r.candidates.filter(c => {
+    if (neededOnly && !c.is_needed) return false;
+    // Unknown band ("?" / empty): keep visible so Decode-only / pre-Status
+    // instances are not hidden by the band checks.
+    if (selected && c.band && c.band !== "?" && !selected.has(c.band)) return false;
+    return true;
+  });
 
   const col = ROS_COLS.find(c => c.key === _rosSort.key) || ROS_COLS[0];
   const val = (c) => {
@@ -863,9 +957,13 @@ function rosDraw() {
   });
 
   rosBuildHead();
+  const bandNote = selected
+    ? (selected.size === bands.length ? "all bands"
+       : selected.size ? [...selected].sort().join(",") : "no bands")
+    : "all bands";
   $("ros-meta").textContent =
     `${r.needed} needed · ${r.not_needed} worked · ${r.count} heard` +
-    ` · showing ${rows.length} · strategy ${r.strategy} · band ${r.condition}`;
+    ` · showing ${rows.length} · ${bandNote}`;
   const body = $("ros-body"); body.innerHTML = "";
   $("ros-empty").style.display = rows.length ? "none" : "block";
   const canWork = !!( _txState && _txState.can_tx );
@@ -881,7 +979,7 @@ function rosDraw() {
     tr.className = classes.join(" ");
     if (c.id) tr.dataset.row = c.id;
     if (canWork) {
-      let tip = "Click to work " + (c.call || "");
+      let tip = "Click to work " + (c.call || "") + " via " + (c.instance || "?");
       if (c.is_calling_us) tip = "Calling us — " + tip;
       else if (c.is_armed) tip = "Enable Tx set for this DX — " + tip;
       tr.title = tip;
@@ -985,9 +1083,14 @@ function renderRotators(list) {
   if (!body) return;
   const rows = list || [];
   const empty = $("rot-empty");
-  if (empty) empty.style.display = rows.length ? "none" : "block";
-  // Operate has Halt/Work strip → show Stop button; Status shows source column.
+  const section = $("rot-section") || $("rot-section-status");
   const onOps = !!$("tx-halt");
+  // Hide Rotators until WIMS has seen at least one (Operate + Status overview).
+  if (section) {
+    section.style.display = rows.length ? "block" : "none";
+  } else if (empty) {
+    empty.style.display = rows.length ? "none" : "block";
+  }
   body.innerHTML = "";
   for (const r of rows) {
     const tr = document.createElement("tr");
@@ -1029,7 +1132,7 @@ function renderTxBar(tx) {
     return;
   }
   if (status) {
-    status.textContent = "Click a roster line to work · CQ in WSJT-X";
+    status.textContent = "Click a roster line to Work (answer) · call CQ in WSJT-X";
     status.className = "banner ok";
   }
   if (halt) halt.disabled = false;           // panic stop always available
@@ -1048,13 +1151,56 @@ function render(s) {
   renderRoster(s.roster);
   renderInstances(s);
   renderActivity(s.activity);
-  renderDecodes(s.decodes);
+  renderDecodes(s.decodes);                   // no-op unless #dlog-body exists
   renderSync(s.n1mm_sync);
   renderLoggers(s);
   renderSetupExtras(s.n1mm_sync, s);
 }
 
+// Status panels selected by top nav path: /overview | /wsjt | /n1mm (/status → overview)
+function statusTabFromPath() {
+  const p = (location.pathname || "/").replace(/\/$/, "") || "/";
+  if (p === "/wsjt") return "wsjt";
+  if (p === "/n1mm") return "n1mm";
+  if (p === "/overview" || p === "/status") return "overview";
+  return null; // not a status page
+}
+
+function statusShowTab(name) {
+  const allowed = ["overview", "wsjt", "n1mm"];
+  if (!allowed.includes(name)) name = "overview";
+  // Title per panel
+  const titles = {
+    overview: "WIMS — Overview",
+    wsjt: "WIMS — WSJT-X",
+    n1mm: "WIMS — N1MM",
+  };
+  try { document.title = titles[name] || "WIMS — Status"; } catch (_) {}
+  for (const id of allowed) {
+    const panel = $("panel-" + id);
+    if (!panel) continue;
+    const on = id === name;
+    panel.classList.toggle("active", on);
+    if (on) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+  }
+}
+
+function markNavActive() {
+  const nav = document.querySelector("header nav");
+  if (!nav) return;
+  let p = (location.pathname || "/").replace(/\/$/, "") || "/";
+  if (p === "/status") p = "/overview";
+  for (const a of nav.querySelectorAll("a")) {
+    let href = (a.getAttribute("href") || "").replace(/\/$/, "") || "/";
+    a.classList.toggle("active", href === p);
+  }
+}
+
 function connect() {
+  const tab = statusTabFromPath();
+  if (tab) statusShowTab(tab);
+  markNavActive();
   const es = new EventSource("/events");
   es.onopen = () => { $("conn").textContent = "● live"; $("conn").className = "up"; };
   es.onmessage = (e) => render(JSON.parse(e.data));

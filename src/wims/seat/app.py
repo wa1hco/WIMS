@@ -3,14 +3,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""SSB/CW seat agent: shared N1MM live band + optional log forward + Key inhibit.
+"""N1MM agent: Broadcast + Log + optional KEY (one process on the logger PC).
 
-  python -m wims.seat --log              # log only (same as wims.log)
-  python -m wims.seat --key              # Key only (CTS → same-band type-18)
-  python -m wims.seat --log --key        # both (contest N1MM / SSB-CW PC)
+  python -m wims.seat --log              # Broadcast + Log
+  python -m wims.seat --key              # Broadcast + KEY
+  python -m wims.seat --log --key        # all three (contest default)
 
-Live band always comes from N1MM RadioInfo (fail closed until heard).
-Key discovery: Status + InhibitStatus on the live band's multicast port.
+Sections (status UI):
+  BROADCAST — N1MM Broadcast Data (RadioInfo) on 127.0.0.1:12060 → site server
+  LOG       — fleet digi Logged QSOs → local N1MM
+  KEY       — CTS → same-band type-18 holds
+
+Live band from Broadcast RadioInfo (fail closed until heard).
+Not N1MM networking :12070.
 """
 
 from __future__ import annotations
@@ -66,7 +71,8 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         parts.append("log")
     if do_key:
         parts.append("key")
-    title = f"WIMS seat ({'+'.join(parts)}) · {band or '...'}"
+    # Product name: N1MM agent — sections Broadcast / Log / KEY.
+    title = f"WIMS N1MM agent · {band or '...'}"
 
     details: list[str] = []
     rows: list[tuple[str, str, str]] = []
@@ -74,13 +80,39 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
     banner = f"Ready — {band}" if band else "Waiting for N1MM band"
     fix = ""
 
-    radio_dest = f"{snap.get('radio_group') or 'this host'}:{snap.get('radio_port', DEFAULT_RADIO_PORT)}"
+    radio_dest = (
+        f"{snap.get('radio_group') or '0.0.0.0'}:"
+        f"{snap.get('radio_port', DEFAULT_RADIO_PORT)}"
+    )
+    # —— Broadcast (N1MM Broadcast Data → agent; later → site server) ——
     if snap.get("radio_error"):
-        level, banner = "err", "Cannot hear N1MM RadioInfo"
-        fix = str(snap["radio_error"])
+        level, banner = "err", "Cannot hear N1MM Broadcast Data"
+        fix = (
+            f"{snap['radio_error']} — N1MM Broadcast Data > Radio → "
+            f"127.0.0.1:12060 (fleet default; not Tailscale)"
+        )
+        rows.append(("err", "BROADCAST", f"{snap['radio_error']} · want {radio_dest}"))
     elif not band:
-        level, banner = "warn", "Waiting for N1MM band"
-        fix = f"Enable N1MM Broadcast Data → Radio to {radio_dest}"
+        level, banner = "warn", "Waiting for N1MM Broadcast (Radio)"
+        fix = (
+            "N1MM Broadcast Data > Radio → 127.0.0.1:12060 "
+            "(identical on every logger PC)"
+        )
+        rows.append(("warn", "BROADCAST", f"no RadioInfo yet · listen {radio_dest}"))
+    else:
+        bcast = snap.get("broadcast") or {}
+        site = bcast.get("site_url") or snap.get("site_url") or "(no WIMS_SERVER)"
+        n_bf = bcast.get("n_fwd", 0)
+        n_be = bcast.get("n_err", 0)
+        bcast_txt = (
+            f"RadioInfo · band {band} · hear {radio_dest} · "
+            f"→ site FWD {n_bf}" + (f" ERR {n_be}" if n_be else "")
+        )
+        rows.append(("ok" if n_be == 0 else "warn", "BROADCAST", bcast_txt))
+        details.append(f"[OK] Broadcast hear {radio_dest}")
+        details.append(f"Broadcast → {site}")
+        if bcast.get("last_error"):
+            details.append(f"[!] Broadcast fwd: {bcast['last_error']}")
 
     if do_log:
         counts = f"FWD {snap['n_fwd']} · DROP {snap['n_drop']} · WAIT {snap['n_wait']}"
@@ -89,7 +121,7 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
             fix = str(snap["join_error"])
             rows.append(("err", "LOG", f"multicast join failed — {snap['join_error']}"))
         elif not band:
-            rows.append(("warn", "LOG", f"waiting for N1MM band · {counts}"))
+            rows.append(("warn", "LOG", f"waiting for band · {counts}"))
         else:
             deliver = "DRY-RUN" if snap.get("dry_run") else f"→ N1MM TCP :{snap.get('tcp_port', DEFAULT_TCP_PORT)}"
             rows.append(("ok", "LOG", f"{band} · {counts} · {deliver}"))
@@ -140,14 +172,12 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         if ks.get("last_emit"):
             details.append(ks["last_emit"])
 
-    # Band known and nothing fatal: banner always names the seat + band, so
-    # log and key info stay visible together (warnings live on the fix line).
+    # Band known and nothing fatal: banner names the N1MM agent + band.
     if band and level != "err":
-        label = "Seat" if (do_key and do_log) else ("Key" if do_key else "Log")
         if level == "ok":
-            banner = f"{label} ready — {band}"
+            banner = f"N1MM agent ready — {band}"
         else:
-            banner = f"{label} — {band} · {warn_note or 'warnings (see below)'}"
+            banner = f"N1MM agent — {band} · {warn_note or 'warnings (see below)'}"
 
     return AgentStatusModel(
         title=title,
@@ -209,11 +239,20 @@ def main(argv: list[str] | None = None) -> int:
     state.expect_band = expect
     state.radio_port = args.radio_port
     state.radio_group = (args.radio_group or "").strip() or None
+    state.radio_iface = (args.iface or "0.0.0.0").strip() or "0.0.0.0"
     state.group = args.group
     state.mcast_port = args.port
     state.delivery = args.n1mm
     state.tcp_port = args.tcp_port
     state.dry_run = args.dry_run
+    from wims.log.broadcast_fwd import (
+        BroadcastForwarder, default_agent_id, default_lan_ip,
+    )
+    state.broadcast_fwd = BroadcastForwarder(
+        site_url=state.site_url,
+        agent_id=default_agent_id(),
+        lan_ip=default_lan_ip(),
+    )
     rescan(state)
 
     stop = threading.Event()

@@ -32,7 +32,9 @@
   <h1>WIMS</h1>
   <nav>
     <a href="/">Operate</a>
-    <a href="/status" class="active">Status</a>
+    <a href="/overview">Overview</a>
+    <a href="/wsjt">WSJT-X</a>
+    <a href="/n1mm">N1MM</a>
     <a href="/setup">Setup</a>
   </nav>
   <span id="conn" class="down">connecting…</span>
@@ -40,129 +42,110 @@
   <span class="meta" id="clock" style="margin-left:auto"></span>
 </header>
 <main>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 12px 0">
-    <b>Status</b> is live health: instances, loggers, RF/decode activity, operators on the wire.
-    Contest log selection and install diagnostics live under <a href="/setup">Setup</a>.
-  </p>
+  <!-- —— Overview —— -->
+  <section class="tab-panel" id="panel-overview" role="tabpanel">
+    <h2>System</h2>
+    <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
 
-  <h2>System · nodes</h2>
-  <div id="sys" class="syncrow"><span class="k">waiting…</span></div>
-
-  <h2>Band inventory (share policy)</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Per-band view of WSJT-X + N1MM known to WIMS (design §2.13).
-    <b>coordinated</b> = manual handoff (info only, no KEY inhibit).
-    <b>interlock</b> = SSB/CW priority inhibit when KEY path is configured (§2.14).
-    Toggle: <code>POST /api/band/policy</code> with
-    <code>{"band":"6m","policy":"interlock"}</code> or start with
-    <code>--interlock-band 6m</code>.
-  </p>
-  <table id="band-inv">
-    <thead><tr>
-      <th>Band</th><th>Policy</th><th class="num">WSJT</th><th>WSJT ids</th>
-      <th>TX now</th><th class="num">N1MM</th><th>Loggers</th>
-      <th class="num">SSB/KEY</th>
-    </tr></thead>
-    <tbody id="band-inv-body"></tbody>
-  </table>
-  <div id="band-inv-empty" class="empty">No bands yet — waiting for WSJT-X / N1MM traffic…</div>
-
-  <h2>Seat agents (config / host audit)</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Reports from <code>wims.agent</code> on each station PC (WSJT-X.ini, N1MM presence).
-    Not live RF — that is the instances table below. Local operator UI on the seat is
-    <code>http://127.0.0.1:8790/</code>.
-  </p>
-  <table id="agents">
-    <thead><tr>
-      <th>Agent / seat</th><th>Host</th><th>Health</th><th>Severity</th>
-      <th class="num">Age</th><th class="num">WSJT err</th><th>Processes</th><th>Message</th>
-    </tr></thead>
-    <tbody id="agents-body"></tbody>
-  </table>
-  <div id="agents-empty" class="empty">
-    No seat agents reporting. One-shot:
-    <code>python -m wims.agent --server http://&lt;this-server&gt;:8787</code>
-    · Continuous: <code>--daemon</code> or <code>Start-WimsAgent-Continuous.cmd</code>
-  </div>
-
-  <h2>WSJT-X instances</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    <b>N1MM log</b> = logger-of-record inferred for this band (station name @ host IP from
-    live N1MM broadcasts). One N1MM should own each band’s WSJT stream.
-  </p>
-  <table id="inst">
-    <thead><tr>
-      <th>ID</th><th>Host</th><th>Band</th><th>N1MM log</th><th>Policy</th><th>Mode</th><th>Freq (MHz)</th>
-      <th>State</th><th class="num">Dec/p</th><th class="num">LastDec</th>
-      <th class="num">HB</th><th>Health</th>
-    </tr></thead>
-    <tbody id="inst-body"></tbody>
-  </table>
-  <div id="inst-empty" class="empty">waiting for WSJT-X traffic…</div>
-
-  <h2>Rotators (Az ant)</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Live antenna heading from seat agent or <code>--sim-rotator</code>. Click-to-point on Operate (Az DX).
-  </p>
-  <table id="rot">
-    <thead><tr>
-      <th>Rotator</th><th class="num">Az</th><th class="num">Target</th>
-      <th>Motion</th><th>Health</th><th>Instances</th><th>Source</th>
-    </tr></thead>
-    <tbody id="rot-body"></tbody>
-  </table>
-  <div id="rot-empty" class="empty">No rotators reporting.</div>
-
-  <h2>N1MM sync (live UDP + file resync)</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 4px 0">
-    Live feed = Contacts UDP. Full rebuild from the N1MM <code>.s3db</code> is
-    <a href="/setup">Setup → Resync log</a>.
-  </p>
-  <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
-  <div id="status-contest-line" class="meta" style="margin:4px 0 8px 0"></div>
-
-  <h2>N1MM network view</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Mirrors “who is on the LAN” (like N1MM Network Status): each N1MM station, its host,
-    bands seen, and <b>which WSJT-X instances log to it</b>.
-    One N1MM may take several WSJT streams (e.g. multi-beam 6&nbsp;m); some N1MMs have
-    <b>no</b> WSJT (SSB/CW-only or not yet reading). WSJT with no matched logger listed below.
-  </p>
-  <div id="n1mm-net-summary" class="syncrow" style="margin-bottom:6px"></div>
-  <table id="log">
-    <thead><tr>
-      <th>Station</th><th>Host</th><th>MyCall</th><th>Role</th>
-      <th>Bands</th><th>WSJT logging here</th><th class="num">#</th>
-      <th>Seen</th><th class="num">QSOs</th><th>Last QSO</th>
-    </tr></thead>
-    <tbody id="log-body"></tbody>
-  </table>
-  <div id="log-empty" class="empty">
-    No N1MM broadcasts heard yet. Enable
-    <b>Config → Configure Ports → Broadcast Data</b> → Radio + Contacts →
-    WIMS host or multicast <code>:12060</code>.
-    Historical dupe/mult log is chosen under <a href="/setup">Setup → Contest log</a>.
-  </div>
-  <div id="n1mm-unbound-wrap" style="margin-top:8px;display:none">
-    <h3 style="font-size:12px;margin:0 0 4px;color:var(--dim)">WSJT-X with no N1MM logger match</h3>
-    <div id="n1mm-unbound" class="meta" style="white-space:normal"></div>
-  </div>
-
-  <h2>Decode activity (audio-freq × cycle × SNR)</h2>
-  <div id="amap-wrap" class="amap-wrap"></div>
-  <div id="amap-empty" class="empty">no instances yet…</div>
-
-  <h2>Decode log</h2>
-  <div class="logwrap">
-    <table id="dlog">
+    <h2>Bands</h2>
+    <p class="hint">
+      Share policy per band: <b>coordinated</b> = manual handoff;
+      <b>interlock</b> = SSB/CW KEY priority when configured.
+    </p>
+    <table id="band-inv">
       <thead><tr>
-        <th>Time</th><th>Inst</th><th class="num">dB</th><th class="num">dF</th><th>Message</th>
+        <th>Band</th><th>Policy</th><th class="num">WSJT</th><th>WSJT ids</th>
+        <th>TX now</th><th class="num">N1MM</th><th>Loggers</th>
+        <th class="num">SSB/KEY</th>
       </tr></thead>
-      <tbody id="dlog-body"></tbody>
+      <tbody id="band-inv-body"></tbody>
     </table>
-  </div>
-  <div id="dlog-empty" class="empty">no decodes yet…</div>
+    <div id="band-inv-empty" class="empty">No bands yet…</div>
+
+    <h2>Agents</h2>
+    <p class="hint">
+      Host reports (WSJT monitor / N1MM agent). Contest log under
+      <a href="/setup">Setup</a>.
+    </p>
+    <table id="agents">
+      <thead><tr>
+        <th>Agent</th><th>Host</th><th>Health</th><th>Severity</th>
+        <th class="num">Age</th><th class="num">WSJT err</th><th>Processes</th><th>Message</th>
+      </tr></thead>
+      <tbody id="agents-body"></tbody>
+    </table>
+    <div id="agents-empty" class="empty">No agents reporting.</div>
+
+    <div id="rot-section-status">
+      <h2>Rotators</h2>
+      <table id="rot" class="tight">
+        <thead><tr>
+          <th>Rotator</th><th class="num">Az</th><th class="num">Target</th>
+          <th>Motion</th><th>Health</th><th>Instances</th><th>Source</th>
+        </tr></thead>
+        <tbody id="rot-body"></tbody>
+      </table>
+      <div id="rot-empty" class="empty">No rotators reporting.</div>
+    </div>
+  </section>
+
+  <!-- —— WSJT-X —— -->
+  <section class="tab-panel" id="panel-wsjt" role="tabpanel" hidden>
+    <h2>Instances</h2>
+    <p class="hint">
+      Live WSJT-X on the fleet multicast. <b>N1MM log</b> = inferred logger-of-record for that band.
+    </p>
+    <table id="inst">
+      <thead><tr>
+        <th>ID</th><th>Host</th><th>Band</th><th>N1MM log</th><th>Policy</th><th>Mode</th><th>Freq (MHz)</th>
+        <th>State</th><th class="num">Dec/p</th><th class="num">LastDec</th>
+        <th class="num">HB</th><th>Health</th>
+      </tr></thead>
+      <tbody id="inst-body"></tbody>
+    </table>
+    <div id="inst-empty" class="empty">waiting for WSJT-X traffic…</div>
+
+    <h2>Decode activity</h2>
+    <p class="hint">Audio-freq × cycle × SNR per instance.</p>
+    <div id="amap-wrap" class="amap-wrap"></div>
+    <div id="amap-empty" class="empty">no instances yet…</div>
+  </section>
+
+  <!-- —— N1MM —— -->
+  <section class="tab-panel" id="panel-n1mm" role="tabpanel" hidden>
+    <h2>Sync</h2>
+    <p class="hint">
+      Live presence from Broadcast Data (often via N1MM agent on
+      <code>127.0.0.1:12060</code>). Contest file resync:
+      <a href="/setup">Setup</a>.
+    </p>
+    <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
+    <div id="status-contest-line" class="meta" style="margin:4px 0 8px 0"></div>
+
+    <h2>Network view</h2>
+    <p class="hint">
+      Each live N1MM station and which WSJT-X instances log to it.
+      Silent loggers drop off in ~2&nbsp;min.
+    </p>
+    <div id="n1mm-net-summary" class="syncrow" style="margin-bottom:6px"></div>
+    <table id="log">
+      <thead><tr>
+        <th>Station</th><th>Host</th><th>MyCall</th><th>Role</th>
+        <th>Bands</th><th>WSJT logging here</th><th class="num">#</th>
+        <th>Seen</th><th class="num">QSOs</th><th>Last QSO</th>
+      </tr></thead>
+      <tbody id="log-body"></tbody>
+    </table>
+    <div id="log-empty" class="empty">
+      No live N1MM loggers. On each logger PC: Broadcast Data →
+      <code>127.0.0.1:12060</code> and run the <b>N1MM agent</b> with
+      <code>WIMS_SERVER</code> set.
+    </div>
+    <div id="n1mm-unbound-wrap" style="margin-top:8px;display:none">
+      <h3 style="font-size:12px;margin:0 0 4px;color:var(--dim)">WSJT-X with no N1MM logger match</h3>
+      <div id="n1mm-unbound" class="meta" style="white-space:normal"></div>
+    </div>
+  </section>
 </main>
 <script src="/wims.js"></script>
 </body>

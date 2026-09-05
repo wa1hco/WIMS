@@ -36,17 +36,18 @@ def _ui_font(size: int = 12, weight: str = "normal") -> tuple:
 
 # intent_id -> (label, agent blurb, tip)
 _INTENT_ROWS = (
-    (INTENT_N1MM, "N1MM", "→ seat Log",
-     "This PC will run N1MM. WIMS starts the seat Log path "
-     "(fleet Logged QSOs → local N1MM; shared band with KEY if both checked)."),
+    (INTENT_N1MM, "N1MM", "→ N1MM agent Log + Broadcast",
+     "This PC will run N1MM. WIMS starts the N1MM agent: "
+     "Broadcast (RadioInfo on 127.0.0.1:12060 → site later) and "
+     "Log (fleet digi QSOs → local N1MM). Shared band with KEY if both checked."),
     (INTENT_WSJT, "WSJT-X", "→ WSJT monitor",
      "This PC will run WSJT-X (one or more instances). "
      "WIMS starts one monitor agent that audits all live instances."),
-    (INTENT_SSB_CW, "SSB/CW KEY", "→ seat Key (same-band inhibit)",
-     "This PC has an SSB/CW KEY/CTS interface. With N1MM, WIMS runs one seat "
-     "process (shared live band). Key holds digi seats on that band "
-     "(Status + InhibitStatus discovery, or WIMS_KEY_TARGETS). "
-     "Set WIMS_KEY_DEVICE for the CTS path."),
+    (INTENT_SSB_CW, "SSB/CW KEY", "→ N1MM agent KEY",
+     "This PC has an SSB/CW KEY/CTS interface. With N1MM, WIMS runs one "
+     "N1MM agent (Broadcast / Log / KEY). Key holds digi seats on the live band "
+     "(InhibitStatus discovery, or WIMS_KEY_TARGETS). "
+     "Pick the KEY COM/tty below."),
     (INTENT_SERVER, "Site server", "→ Site console",
      "Optional: run the fleet site server on this PC (:8787). "
      "Only one site server on the LAN — adopts existing if already up."),
@@ -65,10 +66,19 @@ class AgentHomePanel:
         on_intent_toggle: Callable[[str], None],
         on_open_site: Callable[[], None],
         on_open_local: Callable[[], None],
+        key_device_var: Any | None = None,
+        on_key_device_change: Callable[[], None] | None = None,
+        on_refresh_key_ports: Callable[[], None] | None = None,
     ) -> None:
         self.tk = tk
         self._intent_vars = intent_vars
         self._run_labels: dict[str, Any] = {}
+        self._key_device_var = key_device_var
+        self._on_key_device_change = on_key_device_change
+        self._on_refresh_key_ports = on_refresh_key_ports
+        self._key_cts_var: Any | None = None
+        self._key_combo = None
+        self._key_row = None
 
         # —— Running (read-only) ——
         run_fr = tk.LabelFrame(
@@ -79,9 +89,9 @@ class AgentHomePanel:
         for key, title in (
             ("n1mm", "N1MM"),
             ("wsjt", "WSJT-X"),
-            ("log", "Log agent"),
-            ("seat", "Seat agent"),
-            ("key", "Key agent"),
+            ("log", "N1MM agent (Log)"),
+            ("seat", "WSJT monitor"),
+            ("key", "N1MM agent (KEY)"),
             ("server", "Site server"),
         ):
             row = tk.Frame(run_fr, bg="#f4f4f4")
@@ -124,6 +134,64 @@ class AgentHomePanel:
                 anchor="w",
             ).pack(side="left", padx=(4, 0))
             ToolTip(cb, tip)
+
+        # KEY device row (shown when SSB/CW KEY intent is on).
+        if key_device_var is not None:
+            key_row = tk.Frame(intent_fr, bg="#f4f4f4")
+            key_row.pack(fill="x", pady=(4, 0))
+            self._key_row = key_row
+            tk.Label(
+                key_row, text="KEY device", font=_ui_font(11),
+                bg="#f4f4f4", fg="#333333", width=14, anchor="w",
+            ).pack(side="left")
+            try:
+                from tkinter import ttk
+                combo = ttk.Combobox(
+                    key_row, textvariable=key_device_var, width=28,
+                    font=_ui_font(11),
+                )
+                combo.pack(side="left", padx=(0, 4))
+                combo.bind(
+                    "<<ComboboxSelected>>",
+                    lambda _e: on_key_device_change() if on_key_device_change else None,
+                )
+                combo.bind(
+                    "<FocusOut>",
+                    lambda _e: on_key_device_change() if on_key_device_change else None,
+                )
+                self._key_combo = combo
+            except Exception:
+                ent = tk.Entry(
+                    key_row, textvariable=key_device_var, width=30,
+                    font=_ui_font(11),
+                )
+                ent.pack(side="left", padx=(0, 4))
+                ent.bind(
+                    "<FocusOut>",
+                    lambda _e: on_key_device_change() if on_key_device_change else None,
+                )
+            refresh_btn = tk.Button(
+                key_row, text="Refresh", font=_ui_font(10),
+                command=(on_refresh_key_ports or (lambda: None)),
+                padx=6, pady=1,
+            )
+            refresh_btn.pack(side="left", padx=(0, 6))
+            ToolTip(
+                refresh_btn,
+                "Rescan serial ports (USB KEY dongle plug/unplug).",
+            )
+            self._key_cts_var = tk.StringVar(value="CTS: —")
+            cts_lbl = tk.Label(
+                key_row, textvariable=self._key_cts_var,
+                font=_ui_font(10), bg="#f4f4f4", fg="#555555",
+                anchor="w",
+            )
+            cts_lbl.pack(side="left", fill="x", expand=True)
+            ToolTip(
+                cts_lbl,
+                "Live CTS sample when KEY intent is on and the seat is not "
+                "holding the port. Seat agent owns the port while Key is running.",
+            )
 
         tk.Label(
             intent_fr,
@@ -192,6 +260,39 @@ class AgentHomePanel:
             self._run_labels["server"].set("up")
         else:
             self._run_labels["server"].set("off")
+
+    def set_key_port_choices(self, ports: list[str]) -> None:
+        """Update KEY device combobox values; keep current selection if still listed."""
+        if self._key_combo is None:
+            return
+        cur = ""
+        if self._key_device_var is not None:
+            cur = (self._key_device_var.get() or "").strip()
+        values = list(ports)
+        if cur and cur not in values:
+            values = [cur] + values
+        try:
+            self._key_combo["values"] = values
+        except Exception:
+            pass
+
+    def set_key_cts_status(self, text: str) -> None:
+        if self._key_cts_var is not None:
+            self._key_cts_var.set(text)
+
+    def show_key_device_row(self, visible: bool) -> None:
+        """KEY row stays packed (order-stable); dim when SSB/CW intent is off."""
+        if self._key_row is None:
+            return
+        fg = "#333333" if visible else "#999999"
+        try:
+            for child in self._key_row.winfo_children():
+                try:
+                    child.configure(fg=fg)
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     # Compat name used by older app.py call sites during transition.
     def update_asset_labels(self, snap: AssetSnapshot) -> None:

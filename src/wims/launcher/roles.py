@@ -128,17 +128,17 @@ ROLES: tuple[Role, ...] = (
     ),
     Role(
         id="n1mm_seat",
-        title="N1MM / SSB-CW seat",
-        summary="On the N1MM PC: shared live band (RadioInfo). "
-                "Log forward and/or KEY→same-band type-18 inhibit.",
+        title="N1MM agent",
+        summary="On the N1MM PC: Broadcast + Log + optional KEY (one process).",
         tooltip=(
-            "One process for the SSB/CW logger PC.\n\n"
-            "Band from N1MM RadioInfo. --log forwards digi QSOs to local N1MM; "
-            "--key senses CTS and holds digi seats on that band (Status + "
-            "InhibitStatus discovery, or WIMS_KEY_TARGETS override).\n\n"
+            "N1MM agent — three sections:\n"
+            "  Broadcast — hear N1MM Broadcast Data (RadioInfo) on 127.0.0.1:12060; "
+            "report presence to the site server\n"
+            "  Log — fleet digi Logged QSOs → local N1MM (:52001/:2333)\n"
+            "  KEY — CTS → same-band type-18 holds\n\n"
             "Launcher intents N1MM and SSB/CW KEY start this with the right flags."
         ),
-        button="Start seat agent",
+        button="Start N1MM agent",
         recommended=True,
         long_running=True,
         build_argv=lambda want_log=True, want_key=False, band=None, gui=True, **_: (
@@ -147,10 +147,10 @@ ROLES: tuple[Role, ...] = (
     ),
     Role(
         id="log",
-        title="Log agent (escape)",
-        summary="Log-only seat (--log). Prefer N1MM intent in the launcher.",
+        title="N1MM agent Log-only (escape)",
+        summary="Log-only (--log). Prefer N1MM intent in the launcher.",
         tooltip="Escape hatch: python -m wims.seat --log (or wims.log).",
-        button="Start log agent",
+        button="Start Log-only",
         recommended=False,
         advanced=True,
         long_running=True,
@@ -158,13 +158,14 @@ ROLES: tuple[Role, ...] = (
     ),
     Role(
         id="key",
-        title="Key agent (escape)",
-        summary="Key-only seat (--key). Prefer SSB/CW KEY intent in the launcher.",
+        title="N1MM agent KEY-only (escape)",
+        summary="KEY-only (--key). Prefer SSB/CW KEY intent in the launcher.",
         tooltip=(
             "Escape hatch: python -m wims.seat --key.\n"
-            "Set WIMS_KEY_DEVICE; targets from discovery or WIMS_KEY_TARGETS."
+            "KEY device from launcher (WIMS_KEY_DEVICE); targets from discovery "
+            "or WIMS_KEY_TARGETS."
         ),
-        button="Start Key agent",
+        button="Start KEY-only",
         recommended=False,
         advanced=True,
         long_running=True,

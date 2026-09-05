@@ -85,6 +85,21 @@ class CtsSource:
             return
         self._handle = int(handle)
 
+    def close(self) -> None:
+        if self._fd is not None:
+            try:
+                os.close(self._fd)
+            except OSError:
+                pass
+            self._fd = None
+        if self._handle is not None:
+            try:
+                import ctypes
+                ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(self._handle)
+            except Exception:
+                pass
+            self._handle = None
+
     def read(self) -> bool:
         if self._sim is not None:
             return self._sim

@@ -92,9 +92,31 @@ tr.armed td.score { color:var(--alive); }
 .badge.rover { background:#fff1e5; color:var(--quiet); }
 .badge.callus { background:#ffcccc; color:#a40e26; font-weight:bold; }
 .badge.armed { background:#dafbe1; color:#1a7f37; font-weight:bold; }
-.controls { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:4px 0 6px; }
+.controls { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:4px 0 6px; }
 .controls label { color:var(--dim); font-size:12px; display:flex; align-items:center; gap:4px; }
 .controls select { font:inherit; font-size:12px; padding:1px 4px; }
+.band-label { color:var(--dim); font-size:12px; }
+.band-checks { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.band-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:3px;
+              padding:1px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); }
+.hint { font-size:12px; color:var(--dim); margin:0 0 8px 0; max-width:72rem; }
+.subnav { display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line); padding-bottom:0; }
+.subnav .tab {
+  font:inherit; font-size:13px; color:var(--dim); background:transparent;
+  border:1px solid transparent; border-bottom:none; border-radius:6px 6px 0 0;
+  padding:6px 14px; cursor:pointer; margin-bottom:-1px;
+}
+.subnav .tab:hover { color:var(--text); background:#eaeef2; }
+.subnav .tab.active {
+  color:var(--accent); font-weight:600; background:var(--panel);
+  border-color:var(--line); border-bottom-color:var(--panel);
+}
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+.swatch { padding:0 4px; border-radius:3px; }
+.swatch.calling-us { background:#ffd6d6; color:var(--text); }
+.swatch.armed { background:#e3f5e8; color:var(--text); }
+.logwrap { max-height:280px; overflow:auto; border:1px solid var(--line); background:var(--panel); }
 th[data-key] { cursor:pointer; user-select:none; }
 th[data-key]:hover { color:var(--text); }
 th.sort { color:var(--accent); font-weight:bold; }
