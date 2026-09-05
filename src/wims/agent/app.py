@@ -49,7 +49,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wims.agent.export import export_report  # noqa: E402
-from wims.agent.report import build_report, format_report_text  # noqa: E402
+from wims.agent.report import build_report, format_report_text, format_wsjtx_html_table  # noqa: E402
 
 # Presence is optional at import time so a half-updated tree still runs the scan.
 try:
@@ -252,9 +252,10 @@ def _page_html(state: AgentState) -> bytes:
     exp = state.get_export()
     scanning = not bool(rep)
     text = (
-        format_report_text(rep) if rep
+        format_report_text(rep, skip_wsjtx=True) if rep
         else "Scanning this PC… page will update automatically."
     )
+    wsjt_table = format_wsjtx_html_table(rep) if rep else ""
     s = rep.get("summary") or {}
     sev = s.get("severity", "busy" if scanning else "unknown")
     msg = s.get("message") or ("Starting — please wait" if scanning else "")
@@ -323,6 +324,14 @@ def _page_html(state: AgentState) -> bytes:
   .ln.ok {{ color:#1a7f37; font-weight:600; }}
   .ln.warn {{ color:#9a6700; font-weight:600; }}
   .ln.err {{ color:#cf222e; font-weight:600; }}
+  h2.sec {{ font-size:12px; text-transform:uppercase; letter-spacing:1px; color:#656d76;
+            margin:12px 0 6px; }}
+  table.wsjt {{ width:100%; border-collapse:collapse; background:#fff;
+                border:1px solid #d0d7de; font-size:12px; }}
+  table.wsjt th, table.wsjt td {{ text-align:left; padding:4px 8px;
+                border-bottom:1px solid #d0d7de; white-space:nowrap; }}
+  table.wsjt th {{ color:#656d76; font-weight:normal; background:#f6f8fa; }}
+  table.wsjt td.mono {{ font-variant-numeric:tabular-nums; }}
   .meta {{ color:#656d76; font-size:12px; margin:6px 0; }}
   a {{ color:#0969da; }}
   .bar {{ display:flex; gap:12px; flex-wrap:wrap; margin:8px 0; align-items:center; }}
@@ -350,6 +359,8 @@ def _page_html(state: AgentState) -> bytes:
     <form method="post" action="/discover"><button type="submit">Find site server</button></form>
     <form method="post" action="/check-update"><button type="submit">Check for updates</button></form>
   </div>
+  <h2 class="sec">WSJT-X</h2>
+  {wsjt_table}
   <pre class="report">{report_html}</pre>
   <p class="meta">This is the seat agent, not the site server. Open the site console via the
   links above (discovered on the LAN) — no IP to remember.</p>

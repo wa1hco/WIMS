@@ -590,8 +590,191 @@ def build_report(
     }
 
 
-def format_report_text(report: dict) -> str:
-    """Human-readable text for console / local page."""
+def _wsjtx_shown(wx: dict, apps: dict) -> tuple[list[dict], int, bool]:
+    """Live configs to show, unused count, and whether WSJT-X looks stopped."""
+    configs = wx.get("configs") or []
+    shown = [c for c in configs if c.get("running")]
+    rn = wx.get("running_names")
+    known_stopped = (apps.get("wsjtx_running") is False) or (rn == [])
+    if not shown and configs and not known_stopped:
+        shown = [c for c in configs if c.get("name") == "(active/default)"]
+        if not shown:
+            shown = [
+                c for c in configs
+                if str(c.get("udp_server") or "").startswith("224.")
+            ][:1]
+        if not shown:
+            shown = configs[:1]
+    idle_n = max(0, len(configs) - len(shown))
+    if known_stopped and not shown:
+        idle_n = 0
+    return shown, idle_n, known_stopped
+
+
+def _wsjtx_rig_label(c: dict) -> str:
+    name = (c.get("name") or "?").strip()
+    if name in ("(active/default)", "WSJT-X", "wsjtx"):
+        return "default"
+    if name.lower().startswith("wsjt-x - "):
+        return name[9:].strip() or "default"
+    return name
+
+
+def _wsjtx_accept_label(c: dict) -> str:
+    v = str(c.get("accept_udp") or "").strip().lower()
+    if v in ("true", "1", "yes", "on"):
+        return "yes"
+    if v in ("false", "0", "no", "off"):
+        return "no"
+    return v or "-"
+
+
+def _wsjtx_note(c: dict) -> str:
+    """One short note for the table (worst issue severity)."""
+    issues = c.get("issues") or []
+    if not issues:
+        return "ok"
+    order = {"error": 0, "warn": 1, "info": 2}
+    best = min(issues, key=lambda i: order.get(i.get("severity"), 9))
+    sev = best.get("severity") or "info"
+    msg = (best.get("message") or "").strip()
+    # Keep the cell short — full text still in Details / hover via HTML title.
+    if sev == "error":
+        return "ERROR"
+    if sev == "warn":
+        return "WARN"
+    if "outgoing interface" in msg.lower() or "contest lan" in msg.lower():
+        return "check iface"
+    return "info"
+
+
+def _format_wsjtx_table_lines(
+    shown: list[dict],
+    idle_n: int,
+    known_stopped: bool,
+    wx: dict,
+) -> list[str]:
+    """Fixed-column WSJT-X table for console / local status."""
+    lines: list[str] = []
+    configs = wx.get("configs") or []
+    if not configs:
+        lines.append("  (no WSJT-X configs found)")
+        return lines
+    if known_stopped and not shown:
+        lines.append("  (WSJT-X not running on this PC)")
+        lines.append(
+            f"  ({len(configs)} profile(s) on disk — start WSJT-X to audit live)"
+        )
+        return lines
+
+    # Column widths tuned for common fleet names without wrapping in a 100-char terminal.
+    hdr = (
+        f"  {'Rig':<16} {'Call':<8} {'Grid':<6} {'UDP':<18} "
+        f"{'Iface':<14} {'Acc':<3} {'Note':<12}"
+    )
+    sep = (
+        f"  {'-'*16} {'-'*8} {'-'*6} {'-'*18} "
+        f"{'-'*14} {'-'*3} {'-'*12}"
+    )
+    lines.append(hdr)
+    lines.append(sep)
+    for c in shown:
+        udp = f"{c.get('udp_server') or '-'}:{c.get('udp_port') or '-'}"
+        iface = (c.get("udp_iface") or "(empty)").strip() or "(empty)"
+        lines.append(
+            f"  {_wsjtx_rig_label(c)[:16]:<16} "
+            f"{(c.get('my_call') or '-')[:8]:<8} "
+            f"{(c.get('my_grid') or '-')[:6]:<6} "
+            f"{udp[:18]:<18} "
+            f"{iface[:14]:<14} "
+            f"{_wsjtx_accept_label(c)[:3]:<3} "
+            f"{_wsjtx_note(c)[:12]:<12}"
+        )
+    # Issue details under the table (full text, one per line — not in the wide row).
+    detail_lines: list[str] = []
+    for c in shown:
+        for iss in c.get("issues") or []:
+            if iss.get("severity") == "info" and _wsjtx_note(c) in ("ok", "check iface", "info"):
+                # Collapse routine iface info — table Note already says check iface.
+                if "outgoing interface" in (iss.get("message") or "").lower():
+                    continue
+            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
+            detail_lines.append(
+                f"  {tag} {_wsjtx_rig_label(c)}: [{iss['severity']}] {iss['message']}"
+            )
+    if detail_lines:
+        lines.append("")
+        lines.extend(detail_lines)
+    if idle_n:
+        lines.append(f"  ({idle_n} unused profile(s) on disk — not shown)")
+    for iss in wx.get("issues") or []:
+        lines.append(f"  !! [{iss['severity']}] {iss['message']}")
+    return lines
+
+
+def format_wsjtx_html_table(report: dict) -> str:
+    """HTML table for the local status page (no long wrapping lines)."""
+    import html as _html
+
+    wx = report.get("wsjtx") or {}
+    apps = report.get("apps") or {}
+    shown, idle_n, known_stopped = _wsjtx_shown(wx, apps)
+    configs = wx.get("configs") or []
+    if not configs:
+        return "<p class=\"meta\">No WSJT-X configs found.</p>"
+    if known_stopped and not shown:
+        return (
+            "<p class=\"meta\">WSJT-X not running on this PC "
+            f"({len(configs)} profile(s) on disk).</p>"
+        )
+
+    rows = []
+    for c in shown:
+        udp = f"{_html.escape(str(c.get('udp_server') or '-'))}:" \
+              f"{_html.escape(str(c.get('udp_port') or '-'))}"
+        iface = _html.escape((c.get("udp_iface") or "(empty)").strip() or "(empty)")
+        note = _wsjtx_note(c)
+        note_cls = {
+            "ok": "ok", "ERROR": "err", "WARN": "warn",
+            "check iface": "warn", "info": "warn",
+        }.get(note, "")
+        # Full issue text as title tooltip on the Note cell.
+        tips = "; ".join(
+            f"{i.get('severity')}: {i.get('message')}"
+            for i in (c.get("issues") or [])
+        )
+        title = f" title=\"{_html.escape(tips)}\"" if tips else ""
+        src = _html.escape(str(c.get("source") or ""))
+        rows.append(
+            "<tr>"
+            f"<td title=\"{src}\">{_html.escape(_wsjtx_rig_label(c))}</td>"
+            f"<td>{_html.escape(str(c.get('my_call') or '-'))}</td>"
+            f"<td>{_html.escape(str(c.get('my_grid') or '-'))}</td>"
+            f"<td class=\"mono\">{udp}</td>"
+            f"<td class=\"mono\">{iface}</td>"
+            f"<td>{_html.escape(_wsjtx_accept_label(c))}</td>"
+            f"<td class=\"ln {note_cls}\"{title}>{_html.escape(note)}</td>"
+            "</tr>"
+        )
+    foot = ""
+    if idle_n:
+        foot = f"<p class=\"meta\">{idle_n} unused profile(s) on disk — not shown.</p>"
+    return (
+        "<table class=\"wsjt\">"
+        "<thead><tr>"
+        "<th>Rig</th><th>Call</th><th>Grid</th><th>UDP</th>"
+        "<th>Iface</th><th>Acc</th><th>Note</th>"
+        "</tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody></table>"
+        f"{foot}"
+    )
+
+
+def format_report_text(report: dict, *, skip_wsjtx: bool = False) -> str:
+    """Human-readable text for console / local page.
+
+    ``skip_wsjtx=True`` omits the WSJT-X block (local status page renders it as HTML).
+    """
     lines: list[str] = []
     h = report.get("host") or {}
     s = report.get("summary") or {}
@@ -624,52 +807,15 @@ def format_report_text(report: dict) -> str:
     lines.append(f"SUMMARY [{mark}]: {s.get('message', '')}")
     lines.append("")
 
-    wx = report.get("wsjtx") or {}
-    lines.append("WSJT-X")
-    lines.append("-" * 48)
-    configs = wx.get("configs") or []
-    # Operator view: only the live instance(s). Never dump every on-disk ini.
-    shown = [c for c in configs if c.get("running")]
-    rn = wx.get("running_names")
-    known_stopped = (apps.get("wsjtx_running") is False) or (rn == [])
-    if not shown and configs and not known_stopped:
-        # Process list unknown — show default / multicast profile for audit only.
-        shown = [c for c in configs if c.get("name") == "(active/default)"]
-        if not shown:
-            shown = [
-                c for c in configs
-                if str(c.get("udp_server") or "").startswith("224.")
-            ][:1]
-        if not shown:
-            shown = configs[:1]
-    idle_n = max(0, len(configs) - len(shown))
-    if not configs:
-        lines.append("  (no WSJT-X configs found)")
-    elif known_stopped and not shown:
-        lines.append("  (WSJT-X not running on this PC)")
-        if configs:
-            lines.append(
-                f"  ({len(configs)} profile(s) on disk — start WSJT-X to audit live)"
-            )
-        idle_n = 0  # already described above
-    for c in shown:
-        lines.append(f"  [{c.get('name')}]  ({c.get('source')})")
-        lines.append(
-            f"    UDP {c.get('udp_server') or '-'}:{c.get('udp_port') or '-'} "
-            f"iface={c.get('udp_iface') or '(empty)'} "
-            f"acceptUDP={c.get('accept_udp') or '-'}"
-        )
-        lines.append(f"    Stn {c.get('my_call') or '-'} / {c.get('my_grid') or '-'}")
-        for iss in c.get("issues") or []:
-            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
-            lines.append(f"    {tag} [{iss['severity']}] {iss['message']}")
-    if idle_n:
-        lines.append(f"  ({idle_n} unused profile(s) on disk — not shown)")
-    for iss in wx.get("issues") or []:
-        lines.append(f"  !! [{iss['severity']}] {iss['message']}")
+    if not skip_wsjtx:
+        wx = report.get("wsjtx") or {}
+        lines.append("WSJT-X")
+        lines.append("-" * 48)
+        shown, idle_n, known_stopped = _wsjtx_shown(wx, apps)
+        lines.extend(_format_wsjtx_table_lines(shown, idle_n, known_stopped, wx))
+        lines.append("")
 
     n1 = report.get("n1mm") or {}
-    lines.append("")
     if apps.get("n1mm_running"):
         # Full section only when Logger+ is actually running on this PC.
         lines.append("N1MM")
