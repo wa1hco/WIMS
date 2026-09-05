@@ -110,7 +110,7 @@ On the same PC as N1MM:
 
 ### 3d. Contest log file (dupe/mult seed)
 
-WIMS reads `.s3db` on the **site server** machine (Setup → pick contest / Resync).  
+WIMS reads `.s3db` on the **site server** machine (**N1MM** tab → pick contest / Resync).  
 Copy the open log onto the server if N1MM runs elsewhere.
 
 ---
@@ -146,7 +146,7 @@ Lab without hardware: device `sim:up` / `sim:down`.
 | Roster fills | **Operate** `/` |
 | Digi instances alive | **WSJT-X** `/wsjt` |
 | Both N1MMs listed | **N1MM** `/n1mm` (needs agent + `127.0.0.1:12060`) |
-| Contest log / resync | **Setup** `/setup` |
+| Contest log / resync | **N1MM** `/n1mm` |
 | Band policy / agents | **Overview** `/overview` |
 
 **Work** = click a roster line (answer). **Call CQ** = in WSJT-X, not WIMS.

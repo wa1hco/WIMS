@@ -99,6 +99,23 @@ tr.armed td.score { color:var(--alive); }
 .band-checks { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .band-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:3px;
               padding:1px 6px; border:1px solid var(--line); border-radius:4px; background:var(--panel); }
+.ros-cols-menu { position:relative; font-size:12px; color:var(--dim); }
+.ros-cols-menu > summary {
+  cursor:pointer; list-style:none; padding:1px 8px; border:1px solid var(--line);
+  border-radius:6px; background:var(--panel); user-select:none;
+}
+.ros-cols-menu > summary::-webkit-details-marker { display:none; }
+.ros-cols-menu > summary:hover { color:var(--text); background:#eef4fb; }
+.ros-cols-menu[open] > summary { color:var(--accent); border-color:#54aeff66; }
+.ros-cols-menu .col-checks {
+  position:absolute; z-index:20; top:calc(100% + 4px); left:0;
+  display:grid; grid-template-columns:1fr 1fr; gap:2px 12px;
+  min-width:220px; padding:8px 10px; background:var(--panel);
+  border:1px solid var(--line); border-radius:6px;
+  box-shadow:0 4px 14px rgba(31,35,40,.12);
+}
+.col-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:4px;
+             white-space:nowrap; }
 .hint { font-size:12px; color:var(--dim); margin:0 0 8px 0; max-width:72rem; }
 .subnav { display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line); padding-bottom:0; }
 .subnav .tab {
@@ -198,6 +215,23 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
 .txbtn:disabled { opacity:.45; cursor:not-allowed; }
+/* Roster: shrink-wrap columns to content (not full page width).
+   JS rosFitColumns() pins each <col> after measure; zoom/resize remeasures. */
+#ros {
+  width: max-content;
+  max-width: none;
+  table-layout: auto;
+  border-collapse: collapse;
+}
+#ros th, #ros td {
+  white-space: nowrap;
+  padding: 1px 4px;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+#ros th.num, #ros td.num { padding-left: 6px; }
+#ros .badge { margin-left: 3px; padding: 0 4px; font-size: 10px; }
+#ros button.azbtn { padding: 0 3px; font-size: 11px; }
 /* Roster line clickable for GT2-style Work (no Work button column). */
 #ros-body tr.workable { cursor: pointer; }
 #ros-body tr.workable:hover { filter: brightness(0.97); }

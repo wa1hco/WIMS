@@ -166,10 +166,10 @@ Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
 4. Start **N1MM agent** (launcher **N1MM** intent) with `WIMS_SERVER=http://127.0.0.1:8787` (or your site URL).  
 5. **Historical log (dupe/mult seed):** WIMS reads `.s3db` files only on the **machine running the WIMS server**.  
    - Same PC as N1MM → auto-scans N1MM `UserDir\Databases` (registry), `%USERPROFILE%\Databases`, and `Documents\N1MM Logger+\Databases`. Check server console for **N1MM seed scan dirs**.  
-   - Startup order: **`--seed-db`** (that file only) → **last Setup pick** (remembered on this PC) → auto latest dated contest.  
-   - Casual **`DX`** loses auto-pick to named contests (e.g. June VHF) — pick yours once on Setup (or `--seed-db`); it sticks after restart.  
-   - If Setup still says no logs while N1MM has `wa1hco.s3db` open: note the full path in N1MM and set `WIMS_SEED_DB_DIR` or pass `--seed-db` to that file.  
-   - Server on another host/VM → **copy** the open log `.s3db` onto the server (or point `WIMS_SEED_DB_DIR` at a share), then Setup → **Rescan** and pick **DX** (or your contest).  
+   - Startup order: **`--seed-db`** (that file only) → **last N1MM-tab pick** (remembered on this PC) → auto latest dated contest.  
+   - Casual **`DX`** loses auto-pick to named contests (e.g. June VHF) — pick yours once on **N1MM** (or `--seed-db`); it sticks after restart.  
+   - If N1MM tab still says no logs while N1MM has `wa1hco.s3db` open: note the full path in N1MM and set `WIMS_SEED_DB_DIR` or pass `--seed-db` to that file.  
+   - Server on another host/VM → **copy** the open log `.s3db` onto the server (or point `WIMS_SEED_DB_DIR` at a share), then **N1MM** → **Rescan** and pick **DX** (or your contest).  
    - UDP Contacts alone do **not** load your past 11k QSOs — only new QSOs after start.
 
 ### C3. Unique rig-name (recommended even with one radio)
@@ -252,7 +252,7 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | Work “ok” but DX blank | Accept UDP off; Windows firewall on **wsjtx.exe**; stale Band Activity line |
 | N1MM sees stations, Send/Receive red | Ethernet is **Public** — N1MM allow-rules are Private-only. Run `Set-ContestLanPrivate.cmd` (UAC) on **each** N1MM PC |
 | Work click / UDP still dead after Private | App rules missing or bound to an old `wsjtx.exe` path. Run `Set-ContestAppFirewall.cmd` (WIMS menu **F**) |
-| Needed never greys | N1MM Broadcast Contacts off; wrong contest log on Setup; no N1MM (Track B) |
+| Needed never greys | N1MM Broadcast Contacts off; wrong contest log on N1MM tab; no N1MM (Track B) |
 | Bind warning on :2240 | Expected if something else holds 2240 — WIMS no longer uses 2240 for any band |
 
 More detail: [tester_runbook.md](tester_runbook.md) (solo deep dive) · [plan/wims_networking.md](plan/wims_networking.md) (fleet).

@@ -72,8 +72,8 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Operate** | `/` | Ranked call roster; **click a row = Work**; **Halt TX** |
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity |
-| **N1MM** | `/n1mm` | Logger sync + network view |
-| **Setup** | `/setup` | Contest log pick/resync, diagnostics |
+| **N1MM** | `/n1mm` | Contest log pick/resync, logger sync / network |
+| **Setup** | `/setup` | Install diagnostics (networking, seat configs) |
 
 **TX model:** no global Arm. Human initiation = **roster click**. **Call CQ** stays in WSJT-X.
 

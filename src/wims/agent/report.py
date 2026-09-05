@@ -24,6 +24,7 @@ import os
 import platform
 import socket
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -340,7 +341,11 @@ def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
 
     if apps.get("wsjtx_running") is False and (wsjtx.get("configs") or wsjtx.get("ini_paths")):
         msgs.append(("warn", "WSJT-X does not appear to be running on this PC"))
-    if apps.get("n1mm_running") is False and n1mm.get("found"):
+    if (
+        apps.get("n1mm_running") is False
+        and n1mm.get("found")
+        and not n1mm.get("leftover_data")
+    ):
         msgs.append(("info", "N1MM does not appear to be running on this PC"))
 
     # Prefer first error on a running instance, else first warn, else ok.
@@ -435,7 +440,7 @@ def build_report(
     ts = time.time() if now is None else now
 
     wsjtx = _wsjtx_section(fleet=fleet, solo=solo)
-    n1mm = probe_n1mm()
+    n1mm = dict(probe_n1mm())
     apps = {
         # wsjtx.exe only — orphan jt9 must not look like "WSJT-X is running".
         "wsjtx_running": _process_running(
@@ -455,6 +460,23 @@ def build_report(
             substrings=("n1mmlogger", "n1mm logger"),
         ),
     }
+    # Linux/macOS often keep a copied Documents/N1MM Logger+ tree with no Logger
+    # installed — same rule as launcher seat_detect: not an N1MM seat.
+    leftover = (
+        bool(n1mm.get("found"))
+        and not apps["n1mm_running"]
+        and not sys.platform.startswith("win")
+    )
+    n1mm["leftover_data"] = leftover
+    if leftover:
+        where = (n1mm.get("roots") or [None])[0] or n1mm.get("databases_dir") or "?"
+        n1mm["issues"] = [{
+            "severity": "info",
+            "message": (
+                f"Leftover N1MM data under {where} — ignored on this PC "
+                "(N1MM is not running; not an N1MM seat)."
+            ),
+        }]
     summary = _summary(wsjtx, n1mm, apps)
     rotators = _rotators_from_env()
 
@@ -550,20 +572,42 @@ def format_report_text(report: dict) -> str:
     lines.append("")
     lines.append("N1MM")
     lines.append("-" * 48)
-    lines.append(f"  found={n1.get('found')}  user_dir={n1.get('user_dir') or '-'}")
-    db_dirs = n1.get("databases_dirs") or (
-        [n1["databases_dir"]] if n1.get("databases_dir") else []
-    )
-    lines.append(f"  databases={', '.join(db_dirs) if db_dirs else '-'}")
-    if n1.get("s3db_files"):
-        lines.append(f"  contest s3db: {', '.join(n1['s3db_files'][:12])}")
-    if n1.get("open_databases"):
-        lines.append(f"  likely open (WAL): {', '.join(n1['open_databases'][:8])}")
-    for iss in n1.get("issues") or []:
-        tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
-        lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
-    if n1.get("ini_files"):
-        lines.append(f"  ini files scanned: {len(n1['ini_files'])}")
+    if apps.get("n1mm_running"):
+        lines.append(f"  running  user_dir={n1.get('user_dir') or '-'}")
+        db_dirs = n1.get("databases_dirs") or (
+            [n1["databases_dir"]] if n1.get("databases_dir") else []
+        )
+        lines.append(f"  databases={', '.join(db_dirs) if db_dirs else '-'}")
+        if n1.get("s3db_files"):
+            lines.append(f"  contest s3db: {', '.join(n1['s3db_files'][:12])}")
+        if n1.get("open_databases"):
+            lines.append(f"  likely open (WAL): {', '.join(n1['open_databases'][:8])}")
+        for iss in n1.get("issues") or []:
+            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
+            lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
+        if n1.get("ini_files"):
+            lines.append(f"  ini files scanned: {len(n1['ini_files'])}")
+    elif n1.get("leftover_data") or (
+        n1.get("found") and not sys.platform.startswith("win")
+    ):
+        lines.append("  not running on this PC — not an N1MM seat")
+        for iss in n1.get("issues") or []:
+            lines.append(f"  [info] {iss.get('message')}")
+    elif n1.get("found"):
+        lines.append(
+            f"  installed/data found, not running  "
+            f"user_dir={n1.get('user_dir') or '-'}"
+        )
+        db_dirs = n1.get("databases_dirs") or (
+            [n1["databases_dir"]] if n1.get("databases_dir") else []
+        )
+        if db_dirs:
+            lines.append(f"  databases={', '.join(db_dirs)}")
+        for iss in n1.get("issues") or []:
+            tag = {"error": "!!", "warn": " ~", "info": "  "}.get(iss["severity"], "  ")
+            lines.append(f"  {tag} [{iss['severity']}] {iss['message']}")
+    else:
+        lines.append("  not found on this PC")
 
     lines.append("")
     lines.append("Operator: fix ERROR/WARN items above, then re-run the agent.")

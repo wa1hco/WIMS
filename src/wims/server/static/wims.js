@@ -25,8 +25,8 @@
 // state contract (server/state.py) is the durable boundary.
 //
 //   Operate  — roster + interlock (work the contest)
-//   Status   — live health, RF/decode activity, operators on the wire
-//   Setup    — config: contest log, networking checklist, host app configs
+//   Status   — overview / WSJT / N1MM (N1MM owns contest log pick/resync)
+//   Setup    — install diagnostics: networking checklist, host app configs
 
 const $ = (id) => document.getElementById(id);
 const age = (a) => a == null ? "-" : (a < 90 ? a.toFixed(0)+"s" : (a/60).toFixed(0)+"m");
@@ -482,7 +482,7 @@ function renderSync(n) {
     const rsTxt = formatResync(n.last_resync);
     const resync = rsTxt
       ? `<span><span class="k">last resync:</span>${esc(rsTxt)}</span>`
-      : `<span><span class="k">last resync:</span>— <a href="/setup">Setup → Resync log</a></span>`;
+      : `<span><span class="k">last resync:</span>— use <b>Resync log</b> above</span>`;
     $("n1mm-sync").innerHTML =
       `<span><span class="dot ${n.status}"></span><span class="k">live feed:</span><b>${label}</b></span>` +
       `<span><span class="k">last packet:</span>${feed}</span>` +
@@ -490,18 +490,6 @@ function renderSync(n) {
       `<span><span class="k">log copy:</span><b>${n.qso_count}</b> QSO${n.qso_count===1?'':'s'}${seed}</span>` +
       `<span><span class="k">last logged:</span>${lq}</span>` +
       resync;
-  }
-  // Status: one-line pointer to Setup for contest selection (not the full picker).
-  const line = $("status-contest-line");
-  if (line) {
-    const ac = n.active_contest;
-    if (ac && (ac.label || ac.contest_name)) {
-      line.innerHTML = `Contest log: <b>${esc(ac.label || ac.contest_name)}</b> · `
-        + `${n.qso_count||0} QSOs in WIMS · change / resync under <a href="/setup">Setup</a>`;
-    } else {
-      line.innerHTML = `Contest log: <b>none loaded</b> — dupe/mult will be wrong until you `
-        + `pick a log under <a href="/setup">Setup</a>`;
-    }
   }
   renderContests(n);
   renderSetupExtras(n, /*fullState*/ null);
@@ -574,7 +562,7 @@ function fillContestPicker(list, active, scanDirs) {
 }
 
 function renderContests(n) {
-  // Setup page only — other pages have no contest-active element.
+  // N1MM tab — other pages have no contest-active element.
   const act = $("contest-active");
   if (!act) return;
   const active = n.active_contest;
@@ -788,9 +776,10 @@ function renderInterlock(il) {
 
 // GridTracker-style call roster: one row per station heard, with the score kept as a
 // column. Rows filter by need (from the N1MM log copy) and band checkboxes; every
-// header sorts. Click the *line* to Work (no Work button).
+// header sorts. Click the *line* to Work (no Work button). Columns are selectable
+// (localStorage) so the table can stay narrow on small screens.
 const ROS_COLS = [
-  {key:"call",          label:"DX",      cls:"",          cell:rosCall},
+  {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
   {key:"instance",      label:"Source",  cls:"",          cell:c=>esc(c.instance||"—")},
@@ -805,10 +794,18 @@ const ROS_COLS = [
   {key:"age",           label:"Age",     cls:"num", num:1, cell:c=>age(c.age)},
   {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
 ];
+// Compact default: hide Source/Mode/Freq/Az ant/Δaz/km until the operator enables them.
+const ROS_COLS_DEFAULT = [
+  "call", "to_call", "band", "grid", "snr", "az", "age", "score",
+];
 let _rosData = null;                              // latest roster payload
 let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 const ROS_BANDS_KEY = "wims.ops.bands";
+const ROS_COLS_KEY = "wims.ops.cols";
+const ROS_AGE_KEY = "wims.ops.maxAgeSec";
+const ROS_AGE_DEFAULT = 120; // match GridTracker-ish “last ~2 minutes” feel
+let _rosColsBuilt = false;
 
 function rosCall(c) {
   const badges =
@@ -836,13 +833,128 @@ function rosAzAnt(c) {
   return `<span class="${cls}" title="${c.rotator_moving ? "slewing…" : "settled"}">${c.az_ant}°</span>`;
 }
 
+function rosLoadColPref() {
+  try {
+    const raw = localStorage.getItem(ROS_COLS_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : null;
+  } catch (_) { return null; }
+}
+
+function rosSaveColPref(keys) {
+  try { localStorage.setItem(ROS_COLS_KEY, JSON.stringify([...keys])); }
+  catch (_) {}
+}
+
+function rosVisibleCols() {
+  const wrap = $("ros-cols");
+  if (!wrap) return ROS_COLS; // no column UI → show all
+  const boxes = [...wrap.querySelectorAll('input[type="checkbox"][data-col]')];
+  if (!boxes.length) {
+    const pref = rosLoadColPref();
+    const want = new Set(pref && pref.length ? pref : ROS_COLS_DEFAULT);
+    want.add("call");
+    return ROS_COLS.filter(c => want.has(c.key));
+  }
+  const on = new Set(boxes.filter(b => b.checked).map(b => b.dataset.col));
+  on.add("call");
+  return ROS_COLS.filter(c => on.has(c.key));
+}
+
+function rosSyncColChecks() {
+  const wrap = $("ros-cols");
+  if (!wrap || _rosColsBuilt) return;
+  _rosColsBuilt = true;
+  const pref = rosLoadColPref();
+  const want = new Set(pref && pref.length ? pref : ROS_COLS_DEFAULT);
+  want.add("call");
+  wrap.innerHTML = "";
+  for (const col of ROS_COLS) {
+    const lab = document.createElement("label");
+    lab.className = "col-check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.dataset.col = col.key;
+    cb.checked = want.has(col.key);
+    if (col.locked) {
+      cb.checked = true;
+      cb.disabled = true;
+      lab.title = "DX is always shown";
+    }
+    cb.addEventListener("change", () => {
+      const keys = [...wrap.querySelectorAll('input[data-col]')]
+        .filter(b => b.checked).map(b => b.dataset.col);
+      if (!keys.includes("call")) keys.unshift("call");
+      rosSaveColPref(keys);
+      rosDraw();
+    });
+    lab.appendChild(cb);
+    lab.appendChild(document.createTextNode(col.label));
+    wrap.appendChild(lab);
+  }
+}
+
 function rosBuildHead() {
   const head = $("ros-head");
-  head.innerHTML = ROS_COLS.map(col => {
+  const cols = rosVisibleCols();
+  head.innerHTML = cols.map(col => {
     const active = col.key === _rosSort.key;
     const arrow = active ? (_rosSort.dir < 0 ? " ▾" : " ▴") : "";
     return `<th data-key="${col.key}" class="${col.cls}${active?' sort':''}">${col.label}${arrow}</th>`;
   }).join("");
+}
+
+/** Measure content and pin each roster column to the narrowest width that still
+ *  shows its cells (no wrap). Re-run after data, visible-column, or zoom/resize. */
+function rosFitColumns() {
+  const table = $("ros");
+  const head = $("ros-head");
+  const body = $("ros-body");
+  if (!table || !head) return;
+  const ths = [...head.children];
+  const n = ths.length;
+  if (!n) return;
+
+  // Natural measure pass: drop prior col widths so scrollWidth reflects content.
+  const old = table.querySelector("colgroup.ros-fit");
+  if (old) old.remove();
+  table.style.width = "max-content";
+  table.style.tableLayout = "auto";
+
+  const widths = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    widths[i] = Math.ceil(ths[i].getBoundingClientRect().width);
+  }
+  if (body) {
+    for (const tr of body.rows) {
+      const cells = tr.cells;
+      for (let i = 0; i < n && i < cells.length; i++) {
+        widths[i] = Math.max(widths[i], Math.ceil(cells[i].getBoundingClientRect().width));
+      }
+    }
+  }
+
+  const cg = document.createElement("colgroup");
+  cg.className = "ros-fit";
+  for (const w of widths) {
+    const col = document.createElement("col");
+    // +1px avoids occasional ellipsis/clip from subpixel rounding after zoom.
+    col.style.width = (w + 1) + "px";
+    cg.appendChild(col);
+  }
+  table.insertBefore(cg, table.firstChild);
+  table.style.tableLayout = "fixed";
+  table.style.width = "max-content";
+}
+
+let _rosFitTimer = 0;
+function rosFitColumnsSoon() {
+  if (_rosFitTimer) clearTimeout(_rosFitTimer);
+  _rosFitTimer = setTimeout(() => {
+    _rosFitTimer = 0;
+    rosFitColumns();
+  }, 30);
 }
 
 function rosLoadBandPref() {
@@ -910,6 +1022,40 @@ function rosSyncBandChecks(bands) {
   }
 }
 
+function rosLoadMaxAge() {
+  try {
+    const raw = localStorage.getItem(ROS_AGE_KEY);
+    if (raw == null || raw === "") return ROS_AGE_DEFAULT;
+    const n = Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : ROS_AGE_DEFAULT;
+  } catch (_) { return ROS_AGE_DEFAULT; }
+}
+
+function rosSaveMaxAge(sec) {
+  try { localStorage.setItem(ROS_AGE_KEY, String(sec)); }
+  catch (_) {}
+}
+
+function rosMaxAgeSec() {
+  const sel = $("ros-max-age");
+  if (!sel) return 0; // no control → no client age filter
+  const n = Number(sel.value);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function rosSyncMaxAgeControl() {
+  const sel = $("ros-max-age");
+  if (!sel || sel.dataset.wired) return;
+  sel.dataset.wired = "1";
+  const want = rosLoadMaxAge();
+  const opt = [...sel.options].some(o => Number(o.value) === want);
+  sel.value = String(opt ? want : ROS_AGE_DEFAULT);
+  sel.addEventListener("change", () => {
+    rosSaveMaxAge(rosMaxAgeSec());
+    rosDraw();
+  });
+}
+
 function rosWire() {
   if (_rosWired) return;
   _rosWired = true;
@@ -922,29 +1068,40 @@ function rosWire() {
   });
   const needed = $("ros-needed");
   if (needed) needed.addEventListener("change", rosDraw);
+  rosSyncMaxAgeControl();
+  // Ctrl+/- zoom and window resize: remeasure column widths.
+  window.addEventListener("resize", rosFitColumnsSoon);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", rosFitColumnsSoon);
+  }
 }
 
 function renderRoster(r) {
   if (!r || !$("ros-body")) return;
   _rosData = r;
+  rosSyncColChecks();
   rosWire();
   rosDraw();
 }
 
 function rosDraw() {
   const r = _rosData; if (!r) return;
+  rosSyncMaxAgeControl();
   const bands = [...new Set(r.candidates.map(c => c.band).filter(Boolean))].sort();
   rosSyncBandChecks(bands);
   const selected = rosSelectedBands();
   const neededOnly = $("ros-needed") ? $("ros-needed").checked : false;
+  const maxAge = rosMaxAgeSec();
   let rows = r.candidates.filter(c => {
     if (neededOnly && !c.is_needed) return false;
     // Unknown band ("?" / empty): keep visible so Decode-only / pre-Status
     // instances are not hidden by the band checks.
     if (selected && c.band && c.band !== "?" && !selected.has(c.band)) return false;
+    if (maxAge > 0 && c.age != null && c.age > maxAge) return false;
     return true;
   });
 
+  const vis = rosVisibleCols();
   const col = ROS_COLS.find(c => c.key === _rosSort.key) || ROS_COLS[0];
   const val = (c) => {
     const v = c[col.key];
@@ -961,11 +1118,21 @@ function rosDraw() {
     ? (selected.size === bands.length ? "all bands"
        : selected.size ? [...selected].sort().join(",") : "no bands")
     : "all bands";
+  const colNote = vis.length === ROS_COLS.length ? "all cols"
+    : `${vis.length}/${ROS_COLS.length} cols`;
+  const ageNote = maxAge > 0
+    ? (maxAge < 60 ? `≤${maxAge}s` : `≤${maxAge / 60}m`)
+    : "age off";
   $("ros-meta").textContent =
     `${r.needed} needed · ${r.not_needed} worked · ${r.count} heard` +
-    ` · showing ${rows.length} · ${bandNote}`;
+    ` · showing ${rows.length} · ${bandNote} · ${colNote} · ${ageNote}`;
   const body = $("ros-body"); body.innerHTML = "";
   $("ros-empty").style.display = rows.length ? "none" : "block";
+  // Drop prior fit widths before painting new cells so measure sees content.
+  const table = $("ros");
+  const oldFit = table && table.querySelector("colgroup.ros-fit");
+  if (oldFit) oldFit.remove();
+  if (table) table.style.tableLayout = "auto";
   const canWork = !!( _txState && _txState.can_tx );
   for (const c of rows) {
     const tr = document.createElement("tr");
@@ -984,10 +1151,12 @@ function rosDraw() {
       else if (c.is_armed) tip = "Enable Tx set for this DX — " + tip;
       tr.title = tip;
     }
-    tr.innerHTML = ROS_COLS.map(col =>
+    tr.innerHTML = vis.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
     body.appendChild(tr);
   }
+  // After layout: pin each column to content width (numbers, col set, zoom).
+  requestAnimationFrame(() => rosFitColumns());
 }
 
 // -- TX control (work / halt; no global arm — GT2-style roster click) ------- //
@@ -1132,8 +1301,15 @@ function renderTxBar(tx) {
     return;
   }
   if (status) {
-    status.textContent = "Click a roster line to Work (answer) · call CQ in WSJT-X";
+    status.textContent = "Click a roster line to Work (answer)";
     status.className = "banner ok";
+    if (!status.title) {
+      status.title =
+        "Work = answer that station (UDP Reply to that row’s WSJT-X). " +
+        "Answering a CQ/73 line turns Enable Tx on; a mid-exchange line needs " +
+        "Hold Tx Freq in WSJT-X. Red = calling us · green = Enable Tx on that DX · " +
+        "click Az DX° to point a rotator when mapped.";
+    }
   }
   if (halt) halt.disabled = false;           // panic stop always available
 }

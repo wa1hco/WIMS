@@ -366,7 +366,7 @@ class LauncherApp:
         self.tk = tk
         self.root = root
         self._rev = _git_rev()
-        self.root.title(f"WIMS  ·  agents  ·  v{__version__} ({self._rev})")
+        self.root.title(f"WIMS launcher  ·  v{__version__} ({self._rev})")
         self.root.minsize(540, 480)
         self.root.configure(bg="#f4f4f4")
 

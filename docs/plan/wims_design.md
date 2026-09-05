@@ -451,14 +451,13 @@ SSB/CW or hand off to a 2nd op.
   §3.12 JSON state to a static HTML/JS page (`src/wims/server/`). No framework/build step; lowest
   lock-in. The **JSON state contract (`server/state.py`) is the durable boundary** — the frontend
   is the only replaceable part.
-- **Three-page console.** All pages share one SSE feed (`/events`) with a header nav:
+- **Console pages.** All pages share one SSE feed (`/events`) with a header nav:
   **`/` Operate** = workable stations (call roster + interlock/overlap safety banner);
-  **`/status` Status** = **live health** — system/nodes, WSJT-X instances, N1MM loggers + live
-  sync, decode-activity, decode log (RF / operators / signals);
-  **`/setup` Setup** = **configuration & install diagnostics** — contest log picker (multi-contest
-  `.s3db`), networking checklist, seed paths, host app config audit (WSJT-X / N1MM / GridTracker;
-  growing). Setup is generally static or slow-changing; Status is the “is the contest healthy?”
-  view. Shared `static/wims.css` + `wims.js` (every render no-ops when its panel is absent).
+  **`/overview` / `/wsjt` / `/n1mm`** = live health split by concern — **N1MM** owns contest log
+  pick/resync (multi-contest `.s3db`) plus logger network / sync;
+  **`/setup` Setup** = **install diagnostics** — networking checklist, host app config audit
+  (WSJT-X / N1MM / GridTracker; growing). Shared `static/wims.css` + `wims.js` (every render
+  no-ops when its panel is absent).
 - **Two-phase UI build (guiding principle).** *Phase 1 — developer-oriented:* information-dense,
   expose internals + diagnostics, breadth over polish; its job is to **validate the design and
   discover what information we actually need** (rendering is deliberately disposable; the

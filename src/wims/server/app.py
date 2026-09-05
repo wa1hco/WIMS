@@ -198,7 +198,7 @@ class LiveFleet:
         (preferred) so only that ContestInstance's DXLOG rows load.
 
         ``remember=True`` persists this choice for the next server start on this
-        host (Setup picker / explicit ``--seed-db``). Auto heuristic picks do not
+        host (N1MM tab picker / explicit ``--seed-db``). Auto heuristic picks do not
         remember, so a casual DX log chosen once is not overwritten by June VHF.
         """
         from wims.integrations.n1mm import logdb
@@ -259,7 +259,7 @@ class LiveFleet:
         empty discovery — log copy stays empty and UI offers a picker.
 
         Selection order:
-          1. Host-local last log (Setup pick / prior ``--seed-db``) if still present
+          1. Host-local last log (N1MM tab pick / prior ``--seed-db``) if still present
           2. ``pick_contest`` heuristic (latest real StartDate with QSOs)
         """
         from wims.integrations.n1mm import logdb
@@ -385,7 +385,7 @@ class LiveFleet:
             return {
                 "ok": False,
                 "error": "no_active_log",
-                "hint": "Pick a contest log under Setup first.",
+                "hint": "Pick a contest log under N1MM first.",
             }
         if not Path(db_path).is_file():
             return {
@@ -1360,7 +1360,7 @@ def main() -> None:
     ap.add_argument("--seed-db", default=None,
                     help="N1MM contest .s3db to seed from (read-only); loads the best "
                          "contest in THAT file only and remembers it for next start. "
-                         "If omitted: last Setup pick, else auto-find latest contest")
+                         "If omitted: last N1MM-tab pick, else auto-find latest contest")
     # Default prefers UserDir\\Databases / home\\Databases when present (many N1MM
     # installs); also_standard discovery still scans all known roots on Rescan.
     from wims.integrations.n1mm import logdb as _logdb_cli  # noqa: E402
@@ -1472,8 +1472,8 @@ def main() -> None:
     # Operator-facing lines are printed after the console URL (below).
     seed_lines: list[str] = []
     if not args.no_seed:
-        # Order: explicit --seed-db (that file only + remember) → last Setup pick
-        # → auto latest contest. Operator can always change on Setup.
+        # Order: explicit --seed-db (that file only + remember) → last N1MM-tab pick
+        # → auto latest contest. Operator can always change on the N1MM tab.
         try:
             if args.seed_db:
                 result = live.seed_explicit_db(args.seed_db)
@@ -1496,7 +1496,7 @@ def main() -> None:
                                or x.get("contest_nr") != c.get("contest_nr"))]
                 if others and src != "cli":
                     seed_lines.append(
-                        f"  Log: {len(others)} other contest(s) available — pick on Setup"
+                        f"  Log: {len(others)} other contest(s) available — pick on N1MM tab"
                     )
             else:
                 seed_lines.append(

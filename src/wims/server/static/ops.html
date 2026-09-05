@@ -42,25 +42,32 @@
 </header>
 <main>
   <div id="tx-strip" class="txbar">
-    <span id="tx-status" class="banner ok">Click a roster line to Work (answer) · call CQ in WSJT-X</span>
+    <span id="tx-status" class="banner ok"
+          title="Work = answer that station (UDP Reply to that row’s WSJT-X). Answering a CQ/73 line turns Enable Tx on; a mid-exchange line needs Hold Tx Freq in WSJT-X. Red = calling us · green = Enable Tx on that DX · click Az DX° to point a rotator when mapped.">Click a roster line to Work (answer)</span>
     <button id="tx-halt" class="txbtn halt">◼ Halt TX</button>
     <span class="meta" id="tx-meta"></span>
   </div>
-  <p class="hint" id="tx-hint">
-    <b>Work</b> = answer that station (UDP Reply to that row’s WSJT-X).
-    WIMS cannot start a CQ over the network — <b>call CQ / run</b> in the WSJT-X window.
-    Answering a <b>CQ/73</b> line turns Enable Tx on; answering a mid-exchange line needs
-    WSJT-X <b>Hold Tx Freq</b>.
-    <span class="swatch calling-us">red</span> calling us ·
-    <span class="swatch armed">green</span> Enable Tx on that DX ·
-    click <b>Az DX°</b> to point a rotator when one is mapped.
-  </p>
 
   <h2>Call roster</h2>
   <div id="ros-controls" class="controls">
     <label><input type="checkbox" id="ros-needed" checked> needed only</label>
+    <label title="Hide calls older than this (display filter; server still keeps ~5 min)">max age
+      <select id="ros-max-age">
+        <option value="15">15s</option>
+        <option value="30">30s</option>
+        <option value="60">1m</option>
+        <option value="120" selected>2m</option>
+        <option value="180">3m</option>
+        <option value="300">5m</option>
+        <option value="0">off</option>
+      </select>
+    </label>
     <span class="band-label">bands</span>
     <span id="ros-bands" class="band-checks" title="Which bands appear in the roster"></span>
+    <details class="ros-cols-menu">
+      <summary title="Show or hide roster columns">columns</summary>
+      <div id="ros-cols" class="col-checks"></div>
+    </details>
     <span class="meta" id="ros-meta"></span>
   </div>
   <table id="ros">

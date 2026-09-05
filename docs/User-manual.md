@@ -93,7 +93,7 @@ One **site server** per contest LAN. Top nav:
 |------|-----|---------|
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity heatmaps |
-| **N1MM** | `/n1mm` | Logger sync + network view (who is logging) |
+| **N1MM** | `/n1mm` | Contest log pick/resync + logger sync / network |
 
 (`/status` still opens Overview.)
 
@@ -101,7 +101,7 @@ One **site server** per contest LAN. Top nav:
 
 ![Site console — Setup](manual/images/site-setup.png)
 
-*Setup — contest log pick/resync and install diagnostics.*
+*Setup — install diagnostics (networking, seat configs). Contest log is on **N1MM**.*
 
 ---
 

@@ -238,7 +238,7 @@ def _page_html(state: AgentState) -> bytes:
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="{refresh_s}">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>WIMS Agent — {html.escape(str(rep.get('agent_id') or 'seat'))}</title>
+<title>Local status — {html.escape(str(rep.get('agent_id') or 'seat'))}</title>
 <style>
   body {{ margin:0; font:14px/1.4 ui-monospace,Consolas,monospace; background:#f6f8fa; color:#1f2328; }}
   header {{ padding:10px 14px; background:#fff; border-bottom:1px solid #d0d7de; }}
@@ -260,7 +260,7 @@ def _page_html(state: AgentState) -> bytes:
 </style>
 </head><body>
 <header>
-  <h1>WIMS Agent — station check</h1>
+  <h1>Local status — seat check</h1>
   <div class="meta">Local config / networking verification for this PC.
   Auto-refresh {refresh_s}s · <a href="/">refresh</a> ·
   <a href="/api/report">JSON</a> ·

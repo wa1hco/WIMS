@@ -44,62 +44,19 @@
 <main>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 12px 0">
     <b>Setup</b> is for configuring WIMS and diagnosing installation problems
-    (logs, networking, app configs). For live RF health, operators, and decode flow use
+    (networking, app configs). Contest log pick/resync is on
+    <a href="/n1mm">N1MM</a>. For live RF health use
     <a href="/overview">Overview</a>; for working stations use <a href="/">Operate</a>.
   </p>
-
-  <h2>Contest log (dupe / mult source)</h2>
-  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Shows the <b>active</b> contest only. Use <b>Rescan</b> to pick a different log from N1MM
-    <code>.s3db</code> files on this host (list closes after you select or cancel).
-    <br>
-    <b>UDP</b> Contacts keep the log live; <b>Resync log</b> re-reads the active file by QSO ID.
-    Multi-op: resync N1MM peers first if seats disagree, then Resync log here.
-  </p>
-  <div id="contest-active" class="syncrow"><span class="k">waiting…</span></div>
-  <div class="toolbar" style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-    <button type="button" id="contest-resync" title="Re-read active contest DXLOG into WIMS">Resync log</button>
-    <button type="button" id="contest-rescan" title="Scan seed dir and pick a contest">Rescan…</button>
-    <span class="meta" id="contest-msg"></span>
-  </div>
-  <div id="contest-resync-line" class="meta" style="margin:0 0 6px 0"></div>
-  <div id="contest-picker" style="display:none;margin:8px 0 12px 0;padding:8px;border:1px solid var(--border,#ccc);border-radius:4px">
-    <div class="toolbar" style="margin:0 0 6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <span class="k">Select a contest log</span>
-      <button type="button" id="contest-cancel">Cancel</button>
-    </div>
-    <table id="contest-tbl">
-      <thead><tr>
-        <th></th><th>Contest</th><th>Start</th><th class="num">QSOs</th><th>File</th>
-      </tr></thead>
-      <tbody id="contest-body"></tbody>
-    </table>
-    <div id="contest-empty" class="empty" style="display:none">
-      No contest logs found on the <b>WIMS server machine</b>.
-      WIMS reads <code>.s3db</code> files only from disk on that host — not from a remote N1MM seat over UDP.
-      <p class="meta" id="contest-scan-dirs" style="margin:8px 0;text-align:left"></p>
-      <ul style="margin:8px 0 0 1.2em;text-align:left">
-        <li><b>Same PC as N1MM:</b> seed scans <code>UserDir\Databases</code> (registry),
-          <code>%USERPROFILE%\Databases</code>, and
-          <code>Documents\N1MM Logger+\Databases</code>. Then Rescan.</li>
-        <li><b>Still empty:</b> note the full path of the open log in N1MM
-          (e.g. <code>…\Databases\wa1hco.s3db</code>) and use
-          <code>--seed-db</code> / <code>WIMS_SEED_DB_DIR</code>.</li>
-        <li><b>N1MM only on another PC:</b> copy/sync the <code>.s3db</code> onto the server host, then Rescan.</li>
-      </ul>
-    </div>
-  </div>
 
   <h2>WIMS server</h2>
   <div id="setup-server" class="syncrow">
     <span><span class="k">role:</span> site server (ingest + console)</span>
     <span><span class="k">console:</span> this browser → HTTP + SSE <code>/events</code></span>
-    <span><span class="k">seed scan (this host):</span>
-      <code id="seed-dir-hint">auto (UserDir + Documents + …)</code>
-      <span class="meta"> — historical QSOs for dupe/mult; UDP Contacts only add new QSOs after start</span></span>
   </div>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:6px 0 0 0">
-    Live packet counts and feed age appear on <a href="/n1mm">N1MM</a> / <a href="/overview">Overview</a>.
+    Contest log and live N1MM packet counts:
+    <a href="/n1mm">N1MM</a>. Fleet overview: <a href="/overview">Overview</a>.
   </p>
 
   <h2>Networking checklist</h2>
@@ -110,8 +67,8 @@
   <ul class="checklist" style="font-size:13px;line-height:1.5;margin:0 0 12px 1.2em;padding:0">
     <li>WSJT-X <b>UDP Server</b> = fleet multicast (e.g. <code>224.0.0.73</code>), not <code>127.0.0.1</code></li>
     <li>WSJT-X <b>Outgoing interface</b> = contest <b>LAN NIC</b> (never blank / <code>@Invalid()</code> / loopback)</li>
-    <li>N1MM Broadcast Data → Contacts + Radio → destination WIMS host or <code>224.0.0.73:12060</code></li>
-    <li>Each N1MM WSJT reader joins only its band’s stream (avoid double-log)</li>
+    <li>N1MM Broadcast Data → Contacts + Radio → <code>127.0.0.1:12060</code> + N1MM agent</li>
+    <li>N1MM WSJT/JTDX UDP reader <b>OFF</b> (digi → N1MM is agent Log; avoid double-log)</li>
     <li>Host firewall allows console TCP <b>8787</b> from operator PCs / VMs</li>
     <li>Site server presence UDP <b>8788</b> (multicast) — second server refuses; agents show clickable console links</li>
     <li>Unique WSJT-X <code>--rig-name</code> / UDP id per instance</li>
