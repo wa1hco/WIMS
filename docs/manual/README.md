@@ -9,11 +9,14 @@ copy does not overwrite the doc embed.
 ### A. Launcher panel (recommended)
 
 1. Start the site server (and `:8790` if you want local-status shots).
-2. Open the **WIMS launcher** → **Screenshots…**
-3. Check the pages/windows you want.
-4. Choose **Standard name** (overwrites `images/<id>.png` used by the manual)  
+2. Put the UI in the **mode you want documented** (filters, bands, contest log picked, …).  
+   For Operate, URL query params also set context for headless grabs, e.g.  
+   `/?needed=1&bands=144&maxAge=120&cols=call,to_call,band,snr,age,score`
+3. Open the **WIMS launcher** → **Screenshots…**
+4. Check the pages/windows you want (catalog entries can encode a context URL).
+5. Choose **Standard name** (overwrites `images/<id>.png` used by the manual)  
    or **Add suffix** (e.g. `contest_run` → `site-operate_contest_run.png`).
-5. **Capture Selected** or **Capture All**.
+6. **Capture Selected** or **Capture All**.
 
 Launcher window grab needs ImageMagick (`import`) or `gnome-screenshot` on Linux.
 

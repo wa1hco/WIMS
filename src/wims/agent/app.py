@@ -225,6 +225,28 @@ def _presence_block_html(state: AgentState) -> str:
     )
 
 
+def _report_pre_html(text: str) -> str:
+    """Color ERROR / WARN / OK lines without a second semantic parse."""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        esc = html.escape(line)
+        low = line.lstrip()
+        if low.startswith("SUMMARY [ERROR]") or low.startswith("!!") or "[error]" in low:
+            out.append(f'<span class="ln err">{esc}</span>')
+        elif (
+            low.startswith("SUMMARY [WARN]")
+            or low.startswith("~")
+            or low.startswith("[! ]")
+            or "[warn]" in low
+        ):
+            out.append(f'<span class="ln warn">{esc}</span>')
+        elif low.startswith("SUMMARY [OK]") or low.startswith("[OK]"):
+            out.append(f'<span class="ln ok">{esc}</span>')
+        else:
+            out.append(esc)
+    return "\n".join(out)
+
+
 def _page_html(state: AgentState) -> bytes:
     rep = state.get_report() or {}
     exp = state.get_export()
@@ -236,9 +258,12 @@ def _page_html(state: AgentState) -> bytes:
     s = rep.get("summary") or {}
     sev = s.get("severity", "busy" if scanning else "unknown")
     msg = s.get("message") or ("Starting — please wait" if scanning else "")
-    color = {
-        "ok": "#1a7f37", "warn": "#9a6700", "error": "#cf222e", "busy": "#0b5cab",
-    }.get(sev, "#656d76")
+    sum_style = {
+        "ok": "background:#dafbe1;border-color:#aceebb;color:#1a7f37",
+        "warn": "background:#fff8c5;border-color:#d4a72c;color:#9a6700",
+        "error": "background:#ffebe9;border-color:#ff8182;color:#cf222e",
+        "busy": "background:#ddf4ff;border-color:#54aeff;color:#0b5cab",
+    }.get(sev, "background:#fff;border-color:#d0d7de;color:#656d76")
     exp_line = ""
     if state.server_url:
         if exp is None:
@@ -276,6 +301,7 @@ def _page_html(state: AgentState) -> bytes:
             "Use <b>Check for updates</b> anytime; install is still a manual click.</div></div>"
         )
     refresh_s = "3" if scanning else "15"
+    report_html = _report_pre_html(text)
 
     body = f"""<!doctype html>
 <html lang="en"><head>
@@ -287,13 +313,16 @@ def _page_html(state: AgentState) -> bytes:
   body {{ margin:0; font:14px/1.4 ui-monospace,Consolas,monospace; background:#f6f8fa; color:#1f2328; }}
   header {{ padding:10px 14px; background:#fff; border-bottom:1px solid #d0d7de; }}
   h1 {{ margin:0; font-size:16px; color:#0969da; }}
-  .sum {{ margin-top:8px; padding:8px 12px; border-radius:6px; border:1px solid #d0d7de;
-          background:#fff; color:{color}; font-weight:bold; }}
+  .sum {{ margin-top:8px; padding:8px 12px; border-radius:6px; border:1px solid;
+          font-weight:bold; {sum_style}; }}
   .panel {{ margin-top:8px; padding:10px 12px; border-radius:6px; border:1px solid #d0d7de;
             background:#fff; }}
   main {{ padding:12px 14px; }}
-  pre {{ background:#fff; border:1px solid #d0d7de; padding:12px; overflow:auto;
+  pre.report {{ background:#fff; border:1px solid #d0d7de; padding:12px; overflow:auto;
          white-space:pre-wrap; font-size:12px; }}
+  .ln.ok {{ color:#1a7f37; font-weight:600; }}
+  .ln.warn {{ color:#9a6700; font-weight:600; }}
+  .ln.err {{ color:#cf222e; font-weight:600; }}
   .meta {{ color:#656d76; font-size:12px; margin:6px 0; }}
   a {{ color:#0969da; }}
   .bar {{ display:flex; gap:12px; flex-wrap:wrap; margin:8px 0; align-items:center; }}
@@ -321,13 +350,14 @@ def _page_html(state: AgentState) -> bytes:
     <form method="post" action="/discover"><button type="submit">Find site server</button></form>
     <form method="post" action="/check-update"><button type="submit">Check for updates</button></form>
   </div>
-  <pre>{html.escape(text)}</pre>
+  <pre class="report">{report_html}</pre>
   <p class="meta">This is the seat agent, not the site server. Open the site console via the
-  links above (discovered on the LAN) — no IP to remember. TX control / interlock come later.</p>
+  links above (discovered on the LAN) — no IP to remember.</p>
 </main>
 </body></html>
 """
     return body.encode("utf-8")
+
 
 
 def make_handler(state: AgentState):

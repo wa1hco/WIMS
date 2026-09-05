@@ -111,8 +111,9 @@ class AgentStatusWindow:
         self.root = root or tk.Tk()
         self._owns_root = root is None
         self.root.title("WIMS agent")
-        self.root.minsize(360, 160)
-        self.root.geometry("420x200")
+        # Tall enough for Broadcast + Log + KEY rows without a manual resize.
+        self.root.minsize(520, 280)
+        self.root.geometry("560x340")
         self.root.configure(bg="#f4f4f4")
 
         self._banner_var = tk.StringVar(value="Starting...")
@@ -121,17 +122,18 @@ class AgentStatusWindow:
         self._detail_lines: list[str] = []
         self._details_open = False
 
+        self._wrap = 520
         self._banner = tk.Label(
             self.root, textvariable=self._banner_var,
             font=_ui_font(16, "bold"), bg="#fff3cd", fg="#7a5b00",
-            padx=12, pady=12, anchor="w", justify="left", wraplength=390,
+            padx=12, pady=12, anchor="w", justify="left", wraplength=self._wrap,
         )
         self._banner.pack(fill="x", padx=10, pady=(10, 2))
 
         self._fix = tk.Label(
             self.root, textvariable=self._fix_var,
             font=_ui_font(11), bg="#f4f4f4", fg="#444444",
-            anchor="w", justify="left", wraplength=390,
+            anchor="w", justify="left", wraplength=self._wrap,
         )
         self._fix.pack(fill="x", padx=12, pady=(0, 4))
 
@@ -144,7 +146,7 @@ class AgentStatusWindow:
         self._facts = tk.Label(
             self.root, textvariable=self._facts_var,
             font=_ui_font(12), bg="#f4f4f4", fg="#222222",
-            anchor="w", justify="left", wraplength=390,
+            anchor="w", justify="left", wraplength=self._wrap,
         )
         self._facts.pack(fill="x", padx=12, pady=(0, 6))
 
@@ -237,7 +239,7 @@ class AgentStatusWindow:
         while len(self._row_labels) < len(rows):
             lab = tk.Label(
                 self._rows_frame, font=_ui_font(12, "bold"),
-                anchor="w", justify="left", wraplength=380, padx=8, pady=3,
+                anchor="w", justify="left", wraplength=self._wrap, padx=8, pady=3,
             )
             lab.pack(fill="x", pady=1)
             self._row_labels.append(lab)
@@ -277,19 +279,41 @@ class AgentStatusWindow:
             self._details.delete("1.0", "end")
             body = "\n".join(self._detail_lines) if self._detail_lines else "(none)"
             self._details.insert("end", body)
+        self.root.after_idle(self._fit_window)
+
+    def _fit_window(self) -> None:
+        """Grow to fit banner + rows + facts (no manual resize for normal seat)."""
+        try:
+            self.root.update_idletasks()
+            req_w = max(520, int(self.root.winfo_reqwidth()) + 8)
+            req_h = max(280, int(self.root.winfo_reqheight()) + 8)
+            # Cap so a huge Details dump does not dominate the desktop.
+            req_w = min(req_w, 720)
+            req_h = min(req_h, 640 if self._details_open else 420)
+            self.root.geometry(f"{req_w}x{req_h}")
+            wrap = max(400, req_w - 40)
+            if wrap != self._wrap:
+                self._wrap = wrap
+                self._banner.configure(wraplength=wrap)
+                self._fix.configure(wraplength=wrap)
+                self._facts.configure(wraplength=wrap)
+                for lab in self._row_labels:
+                    lab.configure(wraplength=wrap)
+        except Exception:
+            pass
 
     def _toggle_details(self) -> None:
         if self._details_open:
             self._details.pack_forget()
             self._details_open = False
-            self.root.geometry("420x200")
+            self.root.after_idle(self._fit_window)
             return
         self._details.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         self._details.delete("1.0", "end")
         body = "\n".join(self._detail_lines) if self._detail_lines else "(none)"
         self._details.insert("end", body)
         self._details_open = True
-        self.root.geometry("420x360")
+        self.root.after_idle(self._fit_window)
 
     def _copy_details(self) -> None:
         parts = [

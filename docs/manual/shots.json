@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "image_dir": "images",
-  "note": "Canonical filenames for User-manual.md. Capture via launcher Screenshots panel or scripts/capture-user-manual-shots.sh. Use a suffix for dated/variant copies without overwriting the doc embeds.",
+  "note": "Canonical filenames for User-manual.md. Capture via launcher Screenshots… or scripts/capture-user-manual-shots.sh. URL query params set Operate context before grab (needed, bands, maxAge, cols). wait_ms lets SSE/JS settle. Suffix mode keeps dated variants without overwriting doc embeds.",
   "shots": [
     {
       "id": "site-operate",
@@ -9,7 +9,20 @@
       "url": "http://127.0.0.1:8787/",
       "width": 1280,
       "height": 900,
+      "wait_ms": 3000,
       "caption": "Site console — Operate (call roster).",
+      "section": "Site console",
+      "status": "active"
+    },
+    {
+      "id": "site-operate-needed",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/?needed=1&maxAge=120",
+      "width": 1280,
+      "height": 900,
+      "wait_ms": 3000,
+      "context": "Operate: needed-only, max age 2m",
+      "caption": "Operate — needed stations only (screenshot context).",
       "section": "Site console",
       "status": "active"
     },
@@ -19,6 +32,7 @@
       "url": "http://127.0.0.1:8787/overview",
       "width": 1280,
       "height": 900,
+      "wait_ms": 2500,
       "caption": "Site console — Overview (system, bands, agents).",
       "section": "Site console",
       "status": "active"
@@ -29,6 +43,7 @@
       "url": "http://127.0.0.1:8787/wsjt",
       "width": 1280,
       "height": 900,
+      "wait_ms": 2500,
       "caption": "Site console — WSJT-X (instances + decode activity).",
       "section": "Site console",
       "status": "active"
@@ -39,6 +54,7 @@
       "url": "http://127.0.0.1:8787/n1mm",
       "width": 1280,
       "height": 900,
+      "wait_ms": 2500,
       "caption": "Site console — N1MM (contest log + logger network).",
       "section": "Site console",
       "status": "active"
@@ -49,6 +65,7 @@
       "url": "http://127.0.0.1:8787/setup",
       "width": 1280,
       "height": 900,
+      "wait_ms": 2000,
       "caption": "Site console — Setup (install diagnostics).",
       "section": "Site console",
       "status": "active"
@@ -59,6 +76,7 @@
       "url": "http://127.0.0.1:8790/",
       "width": 1100,
       "height": 800,
+      "wait_ms": 1500,
       "caption": "Local status (:8790) — WSJT monitor config check on this PC.",
       "section": "Desktop launcher and agents",
       "status": "active"
@@ -77,7 +95,7 @@
       "caption": "N1MM agent status window (Broadcast / Log / KEY).",
       "section": "N1MM agent",
       "status": "stub",
-      "note": "Capture when N1MM agent GUI is open on a logger PC, or drop PNG on images/log-agent.png"
+      "note": "Open N1MM agent on a logger PC, set the window how you want it, then drop PNG on images/log-agent.png (or Capture from a future window hook)."
     },
     {
       "id": "key-agent",

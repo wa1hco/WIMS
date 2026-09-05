@@ -1022,7 +1022,9 @@ function rosSyncBandChecks(bands) {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.dataset.band = b;
-    if (prev && knownBefore.length) {
+    if (window._rosShotBands && window._rosShotBands.size) {
+      cb.checked = window._rosShotBands.has(b);
+    } else if (prev && knownBefore.length) {
       // Keep prior checks; newly appeared bands default on so they are noticed.
       cb.checked = knownBefore.includes(b) ? prev.has(b) : true;
     } else if (pref && pref.length) {
@@ -1088,10 +1090,51 @@ function rosWire() {
   const needed = $("ros-needed");
   if (needed) needed.addEventListener("change", rosDraw);
   rosSyncMaxAgeControl();
+  applyOperateShotContext();
   // Ctrl+/- zoom and window resize: remeasure column widths.
   window.addEventListener("resize", rosFitColumnsSoon);
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", rosFitColumnsSoon);
+  }
+}
+
+/** URL query context for docs screenshots, e.g. /?needed=1&bands=144&maxAge=60 */
+function applyOperateShotContext() {
+  if (!$("ros-needed") && !$("ros-max-age") && !$("ros-cols")) return;
+  let q;
+  try { q = new URLSearchParams(location.search || ""); }
+  catch (_) { return; }
+  if (![...q.keys()].length) return;
+  if (q.has("needed")) {
+    const needed = $("ros-needed");
+    if (needed) needed.checked = !["0", "false", "no"].includes(String(q.get("needed")).toLowerCase());
+  }
+  if (q.has("maxAge")) {
+    const sel = $("ros-max-age");
+    const v = String(q.get("maxAge") || "");
+    if (sel && [...sel.options].some(o => o.value === v)) {
+      sel.value = v;
+      rosSaveMaxAge(Number(v));
+    }
+  }
+  if (q.has("cols")) {
+    const want = new Set(
+      String(q.get("cols") || "").split(",").map(s => s.trim()).filter(Boolean)
+    );
+    want.add("call");
+    if (want.size) {
+      rosSaveColPref([...want]);
+      _rosColsBuilt = false;
+      const wrap = $("ros-cols");
+      if (wrap) wrap.innerHTML = "";
+      rosSyncColChecks();
+    }
+  }
+  if (q.has("bands")) {
+    // Applied on next rosDraw once band checkboxes exist.
+    window._rosShotBands = new Set(
+      String(q.get("bands") || "").split(",").map(s => s.trim()).filter(Boolean)
+    );
   }
 }
 

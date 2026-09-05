@@ -44,6 +44,96 @@ def _hostname() -> str:
 
 def _lan_ips() -> list[str]:
     """Best-effort non-loopback IPv4 addresses for this host."""
+    return sorted({n["ipv4"] for n in _netif_addrs() if n.get("ipv4")})
+
+
+def _netif_addrs() -> list[dict]:
+    """NIC name → IPv4 for WSJT-X Outgoing interface (needs names like ``enp3s0``).
+
+    Prefers ``ip -br -4 addr`` (Linux). Falls back to ioctl per ``if_nameindex``.
+    Skips loopback and interfaces with no IPv4.
+    """
+    rows: list[dict] = []
+    # Fast path: iproute2 brief table — "enp3s0 UP 192.168.1.181/24"
+    try:
+        out = subprocess.check_output(
+            ["ip", "-br", "-4", "addr"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            name, state = parts[0], parts[1]
+            if name == "lo" or name.startswith("lo:"):
+                continue
+            ipv4 = None
+            for tok in parts[2:]:
+                if "/" in tok and not tok.startswith("fe80"):
+                    ipv4 = tok.split("/", 1)[0]
+                    break
+            if ipv4 and not ipv4.startswith("127."):
+                rows.append({"name": name, "ipv4": ipv4, "state": state})
+        if rows:
+            # Also list UP links that have no IPv4 yet (WSJT-X still needs the name).
+            try:
+                link = subprocess.check_output(
+                    ["ip", "-br", "link"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    timeout=2,
+                )
+                have = {r["name"] for r in rows}
+                for line in link.splitlines():
+                    parts = line.split()
+                    if len(parts) < 2:
+                        continue
+                    name, state = parts[0], parts[1]
+                    if name in have or name == "lo" or name.startswith("lo"):
+                        continue
+                    if "UP" in state.upper():
+                        rows.append({"name": name, "ipv4": "(no IPv4)", "state": state})
+            except (OSError, subprocess.SubprocessError, ValueError):
+                pass
+            return rows
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+
+    # Fallback: enumerate interfaces + SIOCGIFADDR (Linux/macOS).
+    try:
+        import fcntl
+        import struct
+
+        for _idx, name in socket.if_nameindex():
+            if name == "lo" or name.startswith("lo"):
+                continue
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                try:
+                    ifreq = struct.pack("256s", name[:15].encode("utf-8"))
+                    res = fcntl.ioctl(s.fileno(), 0x8915, ifreq)  # SIOCGIFADDR
+                    ip = socket.inet_ntoa(res[20:24])
+                finally:
+                    s.close()
+            except OSError:
+                continue
+            if ip and not ip.startswith("127."):
+                rows.append({"name": name, "ipv4": ip, "state": "?"})
+    except (OSError, AttributeError, ImportError, ValueError):
+        pass
+
+    if rows:
+        return rows
+
+    # Last resort: IPs without names (WSJT-X still needs a name — operator picks).
+    for ip in _lan_ips_fallback():
+        rows.append({"name": "?", "ipv4": ip, "state": "?"})
+    return rows
+
+
+def _lan_ips_fallback() -> list[str]:
     ips: set[str] = set()
     try:
         hostname = socket.gethostname()
@@ -53,7 +143,6 @@ def _lan_ips() -> list[str]:
                 ips.add(ip)
     except OSError:
         pass
-    # UDP trick: discover primary outbound interface IP (no packet sent).
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -488,6 +577,7 @@ def build_report(
         "host": {
             "hostname": host_name,
             "lan_ips": _lan_ips(),
+            "netifs": _netif_addrs(),
             "os": platform.platform(),
             "python": platform.python_version(),
         },
@@ -510,7 +600,17 @@ def format_report_text(report: dict) -> str:
     lines.append(f"agent_id : {report.get('agent_id')}")
     if report.get("seat_id"):
         lines.append(f"seat_id  : {report.get('seat_id')}")
-    lines.append(f"host     : {h.get('hostname')}  ips={', '.join(h.get('lan_ips') or []) or '-'}")
+    lines.append(f"host     : {h.get('hostname')}")
+    netifs = h.get("netifs") or []
+    if netifs:
+        lines.append("netifs   :  (WSJT-X Settings → Reporting → Outgoing interface)")
+        for n in netifs:
+            lines.append(
+                f"           {n.get('name') or '?':16}  {n.get('ipv4') or '-'}"
+                + (f"  [{n.get('state')}]" if n.get("state") and n.get("state") != "?" else "")
+            )
+    else:
+        lines.append(f"ips      : {', '.join(h.get('lan_ips') or []) or '-'}")
     lines.append(f"os       : {h.get('os')}")
     lines.append(f"mode     : {report.get('mode')}")
     apps = report.get("apps") or {}
@@ -595,8 +695,10 @@ def format_report_text(report: dict) -> str:
         lines.append("N1MM: not on this PC")
 
     lines.append("")
-    lines.append("Operator: fix ERROR/WARN items above, then re-run the agent.")
-    lines.append("Export: same report can POST to the site WIMS server dashboard.")
+    # Footer only when there is something to fix — keyed off summary, not a
+    # second pass over the body.
+    if sev in ("error", "warn"):
+        lines.append("Operator: fix ERROR/WARN items above, then Re-scan.")
     return "\n".join(lines)
 
 

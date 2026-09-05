@@ -105,7 +105,11 @@ def main(argv: list[str] | None = None) -> int:
                 w = int(shot.get("width") or 1280)
                 h = int(shot.get("height") or 900)
                 print(f"[SHOT] {sid} ← {url}")
-                capture_url(url, out, width=w, height=h, chrome=chrome)
+                capture_url(
+                    url, out, width=w, height=h,
+                    wait_ms=int(shot.get("wait_ms") or 2500),
+                    chrome=chrome,
+                )
                 print(f"       → {out.relative_to(ROOT)} ({out.stat().st_size} bytes)")
                 ok += 1
             elif kind == "window":

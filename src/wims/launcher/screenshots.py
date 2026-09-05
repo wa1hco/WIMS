@@ -60,6 +60,7 @@ def capture_url(
     *,
     width: int = 1280,
     height: int = 900,
+    wait_ms: int = 0,
     chrome: str | None = None,
 ) -> None:
     chrome = chrome or _chrome()
@@ -79,6 +80,10 @@ def capture_url(
             f"--screenshot={shot}",
             url,
         ]
+        # Let SSE/JS settle so Operate/Status aren't empty shells.
+        budget = max(0, int(wait_ms))
+        if budget > 0:
+            cmd.insert(-1, f"--virtual-time-budget={budget}")
         proc = subprocess.run(cmd, cwd=td, capture_output=True, text=True, timeout=60)
         candidates = [shot, Path(td) / "screenshot.png"]
         src = next((p for p in candidates if p.is_file() and p.stat().st_size > 100), None)
@@ -309,10 +314,14 @@ class ScreenshotPanel:
                         lines.append(f"  skip  {sid}  (no Chrome)")
                         continue
                     url = rewrite_url(shot.get("url") or "", base)
+                    ctx = shot.get("context") or ""
+                    if ctx:
+                        lines.append(f"  ctx   {sid}: {ctx}")
                     capture_url(
                         url, out,
                         width=int(shot.get("width") or 1280),
                         height=int(shot.get("height") or 900),
+                        wait_ms=int(shot.get("wait_ms") or 2500),
                         chrome=chrome,
                     )
                     lines.append(f"  OK    {out.name}")
