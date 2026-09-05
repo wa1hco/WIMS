@@ -132,9 +132,18 @@ try {
     Pop-Location
 }
 
-# Refresh Desktop WIMS launcher shortcut when helper exists.
+# Refresh Desktop WIMS launcher shortcut (sticky .ico via wscript+VBS).
+$deskPs1 = Join-Path $win "Install-WimsDesktopShortcut.ps1"
 $deskShortcut = Join-Path $win "Install-WIMS-Desktop-Shortcut.cmd"
-if (Test-Path -LiteralPath $deskShortcut) {
+if (Test-Path -LiteralPath $deskPs1) {
+    Log "Refreshing Desktop WIMS shortcut..."
+    try {
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $deskPs1 -NoPause |
+            ForEach-Object { Log "  $_" }
+    } catch {
+        Log "WARN: shortcut refresh: $_" "Yellow"
+    }
+} elseif (Test-Path -LiteralPath $deskShortcut) {
     Log "Refreshing Desktop WIMS shortcut..."
     try {
         & cmd /c "`"$deskShortcut`" /nopause" | ForEach-Object { Log "  $_" }
