@@ -1,8 +1,9 @@
 # WSJT-X Instance Management System (WIMS) — User Manual
 
 **Audience:** contest operators and seat wranglers (W2SZ multi-multi VHF and similar).  
+**Setup how-to (WSJT-X · N1MM · Keyline):** **[operator_setup.md](operator_setup.md)** ← start here for install/config.  
 **Screenshots:** refresh with `scripts/capture-user-manual-shots.sh` (see [manual/README.md](manual/README.md)).  
-**Related:** [tester_runbook.md](tester_runbook.md), [plan/wims_design.md](plan/wims_design.md), [plan/wims_networking.md](plan/wims_networking.md).
+**Related:** [tester_quickstart.md](tester_quickstart.md), [plan/wims_design.md](plan/wims_design.md), [plan/wims_networking.md](plan/wims_networking.md).
 
 ---
 
@@ -29,199 +30,156 @@ To minimize SSB/CW workload, the FT8 radio listens continuously and reports **ne
 
 What’s new: the SSB/CW operator can keep calling CQ or answering S&P while WSJT-X works and logs a station. Interrupting the FT8 transmitter (via inhibit) is like losing pieces of a received signal — decoding at the DX end often still succeeds.
 
-That overlap is the **inhibit** path: a beta WSJT-X can release PTT when another radio’s KEY asserts.
+That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when another radio’s KEY asserts (**TxInhibit type 18**).
 
 ### WIMS functions today
 
-1. **Call roster** — needed stations for SSB/CW or FT8 operators  
-2. **Inhibit** — SSB/CW KEY → WSJT-X PTT release so both can coexist safely  
-3. **Logging** — WSJT-X Logged QSOs → N1MM on the logger PC  
+1. **Call roster** — needed stations; click to **Work** (answer)  
+2. **Inhibit** — SSB/CW KEY → WSJT-X PTT release (N1MM agent **KEY** section + Keyline)  
+3. **Logging** — WSJT-X Logged QSOs → N1MM via **N1MM agent Log**  
+4. **Broadcast bridge** — N1MM Broadcast Data on localhost → site **N1MM** tab via **N1MM agent Broadcast**  
 
 ---
 
-## Quick start (one PC or a seat)
+## Quick start
 
 ```bash
 # Desktop launcher (recommended)
 python -m wims
-
-# Or site server only
-python -m wims server
 ```
 
-- **Windows:** Desktop **WIMS** shortcut / `Start-WimsLauncher.cmd`  
+- **Windows:** Desktop **WIMS** / `Install-Wims.cmd` once — [scripts/windows/README.md](../scripts/windows/README.md)  
 - **Linux:** `scripts/install-wims-desktop.sh` (needs `python3-tk`)  
-- Site console (when the site server is up): `http://<server>:8787/`  
+- Console: `http://<server>:8787/`  
 
-The launcher has two panels: **Running on this PC** (live apps/agents) and
-**This seat will run** (remembered intent). Check N1MM / WSJT-X / SSB-CW KEY /
-Site server to start Log / Seat / Key / site-server agents.
+**Exact app settings:** [operator_setup.md](operator_setup.md).
 
-### Install on Windows (first time)
+The launcher has **Running on this PC** (live) and **This seat will run** (remembered intent):
 
-1. Get the tree onto the PC (`git clone https://github.com/wa1hco/WIMS.git` or USB copy).  
-2. Double-click **`scripts\windows\Install-Wims.cmd`** (Run as administrator once on a golden image).  
-3. That installs Python + Git if needed, pulls/clones the repo, and creates Desktop **WIMS** and **Update WIMS**.  
-4. Day-to-day: open Desktop **WIMS** only.  
+| Intent | Starts |
+|--------|--------|
+| **N1MM** | **N1MM agent** — Broadcast + Log |
+| **SSB/CW KEY** | same agent with **KEY** (pick KEY COM/tty in the launcher) |
+| **WSJT-X** | WSJT monitor agent (`:8790`) |
+| **Site server** | Fleet console (`:8787`) — one per LAN |
 
-Details: [scripts/windows/README.md](../scripts/windows/README.md).
+### Install / update (Windows)
 
-### Update on Windows (one click)
-
-When GitHub `main` is ahead of this PC:
-
-- Launcher (on open, and about every 45 minutes while open): yellow banner + **Update WIMS**
-- Seat agent daemon: gentle **desktop toast** once per new version (does **not** steal
-  focus from N1MM/WSJT) and a note on `http://127.0.0.1:8790/`
-- You still **click** Desktop **Update WIMS** to install — nothing auto-pulls mid-contact
-
-Early `0.0.x` releases may ship bug fixes during a contest; the toast is the soft prod.
-
-```text
-scripts\windows\Update-Wims.cmd
-```
+1. Tree on disk (`git clone` or copy).  
+2. **`scripts\windows\Install-Wims.cmd`** once.  
+3. Day-to-day: Desktop **WIMS**.  
+4. When offered: **Update WIMS** (does not auto-pull mid-contact).  
 
 ---
 
 ## Site console
 
-One **site server** per contest LAN serves Operate / Status / Setup in the browser.
+One **site server** per contest LAN. Top nav:
+
+**Operate · Overview · WSJT-X · N1MM · Setup**
 
 ### Operate (call roster)
 
 ![Site console — Operate](manual/images/site-operate.png)
 
-*Site console — Operate (call roster). Click a line to Work; Halt TX always available.*
+*Operate — call roster. Click a line to Work (answer); Halt TX always available. Call CQ in WSJT-X.*
 
-The roster works by:
+- Needs: WSJT multicast + N1MM contest log (seed and/or live Contacts via agent).  
+- **Work** = answer that station. **CQ / run** = WSJT-X UI only.
 
-- Reading/creating a copy of the N1MM contest log database  
-- Updating that copy from N1MM log messages on the LAN  
-- Receiving decodes from WSJT-X instances on the network  
-- Testing each decode for **needed vs dupe**  
+### Overview · WSJT-X · N1MM
 
-**Operator actions:** click a roster line to **Work** (Reply). **Halt TX** is always available. There is no global “arm TX” — a human always initiates work.
+| Page | URL | Content |
+|------|-----|---------|
+| **Overview** | `/overview` | System, bands, agents, rotators |
+| **WSJT-X** | `/wsjt` | Digi instances + decode activity heatmaps |
+| **N1MM** | `/n1mm` | Logger sync + network view (who is logging) |
 
-### Status
-
-![Site console — Status](manual/images/site-status.png)
-
-*Site console — Status (fleet / instances / interlock).*
-
-Use Status for fleet health: which instances are heard, interlock/overlap, and related diagnostics.
+(`/status` still opens Overview.)
 
 ### Setup
 
 ![Site console — Setup](manual/images/site-setup.png)
 
-*Site console — Setup (log seed, resync, site options).*
-
-Use Setup to pick/resync the N1MM `.s3db` contest log and adjust site options.
+*Setup — contest log pick/resync and install diagnostics.*
 
 ---
 
-## Desktop launcher and agents
+## N1MM agent (logger / SSB-CW PC)
 
-Open `python -m wims` on each seat PC. Agents are started from checkboxes that track what is live on that PC:
+One process: `python -m wims.seat --log --key` (or launcher intents).
 
-| Asset | Agent | Role |
-|-------|--------|------|
-| N1MM | **Log agent** | Fleet Logged QSOs → local N1MM |
-| WSJT-X (N instances) | **Seat agent** | Config check + local monitor for all local WSJT-X |
-| Key (CTS) | **Key agent** | KEY/CTS → inhibit targets (no companion app) |
-| Site server | **Site server** | Fleet console (:8787); one per LAN |
+| Section | Job |
+|---------|-----|
+| **Log** | Fleet digi Logged QSOs (`224.0.0.73:2237`) → local N1MM (`:52001` / `:2333`) |
+| **Broadcast** | Hear N1MM **Broadcast Data** on `127.0.0.1:12060` → site `/api/n1mm/broadcast` |
+| **KEY** | Keyline CTS → same-band type-18 holds |
 
-![Desktop launcher](manual/images/launcher-home.png)
-
-*Desktop launcher — checkbox agents (N1MM→Log, WSJT-X→Seat, Key, Site server).*
-
-### Seat agent (local page)
-
-On a WSJT-X PC the Seat agent also serves a local status page:
-
-![Seat agent local](manual/images/seat-agent-local.png)
-
-*Seat agent local page (:8790) — config check for WSJT-X on this PC.*
-
-Typical URL: `http://127.0.0.1:8790/`.
-
----
-
-## Call roster (detail)
-
-See [Operate](#operate-call-roster) above for the live screenshot.
-
-Summary for operators:
-
-1. Keep N1MM’s contest log healthy (Broadcast Data as documented for your seat).  
-2. Keep WSJT-X instances on the fleet multicast band ports (see networking plan).  
-3. Watch Operate for needed calls; click to Work; use Halt TX when you must stop.  
-
----
-
-## Inhibit
-
-The inhibit path:
-
-- A small **Key agent** reads KEY/CTS from the SSB/CW radio (USB serial).  
-- When KEY is asserted it sends packets to WSJT-X **inhibit** sockets so FT8 releases PTT.  
-- Target list is configured (e.g. `WIMS_KEY_TARGETS=host:port,…`).  
-
-![Key agent](manual/images/key-agent.png)
-
-*Key agent status — CTS source and inhibit target list.*
-
-Product fan-out is still evolving; see [plan/wims_key_agent.md](plan/wims_key_agent.md) and [plan/wims_tx_inhibit.md](plan/wims_tx_inhibit.md).
-
----
-
-## Logging
-
-WSJT-X sends Logged QSOs on the fleet multicast. On each **N1MM PC**, the **Log agent**:
-
-- Joins the fleet mcast  
-- Filters by N1MM’s live band (RadioInfo)  
-- Delivers to local N1MM (TCP 52001 preferred, UDP 2333 fallback)  
+**N1MM Configurer:** Broadcast Data **Radio + Contacts → `127.0.0.1:12060`**.  
+**WSJT/JTDX UDP reader → OFF** (the agent Log section replaces it).  
+Set `WIMS_SERVER=http://<site>:8787`. Not N1MM networking port **12070**.
 
 ![Log agent](manual/images/log-agent.png)
 
-*Log agent status window (N1MM PC) — band from RadioInfo, FWD/DROP counts.*
+*N1MM agent status window (Broadcast / Log / KEY).*
 
-CLI: `python -m wims.log` (add `--no-gui` for console-only).
+---
+
+## WSJT monitor (digi PC)
+
+Optional. Launcher **WSJT-X** intent → local UI `http://127.0.0.1:8790/` and rows under Overview **Agents**.
+
+![Seat agent local](manual/images/seat-agent-local.png)
+
+*WSJT monitor — config check for instances on this PC.*
+
+---
+
+## Inhibit / Keyline
+
+- Pick **KEY device** in the launcher (COM / `/dev/tty…` / `sim:up`).  
+- Hardware: [hardware/keyline_interface/](../hardware/keyline_interface/) · flash: [eeprom/README.md](../hardware/keyline_interface/eeprom/README.md).  
+- Digi needs patched WSJT-X (type **18** hold; port **22372** or ephemeral via InhibitStatus).  
+
+![Key agent](manual/images/key-agent.png)
+
+*KEY section — CTS and targets.*
+
+Design: [plan/wims_key_agent.md](plan/wims_key_agent.md), [protocols/wsjtx_tx_inhibit.md](protocols/wsjtx_tx_inhibit.md).
 
 ---
 
 ## Networking (short)
 
-Authoritative detail: [plan/wims_networking.md](plan/wims_networking.md).
+Authoritative: [plan/wims_networking.md](plan/wims_networking.md).
 
-- Fleet WSJT UDP: multicast **224.0.0.73**, band ports **2237+** (skip **2240**).  
-- Site console HTTP: **:8787**.  
-- Seat agent local UI: **:8790** on that PC.  
-- CAT/PTT stays **seat-local** (e.g. Icom + wfview) — not a WIMS server plane.  
+| Plane | Address |
+|-------|---------|
+| WSJT fleet UDP | **`224.0.0.73:2237`** (all bands; unique `--rig-name` per instance) |
+| N1MM Broadcast (fleet) | **`127.0.0.1:12060`** → N1MM agent → site |
+| N1MM↔N1MM mesh | **12070** (not WIMS) |
+| Site HTTP | **:8787** |
+| WSJT monitor | **:8790** on that PC |
+
+Tailscale on contest seats: deferred policy/audit — [plan/tailscale_contest_lan.md](plan/tailscale_contest_lan.md).
 
 ---
 
 ## Safety
 
 - **Zero TX overlap** per resource group; fail-safe to RX.  
-- **No automated/unattended transmit** — a human always initiates TX (roster click / WSJT-X UI).  
-- Restarting the launcher on a seat **replaces** local Log/Seat/Key agents but **leaves the site server alone**.  
+- **No automated/unattended transmit** — human initiates TX.  
+- Restarting the launcher **replaces** N1MM agent / WSJT monitor but **leaves the site server alone**.  
 
 ---
 
-## Keeping this manual’s pictures current
-
-Screenshots live under `docs/manual/images/` with **stable names**. The catalog is `docs/manual/shots.json`.
+## Keeping screenshots current
 
 ```bash
-# After UI changes (site server should be up for Operate/Status/Setup):
 scripts/capture-user-manual-shots.sh
 ```
 
-Markdown image links do **not** change when you refresh PNGs. Add new shots by editing `shots.json`, embedding `![…](manual/images/<id>.png)` once in this file, then re-running the script.
-
-Stub shots (launcher, Log agent, Key agent): capture the window yourself and overwrite the PNG; the next script run keeps your file unless you pass `--force-placeholders`.
+See [manual/README.md](manual/README.md).
 
 ---
 
@@ -229,4 +187,5 @@ Stub shots (launcher, Log agent, Key agent): capture the window yourself and ove
 
 | Date | Note |
 |------|------|
-| 2026-08-30 | Initial Markdown manual + screenshot manifest/capture script |
+| 2026-08-30 | Initial Markdown manual + screenshot manifest |
+| 2026-09-05 | N1MM agent Broadcast/Log/KEY; console Overview/WSJT/N1MM; link operator_setup |

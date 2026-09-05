@@ -17,15 +17,16 @@ consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).
 
 **Adopted architecture direction (2026-07-30): WIMS Switchboard.**
-**[wims_switchboard_concept.md](wims_switchboard_concept.md)** is now the assumed model: WIMS
+**[wims_switchboard_concept.md](wims_switchboard_concept.md)** is the assumed model: WIMS
 is the application-layer router (switchboard) for the operating flows between WSJT-X, N1MM,
 and GridTracker; operators cover bands via **subscriptions**; the **call roster is either
 WIMS's own browser roster or GridTracker, per operator choice** — both are subscribers of the
-same switchboard flows. Logging never routes through WIMS (direct WSJT-X→N1MM leg; WIMS
-audits). This document is being migrated section-by-section; where older text conflicts with
-the Switchboard model, the concept doc and the function list below govern. Open wiring
-decisions: the F4 logging leg (Option 1 direct-2333 vs Option 2 per-band streams, pending
-bench Q3) and the dedicated-RTS PTT seat standard
+same switchboard flows. Logging never routes through WIMS (WIMS audits). **Current fleet
+wiring (2026-09-05):** plane A is **`224.0.0.73:2237`** for all bands; digi → N1MM is the
+**N1MM agent Log** path (built-in WSJT UDP reader **OFF**) — see
+[operator_setup.md](../operator_setup.md) and
+[decision 2026-09-05](../decisions/2026-09-05-plane-a-single-port-2237.md). Remaining open
+seat-hardware decision: dedicated-RTS PTT
 (**[wims_tx_inhibit.md](wims_tx_inhibit.md)** §5.5).
 
 ---
@@ -157,8 +158,8 @@ the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networki
 
 | Band | N1MM (one, logger-of-record) | WSJT-X hosts |
 |------|------------------------------|--------------|
-| **50** | **N1MM-50** (typically trailer / central) | **1–N** FT8 instances: trailer beam PCs **and/or remote** (e.g. **TV station PC + radio**). Remote hosts do **not** run a second N1MM for 50 — they only emit plane A multicast; N1MM-50 is sole reader. |
-| **144** | **N1MM-144** | **Up to two** hosts: separate **radio + PC** for FT8 and for MSK144 (or EME); both use **the same** N1MM-144. |
+| **50** | **N1MM-50** (typically trailer / central) | **1–N** FT8 instances: trailer beam PCs **and/or remote** (e.g. **TV station PC + radio**). Remote hosts do **not** run a second N1MM for 50 — they only emit plane A multicast; **N1MM-50’s agent Log** is sole digi logger. |
+| **144** | **N1MM-144** | **Up to two** hosts: separate **radio + PC** for FT8 and for MSK144 (or EME); both use **the same** N1MM-144 (agent Log). |
 | **222** | **N1MM-222** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as the period requires (not always digital). |
 | **432** | **N1MM-432** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as equipped. |
 
@@ -170,16 +171,19 @@ the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networki
   id); **band = one TX resource group** (one radiated signal — all 50 MHz radios, including TV
   station, share `50-signal`; 144 FT8 + MSK share `144-signal`).
 - *Logger vs radio location:* **N1MM need not co-reside with WSJT-X.** Radio and WSJT-X stay at the
-  antenna site; the band’s N1MM may sit at the trailer and ingest multicast. Full rules:
-  [wims_networking.md](wims_networking.md) §1.1–§1.3.
+  antenna site; the band’s N1MM may sit at the trailer. Digi QSOs reach that N1MM via the
+  **N1MM agent Log** path (built-in WSJT UDP reader **OFF**). Full rules:
+  [wims_networking.md](wims_networking.md) §1.1–§1.3 · [operator_setup.md](../operator_setup.md).
 - *Network:* single **contest LAN**, **wired L2** across trailer, Roy, and remote 50 (TV site) so
-  **WSJT-X multicast works natively**. **Segregate UDP by band** (port or group) so each N1MM is
-  the sole logger for its band; WIMS joins **all** streams. Per-site unicast relay is a
-  **fallback**, not required. *Watch:* managed switches with **IGMP snooping** + no querier can
-  prune multicast — verify on plain/unmanaged L2 it floods fine. Internet is **1–2 Starlinks**,
-  separate Starlink WiFi for other devices — **out of the WIMS data path** (WIMS radio path is
-  LAN-only; Starlink CGNAT/latency never involved). Remote 50 **must** be on contest L2, not
-  “over the public internet only.”
+  **WSJT-X multicast works natively**. **Current fleet:** one plane A port
+  (`224.0.0.73:2237`) for all bands
+  ([decision 2026-09-05](../decisions/2026-09-05-plane-a-single-port-2237.md)); band identity from
+  dial / RadioInfo + unique `--rig-name`. WIMS joins **2237**; each band’s N1MM agent Log filters
+  by live band. Per-site unicast relay is a **fallback**, not required. *Watch:* managed switches
+  with **IGMP snooping** + no querier can prune multicast — verify on plain/unmanaged L2 it floods
+  fine. Internet is **1–2 Starlinks**, separate Starlink WiFi for other devices — **out of the
+  WIMS data path** (WIMS radio path is LAN-only; Starlink CGNAT/latency never involved). Remote 50
+  **must** be on contest L2, not “over the public internet only.”
 - *Rover dupe still applies:* our position is one fixed grid, but we **work rovers** (others'
   stations moving between grids); each grid×band is a mult, so the `(call, band, grid)` dupe key
   (grid from the WSJT-X decode) stays necessary for worked stations.
@@ -244,15 +248,15 @@ bed (§5).
   audio line; sub-ms, deterministic — the only *guaranteed* 10 ms option. Use a ~2–5 ms cosine/RC
   ramp, never a hard cut (key-click splatter). The mute must run **on the WSJT-X host** (local
   agent, §3.3); the LAN (~1 ms) stays out of the critical path. (Sensor / trigger / actuator breakdown + the two stop layers: §3.4.1.)
-- **Multicast vs unicast** — this station uses **multicast `224.0.0.73` + one UDP port per band
-  stream** (TTL 3; defaults **2237–2239, 2241–2243** for 50→1296 — **2240 unused** — per
-  [wims_networking.md](wims_networking.md) **§4**). e.g. 144→**2238**, 432→**2241**. Sequential-
-  from-2237 is a **human-minimal default** with a hole at 2240 for N1MM conflicts; a **Band
-  Stream Registry** may assign any free ports. **Dual consumers per stream:** N1MM-band =
-  logger only; WIMS joins **all** streams (never double-logs). `BroadcastToN1MM=false` when
-  N1MM already reads the band multicast. Config: `WSJT-X.ini` / `~/.config/WSJT-X*.ini`
-  (Linux, including `WSJT-X - <rig-name>.ini`). Seat CAT (wfview, etc.) is orthogonal — §1.1
-  is UDP only; see networking **§3.2–§3.3**.
+- **Multicast vs unicast** — this station uses **multicast `224.0.0.73:2237`** for plane A
+  (TTL 3; **all bands share one port** —
+  [decision 2026-09-05](../decisions/2026-09-05-plane-a-single-port-2237.md)). Distinguish
+  instances with `--rig-name`. **Consumers:** WIMS site server + **N1MM agent Log** on each
+  logger PC (built-in WSJT UDP reader **OFF**). WIMS never double-logs. Keep WSJT-X Secondary
+  UDP / Broadcast to N1MM (**2333**) **OFF** when the agent Log path is used.
+  Config: `WSJT-X.ini` / `~/.config/WSJT-X*.ini` (Linux, including `WSJT-X - <rig-name>.ini`).
+  Seat CAT (wfview, etc.) is orthogonal — §1.1 is UDP only; see networking **§3.2–§3.3**.
+  Historical multi-port Scheme A remains lab archaeology in networking §4.
 - **Outgoing interface is mandatory** — Settings → Reporting → **Outgoing interface** must be the
   **contest LAN NIC**. Blank / Qt `@Invalid()` / loopback is a **silent failure mode**: WSJT-X
   still decodes, but Heartbeat/Status/Decode never reach WIMS or other hosts (observed: one
@@ -303,9 +307,10 @@ bed (§5).
     test (grid went to `comment`/Cabrillo only). So WIMS takes grid from the **WSJT-X decode**
     (§3.1), not N1MM. *(To confirm later: does `gridsquare`/`exchange1` populate under an actual
     VHF-contest config? Not blocking, since grid comes from WSJT-X.)*
-  - *Config (`N1MM Admin.s3db` → Settings/ExternalBroadcast):* broadcasts default **off**,
-    destination **127.0.0.1:12060**; enable `IsBroadcastContact`. N1MM also reads WSJT-X UDP
-    directly (`EnableWSJTJTDXUDPReader`) → consumes the multicast itself, not via GridTracker relay.
+  - *Config (`N1MM Admin.s3db` → Settings/ExternalBroadcast):* broadcasts default **off**;
+    fleet destination **`127.0.0.1:12060`** with **N1MM agent** relaying to the site (enable
+    Contacts + Radio). Digi QSOs reach N1MM via **N1MM agent Log**, not
+    `EnableWSJTJTDXUDPReader` (keep that reader **OFF**).
 - **N1MM log DB seed + resync** — `DXLOG` table maps 1:1 to `contactinfo` (same fields + same
   unique `ID`). Read-only seed + `reconcile()` resync. **Resync** = re-read `DXLOG` + reconcile by
   ID (handles deletions); operator-triggerable, no N1MM resync feature needed. *N1MM's own
@@ -963,7 +968,7 @@ culls columns) so the operator can find data without hunting. Minimum inventory 
 
 **Convention — how WSJT-X joins WIMS.** Instances **multicast** WSJT-X protocol traffic
 (Heartbeat / Status / Decode / …) to the fleet group + **band stream port**
-([wims_networking.md](wims_networking.md) §4: `224.0.0.73` + band port). WIMS is a **subscriber**
+([wims_networking.md](wims_networking.md) §4: `224.0.0.73:2237`). WIMS is a **subscriber**
 to those streams (solo: one port; fleet server: all declared ports). There is no separate
 “register with WIMS” handshake for WSJT-X beyond correct Reporting settings + Accept UDP for
 control. Discovery = first datagram + ongoing health from silence prune (§3.15).
@@ -999,23 +1004,23 @@ path. Seats without the inhibit patch fall back to audio-mute + Halt cleanup (§
 
 #### 2.13.4 WSJT-X ↔ N1MM binding verification
 
-WIMS **verifies** that each WSJT-X band stream has a coherent logger:
+WIMS **verifies** that each digi band has a coherent logger:
 
-1. Which N1MM process(es) are **alive** on the LAN (any broadcast).
-2. Which N1MM is the **logger-of-record** for that stream (Instance Profile / Band Stream
-   Registry: exactly one WSJT **reader** per band stream).
-3. **Mismatch alarms:** WSJT-X on 144 but no N1MM-144 reader; two N1MMs both reading the same
-   stream (double-log risk); logger present but no WSJT on that band (SSB-only period — normal).
+1. Which N1MM process(es) are **alive** (Broadcast Data / agent → site).
+2. Which N1MM is the **logger-of-record** for that band (one **N1MM agent Log** path per
+   band; built-in WSJT UDP reader **OFF** everywhere for digi).
+3. **Mismatch alarms:** WSJT-X on 144 but no N1MM-144 / agent Log; digi reader left ON
+   (double-log risk with agent); logger present but no WSJT on that band (SSB-only — normal).
 
 **Multiple N1MM processes on one band — design answer (2026-08-12):**
 
 | Situation | Accommodate? | Rule |
 |-----------|--------------|------|
-| **Two N1MMs both enable the WSJT UDP reader on the same band stream** | **No** as a supported config | Readiness **error** (double-log). Exactly one logger-of-record per stream. |
-| **One digital N1MM (WSJT reader) + separate SSB/CW N1MM** that does **not** join the WSJT stream | **Yes, observe both** | Digital N1MM remains logger-of-record for FT8; SSB N1MM contributes RadioInfo / voice-log presence. Dupe/mult for **digital** still from the contest digital log (or merged copy if the station intentionally uses one multi-contest DB). |
+| **Two digi log paths on the same band** (two agent Logs, or agent + built-in WSJT UDP reader) | **No** as a supported config | Readiness **error** (double-log). Exactly one logger-of-record per band. |
+| **One digital N1MM (agent Log) + separate SSB/CW N1MM** that does **not** take digi QSOs | **Yes, observe both** | Digital N1MM remains logger-of-record for FT8; SSB N1MM contributes RadioInfo / voice-log presence. Dupe/mult for **digital** still from the contest digital log (or merged copy if the station intentionally uses one multi-contest DB). |
 | **Multiple N1MMs broadcasting Contacts for different contests** | **Yes, pick active contest** | Already: Setup contest picker + resync; do not merge unrelated contests into one dupe key. |
 
-WIMS may **display** every N1MM it hears; it must **not** treat two WSJT readers as OK.
+WIMS may **display** every N1MM it hears; it must **not** treat two digi log paths as OK.
 
 #### 2.13.5 Dynamic membership (come and go)
 

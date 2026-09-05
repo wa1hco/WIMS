@@ -18,7 +18,7 @@ from wims.key.discovery import (  # noqa: E402
 
 
 def test_stream_ports():
-    assert stream_port_for_band("2m") == 2238
+    assert stream_port_for_band("2m") == 2237  # all bands → plane A 2237
     assert stream_port_for_band("6m") == 2237
     assert stream_port_for_band(None) is None
     assert set(BAND_STREAM_PORTS) >= {"6m", "2m", "1.25m", "70cm"}

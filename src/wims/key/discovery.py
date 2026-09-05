@@ -16,14 +16,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Fleet band streams (wims_networking.md §4). Labels match band_label().
+# Plane A is a single port (decision 2026-09-05). All band labels join 2237.
+PLANE_A_PORT = 2237
 BAND_STREAM_PORTS: dict[str, int] = {
-    "6m": 2237,
-    "2m": 2238,
-    "1.25m": 2239,
-    "70cm": 2241,
-    "33cm": 2242,
-    "23cm": 2243,
+    "6m": PLANE_A_PORT,
+    "2m": PLANE_A_PORT,
+    "1.25m": PLANE_A_PORT,
+    "70cm": PLANE_A_PORT,
+    "33cm": PLANE_A_PORT,
+    "23cm": PLANE_A_PORT,
 }
 
 DEFAULT_STALE_S = 90.0  # drop rows quiet this long

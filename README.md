@@ -12,7 +12,8 @@ starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
 **Testers / home evaluation (recommended entry):**  
 **[docs/tester_quickstart.md](docs/tester_quickstart.md)** — tracks from *no radio apps* → WSJT-X only → WSJT-X+N1MM → optional multi-PC.  
-**What you install (roles):** [docs/tester_roles.md](docs/tester_roles.md) — solo vs server vs seat agent; KEY agent is not in the R0 surface.
+**What you install (roles):** [docs/tester_roles.md](docs/tester_roles.md) — solo vs server vs N1MM agent / WSJT monitor.  
+**Seat setup (WSJT-X · N1MM · Keyline):** [docs/operator_setup.md](docs/operator_setup.md).
 
 Full instructions for a **new machine with nothing installed** (except Windows or Linux itself).
 WIMS is **stdlib-only** (no `pip install`); the Windows installer brings in Python/Git/firewall.
@@ -56,7 +57,7 @@ You only need the folder that contains `src\wims\` and `scripts\windows\`.
 
 - Double-click **`Start-WimsServer.cmd`**, or Desktop **WIMS Server**.
 - Browser on this PC: [http://localhost:8787/](http://localhost:8787/)  
-  · Status: `/status` · Setup (contest log): `/setup`
+  · Overview `/overview` · WSJT-X `/wsjt` · N1MM `/n1mm` · Setup `/setup`
 
 Use the **contest LAN IP** for `--iface` when other hosts must reach the server (the Start script
 defaults are lab-oriented; details in [scripts/windows/README.md](scripts/windows/README.md)).

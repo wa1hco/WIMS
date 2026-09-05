@@ -65,10 +65,14 @@ Open:
 | Page | URL |
 |------|-----|
 | **Operate** | http://localhost:8787/ |
-| **Status** | http://localhost:8787/status |
+| **Overview** | http://localhost:8787/overview |
+| **WSJT-X** | http://localhost:8787/wsjt |
+| **N1MM** | http://localhost:8787/n1mm |
 | **Setup** | http://localhost:8787/setup |
 
-**Pass:** pages load; Status shows live UI (instances/loggers may be empty — normal).
+**Pass:** pages load; Overview/WSJT/N1MM may be empty — normal without radio apps.
+
+**Full seat settings:** [operator_setup.md](operator_setup.md).
 
 ### A4. Optional — seat agent (still no WSJT-X)
 
@@ -121,23 +125,11 @@ Solo = local server, no fleet presence election, browser to Operate.
 | Setting | Value |
 |---------|--------|
 | UDP Server | `224.0.0.73` |
-| UDP Server port | **2237** (or your band port — see table) |
+| UDP Server port | **`2237`** (all bands) |
 | Accept UDP requests | ✅ ON |
 | Outgoing interface | This PC’s main NIC if roster stays empty |
 
-| Band | Port |
-|------|------|
-| 50 MHz | **2237** |
-| 144 | **2238** |
-| 222 | **2239** |
-| *(unused)* | **2240** — do not use |
-| 432 | **2241** |
-| 902 | **2242** |
-| 1296 | **2243** |
-
-WIMS solo defaults to **2237**. If you use another port, start with that port, e.g. `python -m wims.solo --port 2238`.
-
-Optional but good: **`--rig-name=HOME-FT8`** (or any unique name) so the Status instance id is not the default `WSJT-X`.
+Optional but good: **`--rig-name=HOME-FT8`** (or any unique name) so the instance id is not the default `WSJT-X`.
 
 ### B3. Check setup
 
@@ -152,7 +144,7 @@ Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
 
 **Pass:**
 
-- Status → instance row (id + host, usually this PC)  
+- **WSJT-X** tab → instance row (id + host, usually this PC)  
 - Operate → **Call roster** populates  
 - Clicking a row may fill DX / Enable Tx if Accept UDP is on (use dummy load / low power if testing TX)
 
@@ -169,9 +161,10 @@ Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
 ### C2. N1MM
 
 1. N1MM running and logging (any contest/casual log is fine).  
-2. **Config → Configure Ports → Broadcast Data:** enable **Contacts** (and Radio if you use it) so WIMS sees log updates.  
-3. WSJT-X port in N1MM’s WSJT reader = **same** port as WSJT-X / WIMS (e.g. both 2237).  
-4. **Historical log (dupe/mult seed):** WIMS reads `.s3db` files only on the **machine running the WIMS server**.  
+2. **Config → Configure Ports → Broadcast Data:** enable **Radio** + **Contacts** → destination **`127.0.0.1:12060`**.  
+3. **N1MM WSJT/JTDX UDP reader → OFF** (obsolete; the N1MM agent Log path owns digi → N1MM).  
+4. Start **N1MM agent** (launcher **N1MM** intent) with `WIMS_SERVER=http://127.0.0.1:8787` (or your site URL).  
+5. **Historical log (dupe/mult seed):** WIMS reads `.s3db` files only on the **machine running the WIMS server**.  
    - Same PC as N1MM → auto-scans N1MM `UserDir\Databases` (registry), `%USERPROFILE%\Databases`, and `Documents\N1MM Logger+\Databases`. Check server console for **N1MM seed scan dirs**.  
    - Startup order: **`--seed-db`** (that file only) → **last Setup pick** (remembered on this PC) → auto latest dated contest.  
    - Casual **`DX`** loses auto-pick to named contests (e.g. June VHF) — pick yours once on Setup (or `--seed-db`); it sticks after restart.  
@@ -229,8 +222,8 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 
 **Minimum dual-PC lab:**
 
-1. **Server PC:** WIMS server (joins **2237–2239,2241–2243** by default; skips **2240**).  
-2. **Each radio PC:** unique rig-name; UDP `224.0.0.73` + **band port**; Outgoing interface = LAN; Accept UDP ON.  
+1. **Server PC:** WIMS server (joins **`224.0.0.73:2237`** by default).  
+2. **Each radio PC:** unique rig-name; UDP `224.0.0.73` port **`2237`**; Outgoing interface = LAN; Accept UDP ON.  
 3. Browser → `http://<server-lan-ip>:8787/`.
 
 ---

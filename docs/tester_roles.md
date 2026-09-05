@@ -32,8 +32,10 @@ same idea as double-clicking N1MM or WSJT-X.
 `scripts/install-wims-desktop.sh` or `PYTHONPATH=src python3 -m wims --install-shortcut`.
 
 **Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
-on each **N1MM** PC also **Log agent** + **Key agent**; on **WSJT** PCs optional seat
-check/monitor. Solo is under **lab roles** only.
+on each **N1MM** PC check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent**; on **WSJT** PCs
+optional monitor. Solo is under **lab roles** only.
+
+**Operator setup (WSJT-X / N1MM / Keyline):** [operator_setup.md](operator_setup.md).
 
 Hover any button for a tooltip. Role model:
 [docs/decisions/2026-08-29-contest-pc-roles.md](decisions/2026-08-29-contest-pc-roles.md).
@@ -49,16 +51,15 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 |-------------|------------|------------------|-------------------|
 | **Desktop launcher** | GUI: role picker, band port, tooltips, Desktop shortcut helper | Desktop **WIMS** · `python -m wims` · `Start-WimsLauncher.cmd` | **Yes — primary entry** |
 | **Solo** | Site server + browser, single-PC defaults (one WSJT port, no fleet presence) | GUI **Start Solo** · `Start-Wims-Solo.cmd` · `python -m wims solo` | **Yes — primary path** |
-| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins all band ports | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
-| **Operator console** | Browser only — Operate / Status / Setup | `http://<host>:8787/` (buttons in GUI) | **Yes** (opened by Solo) |
-| **Seat agent** (= **station agent**) | Local config audit, optional continuous report to server, local UI `:8790` | GUI **Check** / **Start agent** · `Check-WimsSetup.cmd` · `python -m wims agent` | Optional on one PC; useful on seats |
-| **N1MM / SSB-CW seat** | Shared RadioInfo band; log ± KEY→same-band type-18 | Launcher N1MM + SSB/CW intents · `python -m wims.seat --log --key` | Contest N1MM PC |
+| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins **`2237`** | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
+| **Operator console** | Browser — Operate / Overview / WSJT-X / N1MM / Setup | `http://<host>:8787/` | **Yes** (opened by Solo) |
+| **WSJT monitor** | Local WSJT-X.ini audit + report, UI `:8790` | Launcher **WSJT-X** · `Check-WimsSetup.cmd` · `python -m wims.agent` | Optional on digi PCs |
+| **N1MM agent** | **Broadcast** + **Log** + optional **KEY** | Launcher **N1MM** + **SSB/CW KEY** · `python -m wims.seat --log --key` | Contest N1MM PC |
 | **Inhibit bench** | Lab gate/agent/selftest | `python -m wims key selftest` · `testbed/inhibit_bench.py` | Lab only |
-| **Seat pack** (Flex 50 / IC-9700 144) | Starts radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
+| **Seat pack** (Flex 50 / IC-9700 144) | Radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
-**Naming:** “station agent” and “seat agent” are the **same** process (`wims.agent`). There
-is not a second FT8-seat binary. **KEY** in the GUI runs the lab selftest; full fleet
-assignment is still design-only (`docs/plan/wims_key_agent.md`).
+**Naming:** WSJT **monitor** is `wims.agent` (optional for RF). **N1MM agent** is
+`wims.seat` (Broadcast / Log / KEY) — see [operator_setup.md](operator_setup.md).
 
 ---
 
@@ -68,33 +69,31 @@ assignment is still design-only (`docs/plan/wims_key_agent.md`).
 
 | Page | URL | You use it for |
 |------|-----|----------------|
-| **Operate** | `/` | Ranked call roster; **click a row = Work** (WSJT-X Reply); **Halt TX** always available |
-| **Status** | `/status` | Instances, N1MM, seat agents, activity, health |
-| **Setup** | `/setup` | Contest log pick/resync, networking checklist, agent config detail |
+| **Operate** | `/` | Ranked call roster; **click a row = Work**; **Halt TX** |
+| **Overview** | `/overview` | System, bands, agents, rotators |
+| **WSJT-X** | `/wsjt` | Digi instances + decode activity |
+| **N1MM** | `/n1mm` | Logger sync + network view |
+| **Setup** | `/setup` | Contest log pick/resync, diagnostics |
 
-**TX model:** no global Arm / Enable TX. Human initiation = **roster line click** (GridTracker2-style). **Call CQ / run** stays in the WSJT-X UI.
+**TX model:** no global Arm. Human initiation = **roster click**. **Call CQ** stays in WSJT-X.
 
-### Seat / station agent
+### WSJT monitor (`wims.agent`)
 
 | Mode | Entry | What you see |
 |------|--------|----------------|
-| Setup check | `Check-WimsSetup.cmd` or `python -m wims.agent --solo` | Plain-language `[OK]` / `[! ]` / `[XX]` for WSJT-X + N1MM |
-| One-shot | `Start-WimsAgent.cmd` | Report; optional export to server |
-| Continuous | Desktop **WIMS Agent** / `Start-WimsAgent-Continuous.cmd` | Local UI **http://127.0.0.1:8790/** + rows under Status/Setup **agents** |
+| Setup check | `Check-WimsSetup.cmd` or `python -m wims.agent --solo` | `[OK]` / `[! ]` / `[XX]` for WSJT-X (+ N1MM probe) |
+| Continuous | Launcher **WSJT-X** / `Start-WimsAgent-Continuous.cmd` | **http://127.0.0.1:8790/** + Overview **Agents** |
 
-**Built today:** WSJT-X `.ini` audit, N1MM DB/folder probe, process hints, export, site-server discovery.  
-**Not built in the agent product:** KEY/PTT read, inhibit send, co-seat mute, process lifecycle/watchdog, production K3NG serial path.
-
-### KEY agent / TX inhibit (out of R0 install)
+### N1MM agent / KEY / inhibit
 
 | Layer | Location | Tester-facing? |
 |-------|----------|----------------|
-| Pure logic | `src/wims/interlock/inhibit.py` | No |
-| Inhibit bench | `python testbed/inhibit_bench.py {gate,agent,selftest}` | Lab only |
-| Seat agent | `python -m wims.seat --log --key` | N1MM / SSB-CW PC |
-| Gate inside WSJT-X | Separate repo [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) | Own CI/Releases; not the WIMS ZIP |
+| N1MM agent | `python -m wims.seat --log --key` | Logger PC — Broadcast / Log / KEY |
+| Pure inhibit logic | `src/wims/interlock/inhibit.py` | No |
+| Inhibit bench | `testbed/inhibit_bench.py` | Lab |
+| Gate inside WSJT-X | [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) | Separate build |
 
-Home evaluation (tracks A–C) does **not** require KEY agent or a patched WSJT-X.
+Home tracks A–C do **not** require KEY or a patched WSJT-X.
 
 ---
 
@@ -115,25 +114,17 @@ Everything else (seat packs, Startup, Proxmox clones, multi-band fleet server, K
 
 ---
 
-## Band ports (WSJT-X / N1MM / WIMS must match)
+## Plane A UDP (WSJT-X / WIMS must match)
 
-UDP group **`224.0.0.73`**. Port is the **band stream** (not “any free port”):
+```text
+224.0.0.73:2237
+```
 
-| Band | Port |
-|------|------|
-| 50 MHz | **2237** |
-| 144 | **2238** |
-| 222 | **2239** |
-| *(unused)* | **2240** — do not use (N1MM conflict hole) |
-| 432 | **2241** |
-| 902 | **2242** |
-| 1296 | **2243** |
+**All bands use port 2237** ([decision 2026-09-05](decisions/2026-09-05-plane-a-single-port-2237.md)).
+Distinguish instances with `--rig-name`, not with 2238–2243.
 
-- **Solo** defaults to **2237**. Other band → start with matching port, e.g. `python -m wims.solo --port 2238`.  
-- **Fleet server** joins `2237,2238,2239,2241,2242,2243` by default.  
-- Full map: [plan/wims_networking.md](plan/wims_networking.md) §4.
-
-WSJT-X **Settings → Reporting:** Accept UDP requests **ON**. On multi-host, set **Outgoing interface** to the contest LAN NIC (blank/`@Invalid` → silent empty roster).
+WSJT-X **Settings → Reporting:** Accept UDP requests **ON**. On multi-host, set
+**Outgoing interface** to the contest LAN NIC (blank/`@Invalid` → silent empty roster).
 
 ---
 

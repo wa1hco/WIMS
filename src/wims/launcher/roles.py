@@ -16,13 +16,9 @@ from dataclasses import dataclass
 from typing import Callable
 
 
+# Plane A is a single port (decision 2026-09-05). Label is for solo UI only.
 BAND_PORTS: tuple[tuple[str, int], ...] = (
-    ("50 MHz", 2237),
-    ("144 MHz", 2238),
-    ("222 MHz", 2239),
-    ("432 MHz", 2241),
-    ("902 MHz", 2242),
-    ("1296 MHz", 2243),
+    ("All bands (plane A)", 2237),
 )
 
 DEFAULT_SOLO_PORT = 2237

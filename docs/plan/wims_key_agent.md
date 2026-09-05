@@ -47,7 +47,7 @@ Modules stay separate; they share **one live band**. Not N1MM networking **:1207
   `inhibit_port`. Both Status and type 17 required before a target is used  
   (no blind assume of 22372 unless `WIMS_KEY_TARGETS` override).
 - On QSY: release previous band’s targets; discover on the new band-stream port  
-  (6m→2237, 2m→2238, …).
+  (plane A port **2237** for all bands).
 
 **Wire:** type-18 `TxInhibit` with stable **Controller ID**  
 ([`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhibit.md)).  

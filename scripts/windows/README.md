@@ -18,13 +18,14 @@ For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a singl
 frequency (any band). No fleet, no separate server.
 
 1. **`Install-Wims.cmd`** — installs prerequisites (once; may prompt for UAC).
-2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`** (or your
-   band port — 144→2238, 432→**2241**, never 2240), tick **"Accept UDP requests"**.
+2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`**
+   (all bands), tick **"Accept UDP requests"**. Unique `--rig-name` if multi-instance.
 3. **`Check-WimsSetup.cmd`** — double-click to see a plain-language **[OK] / [! ] / [XX]**
    check of your WSJT-X + N1MM setup (starts nothing).
 4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
    `http://localhost:8787/`. **Click a roster line** to Work (no Arm/Enable TX);
-   **Halt TX** always available.
+   **Halt TX** always available. Console tabs: Operate · Overview · WSJT-X · N1MM · Setup.  
+   Full settings: [docs/operator_setup.md](../../docs/operator_setup.md).
 
 | File | What it does |
 |------|----------------|

@@ -265,6 +265,7 @@ def _find_ini_files(roots: list[Path]) -> list[Path]:
             continue
     return found
 
+# Default fleet plane A is 2237 only; keep legacy ports as "known" for audits.
 _FLEET_UDP_PORTS = frozenset({2237, 2238, 2239, 2241, 2242, 2243})
 
 

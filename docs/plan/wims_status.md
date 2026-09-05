@@ -25,27 +25,24 @@ python -m wims                 # Checkbox agent console (tired-operator UX)
 
 # Solo single-PC (CLI / scripts still work):
 python -m wims solo            # or: python -m wims.solo
-#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:<band-port>, "Accept UDP requests" ON.
-#   Band ports (wims_networking.md §4): 50→2237, 144→2238, 222→2239,
-#     432→2241, 902→2242, 1296→2243  (UDP 2240 unused — N1MM conflict hole)
-#   Match WIMS --port to that band (default 2237). Example 2 m: python -m wims solo --port 2238
+#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
+#   Fleet plane A is ONE port for all bands (decision 2026-09-05). Distinguish with --rig-name.
 #   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
 #   Setup check only: python -m wims agent --solo   (Windows: Check-WimsSetup.cmd)
 #   Tester walkthrough: docs/tester_runbook.md
-#   Operator manual: docs/User-manual.md  (shots: scripts/capture-user-manual-shots.sh)
+#   Operator setup: docs/operator_setup.md · User-manual: docs/User-manual.md
 #   Windows: Install-Wims.cmd once; Update-Wims.cmd / launcher Update button (git pull main)
 #   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
 
 # Fleet / multi-host (site server):
 #   GUI: Start server  ·  Windows: Start-WimsServer.cmd
-#   Or: python -m wims server   (defaults join 2237-2239,2241-2243)
-#   Operate:  http://localhost:8787/          (roster click = Work · Halt TX)
-#   Status:   http://localhost:8787/status
-#   Setup:    http://localhost:8787/setup
+#   Or: python -m wims server   (defaults join 2237 only)
+#   Operate:   http://localhost:8787/
+#   Overview / WSJT-X / N1MM / Setup: /overview /wsjt /n1mm /setup
 ```
-- **Zero-memory start:** site server defaults to **all band streams**
-  (**2237,2238,2239,2241,2242,2243** — **skips 2240**) and `Start-WimsServer.cmd` auto-picks
-  LAN iface. Solo still uses `python -m wims.solo` (one port). Lab escapes: `--ports`, `--iface`.
+- **Zero-memory start:** site server defaults to plane A **`2237` only**
+  (`FLEET_WSJT_PORTS`); `Start-WimsServer.cmd` auto-picks LAN iface. Solo uses
+  `python -m wims.solo` (same port). Lab escape: `--ports 2237,2238,…`.
 - **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
   **Halt TX** always on. Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
   (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ** is WSJT-X UI only (§2.12).
@@ -55,10 +52,9 @@ python -m wims solo            # or: python -m wims.solo
   contest instance (not whole multi-year DXLOG). Setup picker + Resync; no ContestNR
   CLI in normal operation. Pref path: `$XDG_CONFIG_HOME/wims/last_log.json` or
   `~/.config/wims/…` (Windows `%APPDATA%\wims\`), override `WIMS_LAST_LOG`.
-- **Ingest:** multicast `224.0.0.73` on **band streams** (default ports above; networking **§4**).
-  N1MM XML on `:12060` (unicast/broadcast by default; `--n1mm-group` optional multicast).
-  Each **N1MM** joins **only its band stream**; WIMS joins **all** streams. Map:
-  **[wims_networking.md](wims_networking.md) §4** (dual-consumer model + Band Stream Registry).
+- **Ingest:** multicast `224.0.0.73:2237` (plane A). Digi → N1MM is **N1MM agent Log**
+  (reader OFF). Presence/contacts: Broadcast Data → `127.0.0.1:12060` → agent → site.
+  Map: **[wims_networking.md](wims_networking.md)** + **[operator_setup.md](../operator_setup.md)**.
 - **Seat CAT stack (design):** preferred **Icom + wfview** path in networking **§3.2–§3.3**
   (WIMS never owns radio COM; RigCtld must be explicitly enabled in wfview).
 - **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
@@ -521,3 +517,15 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `wims.seat` counts as `n1mm_seat` (WSJT monitor no longer blocks the seat;
   a second forwarder is refused). Tests: `test_log_check` (radio socket + check
   text), `test_cli_launcher` (role catalog).
+- **2026-09-05** — **N1MM agent Broadcast relay + docs refresh:** fleet Broadcast
+  Data → `127.0.0.1:12060`; agent POSTs `/api/n1mm/broadcast`; console nav
+  Operate/Overview/WSJT-X/N1MM/Setup. Operator how-to:
+  [`docs/operator_setup.md`](../operator_setup.md). Tailscale policy deferred:
+  [`tailscale_contest_lan.md`](tailscale_contest_lan.md).
+- **2026-09-05** — **Plane A single port 2237:** operator docs and server default
+  `--ports` are **2237 only** (no 2238–2243 in bring-up). Decision:
+  [`../decisions/2026-09-05-plane-a-single-port-2237.md`](../decisions/2026-09-05-plane-a-single-port-2237.md).
+- **2026-09-05** — **Doc consistency pass:** `wims_networking.md` / design summary /
+  status “How to run” rewritten so operator checklists match **2237 + N1MM agent**
+  (built-in digi reader OFF). Historical Scheme A multi-port kept only as labeled
+  archaeology.

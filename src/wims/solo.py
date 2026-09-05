@@ -59,8 +59,8 @@ def main() -> None:
     ap.add_argument("--iface", default="127.0.0.1",
                     help="interface for WSJT-X multicast ingest/TX (default 127.0.0.1 = this PC)")
     ap.add_argument("--port", type=int, default=2237,
-                    help="WSJT-X band stream UDP port (default 2237 = 50 MHz; "
-                         "144→2238, 222→2239, 432→2241, 902→2242, 1296→2243; never 2240)")
+                    help="WSJT-X plane-A UDP port (default 2237 — all bands share "
+                         "224.0.0.73:2237; use --rig-name to distinguish instances)")
     ap.add_argument("--tx-host", default=None,
                     help="send WSJT-X control to this unicast host instead of the multicast "
                          "group — use 127.0.0.1 if your WSJT-X 'UDP Server' is a plain address")

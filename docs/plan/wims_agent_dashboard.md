@@ -97,7 +97,7 @@ Full agent capability matrix (design **[wims_design.md §3.3.1](wims_design.md)*
 - **Rotator** — K3NG/Yaesu status + control (Az ant); serial owned on the seat
 - Thumbnails, process lifecycle, local readiness 🟢/🔴, watchdog fail-safe
 - Contest profile expected-vs-actual board
-- Multi-port WSJT-X join 2237–2239,2241–2243 (fleet default; 2240 unused)
+- Plane A join **2237** (fleet default; lab may pass extra ports)
 
 **This slice only:** setup/config test + report + discovery + local UI.
 

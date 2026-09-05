@@ -1307,10 +1307,8 @@ def main() -> None:
     from wims.discovery import presence as P
 
     ap = argparse.ArgumentParser(description="WIMS server (ingest + console).")
-    # Fleet defaults: join all band streams (wims_networking §4.3). Port 2240 skipped —
-    # reserved / often held by N1MM on Windows (networking §4.9). Solo uses 2237 only.
-    # Escape hatch: --ports 2237 or --ports 2237,2238,...
-    FLEET_WSJT_PORTS = "2237,2238,2239,2241,2242,2243"  # 50/144/222/432/902/1296; no 2240
+    # Fleet default: one plane-A port (decision 2026-09-05). Lab escape: --ports 2237,2238
+    FLEET_WSJT_PORTS = "2237"
     ap.add_argument("--http-port", type=int, default=8787)
     ap.add_argument("--iface", default="0.0.0.0",
                     help="multicast join interface (0.0.0.0 = auto contest LAN IP; "
@@ -1319,9 +1317,9 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=2237,
                     help=argparse.SUPPRESS)  # legacy; prefer --ports
     ap.add_argument("--ports", default=FLEET_WSJT_PORTS,
-                    help=f"WSJT-X band ports (default {FLEET_WSJT_PORTS} = "
-                         "50→2237 … 1296→2243; 2240 unused). "
-                         "Only change for lab; seats never need this.")
+                    help="WSJT-X UDP ports to join (default 2237 only — all bands share "
+                         "224.0.0.73:2237; distinguish instances with --rig-name). "
+                         "Lab: comma list e.g. 2237,2238.")
     ap.add_argument("--n1mm-port", type=int, default=12060)
     ap.add_argument("--n1mm-group", default="224.0.0.73",
                     help="multicast group for N1MM External Broadcast XML "
