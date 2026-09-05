@@ -1,6 +1,7 @@
 {
-  "schema": 1,
+  "schema": 2,
   "image_dir": "images",
+  "note": "Canonical filenames for User-manual.md. Capture via launcher Screenshots panel or scripts/capture-user-manual-shots.sh. Use a suffix for dated/variant copies without overwriting the doc embeds.",
   "shots": [
     {
       "id": "site-operate",
@@ -8,17 +9,37 @@
       "url": "http://127.0.0.1:8787/",
       "width": 1280,
       "height": 900,
-      "caption": "Site console — Operate (call roster). Click a line to Work; Halt TX always available.",
-      "section": "Call roster",
+      "caption": "Site console — Operate (call roster).",
+      "section": "Site console",
       "status": "active"
     },
     {
-      "id": "site-status",
+      "id": "site-overview",
       "kind": "url",
-      "url": "http://127.0.0.1:8787/status",
+      "url": "http://127.0.0.1:8787/overview",
       "width": 1280,
       "height": 900,
-      "caption": "Site console — Status (fleet / instances / interlock).",
+      "caption": "Site console — Overview (system, bands, agents).",
+      "section": "Site console",
+      "status": "active"
+    },
+    {
+      "id": "site-wsjt",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/wsjt",
+      "width": 1280,
+      "height": 900,
+      "caption": "Site console — WSJT-X (instances + decode activity).",
+      "section": "Site console",
+      "status": "active"
+    },
+    {
+      "id": "site-n1mm",
+      "kind": "url",
+      "url": "http://127.0.0.1:8787/n1mm",
+      "width": 1280,
+      "height": 900,
+      "caption": "Site console — N1MM (contest log + logger network).",
       "section": "Site console",
       "status": "active"
     },
@@ -28,7 +49,7 @@
       "url": "http://127.0.0.1:8787/setup",
       "width": 1280,
       "height": 900,
-      "caption": "Site console — Setup (log seed, resync, site options).",
+      "caption": "Site console — Setup (install diagnostics).",
       "section": "Site console",
       "status": "active"
     },
@@ -38,33 +59,33 @@
       "url": "http://127.0.0.1:8790/",
       "width": 1100,
       "height": 800,
-      "caption": "Seat agent local page (:8790) — config check for WSJT-X on this PC.",
+      "caption": "Local status (:8790) — WSJT monitor config check on this PC.",
       "section": "Desktop launcher and agents",
       "status": "active"
     },
     {
       "id": "launcher-home",
-      "kind": "placeholder",
-      "caption": "Desktop launcher — checkbox agents (N1MM→Log, WSJT-X→Seat, Key, Site server).",
+      "kind": "window",
+      "window": "launcher",
+      "caption": "WIMS launcher — intents, Start/Restart site server, Open site console.",
       "section": "Desktop launcher and agents",
-      "status": "stub",
-      "note": "Capture manually: open python -m wims, then replace docs/manual/images/launcher-home.png"
+      "status": "active"
     },
     {
       "id": "log-agent",
       "kind": "placeholder",
-      "caption": "Log agent status window (N1MM PC) — band from RadioInfo, FWD/DROP counts.",
-      "section": "Logging",
+      "caption": "N1MM agent status window (Broadcast / Log / KEY).",
+      "section": "N1MM agent",
       "status": "stub",
-      "note": "Capture when Log agent GUI is open on an N1MM seat."
+      "note": "Capture when N1MM agent GUI is open on a logger PC, or drop PNG on images/log-agent.png"
     },
     {
       "id": "key-agent",
       "kind": "placeholder",
-      "caption": "Key agent status — CTS source and inhibit target list.",
+      "caption": "KEY section — CTS and inhibit targets.",
       "section": "Inhibit",
       "status": "stub",
-      "note": "Capture when Key agent daemon GUI is open."
+      "note": "Capture when KEY is active, or drop PNG on images/key-agent.png"
     }
   ]
 }

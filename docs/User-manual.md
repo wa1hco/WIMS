@@ -97,6 +97,12 @@ One **site server** per contest LAN. Top nav:
 
 (`/status` still opens Overview.)
 
+![Site console — Overview](manual/images/site-overview.png)
+
+![Site console — WSJT-X](manual/images/site-wsjt.png)
+
+![Site console — N1MM](manual/images/site-n1mm.png)
+
 ### Setup
 
 ![Site console — Setup](manual/images/site-setup.png)
@@ -175,11 +181,15 @@ Tailscale on contest seats: deferred policy/audit — [plan/tailscale_contest_la
 
 ## Keeping screenshots current
 
+**Launcher → Screenshots…** (select pages, standard name or suffix), or:
+
 ```bash
 scripts/capture-user-manual-shots.sh
+scripts/capture-user-manual-shots.sh --suffix contest_run
 ```
 
-See [manual/README.md](manual/README.md).
+See [manual/README.md](manual/README.md). Catalog: [manual/shots.json](manual/shots.json).  
+Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you refresh.
 
 ---
 
@@ -189,3 +199,4 @@ See [manual/README.md](manual/README.md).
 |------|------|
 | 2026-08-30 | Initial Markdown manual + screenshot manifest |
 | 2026-09-05 | N1MM agent Broadcast/Log/KEY; console Overview/WSJT/N1MM; link operator_setup |
+| 2026-09-05 | Screenshots panel (map144-style); overview/wsjt/n1mm embeds |

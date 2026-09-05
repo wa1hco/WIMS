@@ -548,16 +548,31 @@ class LauncherApp:
         )
         self.root.after(1500, self._pulse_key_cts)
 
+        tools = tk.Frame(self.root, bg="#f4f4f4")
+        tools.pack(fill="x", padx=16, pady=(8, 0))
+        # —— Screenshots (docs/manual/images) ——
+        shot_btn = tk.Button(
+            tools, text="Screenshots…", font=_ui_font(10),
+            command=self._open_screenshots, padx=8, pady=2,
+        )
+        shot_btn.pack(side="left")
+        ToolTip(
+            shot_btn,
+            "Capture browser pages and this launcher window into "
+            "docs/manual/images/ (standard name or dated suffix).",
+        )
+        self._screenshot_panel = None
+
         # —— Advanced role catalog (hidden) ——
         adv_toggle = tk.Checkbutton(
-            self.root,
+            tools,
             text="Other tools…",
             variable=self._show_advanced,
             command=self._toggle_advanced,
             font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
             highlightthickness=0,
         )
-        adv_toggle.pack(anchor="w", padx=16, pady=(8, 0))
+        adv_toggle.pack(side="left", padx=(12, 0))
         ToolTip(
             adv_toggle,
             "Site URL override, Solo lab, individual role cards.",
@@ -1605,6 +1620,22 @@ class LauncherApp:
             restart_btn.pack(side="left", padx=(8, 0))
         elif not ok_site:
             start_btn.pack(side="left", padx=(8, 0))
+
+    def _open_screenshots(self) -> None:
+        """map144-style capture panel → docs/manual/images/."""
+        try:
+            from wims.launcher.screenshots import ScreenshotPanel
+        except Exception as e:
+            self._append_log(f"Screenshots panel unavailable: {e}")
+            return
+        if self._screenshot_panel is None:
+            self._screenshot_panel = ScreenshotPanel(
+                self.root,
+                launcher_root=self.root,
+                site_base=lambda: self._site_var.get().strip(),
+                on_log=self._append_log,
+            )
+        self._screenshot_panel.open()
 
     def _open_site_console(self) -> None:
         ok, base = probe_site_urls(self._site_var.get().strip() or None)
