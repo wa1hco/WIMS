@@ -92,6 +92,24 @@ def test_interpret_exchange_to_and_from():
     assert to_call == "WA1HCO"     # who it is calling
 
 
+def test_qsy_message_system_in_calling_column():
+    """WSJT-X 2.7+ Message System QSY → target in DX, QSY label in Calling."""
+    is_cq, dx, to, grid = m._interpret_decode("WA9BTV. EL 174")
+    assert is_cq is False
+    assert dx == "WA9BTV"
+    assert to == "QSY 1296.174"
+    assert grid is None
+
+    is_cq, dx, to, _ = m._interpret_decode("W3SZ. D 550")
+    assert dx == "W3SZ" and to == "QSY 432.550"
+
+    is_cq, dx, to, _ = m._interpret_decode("VE3KI.NOQSY")
+    assert dx == "VE3KI" and to == "NOQSY"
+
+    is_cq, dx, to, _ = m._interpret_decode("QSY 432")
+    assert dx is None and to == "QSY 432"
+
+
 def test_cq_directed_west_is_not_dx_call():
     """'CQ WEST AA1ON' — WEST is a directed CQ tag; DX column must be AA1ON."""
     is_cq, dx_call, to_call, grid = m._interpret_decode("CQ WEST AA1ON")

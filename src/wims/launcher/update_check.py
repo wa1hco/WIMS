@@ -24,6 +24,8 @@ class UpdateInfo:
     detail: str = ""
     is_git: bool = False
     dirty: bool = False
+    local_date: str = ""   # committer date-time for local HEAD
+    remote_date: str = ""  # committer date-time for remote tip
 
     @property
     def local_short(self) -> str:
@@ -32,6 +34,16 @@ class UpdateInfo:
     @property
     def remote_short(self) -> str:
         return (self.remote_sha or "")[:7]
+
+    @property
+    def local_label(self) -> str:
+        s = self.local_short
+        return f"{s} {self.local_date}".strip() if self.local_date else s
+
+    @property
+    def remote_label(self) -> str:
+        s = self.remote_short
+        return f"{s} {self.remote_date}".strip() if self.remote_date else s
 
 
 def _git(
@@ -75,6 +87,7 @@ def check_git_update(
     code, local = _git(root, ["rev-parse", "HEAD"])
     if code != 0 or not local:
         return UpdateInfo(available=False, detail=f"rev-parse failed: {local}", is_git=True)
+    _, local_date = _git(root, ["log", "-1", "--format=%ci", "HEAD"])
 
     code_d, dirty_out = _git(root, ["status", "--porcelain"])
     dirty = bool(dirty_out) if code_d == 0 else False
@@ -90,6 +103,7 @@ def check_git_update(
             return UpdateInfo(
                 available=False,
                 local_sha=local,
+                local_date=local_date,
                 detail=f"fetch failed (offline?): {ferr}",
                 is_git=True,
                 dirty=dirty,
@@ -101,16 +115,20 @@ def check_git_update(
         return UpdateInfo(
             available=False,
             local_sha=local,
+            local_date=local_date,
             detail=f"missing {ref}",
             is_git=True,
             dirty=dirty,
         )
+    _, remote_date = _git(root, ["log", "-1", "--format=%ci", ref])
 
     if remote_sha == local:
         return UpdateInfo(
             available=False,
             local_sha=local,
             remote_sha=remote_sha,
+            local_date=local_date,
+            remote_date=remote_date,
             detail="up to date",
             is_git=True,
             dirty=dirty,
@@ -124,6 +142,8 @@ def check_git_update(
             available=False,
             local_sha=local,
             remote_sha=remote_sha,
+            local_date=local_date,
+            remote_date=remote_date,
             detail="local not behind remote (diverged or ahead)",
             is_git=True,
             dirty=dirty,
@@ -135,6 +155,8 @@ def check_git_update(
         local_sha=local,
         remote_sha=remote_sha,
         remote_subject=subject if code_s == 0 else "",
+        local_date=local_date,
+        remote_date=remote_date,
         detail="update available",
         is_git=True,
         dirty=dirty,

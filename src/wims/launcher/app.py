@@ -81,16 +81,11 @@ _DEFAULT_SITE = "http://192.168.1.119:8787"
 
 
 def _git_rev() -> str:
-    """Short git SHA for the running tree (so ops can see if the launcher is current)."""
+    """Short git SHA + commit date-time for the running tree."""
     try:
-        out = subprocess.check_output(
-            ["git", "-C", str(_REPO_ROOT), "rev-parse", "--short", "HEAD"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=2,
-        )
-        return out.strip() or "?"
-    except (OSError, subprocess.SubprocessError):
+        from wims.gitinfo import git_stamp
+        return git_stamp(_REPO_ROOT)
+    except Exception:
         return "?"
 
 
@@ -510,6 +505,8 @@ class LauncherApp:
             on_intent_toggle=self._on_intent_toggle,
             on_open_site=self._open_site_console,
             on_open_local=self._open_local_status,
+            on_restart_server=self._restart_local_site_server,
+            on_start_server=self._start_site_server_offer,
             key_device_var=self._key_device_var,
             on_key_device_change=self._on_key_device_change,
             on_refresh_key_ports=self._refresh_key_ports,
@@ -734,12 +731,12 @@ class LauncherApp:
         dirty = " (local edits present)" if info.dirty else ""
         self._set_banner(
             "warn",
-            f"Update available — {info.local_short} → {info.remote_short}{subj}",
+            f"Update available — {info.local_label} → {info.remote_label}{subj}",
             f"Click Update WIMS to pull GitHub main{dirty}. "
             "Site server stays up; seat agents restart after.",
         )
         self._append_log(
-            f"Update available: {info.local_short} → {info.remote_short}{subj}"
+            f"Update available: {info.local_label} → {info.remote_label}{subj}"
         )
         # Gentle OS toast once per remote SHA (no focus steal).
         try:
@@ -750,7 +747,7 @@ class LauncherApp:
                 subj2 = info.remote_subject or "bugfix on main"
                 if notify_no_focus(
                     "WIMS update available",
-                    f"{info.local_short} -> {info.remote_short}: {subj2}. "
+                    f"{info.local_label} -> {info.remote_label}: {subj2}. "
                     "Run Desktop Update WIMS when convenient.",
                 ):
                     mark_nagged(info.remote_sha)
@@ -1339,6 +1336,7 @@ class LauncherApp:
             server_up=self._agent_effective(AGENT_SERVER),
             server_existing=bool(ok_site and not self._agent_running(AGENT_SERVER)),
         )
+        self._sync_server_action_buttons(ok_site=ok_site, base=base)
 
         if not wanted:
             self._set_banner(
@@ -1364,7 +1362,7 @@ class LauncherApp:
             subj = f" — {info.remote_subject}" if info.remote_subject else ""
             self._set_banner(
                 "warn",
-                f"Update available — {info.local_short} → {info.remote_short}{subj}",
+                f"Update available — {info.local_label} → {info.remote_label}{subj}",
                 "Click Update WIMS to pull GitHub main. "
                 "Site server stays up; seat agents restart after.",
             )
@@ -1483,6 +1481,99 @@ class LauncherApp:
             webbrowser.open(url)
         except Exception as e:
             self._append_log(f"Browser error: {e}")
+
+    def _site_url_is_local(self, base: str) -> bool:
+        """True if console URL points at this machine (loopback or our LAN IP)."""
+        try:
+            from urllib.parse import urlparse
+            host = (urlparse(base or "").hostname or "").strip().lower()
+        except Exception:
+            return False
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return True
+        try:
+            from wims.agent.report import _lan_ips
+            return host in {ip.strip().lower() for ip in (_lan_ips() or []) if ip}
+        except Exception:
+            return False
+
+    def _local_server_procs(self) -> list:
+        """Site-server processes on this PC (owned or orphan)."""
+        out = []
+        try:
+            out.extend(self._system_agent_procs(AGENT_SERVER))
+        except Exception:
+            pass
+        return out
+
+    def _start_site_server_offer(self) -> None:
+        """Operator asked to start a site server on this PC (none reachable)."""
+        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        if ok:
+            self._append_log(
+                f"Site server already reachable at {base} — not starting another."
+            )
+            self._schedule_status(200)
+            return
+        self._server_start_blocked = False
+        self._intent_vars[INTENT_SERVER].set(True)
+        self._persist_intent()
+        self._append_log("Starting site server on this PC…")
+        self._start_agent(AGENT_SERVER, open_browser=True)
+
+    def _restart_local_site_server(self) -> None:
+        """Stop local site server and start again (load latest code after pull)."""
+        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        local = bool(self._local_server_procs()) or (
+            ok and self._site_url_is_local(base)
+        )
+        if not local:
+            self._append_log(
+                "Restart refused — site server does not appear to be on this PC."
+            )
+            return
+        self._append_log("Restarting local site server (load latest tree)…")
+        self._server_start_blocked = False
+        # Stop launcher-owned child first, then any leftover local server.
+        if self._proc_running("server"):
+            self._stop_role("server")
+        for p in self._local_server_procs():
+            self._append_log(f"Stopping local site server pid={p.pid}…")
+            try:
+                stop_pid(p.pid)
+            except Exception as e:
+                self._append_log(f"Stop pid {p.pid} failed: {e}")
+        self._intent_vars[INTENT_SERVER].set(True)
+        self._persist_intent()
+        self._site_external = False
+
+        def _start_after() -> None:
+            self._server_start_blocked = False
+            self._start_agent(AGENT_SERVER, open_browser=True)
+
+        self.root.after(1500, _start_after)
+        self._schedule_status(800)
+
+    def _sync_server_action_buttons(self, *, ok_site: bool, base: str) -> None:
+        """Show Start (none up) or Restart (local up); hide both for remote server."""
+        hp = getattr(self, "_home_panel", None)
+        if not hp:
+            return
+        start_btn = getattr(hp, "start_server_btn", None)
+        restart_btn = getattr(hp, "restart_server_btn", None)
+        if not start_btn or not restart_btn:
+            return
+        local_proc = bool(self._local_server_procs())
+        local_url = ok_site and self._site_url_is_local(base)
+        try:
+            start_btn.pack_forget()
+            restart_btn.pack_forget()
+        except Exception:
+            pass
+        if ok_site and (local_proc or local_url):
+            restart_btn.pack(side="left", padx=(8, 0))
+        elif not ok_site:
+            start_btn.pack(side="left", padx=(8, 0))
 
     def _open_site_console(self) -> None:
         ok, base = probe_site_urls(self._site_var.get().strip() or None)

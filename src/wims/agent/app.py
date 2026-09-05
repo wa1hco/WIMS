@@ -139,6 +139,49 @@ class AgentState:
         return b
 
 
+def _url_host(url: str) -> str:
+    """Hostname/IP from a console base URL (lowercased, no brackets)."""
+    try:
+        from urllib.parse import urlparse
+        host = (urlparse(url).hostname or "").strip().lower()
+        return host[1:-1] if host.startswith("[") and host.endswith("]") else host
+    except Exception:
+        return ""
+
+
+def _same_site_host(configured: str, discovered: str) -> bool:
+    """True when configured and discovered URLs are the same site.
+
+    ``http://127.0.0.1:8787`` vs ``http://192.168.1.181:8787`` on this PC is
+    normal (launcher often pins localhost; presence advertises the LAN IP) —
+    not an operator fault and not worth a yellow banner.
+    """
+    a = (configured or "").rstrip("/")
+    b = (discovered or "").rstrip("/")
+    if not a or not b:
+        return True
+    if a == b:
+        return True
+    ha, hb = _url_host(a), _url_host(b)
+    if not ha or not hb:
+        return False
+    if ha == hb:
+        return True
+    loopback = {"127.0.0.1", "localhost", "::1"}
+    local_ips = set()
+    try:
+        from wims.agent.report import _lan_ips
+        local_ips = {ip.strip().lower() for ip in (_lan_ips() or []) if ip}
+    except Exception:
+        pass
+    # Either side is loopback and the other is this machine's LAN address.
+    if ha in loopback and (hb in loopback or hb in local_ips):
+        return True
+    if hb in loopback and (ha in loopback or ha in local_ips):
+        return True
+    return False
+
+
 def _presence_block_html(state: AgentState) -> str:
     """Clickable Operate / Status / Setup links from last presence beacon."""
     p = state.get_presence()
@@ -153,7 +196,7 @@ def _presence_block_html(state: AgentState) -> str:
     host = html.escape(str(p.get("hostname") or "?"))
     base = html.escape(str(p.get("console_base") or ""))
     op = html.escape(urls.get("operate") or (p.get("console_base") or "") + "/")
-    st = html.escape(urls.get("status") or "")
+    st = html.escape(urls.get("status") or urls.get("overview") or "")
     su = html.escape(urls.get("setup") or "")
     links = []
     if op:
@@ -162,21 +205,22 @@ def _presence_block_html(state: AgentState) -> str:
         links.append(f'<a class="btn" href="{st}" target="_blank" rel="noopener">Status</a>')
     if su:
         links.append(f'<a class="btn" href="{su}" target="_blank" rel="noopener">Setup</a>')
-    warn = ""
-    cfg = state.configured_server
+    # Only mention a mismatch when export would hit a *different* host than the
+    # buttons — same-machine localhost vs LAN IP is silent on purpose.
+    note = ""
+    cfg = state.configured_server or ""
     disc = (p.get("console_base") or "").rstrip("/")
-    if cfg and disc and cfg.rstrip("/") != disc:
-        warn = (
-            f'<div class="meta" style="color:#9a6700">Configured --server '
-            f'{html.escape(cfg)} differs from discovered {html.escape(disc)} — '
-            f"links use discovery; export uses configured URL.</div>"
+    if cfg and disc and not _same_site_host(cfg, disc):
+        note = (
+            f'<div class="meta">Export target {html.escape(cfg.rstrip("/"))} '
+            f"(buttons open {html.escape(disc)}).</div>"
         )
     return (
         f'<div class="panel">'
         f'<div><b>Site WIMS server</b> (heard on LAN)</div>'
         f'<div class="meta">{host} · {base}</div>'
         f'<div class="bar">{"".join(links)}</div>'
-        f'{warn}'
+        f'{note}'
         f"</div>"
     )
 
@@ -421,13 +465,13 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
         state.set_update_info({
             "checked": True,
             "available": True,
-            "local_short": info.local_short,
-            "remote_short": info.remote_short,
+            "local_short": info.local_label,
+            "remote_short": info.remote_label,
             "subject": info.remote_subject,
             "detail": "update available",
         })
         print(
-            f"update available: {info.local_short} -> {info.remote_short} "
+            f"update available: {info.local_label} -> {info.remote_label} "
             f"(run Update WIMS when convenient)",
             flush=True,
         )
@@ -436,7 +480,7 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
             subj = info.remote_subject or "bugfix on main"
             if notify_no_focus(
                 "WIMS update available",
-                f"{info.local_short} -> {info.remote_short}: {subj}. "
+                f"{info.local_label} -> {info.remote_label}: {subj}. "
                 "Run Update WIMS when convenient.",
             ):
                 mark_nagged(info.remote_sha)
@@ -444,13 +488,13 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
         state.set_update_info({
             "checked": True,
             "available": False,
-            "local_short": info.local_short or "?",
-            "remote_short": info.remote_short or "",
+            "local_short": info.local_label or "?",
+            "remote_short": info.remote_label or "",
             "detail": info.detail or "up to date",
         })
         if force:
             print(f"update check: {info.detail or 'up to date'} "
-                  f"(local {info.local_short})", flush=True)
+                  f"(local {info.local_label})", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -541,9 +585,13 @@ def main(argv: list[str] | None = None) -> int:
                                ("setup", "Setup")):
                 if urls.get(key):
                     print(f"  {label}:  {urls.get(key)}", flush=True)
-            if configured and configured.rstrip("/") != (beacon.get("console_base") or "").rstrip("/"):
-                print(f"  note: --server {configured} differs from discovery",
-                      flush=True)
+            disc = (beacon.get("console_base") or "").rstrip("/")
+            if configured and disc and not _same_site_host(configured, disc):
+                print(
+                    f"  note: --server {configured} is a different host than "
+                    f"discovery {disc}",
+                    flush=True,
+                )
         else:
             print("  NOT FOUND yet. Escape hatch: WIMS_SERVER=http://x.x.x.x:8787",
                   flush=True)

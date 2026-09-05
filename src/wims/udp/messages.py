@@ -179,6 +179,7 @@ class Decode(WsjtxMessage):
     dx_call: str | None = None    # the station of interest (CQer, or the caller)
     to_call: str | None = None    # who dx_call is calling ("CQ", or the addressed call)
     grid: str | None = None
+    is_qsy: bool = False          # WSJT-X 2.7+ Message System QSY / canned msg
 
 
 @dataclass
@@ -324,6 +325,62 @@ def reply_auto_tx_eligible(message: str | None) -> bool:
     return bool(re.search(r"\b(?:RR)?73\b", text))
 
 
+# WSJT-X 2.7+ Message System QSY band letter → MHz (contest VHF common set).
+# Example on-air text: "WA9BTV. EL 174" → ask WA9BTV to QSY 1296.174 (FT8).
+_QSY_BAND_MHZ = {
+    "A": 50, "B": 144, "C": 222, "D": 432, "E": 1296, "F": 902,
+    "G": 2304, "H": 3456, "I": 5760, "J": 10368,
+}
+
+
+def _format_qsy_payload(code: str, khz: str | None = None) -> str:
+    """Turn Message System payload into a Calling-column label."""
+    code_u = (code or "").strip().upper()
+    if not code_u:
+        return "QSY"
+    # Canned replies / presets (NOQSY, TNX, …)
+    if code_u.isalpha() and len(code_u) >= 4 and not khz:
+        return code_u
+    band = code_u[0]
+    mhz = _QSY_BAND_MHZ.get(band)
+    if mhz is not None and khz and khz.isdigit():
+        return f"QSY {mhz}.{int(khz):03d}"
+    if mhz is not None and code_u[1:].isdigit():
+        return f"QSY {mhz}.{int(code_u[1:]):03d}"
+    if khz and khz.isdigit():
+        return f"QSY {code_u} {khz}"
+    return f"QSY {code_u}"
+
+
+def _interpret_qsy_message(message: str) -> tuple[str, str] | None:
+    """Parse WSJT-X Message System QSY / canned text → (target_call, calling_label).
+
+    On-air forms seen in the field / docs:
+      ``WA9BTV. EL 174``  — target + band/mode code + kHz
+      ``VE3KI.BW110``     — compact target + code
+      ``VE3KI.NOQSY``     — canned reply to target
+    """
+    text = (message or "").strip()
+    if not text or "." not in text:
+        return None
+    # Spaced: "CALL. CODE [KHZ]"
+    m = re.match(
+        r"^([A-Za-z0-9/]+)\.\s+([A-Za-z0-9]+)(?:\s+(\d{1,4}))?\s*$",
+        text,
+    )
+    if m:
+        call, code, khz = m.group(1), m.group(2), m.group(3)
+        if _looks_like_callsign(call):
+            return call.upper(), _format_qsy_payload(code, khz)
+    # Compact: "CALL.CODE" / "CALL.NOQSY" / "CALL.BW110"
+    m = re.match(r"^([A-Za-z0-9/]+)\.([A-Za-z]{1,8}\d{0,4})\s*$", text)
+    if m:
+        call, code = m.group(1), m.group(2)
+        if _looks_like_callsign(call):
+            return call.upper(), _format_qsy_payload(code)
+    return None
+
+
 def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None, str | None]:
     """Best-effort (is_cq, dx_call, to_call, grid) from decode text.
 
@@ -332,10 +389,21 @@ def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None
     the GridTracker-style "calling" column. Full WSJT-X message grammar is richer;
     this covers CQ and standard exchanges well enough for the roster/decision engine
     and is refined later (§3.5).
+
+    WSJT-X 2.7+ Message System QSY lines put the **target call** in ``dx_call`` and a
+    ``QSY …`` label in ``to_call`` (Calling column).
     """
     grid = extract_grid(message)
     if not message:
         return False, None, None, grid
+    qsy = _interpret_qsy_message(message)
+    if qsy:
+        target, label = qsy
+        return False, target, label, None
+    # Free-text QSY macros (older habit): show the text in Calling.
+    stripped = message.strip()
+    if stripped.upper().startswith("QSY"):
+        return False, None, stripped, None
     tokens = message.split()
     if tokens and tokens[0].upper() == "CQ":
         # CQ [directed...] CALL [GRID] — skip non-callsign tokens after CQ
@@ -424,6 +492,13 @@ def parse(data: bytes) -> WsjtxMessage | None:
             off_air=r.boolean() if not r.at_end() else False,
         )
         msg.is_cq, msg.dx_call, msg.to_call, msg.grid = _interpret_decode(msg.message)
+        msg.is_qsy = bool(
+            msg.to_call
+            and str(msg.to_call).upper().startswith("QSY")
+        ) or bool(
+            msg.to_call
+            and str(msg.to_call).upper() in {"NOQSY", "TNX", "SRI", "AGN"}
+        ) or bool(_interpret_qsy_message(msg.message or ""))
         return msg
 
     if mtype == CLEAR:

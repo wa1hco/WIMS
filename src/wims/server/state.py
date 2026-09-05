@@ -241,10 +241,23 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         node = (nodes or {}).get(c.instance_id) if nodes is not None else None
         de = getattr(node, "de_call", None) if node else None
         to = getattr(d, "to_call", None)
+        is_qsy = bool(getattr(d, "is_qsy", False))
         # Calling us: exchange addressed to our call (not CQ). Base-call match.
+        # QSY Message System: target call is dx_call — highlight when it's us.
         is_calling_us = bool(
-            de and to and str(to).upper() not in ("CQ", "QRZ", "DE")
-            and _base_call(to) == _base_call(de)
+            de and (
+                (
+                    to
+                    and str(to).upper() not in ("CQ", "QRZ", "DE")
+                    and not str(to).upper().startswith("QSY")
+                    and _base_call(to) == _base_call(de)
+                )
+                or (
+                    is_qsy
+                    and c.call
+                    and _base_call(c.call) == _base_call(de)
+                )
+            )
         )
         # Armed: WSJT-X Enable Tx with DX Call set to this row's station.
         is_armed = bool(
@@ -266,6 +279,7 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "id": f"{c.instance_id}|{c.call}|{c.grid or ''}",  # stable row id → click-to-work
             "call": c.call,
             "to_call": d.to_call,                  # "calling" column
+            "is_qsy": is_qsy,
             "grid": c.grid,
             "band": c.band,
             "mode": d.mode,

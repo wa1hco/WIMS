@@ -816,7 +816,12 @@ function rosCall(c) {
   return `${esc(c.call)}${badges}`;
 }
 function rosCalling(c) {
-  return c.is_cq ? '<span class="cq">CQ</span>' : esc(c.to_call || "-");
+  if (c.is_cq) return '<span class="cq">CQ</span>';
+  const t = c.to_call || "";
+  if (c.is_qsy || /^QSY\b/i.test(t) || /^(NOQSY|TNX|SRI|AGN)$/i.test(t)) {
+    return `<span class="qsy" title="WSJT-X Message System / QSY">${esc(t || "QSY")}</span>`;
+  }
+  return esc(t || "-");
 }
 function rosAzDx(c) {
   // Clickable when a rotator is mapped — point antenna to this Az DX.

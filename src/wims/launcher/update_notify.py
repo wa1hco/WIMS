@@ -145,7 +145,7 @@ def check_and_nudge(
         return info
     subj = info.remote_subject or "bugfix / improvement on main"
     body = (
-        f"{info.local_short} -> {info.remote_short}: {subj}. "
+        f"{info.local_label} -> {info.remote_label}: {subj}. "
         "When convenient, run Desktop 'Update WIMS' (does not auto-install)."
     )
     if notify_no_focus("WIMS update available", body):

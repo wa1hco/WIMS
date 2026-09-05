@@ -66,6 +66,8 @@ class AgentHomePanel:
         on_intent_toggle: Callable[[str], None],
         on_open_site: Callable[[], None],
         on_open_local: Callable[[], None],
+        on_restart_server: Callable[[], None] | None = None,
+        on_start_server: Callable[[], None] | None = None,
         key_device_var: Any | None = None,
         on_key_device_change: Callable[[], None] | None = None,
         on_refresh_key_ports: Callable[[], None] | None = None,
@@ -213,7 +215,29 @@ class AgentHomePanel:
             btns, text="Open local status", font=_ui_font(12),
             command=on_open_local, padx=12, pady=6,
         )
+        self.local_btn.pack(side="left", padx=(8, 0))
         ToolTip(self.local_btn, "Seat agent local page (:8790) when that agent is up.")
+        self.start_server_btn = tk.Button(
+            btns, text="Start site server", font=_ui_font(11),
+            command=(on_start_server or (lambda: None)), padx=10, pady=5,
+        )
+        ToolTip(
+            self.start_server_btn,
+            "No site console reachable — start one on this PC "
+            "(only if this machine should host the fleet server).",
+        )
+        self.restart_server_btn = tk.Button(
+            btns, text="Restart site server", font=_ui_font(11),
+            command=(on_restart_server or (lambda: None)), padx=10, pady=5,
+        )
+        ToolTip(
+            self.restart_server_btn,
+            "Site server is on this PC — stop and start it again to load "
+            "the latest code after Update WIMS / git pull.",
+        )
+        # Shown/hidden by app.refresh based on local vs remote server state.
+        self.start_server_btn.pack_forget()
+        self.restart_server_btn.pack_forget()
         # Update WIMS lives beside the launcher banner (next to the update
         # message), not down here — see app._show_update_button.
 
