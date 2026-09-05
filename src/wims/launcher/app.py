@@ -311,29 +311,60 @@ StartupNotify=true
 
 
 def write_windows_shortcut() -> Path:
+    """Create/refresh Desktop WIMS.lnk with sticky custom icon.
+
+    Prefer the Install-WimsDesktopShortcut.ps1 helper (wscript + VBS + absolute
+    .ico). Direct .cmd targets often revert to the default batch icon on Windows.
+    """
     desk = desktop_dir()
     desk.mkdir(parents=True, exist_ok=True)
+    helper = _REPO_ROOT / "scripts" / "windows" / "Install-WimsDesktopShortcut.ps1"
+    if helper.is_file():
+        subprocess.run(
+            [
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-File", str(helper), "-NoPause",
+            ],
+            check=False, capture_output=True, text=True,
+        )
+        return desk / "WIMS.lnk"
+
+    # Fallback if the helper is missing from an old tree.
     lnk = desk / "WIMS.lnk"
     icon = find_icon_path()
     starter = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.cmd"
-    target = str(starter if starter.is_file() else sys.executable)
-    workdir = str(starter.parent if starter.is_file() else _REPO_ROOT)
-    icon_ps = (
-        f"if (Test-Path -LiteralPath '{icon}') {{ $s.IconLocation = '{icon},0' }}; "
-        if icon else ""
-    )
-    if starter.is_file():
+    vbs = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.vbs"
+    workdir = str((_REPO_ROOT / "scripts" / "windows") if starter.is_file() else _REPO_ROOT)
+    if vbs.is_file() and icon:
         ps = (
             "$ws = New-Object -ComObject WScript.Shell; "
             f"$s = $ws.CreateShortcut('{lnk}'); "
-            f"$s.TargetPath = '{target}'; "
+            f"$s.TargetPath = $env:SystemRoot + '\\System32\\wscript.exe'; "
+            f"$s.Arguments = '//nologo \"{vbs}\"'; "
             f"$s.WorkingDirectory = '{workdir}'; "
             "$s.WindowStyle = 1; "
-            "$s.Description = 'WIMS — agents + site console'; "
+            "$s.Description = 'WIMS launcher — agents + site console'; "
+            f"$s.IconLocation = '{icon},0'; "
+            "$s.Save()"
+        )
+    elif starter.is_file():
+        icon_ps = (
+            f"$s.IconLocation = '{icon},0'; " if icon else ""
+        )
+        ps = (
+            "$ws = New-Object -ComObject WScript.Shell; "
+            f"$s = $ws.CreateShortcut('{lnk}'); "
+            f"$s.TargetPath = '{starter}'; "
+            f"$s.WorkingDirectory = '{workdir}'; "
+            "$s.WindowStyle = 1; "
+            "$s.Description = 'WIMS launcher — agents + site console'; "
             f"{icon_ps}"
             "$s.Save()"
         )
     else:
+        icon_ps = (
+            f"$s.IconLocation = '{icon},0'; " if icon else ""
+        )
         ps = (
             "$ws = New-Object -ComObject WScript.Shell; "
             f"$s = $ws.CreateShortcut('{lnk}'); "
@@ -341,7 +372,7 @@ def write_windows_shortcut() -> Path:
             f"$s.Arguments = '-m wims.launcher'; "
             f"$s.WorkingDirectory = '{_REPO_ROOT}'; "
             "$s.WindowStyle = 1; "
-            "$s.Description = 'WIMS — agents + site console'; "
+            "$s.Description = 'WIMS launcher — agents + site console'; "
             f"{icon_ps}"
             "$s.Save()"
         )

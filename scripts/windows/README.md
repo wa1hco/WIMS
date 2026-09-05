@@ -46,8 +46,9 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 | **`Install-Wims.cmd`** | **First install** — Python, Git, clone/pull repo, firewall, Desktop **WIMS** + **Update WIMS**. |
 | **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — checkbox agents, site console, Update when behind `main`. |
 | **`Update-Wims.cmd`** | **One-click update** — `git pull --ff-only origin/main` (also offered inside the launcher). |
-| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (GUI launcher + `assets\wims.ico`) **+** **WIMS Agent** (green). Run once. |
-| **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (green icon → continuous agent). |
+| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (sticky `assets\wims.ico` via wscript+VBS) **+** **WIMS Agent**. Re-run if the icon reverts to the default batch glyph. |
+| **`Install-WimsDesktopShortcut.ps1`** | Same as above (PowerShell; called by the `.cmd`). |
+| **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (sticky green icon → continuous agent). |
 | **`WIMS.cmd`** | Text **seat menu** (packs, Startup, firewall) — still available; not the primary Desktop icon. |
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 

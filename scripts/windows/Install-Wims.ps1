@@ -558,17 +558,34 @@ try {
             $icoServer = Join-Path $assets "wims.ico"
             $icoAgent = Join-Path $assets "wims-agent.ico"
 
-            # Primary: GUI launcher (peer to N1MM / WSJT-X)
-            $launchCmd = Join-Path $launcherDir "Start-WimsLauncher.cmd"
-            if (Test-Path -LiteralPath $launchCmd) {
-                $lnkL = Join-Path $desk "WIMS.lnk"
-                $ll = $wsh.CreateShortcut($lnkL)
-                $ll.TargetPath = $launchCmd
-                $ll.WorkingDirectory = $launcherDir
-                $ll.Description = "WIMS — agents + site console"
-                if (Test-Path -LiteralPath $icoServer) { $ll.IconLocation = "$icoServer,0" }
-                $ll.Save()
-                Ok $lnkL
+            # Primary: GUI launcher (peer to N1MM / WSJT-X).
+            # Use wscript+VBS so Windows keeps our .ico (direct .cmd targets often
+            # revert to the default batch glyph after clone / Update / VM restore).
+            $launchHelper = Join-Path $launcherDir "Install-WimsDesktopShortcut.ps1"
+            if (Test-Path -LiteralPath $launchHelper) {
+                & powershell -NoProfile -ExecutionPolicy Bypass -File $launchHelper -NoPause
+                Ok (Join-Path $desk "WIMS.lnk")
+            } else {
+                $launchCmd = Join-Path $launcherDir "Start-WimsLauncher.cmd"
+                $launchVbs = Join-Path $launcherDir "Start-WimsLauncher.vbs"
+                if (Test-Path -LiteralPath $launchCmd) {
+                    $lnkL = Join-Path $desk "WIMS.lnk"
+                    $ll = $wsh.CreateShortcut($lnkL)
+                    if ((Test-Path -LiteralPath $launchVbs) -and (Test-Path -LiteralPath $icoServer)) {
+                        $ll.TargetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
+                        $ll.Arguments = "//nologo `"$launchVbs`""
+                        $ll.IconLocation = "$((Resolve-Path $icoServer).Path),0"
+                    } else {
+                        $ll.TargetPath = $launchCmd
+                        if (Test-Path -LiteralPath $icoServer) {
+                            $ll.IconLocation = "$((Resolve-Path $icoServer).Path),0"
+                        }
+                    }
+                    $ll.WorkingDirectory = $launcherDir
+                    $ll.Description = "WIMS launcher — agents + site console"
+                    $ll.Save()
+                    Ok $lnkL
+                }
             }
 
             # One-click update from GitHub main
