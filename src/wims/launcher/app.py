@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -278,6 +279,54 @@ def find_icon_path() -> Path | None:
 def find_window_icon_path() -> Path | None:
     """Tk window icon — PNG on Linux, ICO on Windows when available."""
     return find_icon_path()
+
+
+def _browser_app_command(url: str) -> list[str] | None:
+    """Return a Chromium-family app-window command, when one is installed."""
+    configured = os.environ.get("WIMS_BROWSER", "").strip()
+    configured_name = Path(configured).name.lower()
+    candidates = [configured] if configured and "firefox" not in configured_name else []
+    if sys.platform.startswith("win"):
+        candidates += ["msedge.exe", "chrome.exe", "chromium.exe"]
+    elif sys.platform == "darwin":
+        candidates += ["Google Chrome", "Microsoft Edge", "Chromium"]
+    else:
+        candidates += ["chromium", "chromium-browser", "google-chrome", "microsoft-edge"]
+    for candidate in candidates:
+        executable = shutil.which(candidate)
+        if executable:
+            return [executable, f"--app={url}"]
+    return None
+
+
+def _firefox_kiosk_command(url: str) -> list[str] | None:
+    """Return a Firefox kiosk-window command, when Firefox is installed."""
+    configured = os.environ.get("WIMS_BROWSER", "").strip()
+    configured_name = Path(configured).name.lower()
+    candidates = [configured] if "firefox" in configured_name else []
+    if sys.platform.startswith("win"):
+        candidates += ["firefox.exe"]
+    else:
+        candidates += ["firefox"]
+    for candidate in candidates:
+        executable = shutil.which(candidate)
+        if executable:
+            return [executable, "--kiosk", url]
+    return None
+
+
+def open_wims_url(url: str) -> str:
+    """Open a WIMS page without browser chrome when possible."""
+    command = _browser_app_command(url)
+    if command:
+        subprocess.Popen(command)
+        return "app"
+    command = _firefox_kiosk_command(url)
+    if command:
+        subprocess.Popen(command)
+        return "kiosk"
+    webbrowser.open(url)
+    return "browser"
 
 
 def desktop_dir() -> Path:
@@ -561,20 +610,9 @@ class LauncherApp:
 
         tools = tk.Frame(self.root, bg="#f4f4f4")
         tools.pack(fill="x", padx=16, pady=(8, 0))
-        # —— Screenshots (docs/manual/images) ——
-        shot_btn = tk.Button(
-            tools, text="Screenshots…", font=_ui_font(10),
-            command=self._open_screenshots, padx=8, pady=2,
-        )
-        shot_btn.pack(side="left")
-        ToolTip(
-            shot_btn,
-            "Capture browser pages and this launcher window into "
-            "docs/manual/images/ (standard name or dated suffix).",
-        )
         self._screenshot_panel = None
 
-        # —— Advanced role catalog (hidden) ——
+        # —— Advanced / Other tools (hidden) ——
         adv_toggle = tk.Checkbutton(
             tools,
             text="Other tools…",
@@ -583,13 +621,29 @@ class LauncherApp:
             font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
             highlightthickness=0,
         )
-        adv_toggle.pack(side="left", padx=(12, 0))
+        adv_toggle.pack(side="left")
         ToolTip(
             adv_toggle,
-            "Site URL override, Solo lab, individual role cards.",
+            "Screenshots, site URL override, Solo lab, individual role cards.",
         )
 
         self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
+
+        docs_box = tk.LabelFrame(
+            self._adv_frame, text="Documentation",
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=10, pady=6,
+        )
+        docs_box.pack(fill="x", padx=14, pady=4)
+        shot_btn = tk.Button(
+            docs_box, text="Screenshots…", font=_ui_font(11),
+            command=self._open_screenshots, padx=10, pady=4,
+        )
+        shot_btn.pack(side="left")
+        ToolTip(
+            shot_btn,
+            "Capture browser pages and this launcher window into "
+            "docs/manual/images/ (standard name or dated suffix).",
+        )
 
         site_box = tk.LabelFrame(
             self._adv_frame, text="Site server URL (rare override)",
@@ -1549,7 +1603,8 @@ class LauncherApp:
     def _open_url_force(self, url: str) -> None:
         self._append_log(f"Open {url}")
         try:
-            webbrowser.open(url)
+            mode = open_wims_url(url)
+            self._append_log(f"Opened WIMS app window ({mode}).")
         except Exception as e:
             self._append_log(f"Browser error: {e}")
 

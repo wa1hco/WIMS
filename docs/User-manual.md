@@ -50,7 +50,9 @@ python -m wims
 
 - **Windows:** Desktop **WIMS** / `Install-Wims.cmd` once — [scripts/windows/README.md](../scripts/windows/README.md)  
 - **Linux:** `scripts/install-wims-desktop.sh` (needs `python3-tk`)  
-- Console: `http://<server>:8787/`  
+- Console: `http://<server>:8787/` (the WIMS launcher opens it as a chrome-free
+	app window with Chrome, Chromium, or Edge, or Firefox kiosk mode; otherwise it
+	uses the normal default browser)  
 
 **Exact app settings:** [operator_setup.md](operator_setup.md).
 
@@ -179,7 +181,7 @@ Authoritative: [plan/wims_networking.md](plan/wims_networking.md).
 
 ## Keeping screenshots current
 
-**Launcher → Screenshots…** (select pages, standard name or suffix), or:
+**Launcher → Other tools… → Screenshots…** (select pages, standard name or suffix), or:
 
 ```bash
 scripts/capture-user-manual-shots.sh
