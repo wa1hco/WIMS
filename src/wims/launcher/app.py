@@ -445,7 +445,9 @@ class LauncherApp:
         self.root = root
         self._rev = _git_rev()
         self.root.title(f"WIMS launcher  ·  v{__version__} ({self._rev})")
-        self.root.minsize(540, 480)
+        # Default height is fitted after build so "Other tools…" sits just
+        # below the fold; minsize keeps the seat home usable.
+        self.root.minsize(540, 420)
         self.root.configure(bg="#f4f4f4")
 
         self._procs: dict[str, subprocess.Popen] = {}
@@ -608,25 +610,7 @@ class LauncherApp:
         )
         self.root.after(1500, self._pulse_key_cts)
 
-        tools = tk.Frame(self.root, bg="#f4f4f4")
-        tools.pack(fill="x", padx=16, pady=(8, 0))
         self._screenshot_panel = None
-
-        # —— Advanced / Other tools (hidden) ——
-        adv_toggle = tk.Checkbutton(
-            tools,
-            text="Other tools…",
-            variable=self._show_advanced,
-            command=self._toggle_advanced,
-            font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
-            highlightthickness=0,
-        )
-        adv_toggle.pack(side="left")
-        ToolTip(
-            adv_toggle,
-            "Screenshots, desktop shortcut, details log, site URL, Solo lab, role cards.",
-        )
-
         self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
 
         tools_box = tk.LabelFrame(
@@ -717,20 +701,38 @@ class LauncherApp:
                 self._add_role_card(self._adv_frame, role)
 
         # —— Quiet details log (selectable + mirrored to scratch file) ——
-        # Buttons live under Other tools…; this frame is the live transcript only.
+        # Fixed height (no expand) so we can clip the window just above Other tools….
         self._details = tk.LabelFrame(
             self.root, text="Details (optional)", font=_ui_font(10),
             bg="#f4f4f4", fg="#666666", padx=6, pady=2,
         )
-        self._details.pack(fill="both", expand=True, padx=16, pady=(8, 12))
+        self._details.pack(fill="x", padx=16, pady=(8, 4))
         self._log = tk.Text(
-            self._details, height=6, font=_ui_font(10),
+            self._details, height=4, font=_ui_font(10),
             bg="#ffffff", fg="#222222", wrap="word",
             relief="solid", borderwidth=1,
             # Keep state=normal so Windows can select + Ctrl+C (disabled blocks copy).
             exportselection=True,
         )
-        self._log.pack(fill="both", expand=True)
+        self._log.pack(fill="x")
+
+        # Packed after Details (side=top). Default geometry clips just above this
+        # row so Other tools… is one small resize away.
+        self._tools = tk.Frame(self.root, bg="#f4f4f4")
+        self._tools.pack(fill="x", padx=16, pady=(4, 10))
+        adv_toggle = tk.Checkbutton(
+            self._tools,
+            text="Other tools…",
+            variable=self._show_advanced,
+            command=self._toggle_advanced,
+            font=_ui_font(10), bg="#f4f4f4", activebackground="#f4f4f4",
+            highlightthickness=0,
+        )
+        adv_toggle.pack(side="left")
+        ToolTip(
+            adv_toggle,
+            "Screenshots, desktop shortcut, details log, site URL, Solo lab, role cards.",
+        )
         # Block typing; allow Ctrl+C / Ctrl+A / navigation.
         self._log.bind("<Key>", self._details_key)
         self._log.bind("<<Paste>>", lambda _e: "break")
@@ -756,14 +758,40 @@ class LauncherApp:
         )
         seed_note = " (first-run, from apps on this PC)" if self._intent_seeded else ""
         self._append_log(f"Apps: N1MM {n1mm}. Seat intent: {intent_bits}{seed_note}.")
+        # After first real layout pass: default height ends just above Other tools….
+        # (after_idle can run before pack geometry is final — delay slightly.)
+        self.root.after(50, self._fit_default_geometry)
+
+    def _fit_default_geometry(self) -> None:
+        """Default size ends just above Other tools… (checkbox sits outside the fold)."""
+        try:
+            self.root.update_idletasks()
+            tools_y = int(self._tools.winfo_y())
+            if tools_y < 360:
+                return
+            width = max(560, int(self.root.winfo_reqwidth()))
+            # Two pixels short of the checkbox row.
+            height = max(400, tools_y - 2)
+            self.root.geometry(f"{width}x{height}")
+            self.root.minsize(540, min(400, height - 20))
+        except Exception:
+            pass
 
     def _toggle_advanced(self) -> None:
         if self._show_advanced.get():
             self._adv_frame.pack(
-                fill="both", expand=False, padx=0, pady=0, before=self._details,
+                fill="both", expand=False, padx=0, pady=0, before=self._tools,
             )
+            try:
+                self.root.update_idletasks()
+                need = int(self._tools.winfo_y()) + int(self._tools.winfo_height()) + 12
+                cur_w = max(560, self.root.winfo_width())
+                self.root.geometry(f"{cur_w}x{max(self.root.winfo_height(), need)}")
+            except Exception:
+                pass
         else:
             self._adv_frame.pack_forget()
+            self.root.after_idle(self._fit_default_geometry)
 
     def _set_banner(self, level: str, title: str, fix: str) -> None:
         colors = {
@@ -2072,7 +2100,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     root = tk.Tk()
-    root.geometry("560x640")
+    # Temporary size; LauncherApp._fit_default_geometry sets the real default
+    # so "Other tools…" sits just below the fold.
+    root.geometry("560x520")
     LauncherApp(root)
     root.mainloop()
     return 0
