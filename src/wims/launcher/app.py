@@ -624,18 +624,20 @@ class LauncherApp:
         adv_toggle.pack(side="left")
         ToolTip(
             adv_toggle,
-            "Screenshots, site URL override, Solo lab, individual role cards.",
+            "Screenshots, desktop shortcut, details log, site URL, Solo lab, role cards.",
         )
 
         self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
 
-        docs_box = tk.LabelFrame(
-            self._adv_frame, text="Documentation",
+        tools_box = tk.LabelFrame(
+            self._adv_frame, text="Tools",
             font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=10, pady=6,
         )
-        docs_box.pack(fill="x", padx=14, pady=4)
+        tools_box.pack(fill="x", padx=14, pady=4)
+        tools_row = tk.Frame(tools_box, bg="#f4f4f4")
+        tools_row.pack(fill="x")
         shot_btn = tk.Button(
-            docs_box, text="Screenshots…", font=_ui_font(11),
+            tools_row, text="Screenshots…", font=_ui_font(11),
             command=self._open_screenshots, padx=10, pady=4,
         )
         shot_btn.pack(side="left")
@@ -644,6 +646,27 @@ class LauncherApp:
             "Capture browser pages and this launcher window into "
             "docs/manual/images/ (standard name or dated suffix).",
         )
+        desk_btn = tk.Button(
+            tools_row, text="Put WIMS on Desktop", font=_ui_font(11),
+            command=self._install_shortcut, padx=10, pady=4,
+        )
+        desk_btn.pack(side="left", padx=(8, 0))
+        ToolTip(
+            desk_btn,
+            "Create or refresh a Desktop shortcut that starts this launcher.",
+        )
+        copy_btn = tk.Button(
+            tools_row, text="Copy details", font=_ui_font(11),
+            command=self._copy_details, padx=10, pady=4,
+        )
+        copy_btn.pack(side="left", padx=(8, 0))
+        ToolTip(copy_btn, "Copy the Details log to the clipboard.")
+        log_btn = tk.Button(
+            tools_row, text="Open log file", font=_ui_font(11),
+            command=self._open_details_log, padx=10, pady=4,
+        )
+        log_btn.pack(side="left", padx=(8, 0))
+        ToolTip(log_btn, "Open the launcher details log file in the default editor.")
 
         site_box = tk.LabelFrame(
             self._adv_frame, text="Site server URL (rare override)",
@@ -694,25 +717,12 @@ class LauncherApp:
                 self._add_role_card(self._adv_frame, role)
 
         # —— Quiet details log (selectable + mirrored to scratch file) ——
+        # Buttons live under Other tools…; this frame is the live transcript only.
         self._details = tk.LabelFrame(
             self.root, text="Details (optional)", font=_ui_font(10),
             bg="#f4f4f4", fg="#666666", padx=6, pady=2,
         )
         self._details.pack(fill="both", expand=True, padx=16, pady=(8, 12))
-        detail_btns = tk.Frame(self._details, bg="#f4f4f4")
-        detail_btns.pack(fill="x", pady=2)
-        tk.Button(
-            detail_btns, text="Copy details", font=_ui_font(10),
-            command=self._copy_details,
-        ).pack(side="left")
-        tk.Button(
-            detail_btns, text="Open log file", font=_ui_font(10),
-            command=self._open_details_log,
-        ).pack(side="left", padx=(8, 0))
-        tk.Button(
-            detail_btns, text="Put WIMS on Desktop", font=_ui_font(10),
-            command=self._install_shortcut,
-        ).pack(side="right")
         self._log = tk.Text(
             self._details, height=6, font=_ui_font(10),
             bg="#ffffff", fg="#222222", wrap="word",
