@@ -7,7 +7,7 @@
 
 Fleet policy: every N1MM PC aims Broadcast Data at ``127.0.0.1:12060``.
 The N1MM agent hears it locally and POSTs XML to the site server so Status
-does not depend on LAN/Tailscale multicast for plane B.
+does not depend on LAN multicast for plane B.
 """
 
 from __future__ import annotations

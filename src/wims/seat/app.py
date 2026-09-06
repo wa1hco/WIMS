@@ -89,7 +89,7 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         level, banner = "err", "Cannot hear N1MM Broadcast Data"
         fix = (
             f"{snap['radio_error']} — N1MM Broadcast Data > Radio → "
-            f"127.0.0.1:12060 (fleet default; not Tailscale)"
+            f"127.0.0.1:12060 (fleet default)"
         )
         rows.append(("err", "BROADCAST", f"{snap['radio_error']} · want {radio_dest}"))
     elif not band:

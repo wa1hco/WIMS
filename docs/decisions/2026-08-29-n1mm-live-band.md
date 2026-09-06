@@ -25,11 +25,11 @@
 ```
 
 Enable **Radio** + **Contacts**. The **N1MM agent** hears localhost and POSTs XML to
-the site server (`POST /api/n1mm/broadcast`). Status no longer requires LAN/Tailscale
-multicast for plane B.
+the site server (`POST /api/n1mm/broadcast`). Status does not require LAN multicast
+for plane B.
 
 Optional lab: multicast `224.0.0.73:12060` or unicast to the site LAN IP still works if
-the site server is listening. **Never** use Tailscale `100.x` in Broadcast Data.
+the site server is listening. Fleet dest remains **`127.0.0.1:12060` only**.
 
 **Do not confuse** Broadcast hear (`:12060`) with QSO **delivery** to local N1MM
 (`127.0.0.1:52001` / `:2333`) — localhost delivery is correct for Log.

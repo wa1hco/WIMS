@@ -1440,7 +1440,7 @@ Integration of §3 modules into one supervised, fail-safe controller.
   unmanaged switches).
 - **Remote operators = unicast consoles, not multicast forwarding** (§4.5) — the **server** (at the
   site) is the only multicast consumer; remote operator **consoles** connect over a unicast TLS
-  WebSocket / **Tailscale** link (Tailscale's lack of multicast is irrelevant — none is forwarded).
+  WebSocket / VPN link (unicast-only VPNs are fine — multicast is not forwarded).
   Internet (Starlink) carries only the console↔server link, never the radio data path. Losing a
   remote console → its instances fail-safe to RX (§4.5).
 - **Open monitoring, single control per device** — the general principle behind the
@@ -1498,7 +1498,7 @@ granularity is what enables the split.
 
 **Remote operation without forwarding multicast.** The server is the only multicast subscriber; a
 remote console receives *normalized* state + thumbnails and sends *commands* — all unicast over a
-TLS WebSocket / Tailscale link. So **Tailscale being unicast-only is a non-issue** — multicast
+TLS WebSocket / VPN link. Unicast-only VPNs are a non-issue — multicast
 never crosses the internet. Latency is irrelevant for digital (15 s FT8 cycles ≫ 50–100 ms RTT),
 and the safety-critical **10 ms SSB/CW mute stays in the host agent at the site**, never on the
 remote operator's path.

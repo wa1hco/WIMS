@@ -54,7 +54,7 @@ No `pip` packages for runtime.
 | **UDP Server** | `224.0.0.73` |
 | **UDP Server port** | **`2237`** (all bands — see [decision 2026-09-05](decisions/2026-09-05-plane-a-single-port-2237.md)) |
 | **Accept UDP requests** | ✅ ON (needed for Operate **Work** / Halt) |
-| **Outgoing interface** | Contest **LAN** NIC (not Tailscale, not blank if the roster stays empty) |
+| **Outgoing interface** | Contest **LAN** NIC (wired Ethernet; not blank if the roster stays empty) |
 
 Do **not** use per-band ports 2238–2243 for the current fleet. Every digi instance shares
 `224.0.0.73:2237`. Band comes from the radio dial (Status), not from the UDP port.
@@ -82,7 +82,7 @@ Do **not** use per-band ports 2238–2243 for the current fleet. Every digi inst
 | **Contacts** | ✅ ON |
 | **Destination (both)** | **`127.0.0.1:12060`** only |
 
-Same string on **every** N1MM PC. Do **not** put Tailscale `100.x` addresses here.  
+Same string on **every** N1MM PC.  
 Do **not** confuse this with N1MM↔N1MM networking (**UDP/TCP 12070** — Network Status); WIMS does not use 12070.
 
 ### 3b. N1MM WSJT / digi UDP reader — **OFF (obsolete)**
@@ -135,8 +135,6 @@ Identity / flash: [eeprom/README.md](../hardware/keyline_interface/eeprom/README
 
 Lab without hardware: device `sim:up` / `sim:down`.
 
-**Not yet:** full Tailscale-proofing of contest UDP — see [plan/tailscale_contest_lan.md](plan/tailscale_contest_lan.md). For bring-up, disable Tailscale on logger VMs or raise its interface metric.
-
 ---
 
 ## 5. Site console checklist
@@ -160,7 +158,7 @@ Lab without hardware: device `sim:up` / `sim:down`.
 | Roster empty, waterfall full | Wrong band **port** or Outgoing interface not LAN |
 | Two digis, one Source | Both using default `--rig-name` / UDP id `WSJT-X` |
 | N1MM Network Status OK, WIMS N1MM tab empty | That is **12070**. Set Broadcast Data to **`127.0.0.1:12060`** and run **N1MM agent** with `WIMS_SERVER` |
-| N1MM agent “Waiting for Broadcast” | Radio unchecked, wrong dest, or Tailscale snatch — use localhost dest |
+| N1MM agent “Waiting for Broadcast” | Radio unchecked, dest not `127.0.0.1:12060`, or N1MM agent not running |
 | KEY never holds digi | Wrong COM; digi not on inhibit port / no type-17; band coordinated not interlock |
 | Double QSOs in N1MM | N1MM **WSJT UDP reader** still ON, and/or WSJT Secondary UDP 2333 **and** N1MM agent Log both on |
 

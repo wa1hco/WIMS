@@ -229,7 +229,7 @@ wired; agent + RadioInfo keep band filtering uniform.
               └──────────────────────────┘
                          │
               HTTP/SSE (unicast) → operator browsers
-              (LAN or Tailscale; no multicast over WAN)
+              (LAN or remote unicast; no multicast over WAN)
 ```
 
 | Role | Where it runs | Notes |
@@ -791,7 +791,7 @@ waterfall is full of decodes.
 | Blank / empty | **Error** | Treated as unset |
 | `@Invalid()` (Qt placeholder in `.ini`) | **Error** | Common after install or never-touched Reporting tab |
 | Loopback / `127.0.0.1` / `lo` | **Error** | Traffic never leaves this PC |
-| Wi‑Fi / Starlink / VPN / Tailscale NIC | **Wrong for fleet** | May work intermittently; not the contest LAN map |
+| Wi‑Fi / Starlink / VPN NIC | **Wrong for fleet** | May work intermittently; not the contest LAN map |
 | “Default” / unspecified | **Error** | Multi-homed hosts pick the wrong path |
 
 | UDP Server value | Fleet status | Notes |
@@ -833,14 +833,14 @@ and the second 144 PC each need their own Reporting setup).
 
 #### Multi-homed hosts
 
-Radio PCs often have several addresses (LAN, lab switch, Tailscale, virbr, Wi‑Fi). Rules:
+Radio PCs often have several addresses (LAN, lab switch, VPN, virbr, Wi‑Fi). Rules:
 
 - **WSJT-X Outgoing interface** = contest LAN only (`192.168.10.0/24` in design deployment, or the
   site’s wired digital segment).  
 - **WIMS server `--iface`** = same segment’s IP when joining multicast (e.g.
   `--iface 192.168.1.119`), **not** `127.0.0.1` for real hosts.  
 - Label the NIC **CONTEST LAN** where possible; disable Wi‑Fi on radio seats during the event.  
-- Do not send WSJT-X UDP out Tailscale/Starlink — remote ops use console unicast to the server
+- Do not send WSJT-X UDP out a VPN — remote ops use console unicast to the server
   (plane D), not plane A multicast over the internet.
 
 #### Config verification (setup gate)
@@ -888,7 +888,7 @@ understand multicast.
 |-----------|----------------|
 | WSJT-X | Outgoing interface = contest LAN (§4.8) |
 | WIMS server | `--iface <LAN-IP>` for multicast join; not `127.0.0.1` for multi-host |
-| N1MM External Broadcast dest | **`127.0.0.1:12060`** + N1MM agent with `WIMS_SERVER` (fleet). Lab: multicast/unicast to site still OK. Never Tailscale `100.x`. |
+| N1MM External Broadcast dest | **`127.0.0.1:12060`** + N1MM agent with `WIMS_SERVER` (fleet). Lab: multicast/unicast to site still OK. |
 | N1MM agent Log | Joins `224.0.0.73:2237` on a NIC that receives that multicast (same LAN); built-in reader OFF |
 
 ### N1MM agent (per band logger)
@@ -923,7 +923,7 @@ All four N1MMs publish activity so WIMS can show logger presence and keep the li
 | Setting | Value |
 |---------|--------|
 | Broadcast Data | Contacts **on**; Radio **on** (presence without a QSO); Spots/Lookup optional |
-| Destination | **Fleet: `127.0.0.1:12060`** (identical on every logger; **N1MM agent** relays to site). Lab optional: `224.0.0.73:12060` or unicast `WIMS_LAN_IP:12060`. Never Tailscale `100.x`. |
+| Destination | **Fleet: `127.0.0.1:12060`** (identical on every logger; **N1MM agent** relays to site). Lab optional: `224.0.0.73:12060` or unicast `WIMS_LAN_IP:12060`. |
 | Listener | **N1MM agent** on each logger PC → `POST /api/n1mm/broadcast`; site may still join multicast for lab |
 
 ```
@@ -978,7 +978,7 @@ logs after local log; it does not replace logger-of-record segregation.
 (design §4.5): only the lease holder may initiate TX for that instance; no holder → RX-only.
 
 Remote operators: unicast to the **site server** only. Multicast never crosses the internet
-(Tailscale is fine because it never carries plane A/B).
+(remote HTTP is fine because it never carries plane A/B).
 
 ---
 
@@ -1096,7 +1096,7 @@ Cross-refs: design §2.5 (network health), §3.3 (setup wizard), §3.14 (profile
 | WSJT-X on `127.0.0.1` | Default / “it worked on this PC” |
 | **UDP Outgoing interface blank / `@Invalid()`** | Never set after install; **decodes work, WIMS sees nothing** |
 | Wrong UDP port (not **2237**) | Config copied from old Scheme A band map |
-| N1MM external broadcast not `127.0.0.1:12060` | Still pointing at Tailscale / wrong dest |
+| N1MM external broadcast not `127.0.0.1:12060` | Still on LAN multicast or a unicast IP; fleet dest is localhost |
 | N1MM built-in WSJT reader left **ON** | Double-log with agent Log |
 | Two digi log paths for one QSO | Reader ON and/or Secondary 2333 **and** agent Log |
 | Duplicate `--rig-name` | Cloned desktop shortcut |

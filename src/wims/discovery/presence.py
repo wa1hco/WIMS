@@ -119,8 +119,6 @@ def _usable_lan_ip(ip: str) -> bool:
         return False
     if a.is_loopback or a.is_link_local or a.is_multicast or a.is_unspecified:
         return False
-    # Skip obvious CGNAT/tailscale-only if we have better? Keep Tailscale — remote
-    # agents might use it; HTTP probe can find site on LAN separately.
     return True
 
 
@@ -130,7 +128,7 @@ def _primary_lan_ip(iface: str) -> str:
         if _usable_lan_ip(iface):
             return iface
     ips = list_lan_ipv4s()
-    # Prefer RFC1918 common contest LAN over Tailscale (100.x) / virbr
+    # Prefer RFC1918 contest LAN over CGNAT 100.x / virbr
     def score(ip: str) -> tuple:
         a = ipaddress.IPv4Address(ip)
         # Prefer 192.168.x, then 10.x, then 172.16-31, then other
@@ -512,7 +510,7 @@ def http_discover_site_server(
 ) -> dict | None:
     """Scan local /24s (and extra hints) for a WIMS site server on TCP :http_port.
 
-    Two phases: likely hosts first (.1/.119/…), then full /24. Skips Tailscale
+    Two phases: likely hosts first (.1/.119/…), then full /24. Skips CGNAT
     100.x and libvirt default nets for the full scan (still try preferred only).
     """
     preferred: list[str] = []
@@ -543,7 +541,7 @@ def http_discover_site_server(
             cand = str(ipaddress.IPv4Address(base + last))
             if ipaddress.IPv4Address(cand) in net:
                 add(cand, preferred)
-        # Full /24 only on "contest-like" private nets (not Tailscale / typical virbr).
+        # Full /24 only on "contest-like" private nets (not CGNAT 100.x / typical virbr).
         full = (
             ip.startswith("192.168.")
             or ip.startswith("10.")

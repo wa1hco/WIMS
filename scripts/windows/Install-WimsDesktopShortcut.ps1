@@ -45,7 +45,7 @@ $s.TargetPath = $wscript
 $s.Arguments = "//nologo `"$vbsAbs`""
 $s.WorkingDirectory = $here
 $s.WindowStyle = 1
-$s.Description = "WIMS launcher — agents + site console"
+$s.Description = "WIMS launcher - agents + site console"
 $s.IconLocation = "$icoAbs,0"
 $s.Save()
 

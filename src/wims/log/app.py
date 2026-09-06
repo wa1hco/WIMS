@@ -454,7 +454,7 @@ def _status_model(state: LogState) -> AgentStatusModel:
     # Hear = RadioInfo listen (fleet multicast). Deliver = localhost N1MM ingest.
     radio_dest = f"{s['radio_group'] or '0.0.0.0'}:{s['radio_port']}"
     if s.get("radio_group"):
-        radio_hear = f"Hear RadioInfo {radio_dest} (LAN multicast — not Tailscale 100.x)"
+        radio_hear = f"Hear RadioInfo {radio_dest}"
     else:
         radio_hear = f"Hear RadioInfo unicast-only :{s['radio_port']} (no multicast join)"
 
@@ -466,13 +466,13 @@ def _status_model(state: LogState) -> AgentStatusModel:
         level, banner = "err", "Cannot hear N1MM RadioInfo"
         fix = (
             f"{s['radio_error']} — N1MM Broadcast Data > Radio → "
-            f"{radio_dest} (contest LAN / 224.0.0.73, not Tailscale)"
+            f"{radio_dest}"
         )
     elif not band:
         level, banner = "warn", "Waiting for N1MM band"
         fix = (
             f"N1MM Broadcast Data > Radio → {radio_dest} "
-            f"(not 127.0.0.1-only unless N1MM is this same hear path; not Tailscale 100.x)"
+            f"(fleet dest is 127.0.0.1:12060 on the logger PC)"
         )
     elif s["check_severity"] == "error":
         level, banner = "err", f"Log agent — {band}"

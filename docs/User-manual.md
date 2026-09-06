@@ -167,8 +167,6 @@ Authoritative: [plan/wims_networking.md](plan/wims_networking.md).
 | Site HTTP | **:8787** |
 | WSJT monitor | **:8790** on that PC |
 
-Tailscale on contest seats: deferred policy/audit — [plan/tailscale_contest_lan.md](plan/tailscale_contest_lan.md).
-
 ---
 
 ## Safety

@@ -520,8 +520,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-09-05** — **N1MM agent Broadcast relay + docs refresh:** fleet Broadcast
   Data → `127.0.0.1:12060`; agent POSTs `/api/n1mm/broadcast`; console nav
   Operate/Overview/WSJT-X/N1MM/Setup. Operator how-to:
-  [`docs/operator_setup.md`](../operator_setup.md). Tailscale policy deferred:
-  [`tailscale_contest_lan.md`](tailscale_contest_lan.md).
+  [`docs/operator_setup.md`](../operator_setup.md).
 - **2026-09-05** — **Plane A single port 2237:** operator docs and server default
   `--ports` are **2237 only** (no 2238–2243 in bring-up). Decision:
   [`../decisions/2026-09-05-plane-a-single-port-2237.md`](../decisions/2026-09-05-plane-a-single-port-2237.md).
