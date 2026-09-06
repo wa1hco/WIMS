@@ -7,8 +7,11 @@
 
 1. The **log helper** does **not** permanently trust the launcher band picker / hostname pin
    as the QSO filter.
-2. It listens for N1MM **RadioInfo** UDP on `:12060` (bound all interfaces; default
-   also joins `224.0.0.73` for lab). **Fleet N1MM Broadcast Data → `127.0.0.1:12060`.**
+2. It listens for N1MM **RadioInfo** UDP on **`127.0.0.1:12060`** (this PC only).
+   Lab-only: `--radio-group 224.0.0.73` joins multicast — that hears **every**
+   logger and must not be used on a contest LAN. **Fleet Broadcast Data →
+   `127.0.0.1:12060`.**
+   Live band follows the **active** radio (`RadioNr` == `ActiveRadioNr`).
 3. Band is derived from `<TXFreq>` / `<Freq>` (N1MM units = 10 Hz).
 4. **Until the first RadioInfo is heard, drop all Logged QSO / ADIF** (fail closed —
    wait, do not guess).

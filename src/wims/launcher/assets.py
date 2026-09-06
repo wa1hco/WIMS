@@ -104,6 +104,47 @@ def load_seat_intent() -> dict[str, bool]:
     return {k: bool(intent.get(k)) for k in _ALL_INTENTS}
 
 
+def seat_intent_saved() -> bool:
+    """True when this PC has a stored intent (including all-unchecked)."""
+    raw = _read_pref_raw()
+    return isinstance(raw.get("intent"), dict)
+
+
+def seed_intent_from_assets(snap: AssetSnapshot) -> dict[str, bool]:
+    """First-run defaults: start agents for apps this PC actually has.
+
+    N1MM installed/running → N1MM agent. WSJT-X running, or WSJT-X present
+    on a non-N1MM PC (ini on disk) → Seat agent. Never auto-enables KEY
+    (needs a COM pick) or Site server (one per LAN).
+    """
+    n1mm = bool(snap.n1mm_present)
+    wsjt = bool(snap.wsjt_running) or (bool(snap.wsjt_present) and not n1mm)
+    return {
+        INTENT_N1MM: n1mm,
+        INTENT_WSJT: wsjt,
+        INTENT_SSB_CW: False,
+        INTENT_SERVER: False,
+    }
+
+
+def missing_intent_agent_labels(
+    intent: dict[str, bool],
+    *,
+    n1mm_seat_up: bool,
+    wsjt_up: bool,
+    server_up: bool,
+) -> list[str]:
+    """Wanted agents that are not up (N1MM + KEY share one process)."""
+    missing: list[str] = []
+    if (intent.get(INTENT_N1MM) or intent.get(INTENT_SSB_CW)) and not n1mm_seat_up:
+        missing.append("N1MM agent")
+    if intent.get(INTENT_WSJT) and not wsjt_up:
+        missing.append("Seat agent")
+    if intent.get(INTENT_SERVER) and not server_up:
+        missing.append("Site server")
+    return missing
+
+
 def save_seat_intent(intent: dict[str, bool]) -> None:
     raw = _read_pref_raw()
     raw["schema"] = max(2, int(raw.get("schema") or 1))

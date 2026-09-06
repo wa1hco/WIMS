@@ -50,9 +50,12 @@ from wims.launcher.assets import (
     detect_assets,
     load_key_device,
     load_seat_intent,
+    missing_intent_agent_labels,
     n1mm_seat_flags,
     save_key_device,
     save_seat_intent,
+    seat_intent_saved,
+    seed_intent_from_assets,
 )
 from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import (
@@ -413,7 +416,15 @@ class LauncherApp:
         self._status_after: str | None = None
         self._last_snap = detect_assets()
         # Seat intent (remembered) — separate from Running list.
-        self._intent = load_seat_intent()
+        # First open on this PC: seed from detected apps so an N1MM logger
+        # starts the N1MM agent without an extra checkbox click.
+        self._intent_seeded = False
+        if seat_intent_saved():
+            self._intent = load_seat_intent()
+        else:
+            self._intent = seed_intent_from_assets(self._last_snap)
+            save_seat_intent(self._intent)
+            self._intent_seeded = True
         self._intent_vars = {
             INTENT_N1MM: tk.BooleanVar(value=bool(self._intent.get(INTENT_N1MM))),
             INTENT_WSJT: tk.BooleanVar(value=bool(self._intent.get(INTENT_WSJT))),
@@ -670,6 +681,17 @@ class LauncherApp:
             "On open: leftover Log/Seat/Key replaced; site server left alone.\n"
             f"Log also written to: {details_log_path()}"
         )
+        n1mm = "live" if self._last_snap.n1mm_running else (
+            "installed" if self._last_snap.n1mm_present else "off"
+        )
+        intent_bits = (
+            f"N1MM={'on' if self._intent.get(INTENT_N1MM) else 'off'} "
+            f"WSJT={'on' if self._intent.get(INTENT_WSJT) else 'off'} "
+            f"KEY={'on' if self._intent.get(INTENT_SSB_CW) else 'off'} "
+            f"Server={'on' if self._intent.get(INTENT_SERVER) else 'off'}"
+        )
+        seed_note = " (first-run, from apps on this PC)" if self._intent_seeded else ""
+        self._append_log(f"Apps: N1MM {n1mm}. Seat intent: {intent_bits}{seed_note}.")
 
     def _toggle_advanced(self) -> None:
         if self._show_advanced.get():
@@ -1358,33 +1380,36 @@ class LauncherApp:
 
         snap = self._last_snap
         intent = self._current_intent()
-        want = agents_for_intent(intent)
-        labels = {
-            AGENT_LOG: "Log agent",
-            AGENT_WSJT: "Seat agent",
-            AGENT_KEY: "Key agent",
-            AGENT_SERVER: "Site server",
-        }
-        wanted = [a for a, on in want.items() if on]
-        missing = [labels[a] for a in wanted if not self._agent_effective(a)]
+        missing = missing_intent_agent_labels(
+            intent,
+            n1mm_seat_up=self._agent_effective(AGENT_N1MM_SEAT),
+            wsjt_up=self._agent_effective(AGENT_WSJT),
+            server_up=self._agent_effective(AGENT_SERVER),
+        )
+        want_any = bool(
+            intent.get(INTENT_N1MM) or intent.get(INTENT_WSJT)
+            or intent.get(INTENT_SSB_CW) or intent.get(INTENT_SERVER)
+        )
         seat_up = self._agent_running(AGENT_WSJT)
+        n1mm_seat_up = self._agent_running(AGENT_N1MM_SEAT)
         wsjt_intent = bool(intent.get(INTENT_WSJT))
         wsjt_live = bool(snap and snap.wsjt_running)
         n1mm_intent = bool(intent.get(INTENT_N1MM))
         n1mm_live = bool(snap and snap.n1mm_running)
         update_pending = bool(self._update_info and self._update_info.available)
+        owned_server = self._proc_running(self._agent_role[AGENT_SERVER])
 
         self._home_panel.update_running(
             snap or detect_assets(),
-            log_up=self._agent_running(AGENT_LOG),
+            log_up=bool(n1mm_seat_up and n1mm_intent),
             seat_up=seat_up,
-            key_up=self._agent_running(AGENT_KEY),
+            key_up=bool(n1mm_seat_up and intent.get(INTENT_SSB_CW)),
             server_up=self._agent_effective(AGENT_SERVER),
-            server_existing=bool(ok_site and not self._agent_running(AGENT_SERVER)),
+            server_existing=bool(ok_site and not owned_server),
         )
         self._sync_server_action_buttons(ok_site=ok_site, base=base)
 
-        if not wanted:
+        if not want_any:
             self._set_banner(
                 "busy",
                 "Set seat intent below",
@@ -1867,10 +1892,10 @@ class LauncherApp:
                 self._append_log(f"{title} exited with code {code}.")
                 self._intent_vars[INTENT_SERVER].set(False)
                 self._persist_intent()
-        elif role_id == "log":
+        elif role_id in ("log", "n1mm_seat"):
             self._set_banner(
                 "err",
-                "Log agent stopped",
+                "N1MM agent stopped",
                 "It exited instead of staying running. Check Details, "
                 "then toggle N1MM intent off/on to restart.",
             )

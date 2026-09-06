@@ -29,7 +29,7 @@ from wims.core.bands import band_label
 from wims.agent_ui import AgentStatusModel, AgentStatusWindow
 from wims.log import GROUP, PORT
 from wims.log.check import run_checks
-from wims.log.radioinfo import band_from_radioinfo_xml
+from wims.log.radioinfo import band_from_radioinfo_xml, radioinfo_ignore_reason
 from wims.udp import messages as M
 from wims.udp.sink import open_socket
 
@@ -42,10 +42,13 @@ _ADIF_HAS_TIME = re.compile(r"<TIME_ON:", re.I)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _HELPER_LOG = _REPO_ROOT / "scratch" / "log-agent.log"
 DEFAULT_RADIO_PORT = 12060
-# Fleet N1MM broadcasts RadioInfo to the same multicast group as WSJT-X
-# (different port). See 2026-08-29-n1mm-live-band.md.
-DEFAULT_RADIO_GROUP = GROUP
+# Fleet N1MM Broadcast Data is 127.0.0.1:12060 (this PC only). Joining
+# 224.0.0.73 hears every logger on the LAN and the live-band filter
+# flip-flops. Lab override: --radio-group 224.0.0.73
+DEFAULT_RADIO_GROUP: str | None = None
 DEFAULT_TCP_PORT = 52001
+# Packets of a *new* band required before the filter follows (after first lock).
+_BAND_CONFIRM_PACKETS = 2
 
 
 def adif_band(adif: str) -> str | None:
@@ -313,6 +316,9 @@ class LogState:
         self.radio_error: str | None = None
         self.radio_note: str | None = None
         self.last_radio_at: float | None = None
+        self._pending_band: str | None = None
+        self._pending_count: int = 0
+        self._ignore_logged: set[tuple] = set()
         self.group = GROUP
         self.mcast_port = PORT
         self.delivery = "127.0.0.1:2333"
@@ -368,19 +374,70 @@ class LogState:
                 "site_url": self.site_url,
             }
 
-    def set_live_band(self, band: str) -> bool:
-        """Update filter band; return True if it changed."""
+    def set_live_band(self, band: str, meta: dict | None = None) -> bool:
+        """Update filter band; return True if it changed.
+
+        First RadioInfo locks immediately (fail-closed wait ends). After that,
+        a new band needs ``_BAND_CONFIRM_PACKETS`` consecutive matching
+        packets so interleaved Radio 1 / Radio 2 or leftover multicast
+        cannot flip-flop the log filter.
+        """
+        extra = _radioinfo_src(meta)
         with self._lock:
             self.last_radio_at = time.time()
             if self.live_band == band:
+                self._pending_band = None
+                self._pending_count = 0
                 return False
-            prev = self.live_band
-            self.live_band = band
+            if self.live_band is None:
+                self.live_band = band
+                prev = None
+            else:
+                if self._pending_band != band:
+                    self._pending_band = band
+                    self._pending_count = 1
+                    return False
+                self._pending_count += 1
+                if self._pending_count < _BAND_CONFIRM_PACKETS:
+                    return False
+                prev = self.live_band
+                self.live_band = band
+                self._pending_band = None
+                self._pending_count = 0
         _log_line(
             f"log-agent: N1MM band -> {band}"
             + (f" (was {prev})" if prev else " (first RadioInfo)")
+            + extra
         )
         return True
+
+    def note_ignored_radioinfo(self, reason: str, meta: dict, band: str) -> bool:
+        """True once per (reason, station, radio, band) so Details is not spammed."""
+        key = (
+            reason,
+            str(meta.get("station") or meta.get("netbios") or ""),
+            str(meta.get("radio_nr") or ""),
+            band,
+        )
+        with self._lock:
+            if key in self._ignore_logged:
+                return False
+            self._ignore_logged.add(key)
+            return True
+
+
+def _radioinfo_src(meta: dict | None) -> str:
+    """Short RadioInfo source suffix for the band-change log line."""
+    if not meta:
+        return ""
+    bits: list[str] = []
+    radio = meta.get("radio_nr")
+    if radio:
+        bits.append(f"radio={radio}")
+    station = meta.get("station") or meta.get("netbios")
+    if station:
+        bits.append(f"station={station}")
+    return ("  " + " ".join(bits)) if bits else ""
 
 
 def _log_line(text: str) -> None:
@@ -451,12 +508,15 @@ def _status_model(state: LogState) -> AgentStatusModel:
     s = state.snapshot()
     band = s["live_band"]
     title = f"WIMS log agent · {band or '...'}"
-    # Hear = RadioInfo listen (fleet multicast). Deliver = localhost N1MM ingest.
-    radio_dest = f"{s['radio_group'] or '0.0.0.0'}:{s['radio_port']}"
+    # Hear = RadioInfo listen (fleet: localhost). Deliver = localhost N1MM ingest.
+    radio_dest = (
+        f"{s['radio_group']}:{s['radio_port']}" if s.get("radio_group")
+        else f"127.0.0.1:{s['radio_port']}"
+    )
     if s.get("radio_group"):
         radio_hear = f"Hear RadioInfo {radio_dest}"
     else:
-        radio_hear = f"Hear RadioInfo unicast-only :{s['radio_port']} (no multicast join)"
+        radio_hear = f"Hear RadioInfo {radio_dest} (this PC only)"
 
     fix = ""
     if s["join_error"]:
@@ -539,20 +599,21 @@ def _open_radio_socket(
 ) -> tuple[socket.socket, str, str | None]:
     """Open the N1MM RadioInfo listener; return (socket, where, warning).
 
-    Fleet N1MM broadcasts RadioInfo to multicast (224.0.0.73:12060). Joining
-    the group binds 0.0.0.0:port, so loopback / LAN unicast destinations
-    (e.g. a single-PC 127.0.0.1:12060 config) are still heard. If the IGMP
-    join fails (no LAN), fall back to a plain bind — unicast only — and
-    report that as the warning instead of dying.
+    Fleet dest is 127.0.0.1:12060 — bind loopback only so other loggers on
+    the LAN cannot drive this PC's live band. Lab ``--radio-group`` joins
+    multicast (bind all interfaces; unicast still heard). If the IGMP join
+    fails, fall back to unicast and report that as the warning.
     """
     import struct
 
     from wims.udp.sink import _join_iface_ip
 
+    group = (group or "").strip() or None
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    bind_host = "" if group else "127.0.0.1"
     try:
-        sock.bind(("", port))
+        sock.bind((bind_host, port))
     except OSError:
         sock.close()
         raise
@@ -568,7 +629,8 @@ def _open_radio_socket(
         except OSError as e:
             warn = f"multicast join {group} failed ({e}); unicast :{port} only"
     sock.settimeout(0.5)
-    return sock, f"0.0.0.0:{port}", warn
+    where = f"127.0.0.1:{port}" if bind_host == "127.0.0.1" else f"0.0.0.0:{port}"
+    return sock, where, warn
 
 
 def _radio_loop(state: LogState, stop: threading.Event) -> None:
@@ -601,9 +663,22 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
         text = data.decode("utf-8", "replace")
         with state._lock:
             state.last_radio_at = time.time()
-        band, _meta = band_from_radioinfo_xml(text)
+        band, meta = band_from_radioinfo_xml(text)
         if band and band != "?":
-            if state.set_live_band(band):
+            reason = radioinfo_ignore_reason(
+                meta,
+                hostname=state.host,
+                filter_station=bool(state.radio_group),
+            )
+            if reason:
+                if state.note_ignored_radioinfo(reason, meta, band):
+                    _log_line(
+                        f"log-agent: ignoring RadioInfo ({reason}) "
+                        f"band={band} radio={meta.get('radio_nr') or '-'} "
+                        f"active={meta.get('active_radio_nr') or '-'} "
+                        f"station={meta.get('station') or meta.get('netbios') or '-'}"
+                    )
+            elif state.set_live_band(band, meta):
                 rescan(state)
         # Fleet: N1MM → 127.0.0.1:12060 → site server (presence + contacts).
         fwd = state.broadcast_fwd
@@ -749,9 +824,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--radio-port", type=int, default=DEFAULT_RADIO_PORT,
                     help="UDP port for N1MM RadioInfo (default 12060)")
-    ap.add_argument("--radio-group", default=DEFAULT_RADIO_GROUP,
-                    help="N1MM RadioInfo multicast group (default 224.0.0.73; "
-                         "'' = unicast-only bind)")
+    ap.add_argument(
+        "--radio-group", default="",
+        help="N1MM RadioInfo multicast group. Empty (fleet default) = "
+             "127.0.0.1:12060 only. Lab: 224.0.0.73 (hears every logger).",
+    )
     ap.add_argument("--n1mm", default="127.0.0.1:2333",
                     help="UDP fallback host:port for N1MM ADIF ingest (default 127.0.0.1:2333)")
     ap.add_argument("--tcp-port", type=int, default=DEFAULT_TCP_PORT,

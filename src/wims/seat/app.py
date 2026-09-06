@@ -30,7 +30,6 @@ from wims.agent_ui import AgentStatusModel, AgentStatusWindow
 from wims.key.runtime import KeyRuntime, default_controller_id
 from wims.log import GROUP, PORT
 from wims.log.app import (
-    DEFAULT_RADIO_GROUP,
     DEFAULT_RADIO_PORT,
     DEFAULT_TCP_PORT,
     LogState,
@@ -81,8 +80,9 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
     fix = ""
 
     radio_dest = (
-        f"{snap.get('radio_group') or '0.0.0.0'}:"
-        f"{snap.get('radio_port', DEFAULT_RADIO_PORT)}"
+        f"{snap['radio_group']}:{snap.get('radio_port', DEFAULT_RADIO_PORT)}"
+        if snap.get("radio_group")
+        else f"127.0.0.1:{snap.get('radio_port', DEFAULT_RADIO_PORT)}"
     )
     # —— Broadcast (N1MM Broadcast Data → agent; later → site server) ——
     if snap.get("radio_error"):
@@ -206,9 +206,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--iface", default="0.0.0.0")
     ap.add_argument("--band", "--expect-band", dest="expect_band", default=None)
     ap.add_argument("--radio-port", type=int, default=DEFAULT_RADIO_PORT)
-    ap.add_argument("--radio-group", default=DEFAULT_RADIO_GROUP,
-                    help="N1MM RadioInfo multicast group (default 224.0.0.73; "
-                         "'' = unicast-only bind)")
+    ap.add_argument(
+        "--radio-group", default="",
+        help="N1MM RadioInfo multicast group. Empty (fleet default) = "
+             "127.0.0.1:12060 only. Lab: 224.0.0.73 (hears every logger).",
+    )
     ap.add_argument("--n1mm", default="127.0.0.1:2333")
     ap.add_argument("--tcp-port", type=int, default=DEFAULT_TCP_PORT)
     ap.add_argument("--dry-run", action="store_true")
@@ -291,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _log_line(
         f"seat-agent: modes={'log ' if do_log else ''}{'key' if do_key else ''}  "
-        f"RadioInfo {(state.radio_group + ':') if state.radio_group else ':'}{args.radio_port}"
+        f"RadioInfo {state.radio_group or '127.0.0.1'}:{args.radio_port}"
     )
 
     if args.gui:

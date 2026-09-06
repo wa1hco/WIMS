@@ -53,11 +53,6 @@ def band_from_radioinfo_xml(text: str) -> tuple[str | None, dict]:
 
     radio_nr = child("RadioNr")
     active = child("ActiveRadioNr")
-    # SO2R/SO2V: prefer the packet for the active radio when both present.
-    if radio_nr and active and radio_nr != active:
-        # Still usable for band if TXFreq present; mark as non-active.
-        pass
-
     raw = child("TXFreq") or child("Freq")
     hz = n1mm_freq_units_to_hz(raw) if raw else None
     meta = {
@@ -67,7 +62,36 @@ def band_from_radioinfo_xml(text: str) -> tuple[str | None, dict]:
         "radio_nr": radio_nr,
         "active_radio_nr": active,
         "station": child("StationName"),
+        "netbios": child("NetBiosName"),
     }
     if hz is None:
         return None, meta
     return band_label(hz), meta
+
+
+def radioinfo_ignore_reason(
+    meta: dict,
+    *,
+    hostname: str = "",
+    filter_station: bool = False,
+) -> str | None:
+    """Why this RadioInfo must not drive live_band, or None to accept.
+
+    Inactive SO2R/SO2V radios (RadioNr != ActiveRadioNr) still beacon their
+    VFO — using them makes the log filter flip-flop. When listening on
+    multicast, StationName / NetBiosName must match this PC or we hear
+    every logger on the LAN.
+    """
+    radio_nr = str(meta.get("radio_nr") or "").strip()
+    active = str(meta.get("active_radio_nr") or "").strip()
+    if radio_nr and active and radio_nr != active:
+        return "inactive_radio"
+    if filter_station:
+        station = (
+            str(meta.get("station") or "").strip()
+            or str(meta.get("netbios") or "").strip()
+        )
+        host = (hostname or "").strip()
+        if station and host and station.lower() != host.lower():
+            return "other_station"
+    return None

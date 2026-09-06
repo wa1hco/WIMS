@@ -19,8 +19,18 @@ if str(SRC) not in sys.path:
 
 from wims.agent.n1mm_probe import _parse_wsjt_udp_reader_from_ini, probe_wsjt_udp_reader
 from wims.log.check import pin_from_hostname, resolve_pin, run_checks
-from wims.log.app import adif_band, deliver_to_n1mm, ensure_adif_datetime, wrap_adif
-from wims.log.radioinfo import band_from_radioinfo_xml, n1mm_freq_units_to_hz
+from wims.log.app import (
+    LogState,
+    adif_band,
+    deliver_to_n1mm,
+    ensure_adif_datetime,
+    wrap_adif,
+)
+from wims.log.radioinfo import (
+    band_from_radioinfo_xml,
+    n1mm_freq_units_to_hz,
+    radioinfo_ignore_reason,
+)
 
 
 class PinTests(unittest.TestCase):
@@ -189,11 +199,50 @@ class RadioInfoTests(unittest.TestCase):
           <TXFreq>5017400</TXFreq>
           <Mode>USB</Mode>
           <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>W10VM-50</StationName>
         </RadioInfo>
         """
         band, meta = band_from_radioinfo_xml(xml)
         self.assertEqual(band, "6m")
         self.assertEqual(meta["freq_hz"], 50_174_000)
+        self.assertEqual(meta["station"], "W10VM-50")
+        self.assertIsNone(radioinfo_ignore_reason(meta, hostname="W10VM-50"))
+
+    def test_inactive_radio_ignored(self):
+        xml = """<?xml version="1.0"?>
+        <RadioInfo>
+          <RadioNr>2</RadioNr>
+          <Freq>1407400</Freq>
+          <TXFreq>1407400</TXFreq>
+          <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>W10VM-50</StationName>
+        </RadioInfo>
+        """
+        band, meta = band_from_radioinfo_xml(xml)
+        self.assertEqual(band, "20m")
+        self.assertEqual(
+            radioinfo_ignore_reason(meta, hostname="W10VM-50"),
+            "inactive_radio",
+        )
+
+    def test_other_station_ignored_when_filtering(self):
+        xml = """<?xml version="1.0"?>
+        <RadioInfo>
+          <RadioNr>1</RadioNr>
+          <Freq>14417400</Freq>
+          <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>W10VM-144</StationName>
+        </RadioInfo>
+        """
+        band, meta = band_from_radioinfo_xml(xml)
+        self.assertEqual(band, "2m")
+        self.assertIsNone(radioinfo_ignore_reason(meta, hostname="W10VM-50"))
+        self.assertEqual(
+            radioinfo_ignore_reason(
+                meta, hostname="W10VM-50", filter_station=True,
+            ),
+            "other_station",
+        )
 
     def test_ignore_contactinfo(self):
         xml = "<contactinfo><band>50</band><call>K1ABC</call></contactinfo>"
@@ -304,6 +353,37 @@ class WsjtUdpReaderIniTests(unittest.TestCase):
         self.assertIn("off", info["summary"].lower())
 
 
+class LiveBandLockTests(unittest.TestCase):
+    def test_first_packet_locks_immediately(self):
+        st = LogState()
+        self.assertTrue(st.set_live_band("6m", {"radio_nr": "1"}))
+        self.assertEqual(st.live_band, "6m")
+        self.assertFalse(st.set_live_band("6m"))
+
+    def test_alternating_bands_do_not_flip(self):
+        st = LogState()
+        st.set_live_band("6m")
+        self.assertFalse(st.set_live_band("2m"))
+        self.assertEqual(st.live_band, "6m")
+        self.assertFalse(st.set_live_band("20m"))
+        self.assertEqual(st.live_band, "6m")
+        self.assertFalse(st.set_live_band("2m"))
+        self.assertEqual(st.live_band, "6m")
+
+    def test_confirmed_qsy_follows(self):
+        st = LogState()
+        st.set_live_band("6m")
+        self.assertFalse(st.set_live_band("2m"))
+        self.assertTrue(st.set_live_band("2m"))
+        self.assertEqual(st.live_band, "2m")
+
+    def test_ignore_logged_once(self):
+        st = LogState()
+        meta = {"station": "W10VM-144", "radio_nr": "1"}
+        self.assertTrue(st.note_ignored_radioinfo("other_station", meta, "2m"))
+        self.assertFalse(st.note_ignored_radioinfo("other_station", meta, "2m"))
+
+
 class RadioSocketTests(unittest.TestCase):
     """RadioInfo listener must hear fleet multicast AND plain unicast."""
 
@@ -356,6 +436,24 @@ class RadioSocketTests(unittest.TestCase):
         try:
             self.assertIsNone(warn)
             self.assertIn(str(port), where)
+            self.assertIn("127.0.0.1", where)
+        finally:
+            sock.close()
+
+    def test_no_group_hears_localhost_not_need_multicast(self):
+        import socket as s
+        from wims.log.app import _open_radio_socket
+        port = self._free_port()
+        sock, where, warn = _open_radio_socket(port, None)
+        try:
+            self.assertIsNone(warn)
+            tx = s.socket(s.AF_INET, s.SOCK_DGRAM)
+            tx.sendto(b"<RadioInfo><Freq>5017400</Freq></RadioInfo>",
+                      ("127.0.0.1", port))
+            tx.close()
+            sock.settimeout(2.0)
+            data, _ = sock.recvfrom(65535)
+            self.assertIn(b"5017400", data)
         finally:
             sock.close()
 
@@ -393,7 +491,7 @@ class CheckTests(unittest.TestCase):
         )
         band = next(i for i in rep.items if i.id == "band")
         self.assertNotIn("224.0.0.73:12060", band.message)
-        self.assertIn("12060", band.message)
+        self.assertIn("127.0.0.1:12060", band.message)
 
     def test_joined_and_tcp_ok(self):
         with mock.patch("wims.log.check._n1mm_presence") as n1:
