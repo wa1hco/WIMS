@@ -21,6 +21,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import threading
 import tkinter as tk
 from pathlib import Path
 from typing import Callable
@@ -167,6 +168,7 @@ class ScreenshotPanel:
         self._suffix = tk.StringVar(value="")
         self._status: tk.Text | None = None
         self._manifest = load_manifest()
+        self._capturing = False
 
     def open(self) -> None:
         if self._win is not None and self._win.winfo_exists():
@@ -258,6 +260,9 @@ class ScreenshotPanel:
             command=lambda: self.capture(all_shots=False),
             padx=10, pady=4,
         ).pack(side="left", padx=8)
+        tk.Button(
+            btns, text="Close", command=self._on_close, padx=10, pady=4,
+        ).pack(side="right")
 
         self._status = tk.Text(
             win, height=8, font=("TkDefaultFont", 9),
@@ -267,12 +272,27 @@ class ScreenshotPanel:
         self._status.insert("end", "Ready. Site server / :8790 should be up for URL shots.\n")
         self._status.configure(state="disabled")
 
+        # X / Alt-F4 / Escape must always dismiss this Toplevel.
         win.protocol("WM_DELETE_WINDOW", self._on_close)
+        win.bind("<Escape>", lambda _e: self._on_close())
+        self._capturing = False
 
-    def _on_close(self) -> None:
-        if self._win is not None:
-            self._win.destroy()
+    def _on_close(self, _event=None) -> None:
+        win = self._win
         self._win = None
+        self._status = None
+        self._checks.clear()
+        if win is None:
+            return
+        try:
+            win.grab_release()
+        except tk.TclError:
+            pass
+        try:
+            if win.winfo_exists():
+                win.destroy()
+        except tk.TclError:
+            pass
 
     def _set_all(self, on: bool) -> None:
         for var in self._checks.values():
@@ -281,21 +301,61 @@ class ScreenshotPanel:
     def _log_status(self, lines: list[str]) -> None:
         text = "\n".join(lines) + "\n"
         if self._status is not None:
-            self._status.configure(state="normal")
-            self._status.delete("1.0", "end")
-            self._status.insert("end", text)
-            self._status.configure(state="disabled")
+            try:
+                self._status.configure(state="normal")
+                self._status.delete("1.0", "end")
+                self._status.insert("end", text)
+                self._status.configure(state="disabled")
+            except tk.TclError:
+                pass
         for line in lines:
             self._on_log(line)
 
     def capture(self, *, all_shots: bool) -> None:
-        shots = self._manifest.get("shots") or []
-        images = image_dir(self._manifest)
-        images.mkdir(parents=True, exist_ok=True)
+        if self._capturing:
+            self._log_status(["Capture already running…"])
+            return
+        # Snapshot UI state on the Tk thread; Chrome work runs in a worker so
+        # the window X / Close stay responsive.
+        selected = {
+            sid: bool(var.get())
+            for sid, var in self._checks.items()
+        }
         suffix = ""
         if self._mode.get() == "suffix":
             suffix = self._suffix.get().strip()
         base = (self._site_base() or "").strip() or None
+        self._capturing = True
+        self._log_status(["Capturing… (Close / Esc still works)"])
+
+        def worker() -> None:
+            lines = self._capture_worker(
+                all_shots=all_shots,
+                selected=selected,
+                suffix=suffix,
+                base=base,
+            )
+            def done() -> None:
+                self._capturing = False
+                self._log_status(lines)
+            try:
+                self.master.after(0, done)
+            except tk.TclError:
+                self._capturing = False
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _capture_worker(
+        self,
+        *,
+        all_shots: bool,
+        selected: dict[str, bool],
+        suffix: str,
+        base: str | None,
+    ) -> list[str]:
+        shots = self._manifest.get("shots") or []
+        images = image_dir(self._manifest)
+        images.mkdir(parents=True, exist_ok=True)
         chrome = _chrome()
         lines: list[str] = []
         n_ok = 0
@@ -304,7 +364,7 @@ class ScreenshotPanel:
             sid = shot.get("id") or ""
             if not sid:
                 continue
-            if not all_shots and not self._checks.get(sid, tk.BooleanVar(value=False)).get():
+            if not all_shots and not selected.get(sid):
                 continue
             kind = shot.get("kind") or "url"
             out = out_path_for(sid, suffix=suffix, images=images)
@@ -327,13 +387,35 @@ class ScreenshotPanel:
                     lines.append(f"  OK    {out.name}")
                     n_ok += 1
                 elif kind == "window" and shot.get("window") == "launcher":
-                    root = self.launcher_root
-                    if root is None:
-                        lines.append(f"  skip  {sid}  (no launcher window)")
+                    # Tk grab must run on the UI thread.
+                    err: list[str] = []
+                    done = threading.Event()
+
+                    def grab() -> None:
+                        try:
+                            root = self.launcher_root
+                            if root is None:
+                                err.append("no launcher window")
+                            else:
+                                capture_tk_window(root, out)
+                        except Exception as e:
+                            err.append(str(e))
+                        finally:
+                            done.set()
+
+                    try:
+                        self.master.after(0, grab)
+                        if not done.wait(timeout=45):
+                            lines.append(f"  FAIL  {sid}  (window grab timed out)")
+                            continue
+                    except tk.TclError as e:
+                        lines.append(f"  FAIL  {sid}  ({e})")
                         continue
-                    capture_tk_window(root, out)
-                    lines.append(f"  OK    {out.name}")
-                    n_ok += 1
+                    if err:
+                        lines.append(f"  FAIL  {sid}  ({err[0]})")
+                    else:
+                        lines.append(f"  OK    {out.name}")
+                        n_ok += 1
                 elif kind == "placeholder":
                     lines.append(
                         f"  skip  {sid}  (placeholder — drop PNG on {out.name} by hand)"
@@ -344,4 +426,4 @@ class ScreenshotPanel:
                 lines.append(f"  FAIL  {sid}  ({e})")
 
         lines.insert(0, f"Captured {n_ok} → {images}")
-        self._log_status(lines)
+        return lines
