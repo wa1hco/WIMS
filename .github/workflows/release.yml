@@ -1,0 +1,221 @@
+# WIMS — GitHub Release track (design: docs/plan/wims_release_packages.md).
+# Tag v* → version gate → validate → allow-list packages → GitHub Release.
+#
+# Tag scheme (locked):
+#   vX.Y.Z          → GA,        __version__ == X.Y.Z
+#   vX.Y.Z-tester   → tester,    __version__ == X.Y.Z
+#   vX.Y.Z-rcN      → RC,        __version__ == X.Y.Z
+#
+# Windows zip is tree-only until the embeddable CPython+Tk overlay (PR 0/5)
+# lands; Linux tar.gz is complete for personal laptops.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Package + validate only (do not publish a GitHub Release)"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      version_base: ${{ steps.v.outputs.version_base }}
+      tag: ${{ steps.v.outputs.tag }}
+      channel: ${{ steps.v.outputs.channel }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+            RAW="${TAG#v}"
+            PUBLISH=true
+          else
+            BASE=$(python3 -c "import re; t=open('pyproject.toml').read(); m=re.search(r'(?m)^version\\s*=\\s*\\\"([^\\\"]+)\\\"', t); assert m; print(m.group(1))")
+            RAW="$BASE"
+            TAG="v${BASE}"
+            if [ "${{ inputs.dry_run }}" = "true" ]; then
+              PUBLISH=false
+            else
+              PUBLISH=true
+            fi
+          fi
+
+          # Shared parser (rejects unknown suffixes)
+          EVAL=$(python3 scripts/packaging/write_manifest.py "$RAW" --repo-root . | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['version'], m['version_base'], m['channel'])")
+          VERSION=$(echo "$EVAL" | awk '{print $1}')
+          VERSION_BASE=$(echo "$EVAL" | awk '{print $2}')
+          CHANNEL=$(echo "$EVAL" | awk '{print $3}')
+
+          if [ "$CHANNEL" = "GA" ]; then
+            PRERELEASE=false
+          else
+            PRERELEASE=true
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "version_base=$VERSION_BASE"
+            echo "tag=v${VERSION}"
+            echo "channel=$CHANNEL"
+            echo "prerelease=$PRERELEASE"
+            echo "publish=$PUBLISH"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION base=$VERSION_BASE channel=$CHANNEL publish=$PUBLISH"
+
+  validate:
+    name: validate
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version pin (pyproject ↔ __init__ ↔ tag base)
+        env:
+          EXPECT_BASE: ${{ needs.prepare.outputs.version_base }}
+        run: |
+          set -euo pipefail
+          PYVER=$(python -c "import re; t=open('pyproject.toml').read(); m=re.search(r'(?m)^version\\s*=\\s*\\\"([^\\\"]+)\\\"', t); assert m; print(m.group(1))")
+          INITVER=$(python -c "import sys; sys.path.insert(0,'src'); import wims; print(wims.__version__)")
+          echo "expect_base=$EXPECT_BASE  pyproject=$PYVER  __version__=$INITVER"
+          test "$PYVER" = "$INITVER"
+          test "$EXPECT_BASE" = "$PYVER"
+
+      - name: Validate (unit + live no-RF)
+        env:
+          PYTHON: python
+        run: scripts/validate.sh
+
+  package:
+    name: package
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rsync/zip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rsync zip
+
+      - name: Build release artifacts
+        env:
+          STRICT: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package-release.sh install.sh scripts/install-linux.sh
+          scripts/package-release.sh "${{ needs.prepare.outputs.version }}"
+          ls -la dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wims-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/wims-${{ needs.prepare.outputs.version }}-linux-x86_64.tar.gz
+            dist/wims-${{ needs.prepare.outputs.version }}-windows-x86_64.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [prepare, package]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wims-${{ needs.prepare.outputs.version }}
+          path: dist
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          CHANNEL: ${{ needs.prepare.outputs.channel }}
+          PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          LIN="dist/wims-${VERSION}-linux-x86_64.tar.gz"
+          WIN="dist/wims-${VERSION}-windows-x86_64.zip"
+          SUMS="dist/SHA256SUMS"
+          test -f "$LIN"
+          test -f "$WIN"
+          test -f "$SUMS"
+
+          NOTES=$(mktemp)
+          {
+            echo "## WIMS ${VERSION} (${CHANNEL})"
+            echo
+            echo "Allow-list source packages for testers (stdlib Python)."
+            echo "Windows zip is **tree-only** until the bundled CPython+Tk runtime lands;"
+            echo "Install still uses/finds system Python ≥ 3.10."
+            echo
+            echo "### Assets"
+            echo
+            echo "| File | Use |"
+            echo "|------|-----|"
+            echo "| \`wims-${VERSION}-windows-x86_64.zip\` | Extract to \`C:\\\\WIMS\` → \`Install-Wims.cmd\` |"
+            echo "| \`wims-${VERSION}-linux-x86_64.tar.gz\` | Unpack → \`./install.sh\` |"
+            echo
+            echo "### Install"
+            echo
+            echo "See [INSTALL.md](INSTALL.md) and [docs/tester_quickstart.md](docs/tester_quickstart.md)."
+            echo "Sibling digi app builds: [wsjtx-inhibit Releases](https://github.com/wa1hco/wsjtx-inhibit/releases)."
+            echo
+            echo "### Checksums"
+            echo
+            echo '```'
+            cat "$SUMS"
+            echo '```'
+            if [ "$PRERELEASE" = "true" ]; then
+              echo
+              echo "This is a **prerelease** (${CHANNEL}) build."
+            fi
+          } > "$NOTES"
+
+          EXTRA=()
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA+=(--prerelease)
+          fi
+
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            git tag -f "$TAG" || true
+            git push origin "$TAG" --force || true
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$LIN" "$WIN" "$SUMS" --clobber
+            gh release edit "$TAG" --notes-file "$NOTES" "${EXTRA[@]}"
+          else
+            gh release create "$TAG" "$LIN" "$WIN" "$SUMS" \
+              --title "WIMS ${VERSION}" \
+              --notes-file "$NOTES" \
+              "${EXTRA[@]}"
+          fi

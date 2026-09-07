@@ -19,17 +19,17 @@ same idea as double-clicking N1MM or WSJT-X.
 
 | How you get the tree | Notes |
 |----------------------|--------|
-| `git clone https://github.com/wa1hco/WIMS.git` | Preferred for updates |
-| [GitHub ZIP of `main`](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip) | Offline-friendly; no pinned version until a Release exists |
-| Future: GitHub **Release** asset | Same tree + release notes; not required for lab use |
+| `git clone https://github.com/wa1hco/WIMS.git` | Preferred for lab git updates |
+| [GitHub **Release**](https://github.com/wa1hco/WIMS/releases) | `wims-<ver>-windows-x86_64.zip` → `C:\WIMS`; linux `.tar.gz` |
+| [GitHub ZIP of `main`](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip) | Rolling; unversioned |
 
-**Windows prereqs once:** double-click `scripts\windows\Install-Wims.cmd`  
-→ Python ≥ 3.10, optional Git, firewall **TCP 8787**, then  
-`Install-WIMS-Desktop-Shortcut.cmd` → Desktop **WIMS** icon (`assets\wims.ico`).  
+**Install once:** see **[INSTALL.md](../INSTALL.md)**.  
+**Windows:** `scripts\windows\Install-Wims.cmd` (UAC) or repo-root `.\install.ps1`  
+→ Python ≥ 3.10, optional Git, firewall **TCP 8787**, Desktop **WIMS**.  
 **Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
-**Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`;  
-`scripts/install-wims-desktop.sh` or `PYTHONPATH=src python3 -m wims --install-shortcut`.
+**Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`; run **`./install.sh`**  
+(or `scripts/install-wims-desktop.sh` / `PYTHONPATH=src python3 -m wims --install-shortcut`).
 
 **Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
 on each **N1MM** PC check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent**; on **WSJT** PCs
@@ -146,7 +146,7 @@ TX steps in the runbook are **provisional** until the first real-WSJT-X dummy-lo
 | Area | Status |
 |------|--------|
 | CI on GitHub (`validate.sh`) | Done |
-| Versioned GitHub Release / tags | Not yet (rolling `main`) |
+| Release / tester-package workflows | Done; current Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0) |
 | Dummy-load Reply echo-exactness | Open (R0 ship gate) |
 | Seat agent: interlock / KEY / mute | Not productized |
 | KEY agent fleet assignment | Lab selftest in GUI only; no server-pushed targets yet |

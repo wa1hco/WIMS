@@ -74,10 +74,13 @@ via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 
 **GitHub CI / release track:** `.github/workflows/ci.yml` runs the same `scripts/validate.sh`
 on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
-`wims.__version__` pin check. **No GitHub Releases or tags yet** — first public cut is
-still the R0 tester release (`v0.1.0-tester` planned once dummy-load Reply is verified).
-Sister C++ forks (`wsjtx-wims` / `wsjtx-improved-wims`) already have build/release
-workflows; they are separate products and cadence.
+`wims.__version__` pin check. **Release design:** [wims_release_packages.md](wims_release_packages.md)
+(rev 4). **Scaffolding landed:** root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,
+`scripts/packaging/write_manifest.py`, allow-list `scripts/package-release.sh`,
+`release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
+`wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
+Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -90,9 +93,9 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
   frequency (any band, HF included): watch the ranked roster, verify needed↔dupe by editing
   the N1MM log and **click a roster line** to Work (Reply). `python -m wims.solo` + Windows/Linux
   wrappers. **Done:** roster-line **Work** (GT2, no global arm) + Halt, arbiter grant/release,
-  `tx` state block, casual (non-contest) seed, **CI green gate**. **Remaining before shipping:**
-  first bring-up against **real WSJT-X** into a dummy load (echo-exactness of Reply); then
-  tag + GitHub Release for testers.
+  `tx` state block, casual (non-contest) seed, **CI green gate**, GitHub Release
+  [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0). **Remaining:**
+  first bring-up against **real WSJT-X** into a dummy load (echo-exactness of Reply).
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
   dashboard live (server ingests multicast → SSE → static HTML). **Phase-1 read-only panel sweep
@@ -202,6 +205,13 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-07** — **Version `1.0.0`** + GitHub Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
+  Install/release scaffolding (aligned to [wims_release_packages.md](wims_release_packages.md)):
+  root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,
+  `scripts/packaging/write_manifest.py`, allow-list `package-release.sh`,
+  `release.yml` + `tester-packages.yml`, `INSTALL.md`. Windows bundled CPython+Tk still open (PR 0/5).
+- **2026-09-07** — **GitHub release + install scaffolding** landed earlier the same day
+  (superseded by `v1.0.0` publish).
 - **2026-08-29** — Tired-operator launcher: default **N1MM seat** home (one Start /
   Stop / Open site console + green-yellow-red banner). Role catalog under
   “Other PC types…”. Docs: [tired-operator-ux](../decisions/2026-08-29-tired-operator-ux.md),
@@ -461,8 +471,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   is found via `n1mm_user_dirs()` (test was patching agent helpers while `database_dirs()`
   only consulted logdb’s host scan — failed on Linux CI/dev). `test_agent_report` green
   again. Add `.github/workflows/ci.yml` (push/PR → `scripts/validate.sh` on Python
-  3.10/3.12/3.14 + version pin check). No tags/Releases yet — next is R0 dummy-load
-  Reply + `v0.1.0-tester`.
+  3.10/3.12/3.14 + version pin check). Releases later landed as `v1.0.0` (2026-09-07).
 - **2026-08-11** — **Tester roles doc:** [tester_roles.md](../tester_roles.md) freezes the
   install surface (solo / site server / console / seat agent; KEY agent lab-only). Fixed
   stale “Arm TX” and 432→2240 port in quickstart/Windows README; linked from README.

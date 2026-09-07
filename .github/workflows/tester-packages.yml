@@ -1,0 +1,175 @@
+# Mid-cycle tester ZIP/tarball without a GA tag.
+# Design: docs/plan/wims_release_packages.md (lab exception / USB spike).
+#
+# Trigger: Actions → "Tester packages" → Run workflow
+# Optional tag: packages/v0.0.1-tester
+#
+# Always publishes as a GitHub prerelease when publish=true.
+
+name: Tester packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_suffix:
+        description: "Optional suffix: tester | rcN | empty (= tree version, still prerelease)"
+        required: false
+        default: "tester"
+        type: string
+      publish:
+        description: "Publish GitHub prerelease (false = artifact only)"
+        required: false
+        default: true
+        type: boolean
+  push:
+    tags: ["packages/v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tester-packages-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        run: |
+          set -euo pipefail
+          BASE=$(python3 -c "import re; t=open('pyproject.toml').read(); m=re.search(r'(?m)^version\\s*=\\s*\\\"([^\\\"]+)\\\"', t); assert m; print(m.group(1))")
+          INIT=$(python3 -c "import sys; sys.path.insert(0,'src'); import wims; print(wims.__version__)")
+          test "$BASE" = "$INIT"
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            RAW="${GITHUB_REF_NAME#packages/v}"
+            TAG="${GITHUB_REF_NAME}"
+            PUBLISH=true
+          else
+            SUFFIX="${{ inputs.version_suffix }}"
+            if [ -n "$SUFFIX" ]; then
+              RAW="${BASE}-${SUFFIX}"
+            else
+              RAW="$BASE"
+            fi
+            TAG="packages/v${RAW}"
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              PUBLISH=true
+            else
+              PUBLISH=false
+            fi
+          fi
+
+          # Validate against locked tag scheme (also when RAW == BASE).
+          EVAL=$(python3 scripts/packaging/write_manifest.py "$RAW" --repo-root . | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['version'])")
+          VERSION="$EVAL"
+
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "publish=$PUBLISH"
+          } >> "$GITHUB_OUTPUT"
+          echo "tester version=$VERSION tag=$TAG publish=$PUBLISH"
+
+  validate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Validate
+        env:
+          PYTHON: python
+        run: scripts/validate.sh
+
+  package:
+    needs: [prepare, validate]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rsync/zip
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rsync zip
+
+      - name: Build artifacts
+        env:
+          STRICT: "1"
+        run: |
+          set -euo pipefail
+          chmod +x scripts/package-release.sh install.sh scripts/install-linux.sh
+          scripts/package-release.sh "${{ needs.prepare.outputs.version }}"
+          ls -la dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wims-${{ needs.prepare.outputs.version }}
+          path: |
+            dist/wims-${{ needs.prepare.outputs.version }}-linux-x86_64.tar.gz
+            dist/wims-${{ needs.prepare.outputs.version }}-windows-x86_64.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, package]
+    if: needs.prepare.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wims-${{ needs.prepare.outputs.version }}
+          path: dist
+
+      - name: Publish prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          LIN="dist/wims-${VERSION}-linux-x86_64.tar.gz"
+          WIN="dist/wims-${VERSION}-windows-x86_64.zip"
+          SUMS="dist/SHA256SUMS"
+          test -f "$LIN" && test -f "$WIN" && test -f "$SUMS"
+
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            git tag -f "$TAG"
+            git push origin "$TAG" --force
+          fi
+
+          NOTES=$(mktemp)
+          {
+            echo "## WIMS tester package ${VERSION}"
+            echo
+            echo "Lab/prerelease allow-list packages. Not a GA cut."
+            echo "Windows zip is tree-only until bundled CPython+Tk lands."
+            echo
+            echo "Install: see [INSTALL.md](INSTALL.md)."
+            echo "wsjtx-inhibit sibling: https://github.com/wa1hco/wsjtx-inhibit/releases"
+            echo
+            echo '```'
+            cat "$SUMS"
+            echo '```'
+          } > "$NOTES"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$LIN" "$WIN" "$SUMS" --clobber
+            gh release edit "$TAG" --notes-file "$NOTES" --prerelease
+          else
+            gh release create "$TAG" "$LIN" "$WIN" "$SUMS" \
+              --title "WIMS ${VERSION} (tester)" \
+              --notes-file "$NOTES" \
+              --prerelease
+          fi

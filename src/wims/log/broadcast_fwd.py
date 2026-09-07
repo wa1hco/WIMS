@@ -18,6 +18,8 @@ import time
 import urllib.error
 import urllib.request
 
+from wims import __version__ as _WIMS_VERSION
+
 # Don't spam the server with RadioInfo (often 1–2 Hz). Contacts always go.
 _RADIOINFO_MIN_INTERVAL_S = 2.0
 
@@ -107,7 +109,7 @@ class BroadcastForwarder:
             method="POST",
             headers={
                 "Content-Type": "application/json",
-                "User-Agent": "wims-n1mm-agent/0.0.1",
+                "User-Agent": f"wims-n1mm-agent/{_WIMS_VERSION}",
             },
         )
         try:

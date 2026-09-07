@@ -10,7 +10,8 @@ starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
 ## Install & quick start
 
-**Testers / home evaluation (recommended entry):**  
+**Short install guide:** **[INSTALL.md](INSTALL.md)** — clone or Release ZIP → `./install.sh` / `.\install.ps1`.  
+**Testers / home evaluation:**  
 **[docs/tester_quickstart.md](docs/tester_quickstart.md)** — tracks from *no radio apps* → WSJT-X only → WSJT-X+N1MM → optional multi-PC.  
 **What you install (roles):** [docs/tester_roles.md](docs/tester_roles.md) — solo vs server vs N1MM agent / WSJT monitor.  
 **Seat setup (WSJT-X · N1MM · Keyline):** [docs/operator_setup.md](docs/operator_setup.md).
@@ -18,11 +19,20 @@ starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 Full instructions for a **new machine with nothing installed** (except Windows or Linux itself).
 WIMS is **stdlib-only** (no `pip install`); the Windows installer brings in Python/Git/firewall.
 
+Versioned packages (when cut): [GitHub Releases](https://github.com/wa1hco/WIMS/releases)
+(`wims-<ver>-windows-x86_64.zip`, `wims-<ver>-linux-x86_64.tar.gz`).  
+Design: [docs/plan/wims_release_packages.md](docs/plan/wims_release_packages.md).
+
 ### A. Windows — full setup (site server or lab PC)
 
-**Installer:** [`scripts/windows/Install-Wims.cmd`](scripts/windows/Install-Wims.cmd) →
-[`Install-Wims.ps1`](scripts/windows/Install-Wims.ps1). Double-click; allow **UAC**. No
-`Set-ExecutionPolicy` needed.
+**Installer (pick one):**
+
+| Entry | Notes |
+|-------|--------|
+| [`scripts/windows/Install-Wims.cmd`](scripts/windows/Install-Wims.cmd) | Double-click; allow **UAC** (recommended) |
+| [`install.ps1`](install.ps1) | Repo-root wrapper (map144-style); same logic |
+
+No `Set-ExecutionPolicy` needed for the `.cmd` path.
 
 | If missing, install adds | How |
 |--------------------------|-----|
@@ -78,16 +88,15 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 
 ### B. Linux — full setup (dev / Linux site server)
 
-There is no Windows-style one-click installer. Install OS packages, then run WIMS.
-
 ```bash
-# Debian/Ubuntu example — install prereqs if missing
+# Debian/Ubuntu — prereqs if missing
 sudo apt update
-sudo apt install -y git python3   # ≥ 3.10; 3.12–3.14 fine
+sudo apt install -y git python3 python3-tk   # ≥ 3.10; 3.12–3.14 fine
 
 git clone https://github.com/wa1hco/WIMS.git
 cd WIMS
-python3 src/wims/server/app.py --iface 127.0.0.1
+./install.sh            # Python check, import smoke, Desktop WIMS icon
+PYTHONPATH=src python3 -m wims solo
 # Console: http://localhost:8787/  (use the LAN iface IP for multi-host)
 ```
 
