@@ -45,10 +45,17 @@ class _StubKeyRuntime:
         self.state = _StubKeyState(**state_over)
 
 
-def _log_state(band="2m"):
+class _StubTcp:
+    alive = True
+    last_error = None
+
+
+def _log_state(band="2m", tcp_alive=True):
     state = LogState()
     state.live_band = band
     state.joined = True
+    if tcp_alive:
+        state.tcp_client = _StubTcp()
     return state
 
 
@@ -79,6 +86,7 @@ class SeatStatusModelTests(unittest.TestCase):
         self.assertIn("device sim:up", by_label["KEY"][1])
         self.assertIn("DOWN", by_label["KEY"][1])
         self.assertIn("FWD 0", by_label["LOG"][1])
+        self.assertIn("TCP 127.0.0.1:52001", by_label["LOG"][1])
 
     def test_log_only_banner(self):
         model = _status_model(_log_state(), None, do_log=True, do_key=False)
@@ -87,6 +95,32 @@ class SeatStatusModelTests(unittest.TestCase):
         self.assertIn("BROADCAST", by_label)
         self.assertIn("LOG", by_label)
         self.assertNotIn("KEY", by_label)
+
+    def test_tcp_52001_not_open(self):
+        model = _status_model(
+            _log_state(tcp_alive=False), None, do_log=True, do_key=False,
+        )
+        self.assertEqual(model.banner_level, "err")
+        self.assertIn("52001", model.banner_text)
+        self.assertIn("JTDX/Others TCP", model.fix_text)
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertEqual(by_label["LOG"][0], "err")
+        self.assertIn("TCP 127.0.0.1:52001 not open", by_label["LOG"][1])
+
+    def test_site_forward_error_shows_url(self):
+        from wims.log.broadcast_fwd import BroadcastForwarder
+        state = _log_state()
+        fwd = BroadcastForwarder(site_url="http://127.0.0.1:8787", agent_id="t")
+        fwd.n_err = 12
+        fwd.last_error = "connection refused"
+        state.broadcast_fwd = fwd
+        model = _status_model(state, None, do_log=True, do_key=False)
+        self.assertEqual(model.banner_level, "err")
+        self.assertIn("Site forward", model.banner_text)
+        self.assertIn("WIMS_SERVER", model.fix_text)
+        by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
+        self.assertEqual(by_label["BROADCAST"][0], "err")
+        self.assertIn("connection refused", by_label["BROADCAST"][1])
 
     def test_no_band_still_waits(self):
         key = _StubKeyRuntime(device="sim:down")

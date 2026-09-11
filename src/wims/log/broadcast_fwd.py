@@ -24,6 +24,33 @@ from wims import __version__ as _WIMS_VERSION
 _RADIOINFO_MIN_INTERVAL_S = 2.0
 
 
+def format_fwd_error(exc: BaseException | str) -> str:
+    """Short operator-facing reason (not a raw WinError dump)."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"HTTP {exc.code}"
+    s = str(exc)
+    low = s.lower()
+    if "10061" in s or "refused" in low:
+        return "connection refused"
+    if "10060" in s or "timed out" in low or "timeout" in low:
+        return "timed out"
+    if "11001" in s or "getaddrinfo" in low or "name or service not known" in low:
+        return "host not found"
+    return s[:120]
+
+
+def discover_site_console(*, duration_s: float = 0.8) -> str | None:
+    """UDP presence → site console_base, or None. Fast; no subnet HTTP scan."""
+    try:
+        from wims.discovery.presence import discover_site_server
+        beacon = discover_site_server(duration_s=duration_s, http_fallback=False)
+    except Exception:
+        return None
+    if not beacon:
+        return None
+    return (beacon.get("console_base") or "").rstrip("/") or None
+
+
 def looks_like_n1mm_broadcast_xml(text: str) -> bool:
     t = (text or "").lstrip()
     if not t.startswith("<") and "<?xml" not in t[:80].lower():
@@ -64,7 +91,7 @@ class BroadcastForwarder:
         site_url: str | None,
         agent_id: str,
         lan_ip: str | None = None,
-        timeout: float = 3.0,
+        timeout: float = 1.0,
     ) -> None:
         self.site_url = (site_url or "").strip().rstrip("/") or None
         self.agent_id = agent_id
@@ -75,7 +102,7 @@ class BroadcastForwarder:
         self.n_err = 0
         self.last_error: str | None = None
         self.last_ok_at: float | None = None
-        self._last_radioinfo_fwd = 0.0
+        self._last_radioinfo_try = 0.0
 
     def maybe_forward(self, xml_text: str, *, now: float | None = None) -> str:
         """Forward if appropriate. Returns status token: sent|skip|err|nosite."""
@@ -87,10 +114,11 @@ class BroadcastForwarder:
             self.n_skip += 1
             return "skip"
         if is_radioinfo(xml_text):
-            if now - self._last_radioinfo_fwd < _RADIOINFO_MIN_INTERVAL_S:
+            if now - self._last_radioinfo_try < _RADIOINFO_MIN_INTERVAL_S:
                 self.n_skip += 1
                 return "skip"
-        # Contacts always; RadioInfo after interval.
+            self._last_radioinfo_try = now
+        # Contacts always; RadioInfo after interval (including failed attempts).
         return self._post(xml_text, now=now)
 
     def _post(self, xml_text: str, *, now: float) -> str:
@@ -118,19 +146,17 @@ class BroadcastForwarder:
                     self.n_fwd += 1
                     self.last_ok_at = now
                     self.last_error = None
-                    if is_radioinfo(xml_text):
-                        self._last_radioinfo_fwd = now
                     return "sent"
                 self.n_err += 1
                 self.last_error = f"HTTP {resp.status}"
                 return "err"
         except urllib.error.HTTPError as e:
             self.n_err += 1
-            self.last_error = f"HTTP {e.code}"
+            self.last_error = format_fwd_error(e)
             return "err"
         except (urllib.error.URLError, TimeoutError, OSError) as e:
             self.n_err += 1
-            self.last_error = str(e)
+            self.last_error = format_fwd_error(e)
             return "err"
 
     def snapshot(self) -> dict:

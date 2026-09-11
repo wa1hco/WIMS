@@ -90,6 +90,20 @@ class BroadcastForwarderTests(unittest.TestCase):
         self.assertEqual(posts[0]["lan_ip"], "192.168.1.120")
         self.assertIn("RadioInfo", posts[0]["xml"])
 
+    def test_radioinfo_errors_are_rate_limited(self):
+        def boom(_req, timeout=0):
+            raise OSError("connection refused")
+
+        f = BroadcastForwarder(
+            site_url="http://127.0.0.1:8787", agent_id="t",
+        )
+        with mock.patch("urllib.request.urlopen", boom):
+            self.assertEqual(f.maybe_forward(RADIO, now=10.0), "err")
+            self.assertEqual(f.maybe_forward(RADIO, now=10.2), "skip")
+            self.assertEqual(f.maybe_forward(RADIO, now=12.1), "err")
+        self.assertEqual(f.n_err, 2)
+        self.assertEqual(f.last_error, "connection refused")
+
 
 class ServerBroadcastIngestTests(unittest.TestCase):
     def test_accept_creates_logger(self):

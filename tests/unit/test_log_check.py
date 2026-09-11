@@ -89,8 +89,9 @@ class AdifWrapTests(unittest.TestCase):
         with mock.patch("socket.create_connection", return_value=FakeSock()) as conn:
             ok, how = deliver_to_n1mm(b"<command:3>Log <parameters:3>x", prefer_tcp=True)
         self.assertTrue(ok)
-        self.assertTrue(how.startswith("TCP"))
+        self.assertEqual(how, "TCP 127.0.0.1:52001")
         conn.assert_called()
+        self.assertEqual(conn.call_args[0][0], ("127.0.0.1", 52001))
 
     def test_tcp_client_reuses_socket(self):
         from wims.log.app import N1mmTcpClient

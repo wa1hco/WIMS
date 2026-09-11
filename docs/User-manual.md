@@ -51,8 +51,8 @@ python -m wims
 - **Windows:** Desktop **WIMS** / `Install-Wims.cmd` once — [scripts/windows/README.md](../scripts/windows/README.md)  
 - **Linux:** `scripts/install-wims-desktop.sh` (needs `python3-tk`)  
 - Console: `http://<server>:8787/` (the WIMS launcher opens it as a chrome-free
-	app window with Chrome, Chromium, or Edge, or Firefox kiosk mode; otherwise it
-	uses the normal default browser)  
+	app window with Chrome, Chromium, or Edge, or a dedicated resizable Firefox
+	window; otherwise it uses the normal default browser)  
 
 **Exact app settings:** [operator_setup.md](operator_setup.md).
 

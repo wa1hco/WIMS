@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -242,6 +243,44 @@ class SoloPortFlagTests(unittest.TestCase):
         self.assertIn("--ports", captured["argv"])
         i = captured["argv"].index("--ports")
         self.assertEqual(captured["argv"][i + 1], "2241")
+
+
+class BrowserOpenTests(unittest.TestCase):
+    def test_which_browser_existing_file(self):
+        from wims.launcher.app import _which_browser
+        here = str(Path(__file__).resolve())
+        self.assertEqual(_which_browser(here), here)
+        self.assertIsNone(_which_browser(""))
+
+    def test_open_wims_url_honors_firefox_kiosk(self):
+        from wims.launcher.app import open_wims_url
+        ff = r"C:\Program Files\Mozilla Firefox\firefox.exe"
+
+        def fake_which(candidate: str):
+            if candidate and "firefox" in Path(candidate).name.lower():
+                return ff
+            return None
+
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td) / "kiosk-profile"
+            with mock.patch.dict(os.environ, {"WIMS_BROWSER": ff}, clear=False):
+                with mock.patch("wims.launcher.app._kiosk_profile_dir", return_value=profile):
+                    with mock.patch("wims.launcher.app._which_browser", side_effect=fake_which):
+                        with mock.patch("wims.launcher.app.subprocess.Popen") as popen:
+                            mode = open_wims_url("http://127.0.0.1:8787/")
+            self.assertEqual(mode, "kiosk")
+            args = popen.call_args[0][0]
+            self.assertEqual(args[0], ff)
+            self.assertNotIn("--kiosk", args)
+            self.assertIn("--new-instance", args)
+            self.assertIn("--profile", args)
+            self.assertIn(str(profile), args)
+            self.assertIn("-width", args)
+            self.assertIn("-height", args)
+            self.assertEqual(args[args.index("-width") + 1], "900")
+            self.assertEqual(args[args.index("-height") + 1], "640")
+            self.assertTrue((profile / "user.js").is_file())
+            self.assertTrue((profile / "chrome" / "userChrome.css").is_file())
 
 
 if __name__ == "__main__":

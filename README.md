@@ -37,7 +37,7 @@ No `Set-ExecutionPolicy` needed for the `.cmd` path.
 | If missing, install adds | How |
 |--------------------------|-----|
 | **Python ≥ 3.10** | `winget`, else silent download of python.org **3.12.x** |
-| **Git** | `winget` (when cloning) |
+| **Git** | `winget` — clone **and** launcher “Update available” (`git fetch origin/main`). Skipped for Release ZIP trees (no `.git`) |
 | **Firewall rule TCP 8787** | so browsers on the LAN can open the console |
 | **Start launchers + desktop shortcut** | pins the real `python.exe` path (PATH not required) |
 

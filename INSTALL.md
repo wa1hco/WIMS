@@ -38,7 +38,7 @@ Start: Desktop **WIMS**, or `PYTHONPATH=src python3 -m wims solo`.
 2. Double-click **`scripts\windows\Install-Wims.cmd`** (UAC), or from PowerShell: `.\install.ps1`.
 3. Start Desktop **WIMS**.
 
-Install adds/finds Python ≥ 3.10, optional Git, firewall TCP **8787**, Desktop shortcut.  
+Install adds/finds Python ≥ 3.10, **Git** (clone + in-app GitHub update check; skipped for Release ZIP trees with no `.git`), firewall TCP **8787**, Desktop shortcut.  
 It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
 **Bundled private Python** (offline embed + Tk) is specified in the design and lands with the Windows runtime packaging PRs. Until then, Install uses system Python.

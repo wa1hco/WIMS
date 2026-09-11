@@ -168,6 +168,7 @@ class N1mmTcpClient:
         self.host = host
         self.port = port
         self._sock: socket.socket | None = None
+        self.last_error: str | None = None
 
     @property
     def alive(self) -> bool:
@@ -182,6 +183,17 @@ class N1mmTcpClient:
             sock = self._ensure()
             sock.sendall(payload)
 
+    def try_connect(self) -> bool:
+        """Open the session if needed. False when N1MM TCP :52001 is not listening."""
+        try:
+            self._ensure()
+            self.last_error = None
+            return True
+        except OSError as e:
+            self.close()
+            self.last_error = str(e)
+            return False
+
     def _ensure(self) -> socket.socket:
         if self._sock is not None:
             return self._sock
@@ -195,6 +207,7 @@ class N1mmTcpClient:
         except (OSError, AttributeError):
             pass
         self._sock = sock
+        self.last_error = None
         return sock
 
     def close(self) -> None:
@@ -372,6 +385,11 @@ class LogState:
                 "check_lines": list(self.check_lines),
                 "check_severity": self.check_severity,
                 "site_url": self.site_url,
+                "tcp_alive": bool(self.tcp_client and self.tcp_client.alive),
+                "tcp_error": (
+                    getattr(self.tcp_client, "last_error", None)
+                    if self.tcp_client is not None else None
+                ),
             }
 
     def set_live_band(self, band: str, meta: dict | None = None) -> bool:
@@ -698,6 +716,14 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     tcp_client = N1mmTcpClient(host, tcp_port)
     with state._lock:
         state.tcp_client = tcp_client
+    if tcp_client.try_connect():
+        _log_line(f"log-agent: N1MM TCP {host}:{tcp_port} connected")
+    else:
+        _log_line(
+            f"log-agent: N1MM TCP {host}:{tcp_port} not open yet "
+            f"({tcp_client.last_error or 'connection refused'}). "
+            "Configurer > WSJT/JTDX Setup > JTDX/Others TCP, then restart N1MM."
+        )
     try:
         sock = open_socket(args.iface, args.port, args.group)
     except OSError as e:
@@ -717,7 +743,10 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
         state.running = True
         state.tcp_port = tcp_port
     rescan(state)
-    dest = "DRY-RUN" if args.dry_run else f"TCP :{tcp_port} then UDP {host}:{udp_port}"
+    dest = (
+        "DRY-RUN" if args.dry_run
+        else f"TCP {host}:{tcp_port} (UDP {host}:{udp_port} fallback only)"
+    )
     _log_line(
         f"log-agent: host={state.host}  join {args.group}:{args.port}  {dest}"
     )
@@ -733,6 +762,8 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             try:
                 data, addr = sock.recvfrom(65535)
             except socket.timeout:
+                if not tcp_client.alive:
+                    tcp_client.try_connect()
                 continue
             except OSError as e:
                 with state._lock:

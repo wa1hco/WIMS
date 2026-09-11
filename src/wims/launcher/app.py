@@ -281,6 +281,46 @@ def find_window_icon_path() -> Path | None:
     return find_icon_path()
 
 
+def _which_browser(candidate: str) -> str | None:
+    """Resolve a browser executable, including common Windows install paths."""
+    if not candidate:
+        return None
+    path = Path(candidate)
+    if path.is_file():
+        return str(path)
+    found = shutil.which(candidate)
+    if found:
+        return found
+    if not sys.platform.startswith("win"):
+        return None
+    name = path.name.lower()
+    pf = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+    pf86 = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    local = Path(os.environ.get("LOCALAPPDATA", ""))
+    extra: list[Path] = []
+    if name in ("firefox.exe", "firefox"):
+        extra += [
+            pf / "Mozilla Firefox" / "firefox.exe",
+            pf86 / "Mozilla Firefox" / "firefox.exe",
+        ]
+    elif name in ("chrome.exe", "chrome"):
+        extra += [
+            pf / "Google" / "Chrome" / "Application" / "chrome.exe",
+            pf86 / "Google" / "Chrome" / "Application" / "chrome.exe",
+        ]
+        if local.parts:
+            extra.append(local / "Google" / "Chrome" / "Application" / "chrome.exe")
+    elif name in ("msedge.exe", "msedge", "microsoftedge.exe"):
+        extra += [
+            pf / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+            pf86 / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        ]
+    for extra_path in extra:
+        if extra_path.is_file():
+            return str(extra_path)
+    return None
+
+
 def _browser_app_command(url: str) -> list[str] | None:
     """Return a Chromium-family app-window command, when one is installed."""
     configured = os.environ.get("WIMS_BROWSER", "").strip()
@@ -293,14 +333,80 @@ def _browser_app_command(url: str) -> list[str] | None:
     else:
         candidates += ["chromium", "chromium-browser", "google-chrome", "microsoft-edge"]
     for candidate in candidates:
-        executable = shutil.which(candidate)
+        executable = _which_browser(candidate)
         if executable:
             return [executable, f"--app={url}"]
     return None
 
 
+# Compact console window — same idea as Chrome --app= (not maximized).
+_FIREFOX_APP_WIDTH = 900
+_FIREFOX_APP_HEIGHT = 640
+
+_FIREFOX_USER_JS = """\
+user_pref("browser.tabs.inTitlebar", 0);
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("browser.startup.page", 0);
+user_pref("browser.shell.checkDefaultBrowser", false);
+user_pref("browser.sessionstore.resume_from_crash", false);
+user_pref("browser.startup.homepage_override.mstone", "ignore");
+user_pref("browser.aboutwelcome.enabled", false);
+user_pref("browser.tabs.warnOnClose", false);
+"""
+
+_FIREFOX_USER_CHROME = """\
+/* Match Chromium --app=: hide tabs and URL bar; keep native caption for resize. */
+#TabsToolbar, #tabbrowser-tabs { visibility: collapse !important; }
+#nav-bar, #PersonalToolbar { visibility: collapse !important; }
+#sidebar-box, #sidebar-header { display: none !important; }
+"""
+
+
+def _kiosk_profile_dir() -> Path:
+    """Dedicated Firefox/Chrome profile so the console is not mixed with browsing."""
+    if sys.platform.startswith("win"):
+        local = (os.environ.get("LOCALAPPDATA") or "").strip()
+        if local:
+            return Path(local) / "WIMS" / "kiosk-profile"
+        return Path.home() / "AppData" / "Local" / "WIMS" / "kiosk-profile"
+    xdg = (os.environ.get("XDG_DATA_HOME") or "").strip()
+    if xdg:
+        return Path(xdg) / "wims" / "kiosk-profile"
+    return Path.home() / ".local" / "share" / "wims" / "kiosk-profile"
+
+
+def prepare_firefox_kiosk_profile(profile: Path | None = None) -> Path:
+    """Seed a Firefox profile for a Chrome-style app window (Operate, compact)."""
+    root = Path(profile) if profile is not None else _kiosk_profile_dir()
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "user.js").write_text(_FIREFOX_USER_JS, encoding="ascii")
+    chrome = root / "chrome"
+    chrome.mkdir(parents=True, exist_ok=True)
+    (chrome / "userChrome.css").write_text(_FIREFOX_USER_CHROME, encoding="ascii")
+    # Drop leftover --kiosk / maximized geometry and session restore.
+    for name in (
+        "xulstore.json",
+        "sessionstore.jsonlz4",
+        "sessionCheckpoints.json",
+        "sessionstore-backups",
+    ):
+        path = root / name
+        try:
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            elif path.is_file():
+                path.unlink()
+        except OSError:
+            pass
+    return root
+
+
 def _firefox_kiosk_command(url: str) -> list[str] | None:
-    """Return a Firefox kiosk-window command, when Firefox is installed."""
+    """Return a Firefox console-window command, when Firefox is installed.
+
+    Chrome ``--app=`` opens Operate in a compact resizable window. Match that:
+    no ``--kiosk`` (fullscreen-locked), dedicated profile, compact size.
+    """
     configured = os.environ.get("WIMS_BROWSER", "").strip()
     configured_name = Path(configured).name.lower()
     candidates = [configured] if "firefox" in configured_name else []
@@ -309,14 +415,29 @@ def _firefox_kiosk_command(url: str) -> list[str] | None:
     else:
         candidates += ["firefox"]
     for candidate in candidates:
-        executable = shutil.which(candidate)
+        executable = _which_browser(candidate)
         if executable:
-            return [executable, "--kiosk", url]
+            profile = prepare_firefox_kiosk_profile()
+            return [
+                executable,
+                "--new-instance",
+                "--profile", str(profile),
+                "-width", str(_FIREFOX_APP_WIDTH),
+                "-height", str(_FIREFOX_APP_HEIGHT),
+                url,
+            ]
     return None
 
 
 def open_wims_url(url: str) -> str:
     """Open a WIMS page without browser chrome when possible."""
+    configured = os.environ.get("WIMS_BROWSER", "").strip()
+    # Honor an explicit Firefox choice before Chromium --app= (this PC).
+    if configured and "firefox" in Path(configured).name.lower():
+        command = _firefox_kiosk_command(url)
+        if command:
+            subprocess.Popen(command)
+            return "kiosk"
     command = _browser_app_command(url)
     if command:
         subprocess.Popen(command)

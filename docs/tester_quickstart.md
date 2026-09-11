@@ -40,7 +40,7 @@ really differs.
 
 1. Open `scripts\windows\`
 2. Double-click **`Install-Wims.cmd`** → allow UAC once  
-3. Expect: Python, optional Git, firewall **TCP 8787**, desktop launchers  
+3. Expect: Python, Git (clone + GitHub update check), firewall **TCP 8787**, desktop launchers  
 4. Log: `scripts\windows\install-log.txt`
 
 **Linux**

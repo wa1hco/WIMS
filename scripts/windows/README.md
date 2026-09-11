@@ -45,6 +45,8 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 |------|----------------|
 | **`Install-Wims.cmd`** | **First install** — Python, Git, clone/pull repo, firewall, Desktop **WIMS** + **Update WIMS**. |
 | **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — checkbox agents, site console, Update when behind `main`. |
+| **`Start-WimsConsole-Kiosk.cmd`** | **Operate** in a compact resizable window (Chrome `--app=` style). Firefox dedicated profile; Chrome `--app=`. Uses the live site server on the LAN. |
+| **`Install-WimsConsoleKiosk.ps1`** | Desktop **WIMS Console Kiosk** + logon Startup + user `WIMS_BROWSER` = Firefox. |
 | **`Update-Wims.cmd`** | **One-click update** — `git pull --ff-only origin/main` (also offered inside the launcher). |
 | **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (sticky `assets\wims.ico` via wscript+VBS) **+** **WIMS Agent**. Re-run if the icon reverts to the default batch glyph. |
 | **`Install-WimsDesktopShortcut.ps1`** | Same as above (PowerShell; called by the `.cmd`). |
@@ -188,7 +190,7 @@ Copy the contest **`.s3db`** into `Documents\N1MM Logger+\Databases` on the **se
 | Component | How |
 |-----------|-----|
 | **Python ≥ 3.10** | 1) `winget` (machine scope if admin) 2) if still missing, **silent download** of python.org 3.12.x |
-| **Git** | `winget` if the tree must be cloned |
+| **Git** | `winget` if missing. Required to clone, for **Update WIMS**, and for the launcher GitHub update check (`git fetch origin/main`). Release ZIP trees (no `.git`) skip this. |
 | **Firewall TCP 8787** | `New-NetFirewallRule` (admin) |
 | **Start launcher** | Rewrites `Start-WimsServer.cmd` with the **full path** to `python.exe` (PATH refresh not required) |
 

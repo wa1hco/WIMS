@@ -20,7 +20,7 @@
 
 <#
 .SYNOPSIS
-  Install WIMS prerequisites on Windows (Python, optional Git, firewall, launchers).
+  Install WIMS prerequisites on Windows (Python, Git for clone/update check, firewall, launchers).
 
   Always writes a log: scripts\windows\install-log.txt
   Exit 0 only if python.exe is found AND import wims succeeds.
@@ -490,15 +490,19 @@ try {
 
     Step "WIMS source tree"
     $marker = Join-Path $RepoPath "src\wims\server\app.py"
+    $isGit = Test-Path (Join-Path $RepoPath ".git")
     if (Test-Path $marker) {
         Ok "Tree present: $RepoPath"
-        if (-not $SkipClone -and (Test-Path (Join-Path $RepoPath ".git"))) {
-            if (Get-Command git -ErrorAction SilentlyContinue) {
-                Push-Location $RepoPath
-                try {
-                    git pull --ff-only 2>&1 | ForEach-Object { Log "      $_" }
-                } finally { Pop-Location }
-            }
+        # Launcher "Update available" + Update-Wims.cmd need git on PATH, not
+        # only when cloning (USB copy of a checkout is a common lab path).
+        if ($isGit) {
+            Ensure-Git
+        }
+        if (-not $SkipClone -and $isGit) {
+            Push-Location $RepoPath
+            try {
+                git pull --ff-only 2>&1 | ForEach-Object { Log "      $_" }
+            } finally { Pop-Location }
         }
     } elseif ($SkipClone) {
         throw "No WIMS tree at $RepoPath and -SkipClone set"

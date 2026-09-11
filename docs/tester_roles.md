@@ -25,7 +25,7 @@ same idea as double-clicking N1MM or WSJT-X.
 
 **Install once:** see **[INSTALL.md](../INSTALL.md)**.  
 **Windows:** `scripts\windows\Install-Wims.cmd` (UAC) or repo-root `.\install.ps1`  
-→ Python ≥ 3.10, optional Git, firewall **TCP 8787**, Desktop **WIMS**.  
+→ Python ≥ 3.10, Git (clone + GitHub update check; not needed for a Release ZIP), firewall **TCP 8787**, Desktop **WIMS**.  
 **Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
 **Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`; run **`./install.sh`**  

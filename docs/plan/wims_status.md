@@ -205,6 +205,17 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-11** — N1MM agent Log connects **TCP 127.0.0.1:52001** at start and
+  reconnects while waiting (Configurer JTDX/Others TCP). BROADCAST row shows the
+  real site-POST error (ERR N was a count, not a WinError); RadioInfo failures
+  are rate-limited; presence can refresh a bad `WIMS_SERVER`.
+- **2026-09-11** — Console “kiosk” is **Operate** in a compact resizable window
+  (Chrome `--app=` style). Firefox dedicated profile + `-width`/`-height`; no
+  `--kiosk` (fullscreen-locked).
+- **2026-09-11** — Windows install treats **Git** as a prereq whenever the tree is a
+  git checkout (not only when cloning): launcher “Update available” is `git fetch
+  origin/main`, so a USB-copied clone still needs `git` on PATH. Release ZIP trees
+  (no `.git`) still skip Git.
 - **2026-09-07** — **Version `1.0.0`** + GitHub Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
   Install/release scaffolding (aligned to [wims_release_packages.md](wims_release_packages.md)):
   root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,

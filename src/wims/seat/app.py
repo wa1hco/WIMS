@@ -38,6 +38,26 @@ from wims.log.app import (
     _radio_loop,
     rescan,
 )
+from wims.log.broadcast_fwd import discover_site_console
+
+
+def _site_refresh_loop(state: LogState, stop: threading.Event) -> None:
+    """If site POSTs fail (or WIMS_SERVER was never set), hear presence."""
+    while not stop.wait(15.0):
+        fwd = state.broadcast_fwd
+        if fwd is None:
+            continue
+        if fwd.site_url and not fwd.last_error:
+            continue
+        base = discover_site_console()
+        if not base:
+            continue
+        if base.rstrip("/") == (fwd.site_url or "").rstrip("/"):
+            continue
+        fwd.site_url = base.rstrip("/")
+        with state._lock:
+            state.site_url = fwd.site_url
+        _log_line(f"seat-agent: site URL → {fwd.site_url}")
 
 
 def _seat_busy() -> str | None:
@@ -104,31 +124,65 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         site = bcast.get("site_url") or snap.get("site_url") or "(no WIMS_SERVER)"
         n_bf = bcast.get("n_fwd", 0)
         n_be = bcast.get("n_err", 0)
-        bcast_txt = (
-            f"RadioInfo · band {band} · hear {radio_dest} · "
-            f"→ site FWD {n_bf}" + (f" ERR {n_be}" if n_be else "")
-        )
-        rows.append(("ok" if n_be == 0 else "warn", "BROADCAST", bcast_txt))
-        details.append(f"[OK] Broadcast hear {radio_dest}")
+        site_err = bcast.get("last_error") or ""
+        site_short = str(site).replace("http://", "").replace("https://", "")
+        if n_be and n_bf == 0:
+            bcast_txt = (
+                f"RadioInfo · {band} · hear {radio_dest} · "
+                f"→ {site_short} {site_err} · FWD {n_bf} ERR {n_be}"
+            )
+            rows.append(("err", "BROADCAST", bcast_txt))
+            level, banner = "err", f"Site forward failing — {band}"
+            fix = (
+                f"Cannot POST RadioInfo to {site}/api/n1mm/broadcast"
+                f"{f' ({site_err})' if site_err else ''}. "
+                "Start the site server, or set WIMS_SERVER to its LAN IP "
+                "(not 127.0.0.1 unless this PC hosts the site console)."
+            )
+        else:
+            bcast_txt = (
+                f"RadioInfo · {band} · hear {radio_dest} · "
+                f"→ {site_short} FWD {n_bf}" + (f" ERR {n_be}" if n_be else "")
+            )
+            rows.append(("ok" if n_be == 0 else "warn", "BROADCAST", bcast_txt))
+        details.append(f"[OK] Broadcast hear {radio_dest} (N1MM RadioInfo, not log)")
         details.append(f"Broadcast → {site}")
-        if bcast.get("last_error"):
-            details.append(f"[!] Broadcast fwd: {bcast['last_error']}")
+        if site_err:
+            details.append(f"[!] Broadcast fwd: {site_err}")
 
     if do_log:
         counts = f"FWD {snap['n_fwd']} · DROP {snap['n_drop']} · WAIT {snap['n_wait']}"
+        tcp_port = snap.get("tcp_port", DEFAULT_TCP_PORT)
+        tcp_dest = f"127.0.0.1:{tcp_port}"
         if snap.get("join_error"):
             level, banner = "err", "Log multicast join failed"
             fix = str(snap["join_error"])
             rows.append(("err", "LOG", f"multicast join failed — {snap['join_error']}"))
         elif not band:
             rows.append(("warn", "LOG", f"waiting for band · {counts}"))
+        elif snap.get("dry_run"):
+            rows.append(("ok", "LOG", f"{band} · {counts} · DRY-RUN"))
+        elif snap.get("tcp_alive"):
+            rows.append(("ok", "LOG", f"{band} · {counts} · → TCP {tcp_dest}"))
         else:
-            deliver = "DRY-RUN" if snap.get("dry_run") else f"→ N1MM TCP :{snap.get('tcp_port', DEFAULT_TCP_PORT)}"
-            rows.append(("ok", "LOG", f"{band} · {counts} · {deliver}"))
+            why = snap.get("tcp_error") or "not listening"
+            rows.append(("err", "LOG", f"{band} · {counts} · TCP {tcp_dest} not open ({why})"))
+            if level != "err":
+                level, banner = "err", f"N1MM TCP {tcp_dest} not open"
+                fix = (
+                    "Configurer > WSJT/JTDX Setup > enable JTDX/Others TCP "
+                    f"(:{tcp_port}), then restart N1MM. The agent sends Log "
+                    f"datagrams to {tcp_dest} over TCP."
+                )
         if snap.get("joined"):
             details.append(f"[OK] Log joined {snap['group']}:{snap['mcast_port']}")
+        details.append(f"Log → TCP {tcp_dest}" + (
+            " connected" if snap.get("tcp_alive") else " (waiting for N1MM)"
+        ))
         if snap.get("last_fwd"):
             details.append(f"Last FWD {snap['last_fwd']}")
+        if snap.get("last_delivery"):
+            details.append(f"Last send {snap['last_delivery']}")
 
     warn_note = ""
     if do_key and key is not None:
@@ -250,6 +304,11 @@ def main(argv: list[str] | None = None) -> int:
     from wims.log.broadcast_fwd import (
         BroadcastForwarder, default_agent_id, default_lan_ip,
     )
+    if not state.site_url:
+        found = discover_site_console(duration_s=1.0)
+        if found:
+            state.site_url = found
+            _log_line(f"seat-agent: discovered site {found}")
     state.broadcast_fwd = BroadcastForwarder(
         site_url=state.site_url,
         agent_id=default_agent_id(),
@@ -262,6 +321,10 @@ def main(argv: list[str] | None = None) -> int:
         target=_radio_loop, args=(state, stop), daemon=True, name="seat-radio",
     )
     radio_thread.start()
+    threading.Thread(
+        target=_site_refresh_loop, args=(state, stop),
+        daemon=True, name="seat-site",
+    ).start()
 
     fwd_thread = None
     if do_log:
