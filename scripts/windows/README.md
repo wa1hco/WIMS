@@ -77,6 +77,8 @@ When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` a
 | **`_Start-Seat-Core.cmd`** | Shared engine (N1MM + WSJT + agent); not double-clicked. |
 | **`Find-And-Set-WsjtxRigName.cmd`** | List/fix all WSJT-X shortcuts + radio config `--rig-name`. |
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start: `Install-WimsSeatStartup.cmd flex50` or `ic9700-144`. |
+| **`Start-WimsAtLogon.cmd`** / **`.vbs`** | Logon: read launcher **seat intent**, start WSJT-X (and N1MM if that intent) + WIMS. |
+| **`Install-WimsLogonStartup.cmd`** / **`Remove-WimsLogonStartup.cmd`** | Put **WIMS at logon** in the user Startup folder (no admin). |
 | **`seat-common.example.cmd`** / **`seat-common.cmd`** | Shared: server URL, N1MM path, agent flags. |
 | **`radio-flex50.example.cmd`** / **`radio-flex50.cmd`** | Flex paths + 50 MHz `WSJTX_RIG_NAME`. |
 | **`radio-ic9700-144.example.cmd`** / **`radio-ic9700-144.cmd`** | wfview path + 144 MHz `WSJTX_RIG_NAME`. |
