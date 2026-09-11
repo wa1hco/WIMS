@@ -483,7 +483,7 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
     ``force=True`` is the operator clicking Check for updates on :8790.
     """
     try:
-        from wims.launcher.update_check import check_git_update, env_skip_update_check
+        from wims.launcher.update_check import check_for_update, env_skip_update_check
         from wims.launcher.update_notify import (
             already_nagged, mark_nagged, notify_no_focus,
         )
@@ -493,7 +493,7 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
                 "detail": "update checks disabled (WIMS_SKIP_UPDATE_CHECK)",
             })
             return
-        info = check_git_update(fetch=True)
+        info = check_for_update(fetch=True)
     except Exception as e:
         state.set_update_info({
             "checked": True, "available": False,

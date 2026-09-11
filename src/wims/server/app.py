@@ -1632,6 +1632,25 @@ def main() -> None:
         )
         announcer.start()
 
+    def _startup_update_check() -> None:
+        try:
+            from wims.launcher.update_check import check_for_update, env_skip_update_check
+            if env_skip_update_check():
+                return
+            info = check_for_update(fetch=True)
+            if info.available:
+                tag = info.release_tag or info.remote_short
+                print(
+                    f"WIMS update available: {info.local_label} → {info.remote_label}"
+                    f"{f' ({tag})' if tag else ''}. "
+                    "Desktop Update WIMS, or GitHub Releases.",
+                    flush=True,
+                )
+        except Exception:
+            pass
+
+    threading.Thread(target=_startup_update_check, daemon=True, name="wims-update").start()
+
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()

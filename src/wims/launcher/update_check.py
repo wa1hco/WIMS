@@ -3,14 +3,31 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Detect whether this git checkout is behind origin/main (stdlib only)."""
+"""Detect whether this install is behind GitHub (Releases and/or git).
+
+Lab clones still use ``git fetch origin/main``. Every startup also asks
+GitHub Releases (stdlib HTTP) so ZIP trees and PCs without git see a
+tagged update. Cutting a Release is a tag (``vX.Y.Z`` / ``-tester`` /
+``-rcN``), not every push to main.
+"""
 
 from __future__ import annotations
 
+import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
+from wims import __version__ as _PKG_VERSION
+
+_DEFAULT_GITHUB_REPO = "wa1hco/WIMS"
+_TAG_VER = re.compile(
+    r"^v?(?P<base>\d+\.\d+\.\d+)(?:-(?P<suffix>tester|rc(?P<rc>[1-9]\d*)))?$"
+)
 
 
 @dataclass(frozen=True)
@@ -26,6 +43,9 @@ class UpdateInfo:
     dirty: bool = False
     local_date: str = ""   # committer date-time for local HEAD
     remote_date: str = ""  # committer date-time for remote tip
+    source: str = "git"    # git | release
+    release_tag: str = ""
+    release_url: str = ""
 
     @property
     def local_short(self) -> str:
@@ -160,7 +180,215 @@ def check_git_update(
         detail="update available",
         is_git=True,
         dirty=dirty,
+        source="git",
     )
+
+
+def github_repo() -> str:
+    env = (os.environ.get("WIMS_GITHUB_REPO") or "").strip()
+    if env:
+        return env.removeprefix("https://github.com/").strip("/")
+    return _DEFAULT_GITHUB_REPO
+
+
+def _http_json(url: str, *, timeout: float = 8.0):
+    req = Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"wims-update-check/{_PKG_VERSION}",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(req, timeout=timeout) as resp:  # noqa: S310 — GitHub API
+            raw = resp.read(1_000_000)
+    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as e:
+        return None, str(e)
+    try:
+        return json.loads(raw.decode("utf-8")), ""
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        return None, str(e)
+
+
+def _version_key(tag_or_ver: str) -> tuple[int, int, int, int, int] | None:
+    """Sort key: numeric base, then GA (2) > rc (1) > tester (0), then rc N."""
+    m = _TAG_VER.match((tag_or_ver or "").strip())
+    if not m:
+        return None
+    major, minor, patch = (int(x) for x in m.group("base").split("."))
+    suffix = m.group("suffix")
+    if suffix is None:
+        return (major, minor, patch, 2, 0)
+    if suffix == "tester":
+        return (major, minor, patch, 0, 0)
+    return (major, minor, patch, 1, int(m.group("rc") or 0))
+
+
+def _local_sha(root: Path) -> str:
+    if (root / ".git").exists():
+        code, sha = _git(root, ["rev-parse", "HEAD"])
+        if code == 0 and sha and sha != "?":
+            return sha.strip()
+    for path in (root / "manifest.json", root / "src" / "manifest.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        sha = str(data.get("git_sha") or "").strip()
+        if sha and sha != "unknown":
+            return sha
+    return ""
+
+
+def _local_version(root: Path) -> str:
+    for path in (root / "manifest.json", root / "src" / "manifest.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        ver = str(data.get("version") or data.get("version_base") or "").strip()
+        if ver:
+            return ver
+    return _PKG_VERSION
+
+
+def _sha_compare(repo: str, release_sha: str, local_sha: str) -> str:
+    """Return GitHub compare status: behind|ahead|identical|diverged|unknown."""
+    if not release_sha or not local_sha:
+        return "unknown"
+    if release_sha.lower() == local_sha.lower() or (
+        len(local_sha) >= 7 and release_sha.lower().startswith(local_sha.lower()[:7])
+    ) or (
+        len(release_sha) >= 7 and local_sha.lower().startswith(release_sha.lower()[:7])
+    ):
+        return "identical"
+    url = (
+        f"https://api.github.com/repos/{repo}/compare/"
+        f"{release_sha[:40]}...{local_sha[:40]}"
+    )
+    data, err = _http_json(url)
+    if not isinstance(data, dict):
+        return "unknown"
+    status = str(data.get("status") or "").strip().lower()
+    return status if status in ("behind", "ahead", "identical", "diverged") else "unknown"
+
+
+def check_github_release(
+    repo: Path | None = None,
+    *,
+    github: str | None = None,
+) -> UpdateInfo:
+    """Compare this tree to the newest GitHub Release (GA, else latest prerelease)."""
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    gh = (github or github_repo()).strip("/")
+    local_sha = _local_sha(root)
+    local_ver = _local_version(root)
+    is_git = (root / ".git").exists()
+    dirty = False
+    if is_git:
+        code_d, dirty_out = _git(root, ["status", "--porcelain"])
+        dirty = bool(dirty_out) if code_d == 0 else False
+
+    latest, err = _http_json(f"https://api.github.com/repos/{gh}/releases/latest")
+    if not isinstance(latest, dict):
+        listing, err2 = _http_json(
+            f"https://api.github.com/repos/{gh}/releases?per_page=5"
+        )
+        if isinstance(listing, list) and listing:
+            latest = listing[0] if isinstance(listing[0], dict) else None
+            err = ""
+        else:
+            latest = None
+            err = err or err2 or "no releases"
+
+    if not isinstance(latest, dict):
+        return UpdateInfo(
+            available=False,
+            local_sha=local_sha,
+            detail=f"GitHub Releases: {err}",
+            is_git=is_git,
+            dirty=dirty,
+            source="release",
+        )
+
+    tag = str(latest.get("tag_name") or "").strip()
+    html = str(latest.get("html_url") or "").strip()
+    subject = str(latest.get("name") or tag).strip()
+    rel_date = str(latest.get("published_at") or "").replace("T", " ").replace("Z", " UTC")
+
+    commit, _cerr = _http_json(
+        f"https://api.github.com/repos/{gh}/commits/{tag}"
+    )
+    remote_sha = ""
+    if isinstance(commit, dict):
+        remote_sha = str(commit.get("sha") or "").strip()
+
+    behind = False
+    detail = "up to date with GitHub Release"
+    cmp = _sha_compare(gh, remote_sha, local_sha) if (remote_sha and local_sha) else ""
+    if cmp == "behind":
+        behind = True
+        detail = "update available (GitHub Release)"
+    elif cmp in ("ahead", "identical"):
+        behind = False
+        detail = "up to date with GitHub Release" if cmp == "identical" else (
+            "local newer than GitHub Release"
+        )
+    else:
+        loc_k = _version_key(local_ver)
+        rem_k = _version_key(tag)
+        if loc_k is not None and rem_k is not None and rem_k > loc_k:
+            behind = True
+            detail = "update available (GitHub Release)"
+        elif loc_k is not None and rem_k is not None and rem_k == loc_k:
+            detail = "up to date with GitHub Release"
+        elif loc_k is not None and rem_k is not None:
+            detail = "local newer than GitHub Release"
+
+    return UpdateInfo(
+        available=behind,
+        local_sha=local_sha,
+        remote_sha=remote_sha,
+        remote_subject=subject,
+        detail=detail,
+        is_git=is_git,
+        dirty=dirty,
+        local_date="",
+        remote_date=rel_date,
+        source="release",
+        release_tag=tag,
+        release_url=html or f"https://github.com/{gh}/releases",
+    )
+
+
+def check_for_update(
+    repo: Path | None = None,
+    *,
+    fetch: bool = True,
+) -> UpdateInfo:
+    """Git behind origin/main (lab) **or** behind the newest GitHub Release.
+
+    Release check always runs so ZIP / no-git PCs see tagged updates.
+    Git wins when it already knows we are behind main (one-click pull).
+    """
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    git_info = check_git_update(root, fetch=fetch)
+    rel_info = check_github_release(root)
+    if git_info.available:
+        return git_info
+    if rel_info.available:
+        return rel_info
+    if git_info.is_git and "fetch failed" not in (git_info.detail or ""):
+        return git_info
+    if rel_info.detail and "GitHub Releases" not in (rel_info.detail or ""):
+        return rel_info
+    if git_info.is_git:
+        # Fetch failed: still report release result (up to date / error).
+        if rel_info.detail:
+            return rel_info
+        return git_info
+    return rel_info
 
 
 def apply_git_update(

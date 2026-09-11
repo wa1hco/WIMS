@@ -69,7 +69,7 @@ from wims.launcher.tooltips import ToolTip
 from wims.launcher.update_check import (
     UpdateInfo,
     apply_git_update,
-    check_git_update,
+    check_for_update,
     env_skip_update_check,
     update_script_path,
 )
@@ -987,7 +987,7 @@ class LauncherApp:
 
         def work() -> None:
             try:
-                info = check_git_update(_REPO_ROOT, fetch=True)
+                info = check_for_update(_REPO_ROOT, fetch=True)
             except Exception as e:  # noqa: BLE001
                 self.root.after(0, self._append_log, f"(update check: {e})")
                 return
@@ -1001,20 +1001,27 @@ class LauncherApp:
 
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
-        if not info.is_git:
-            return
         if not info.available:
-            if info.detail and "fetch failed" in info.detail:
+            if info.detail and (
+                "fetch failed" in info.detail or "GitHub Releases:" in info.detail
+            ):
                 self._append_log(f"Update check: {info.detail}")
             return
         self._show_update_button(True)
         subj = f" — {info.remote_subject}" if info.remote_subject else ""
         dirty = " (local edits present)" if info.dirty else ""
+        if info.source == "release" and not info.is_git:
+            how = "Click Update WIMS to open GitHub Releases (this tree is not a git clone)."
+        elif info.source == "release":
+            how = (
+                f"Click Update WIMS to pull, or download {info.release_tag or 'the release'}."
+            )
+        else:
+            how = f"Click Update WIMS to pull GitHub main{dirty}."
         self._set_banner(
             "warn",
             f"Update available — {info.local_label} → {info.remote_label}{subj}",
-            f"Click Update WIMS to pull GitHub main{dirty}. "
-            "Site server stays up; seat agents restart after.",
+            how + " Site server stays up; seat agents restart after.",
         )
         self._append_log(
             f"Update available: {info.local_label} → {info.remote_label}{subj}"
@@ -1036,7 +1043,24 @@ class LauncherApp:
             pass
 
     def _do_update(self) -> None:
-        """One-click pull from origin/main, then relaunch this launcher."""
+        """Pull origin/main when this is a git clone; else open GitHub Releases."""
+        info = self._update_info
+        if info is not None and not info.is_git:
+            url = (info.release_url or "").strip() or (
+                f"https://github.com/{os.environ.get('WIMS_GITHUB_REPO') or 'wa1hco/WIMS'}/releases"
+            )
+            self._append_log(f"Open release {url}")
+            try:
+                webbrowser.open(url)
+            except Exception as e:
+                self._append_log(f"Browser error: {e}")
+            self._set_banner(
+                "busy",
+                "GitHub Releases opened",
+                "Download the new zip, extract over this tree, keep local seat-*.cmd files.",
+            )
+            self._show_update_button(True)
+            return
         self._show_update_button(False)
         self._updating = True
         self._set_banner(

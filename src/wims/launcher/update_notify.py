@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from wims.launcher.update_check import UpdateInfo, check_git_update, env_skip_update_check
+from wims.launcher.update_check import UpdateInfo, check_for_update, env_skip_update_check
 
 
 def _nag_path() -> Path:
@@ -138,7 +138,7 @@ def check_and_nudge(
     """
     if env_skip_update_check():
         return None
-    info = check_git_update(repo, fetch=fetch)
+    info = check_for_update(repo, fetch=fetch)
     if not info.available:
         return info
     if already_nagged(info.remote_sha):

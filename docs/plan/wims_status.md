@@ -205,6 +205,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-11** — Startup checks **GitHub Releases** (launcher, site server,
+  N1MM agent, WSJT agent) in addition to `git fetch`. ZIP / no-git PCs see
+  **Update available** after a tagged Release. Push to `main` does not publish;
+  `scripts/cut-release.sh` / `git push origin vX.Y.Z` does.
 - **2026-09-11** — N1MM agent Log connects **TCP 127.0.0.1:52001** at start and
   reconnects while waiting (Configurer JTDX/Others TCP). BROADCAST row shows the
   real site-POST error (ERR N was a count, not a WinError); RadioInfo failures

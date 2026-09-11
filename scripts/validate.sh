@@ -112,7 +112,7 @@ hdr "4. Live end-to-end (server + emulator → SSE → JSON)"
 # is a multi-host feature and, on loopback, its announce on the shared 224.0.0.73
 # group interferes with the WSJT-X multicast ingest). This mirrors how `wims.solo`
 # actually runs on one PC.
-"$PY" src/wims/server/app.py --iface "$IFACE" --http-port "$HTTP_PORT" \
+WIMS_SKIP_UPDATE_CHECK=1 "$PY" src/wims/server/app.py --iface "$IFACE" --http-port "$HTTP_PORT" \
     --no-seed --no-presence --refresh 1 > "$LOGDIR/server.log" 2>&1 &
 SRV_PID=$!
 "$PY" testbed/simulators/emulator.py --iface "$IFACE" \

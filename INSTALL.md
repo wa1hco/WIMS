@@ -47,11 +47,14 @@ Full Windows notes: [scripts/windows/README.md](scripts/windows/README.md).
 
 ## Cut a Release (maintainers)
 
+Pushing `main` does **not** publish a GitHub Release. Tag when other PCs should see **Update available** (launcher, site server, and N1MM agent check Releases at startup — git is not required).
+
 1. Bump `pyproject.toml` and `src/wims/__init__.py` to the **numeric** version only (example: `1.0.0`).
 2. Commit. Tag with channel suffix as needed:
    - `git tag v1.0.0-tester` (prerelease)
    - `git tag v1.0.0-rc1` (prerelease)
    - `git tag v1.0.0` (GA)
+   - or `scripts/cut-release.sh v1.0.1` then `git push origin v1.0.1`
 3. `git push origin <tag>` → Actions **Release** validates, builds allow-list artifacts, publishes.
 
 Mid-cycle lab drop: Actions → **Tester packages** → Run workflow.

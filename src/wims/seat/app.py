@@ -326,6 +326,24 @@ def main(argv: list[str] | None = None) -> int:
         daemon=True, name="seat-site",
     ).start()
 
+    def _startup_update_check() -> None:
+        try:
+            from wims.launcher.update_check import check_for_update, env_skip_update_check
+            if env_skip_update_check():
+                return
+            info = check_for_update(fetch=True)
+            if info.available:
+                _log_line(
+                    f"seat-agent: update available {info.local_label} → "
+                    f"{info.remote_label} ({info.release_tag or info.source})"
+                )
+        except Exception:
+            pass
+
+    threading.Thread(
+        target=_startup_update_check, daemon=True, name="seat-update",
+    ).start()
+
     fwd_thread = None
     if do_log:
         fwd_thread = threading.Thread(

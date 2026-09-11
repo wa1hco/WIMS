@@ -55,7 +55,7 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
 After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).  
-When GitHub `main` moves ahead, the launcher shows a yellow **Update available** banner — click **Update WIMS** (or the Desktop **Update WIMS** shortcut). Site server is left running.
+When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` ahead), the launcher shows a yellow **Update available** banner — click **Update WIMS** (git pull, or open Releases if this is a ZIP). Site server is left running. Tag `v*` to publish a Release; push to `main` does not.
 
 ### Install then update (short)
 
