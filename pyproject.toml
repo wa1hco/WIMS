@@ -1,6 +1,6 @@
 [project]
 name = "wims"
-version = "1.0.2"
+version = "1.0.3"
 description = "WSJT-X Instance Management System"
 license = "GPL-3.0-or-later"
 license-files = ["LICENSE"]
