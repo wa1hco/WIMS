@@ -2038,9 +2038,11 @@ class LauncherApp:
             "text": True,
             "bufsize": 1,
         }
-        # Seat/log/key agents have their own Tk window — hide extra console on Windows.
-        if role.id in ("log", "key", "n1mm_seat") and sys.platform.startswith("win"):
+        # Never show a python.exe console on Windows. Tk agents have their own
+        # window; site server / monitor logs go to Details via the pipe.
+        if sys.platform.startswith("win"):
             popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if role.id in ("log", "key", "n1mm_seat"):
             self._append_log(f"{role.title} status window should open on this PC.")
         try:
             proc = subprocess.Popen(cmd, **popen_kw)

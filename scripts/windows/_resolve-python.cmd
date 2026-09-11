@@ -21,8 +21,12 @@ REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
 REM Sets PYTHON_EXE for callers (call this script). Prefer install pin, then common paths.
 set "PYTHON_EXE="
 if exist "%~dp0python-path.txt" (
-  set /p PYTHON_EXE=<"%~dp0python-path.txt"
+  for /f "usebackq delims=" %%A in ("%~dp0python-path.txt") do (
+    set "PYTHON_EXE=%%A"
+    goto :have_pin
+  )
 )
+:have_pin
 if defined PYTHON_EXE if exist "%PYTHON_EXE%" goto :eof
 set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python313\python.exe"
 if exist "%PYTHON_EXE%" goto :eof

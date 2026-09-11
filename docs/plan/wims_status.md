@@ -80,7 +80,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.1`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.1).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -205,6 +205,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-11** — **Version `1.0.1`**. Desktop **WIMS** does not open a `python.exe` console:
+  launcher uses `pythonw`; child site server / agents use `CREATE_NO_WINDOW`.
 - **2026-09-11** — Startup checks **GitHub Releases** (launcher, site server,
   N1MM agent, WSJT agent) in addition to `git fetch`. ZIP / no-git PCs see
   **Update available** after a tagged Release. Push to `main` does not publish;
