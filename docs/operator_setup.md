@@ -13,9 +13,9 @@ Related: [User-manual.md](User-manual.md) · [plan/wims_networking.md](plan/wims
 
 | PC role | Apps | WIMS |
 |---------|------|------|
-| **Site server** (one per LAN) | Optional N1MM for log seed | Desktop **WIMS** → **Site server** · console `http://<server>:8787/` |
+| **Site server** (one per LAN) | Optional N1MM for log seed | Desktop **WIMS** → **Site server** (not offered on a WSJT-X-only seat; N1MM PCs only if none is already up) · console `http://<server>:8787/` |
 | **N1MM / SSB-CW logger** | N1MM (+ optional KEY hardware) | Desktop **WIMS** → check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent** |
-| **WSJT-X digi** | One or more WSJT-X | Multicast settings below; optional **WSJT-X** intent → monitor agent `:8790` |
+| **WSJT-X digi** | One or more WSJT-X | Multicast settings below; optional **WSJT-X** intent → monitor agent `:8790`. Never offers **Site server**. |
 | **Operator laptop** | Browser only | `http://<server>:8787/` |
 
 Console top nav: **Operate · Overview · WSJT-X · N1MM · Setup** (no single “Status” link).

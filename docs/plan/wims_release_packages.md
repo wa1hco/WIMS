@@ -395,7 +395,7 @@ Tree replace on Windows needs those processes stopped so files are not locked.
 3. **No forced kill** of N1MM/WSJT-X on install or FromZip update.
 4. **UDP:** Document plane A `224.0.0.73:2237`; do not rebind N1MM 12070. Firewall helpers **allow** apps; packaging does not rewrite WSJT-X.ini.
 5. **Python:** Bundled runtime is private. Pin via `python-path.txt` + `_resolve-python.cmd` only — no machine PATH prepend of `runtime\python`.
-6. **Shortcuts:** Desktop **WIMS** / **Update WIMS** only (plus existing optional Agent/Server). Do not replace WSJT-X Start Menu entries by default.
+6. **Shortcuts:** Desktop **WIMS** / **Update WIMS** only. Never create **WIMS Server** or **WIMS Agent** desktop icons; remove leftovers on install/refresh. Do not replace WSJT-X Start Menu entries by default.
 7. **LAN profile:** Install **does** set Ethernet to Private when elevated (locked). Document as machine-wide and required for Private-profile firewall behavior on contest seats. Not a silent “WIMS-only” tweak.
 8. **Full contest app firewall:** never silent from Install; optional prompt only.
 9. **Acceptance (PR 8):** packaging docs + scripts never rewrite WSJT-X/N1MM settings files; Release notes + INSTALL / tester_roles / operator_setup point at **wsjtx-inhibit** sibling Releases.

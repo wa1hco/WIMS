@@ -140,7 +140,11 @@ def missing_intent_agent_labels(
         missing.append("N1MM agent")
     if intent.get(INTENT_WSJT) and not wsjt_up:
         missing.append("Seat agent")
-    if intent.get(INTENT_SERVER) and not server_up:
+    if (
+        intent.get(INTENT_SERVER)
+        and not server_up
+        and not is_wsjt_only_seat(intent)
+    ):
         missing.append("Site server")
     return missing
 
@@ -203,11 +207,36 @@ def detect_assets() -> AssetSnapshot:
     return snap
 
 
+def is_wsjt_only_seat(intent: dict[str, bool]) -> bool:
+    """True when this PC is a WSJT-X seat (no N1MM logger)."""
+    return bool(intent.get(INTENT_WSJT)) and not bool(intent.get(INTENT_N1MM))
+
+
+def offer_site_server(
+    intent: dict[str, bool],
+    *,
+    site_reachable: bool,
+    local_server: bool,
+) -> bool:
+    """Whether the launcher should offer Site server (checkbox / Start).
+
+    WSJT-X-only seat: never. N1MM (and dedicated host) PCs: do not offer
+    when a *remote* site server is already running. Local hosting still
+    shows the checkbox so the operator can stop it.
+    """
+    if is_wsjt_only_seat(intent):
+        return False
+    if site_reachable and not local_server:
+        return False
+    return True
+
+
 def agents_for_intent(intent: dict[str, bool]) -> dict[str, bool]:
     """Which agents should be running given seat intent."""
+    want_server = bool(intent.get(INTENT_SERVER)) and not is_wsjt_only_seat(intent)
     want: dict[str, bool] = {
         AGENT_WSJT: bool(intent.get(INTENT_WSJT)),
-        AGENT_SERVER: bool(intent.get(INTENT_SERVER)),
+        AGENT_SERVER: want_server,
         AGENT_N1MM_SEAT: bool(intent.get(INTENT_N1MM) or intent.get(INTENT_SSB_CW)),
         # Legacy keys for older UI/tests — same process as n1mm_seat.
         AGENT_LOG: bool(intent.get(INTENT_N1MM)),

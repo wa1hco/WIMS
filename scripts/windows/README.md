@@ -43,14 +43,14 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 
 | File | What it does |
 |------|----------------|
-| **`Install-Wims.cmd`** | **First install** — Python, Git, clone/pull repo, firewall, Desktop **WIMS** + **Update WIMS**. |
+| **`Install-Wims.cmd`** | **First install** — Python, Git, clone/pull repo, firewall, Desktop **WIMS** + **Update WIMS** only (never **WIMS Server** / **WIMS Agent** icons). |
 | **`Start-WimsLauncher.cmd`** | **Desktop GUI launcher** — checkbox agents, site console, Update when behind `main`. |
 | **`Start-WimsConsole-Kiosk.cmd`** | **Operate** in a compact resizable window (Chrome `--app=` style). Firefox dedicated profile; Chrome `--app=`. Uses the live site server on the LAN. |
 | **`Install-WimsConsoleKiosk.ps1`** | Desktop **WIMS Console Kiosk** + logon Startup + user `WIMS_BROWSER` = Firefox. |
 | **`Update-Wims.cmd`** | **One-click update** — `git pull --ff-only origin/main` (also offered inside the launcher). |
-| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** (sticky `assets\wims.ico` via wscript+VBS) **+** **WIMS Agent**. Re-run if the icon reverts to the default batch glyph. |
+| **`Install-WIMS-Desktop-Shortcut.cmd`** | Desktop **WIMS** only (sticky `assets\wims.ico` via wscript+VBS). Removes leftover **WIMS Server** / **WIMS Agent** icons. Re-run if the icon reverts to the default batch glyph. |
 | **`Install-WimsDesktopShortcut.ps1`** | Same as above (PowerShell; called by the `.cmd`). |
-| **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Desktop **WIMS Agent** only (sticky green icon → continuous agent). |
+| **`Install-WimsAgent-Desktop-Shortcut.cmd`** | Lab-only; **not** run by Install. |
 | **`WIMS.cmd`** | Text **seat menu** (packs, Startup, firewall) — still available; not the primary Desktop icon. |
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
@@ -150,8 +150,8 @@ Steps (seat / fleet VM):
 
 1. Get the repo onto the VM (`git clone …` **or** USB tree), e.g. `C:\Users\W2SZ\WIMS`.
 2. Open `WIMS\scripts\windows\` once → double-click **`Install-Wims.cmd`** (Python) if needed.
-3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** (GUI
-   launcher + icon) and **WIMS Agent** (green continuous agent).
+3. Double-click **`Install-WIMS-Desktop-Shortcut.cmd`** → Desktop gets **WIMS** only
+   (GUI launcher + icon). Leftover **WIMS Server** / **WIMS Agent** icons are removed.
 4. Day-to-day: double-click Desktop **WIMS** for Solo / server / agent; for radio packs
    use `Start-Seat-Flex50` / `…-IC9700-144` or the text **`WIMS.cmd`** menu.
    Edit `seat-common.cmd` + the matching `radio-*.cmd`.
@@ -159,7 +159,8 @@ Steps (seat / fleet VM):
    Desktop shortcuts: `Find-And-Set-WsjtxRigName.cmd -RigName WSJTX-144 -Apply` (2m) or
    `WSJTX-50` (6m). Prefer `Start-WSJTX-50.cmd` / `Start-WSJTX-144.cmd` over bare `wsjtx.exe`.
 
-Site server PC (not seats): **`Start-WimsServer.cmd`** / **WIMS Server** → `http://localhost:8787/`.
+Site server PC (not seats): Desktop **WIMS** → **Site server** (N1MM PC, or no WSJT-X-only
+seat). Scripts still have **`Start-WimsServer.cmd`** — it is not put on the Desktop.
 The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
 
 ### Offline / USB tree

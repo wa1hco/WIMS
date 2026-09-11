@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-REM Desktop "WIMS Agent" shortcut — sticky green icon via wscript + VBS.
+REM Lab-only: Desktop "WIMS Agent" shortcut. Install does NOT run this.
 
 cd /d "%~dp0"
 set "HERE=%~dp0"

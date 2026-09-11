@@ -59,10 +59,13 @@ Write-Host "  Icon: $icoAbs"
 Write-Host " Double-click WIMS on the Desktop for the GUI launcher."
 Write-Host ""
 
-# Also refresh the green agent shortcut when that helper exists.
-$agentHelper = Join-Path $here "Install-WimsAgent-Desktop-Shortcut.cmd"
-if (Test-Path -LiteralPath $agentHelper) {
-    & cmd.exe /c "`"$agentHelper`" /nopause"
+# Install / refresh never creates WIMS Server or WIMS Agent icons.
+foreach ($staleName in @("WIMS Server.lnk", "WIMS Agent.lnk")) {
+    $stale = Join-Path $desk $staleName
+    if (Test-Path -LiteralPath $stale) {
+        Remove-Item -LiteralPath $stale -Force
+        Write-Host " Removed leftover $staleName (launcher only)."
+    }
 }
 
 if (-not $NoPause) { pause }

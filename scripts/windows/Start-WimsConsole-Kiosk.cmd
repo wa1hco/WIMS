@@ -53,7 +53,7 @@ if /I "%PROBE%"=="OK" (
   echo  Console: %URL%
 ) else (
   echo  No site server reachable yet. Opening %URL% anyway.
-  echo  If this PC should HOST the server, use Desktop WIMS Server first.
+  echo  If this PC should HOST the server, use Desktop WIMS then Site server.
 )
 
 set "PROFILE=%LOCALAPPDATA%\WIMS\kiosk-profile"

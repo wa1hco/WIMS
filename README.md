@@ -65,7 +65,7 @@ You only need the folder that contains `src\wims\` and `scripts\windows\`.
 
 #### 3. Start the site server
 
-- Double-click **`Start-WimsServer.cmd`**, or Desktop **WIMS Server**.
+- Desktop **WIMS** → **Site server** (N1MM or dedicated host PC — not a WSJT-X-only seat), or **`Start-WimsServer.cmd`**.
 - Browser on this PC: [http://localhost:8787/](http://localhost:8787/)  
   · Overview `/overview` · WSJT-X `/wsjt` · N1MM `/n1mm` · Setup `/setup`
 

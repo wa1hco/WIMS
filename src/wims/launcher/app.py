@@ -49,10 +49,12 @@ from wims.launcher.assets import (
     INTENT_WSJT,
     agents_for_intent,
     detect_assets,
+    is_wsjt_only_seat,
     load_key_device,
     load_seat_intent,
     missing_intent_agent_labels,
     n1mm_seat_flags,
+    offer_site_server,
     save_key_device,
     save_seat_intent,
     seat_intent_saved,
@@ -727,6 +729,8 @@ class LauncherApp:
             on_key_device_change=self._on_key_device_change,
             on_refresh_key_ports=self._refresh_key_ports,
         )
+        if is_wsjt_only_seat(self._current_intent()):
+            self._home_panel.set_server_intent_visible(False)
         self._refresh_key_ports()
         self._home_panel.show_key_device_row(
             bool(self._intent_vars[INTENT_SSB_CW].get()),
@@ -1297,6 +1301,8 @@ class LauncherApp:
             os.environ["WIMS_SERVER"] = base
             save_last_site_url(base)
 
+        self._apply_site_server_policy(ok_site=ok_site, base=base)
+
         # During Update WIMS, do not restart agents that were stopped for the pull.
         if not self._updating:
             intent = self._current_intent()
@@ -1376,6 +1382,10 @@ class LauncherApp:
 
     def _on_intent_toggle(self, intent_id: str) -> None:
         self._persist_intent()
+        if intent_id in (INTENT_WSJT, INTENT_N1MM, INTENT_SERVER):
+            ok_site, base = probe_site_urls(self._site_var.get().strip() or None)
+            self._site_ok = ok_site
+            self._apply_site_server_policy(ok_site=ok_site, base=base)
         if intent_id == INTENT_SSB_CW:
             self._home_panel.show_key_device_row(
                 bool(self._intent_vars[INTENT_SSB_CW].get()),
@@ -1399,6 +1409,9 @@ class LauncherApp:
         self._refresh_status()
 
     def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
+        if agent_id == AGENT_SERVER and is_wsjt_only_seat(self._current_intent()):
+            self._append_log("WSJT-X seat: not starting site server.")
+            return
         role_id = self._agent_role[agent_id]
         if self._proc_running(role_id) or agent_id in self._starting:
             self._append_log(f"{agent_id} agent already starting/running — not starting a second copy.")
@@ -1848,9 +1861,50 @@ class LauncherApp:
             pass
         return out
 
+    def _apply_site_server_policy(self, *, ok_site: bool, base: str) -> None:
+        """Hide/clear Site server on WSJT-X seats; N1MM does not start a second."""
+        intent = self._current_intent()
+        local = bool(self._local_server_procs()) or (
+            ok_site and self._site_url_is_local(base)
+        )
+        offer = offer_site_server(
+            intent, site_reachable=ok_site, local_server=local,
+        )
+        hp = getattr(self, "_home_panel", None)
+        if hp is not None and hasattr(hp, "set_server_intent_visible"):
+            hp.set_server_intent_visible(offer)
+        if offer:
+            return
+        if not intent.get(INTENT_SERVER) and not self._proc_running("server"):
+            return
+        if is_wsjt_only_seat(intent):
+            if intent.get(INTENT_SERVER):
+                self._intent_vars[INTENT_SERVER].set(False)
+                self._persist_intent()
+                self._append_log("WSJT-X seat: Site server not offered; intent cleared.")
+            if self._proc_running("server"):
+                self._stop_agent(AGENT_SERVER, explicit=True)
+            return
+        # Remote site already running (N1MM / dedicated): do not host a second.
+        if intent.get(INTENT_SERVER):
+            self._intent_vars[INTENT_SERVER].set(False)
+            self._persist_intent()
+            self._append_log(
+                "Site server already running on the LAN — not offering it on this PC."
+            )
+
     def _start_site_server_offer(self) -> None:
         """Operator asked to start a site server on this PC (none reachable)."""
         ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        local = bool(self._local_server_procs()) or (
+            ok and self._site_url_is_local(base)
+        )
+        if not offer_site_server(
+            self._current_intent(), site_reachable=ok, local_server=local,
+        ):
+            self._append_log("Start site server not offered on this seat.")
+            self._schedule_status(200)
+            return
         if ok:
             self._append_log(
                 f"Site server already reachable at {base} — not starting another."
@@ -1866,6 +1920,9 @@ class LauncherApp:
     def _restart_local_site_server(self) -> None:
         """Stop local site server and start again (load latest code after pull)."""
         ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        if is_wsjt_only_seat(self._current_intent()):
+            self._append_log("Restart refused — WSJT-X seat does not host the site server.")
+            return
         local = bool(self._local_server_procs()) or (
             ok and self._site_url_is_local(base)
         )
@@ -1907,14 +1964,23 @@ class LauncherApp:
             return
         local_proc = bool(self._local_server_procs())
         local_url = ok_site and self._site_url_is_local(base)
+        local = bool(local_proc or local_url)
+        intent = self._current_intent()
+        offer = offer_site_server(
+            intent, site_reachable=ok_site, local_server=local,
+        )
+        if hasattr(hp, "set_server_intent_visible"):
+            hp.set_server_intent_visible(offer)
         try:
             start_btn.pack_forget()
             restart_btn.pack_forget()
         except Exception:
             pass
-        if ok_site and (local_proc or local_url):
+        if is_wsjt_only_seat(intent):
+            return
+        if ok_site and local:
             restart_btn.pack(side="left", padx=(8, 0))
-        elif not ok_site:
+        elif not ok_site and offer:
             start_btn.pack(side="left", padx=(8, 0))
 
     def _open_screenshots(self) -> None:

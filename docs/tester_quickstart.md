@@ -52,7 +52,7 @@ sudo apt install -y git python3   # 3.10+; 3.12–3.14 fine
 
 ### A3. Start the server and open the browser
 
-**Windows:** double-click **`Start-WimsServer.cmd`** (or Desktop **WIMS Server**).  
+**Windows:** Desktop **WIMS** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
 **Linux:**
 
 ```bash
@@ -237,7 +237,7 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | **`Start-Wims-Solo.cmd`** | B / C | One-PC server + browser |
 | **`Check-WimsSetup.cmd`** | B / C | Plain-language setup audit |
 | **`Start-WimsAgent.cmd`** | A | One-shot agent report |
-| **`WIMS Agent` (desktop)** | A / D | Continuous agent |
+| **Desktop WIMS** | A / D | Launcher (agents + optional site server) |
 | **`Find-And-Set-WsjtxRigName.cmd`** | C / D | Unique UDP id on launchers |
 
 ---

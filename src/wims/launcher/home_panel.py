@@ -116,10 +116,14 @@ class AgentHomePanel:
         )
         intent_fr.pack(fill="x", pady=(0, 8))
         self.intent_frame = intent_fr
+        self._server_intent_row = None
+        self._intent_help = None
 
         for intent_id, label, agent, tip in _INTENT_ROWS:
             row = tk.Frame(intent_fr, bg="#f4f4f4")
             row.pack(fill="x", pady=2)
+            if intent_id == INTENT_SERVER:
+                self._server_intent_row = row
             var = intent_vars[intent_id]
             cb = tk.Checkbutton(
                 row, text=label,
@@ -195,13 +199,14 @@ class AgentHomePanel:
                 "holding the port. Seat agent owns the port while Key is running.",
             )
 
-        tk.Label(
+        self._intent_help = tk.Label(
             intent_fr,
             text="Intent is remembered on this PC. Checking a box starts the "
                  "matching agent; uncheck stops it. Apps may start before or after.",
             font=_ui_font(10), bg="#f4f4f4", fg="#666666",
             wraplength=500, justify="left", anchor="w",
-        ).pack(fill="x", pady=(6, 0))
+        )
+        self._intent_help.pack(fill="x", pady=(6, 0))
 
         btns = tk.Frame(parent, bg="#f4f4f4")
         btns.pack(fill="x", pady=4)
@@ -303,6 +308,24 @@ class AgentHomePanel:
     def set_key_cts_status(self, text: str) -> None:
         if self._key_cts_var is not None:
             self._key_cts_var.set(text)
+
+    def set_server_intent_visible(self, visible: bool) -> None:
+        """Show or hide the Site server checkbox (never offered on WSJT-X seats)."""
+        row = self._server_intent_row
+        if row is None:
+            return
+        packed = bool(row.winfo_manager())
+        if visible and not packed:
+            before = self._key_row or self._intent_help
+            try:
+                if before is not None:
+                    row.pack(fill="x", pady=2, before=before)
+                else:
+                    row.pack(fill="x", pady=2)
+            except Exception:
+                row.pack(fill="x", pady=2)
+        elif not visible and packed:
+            row.pack_forget()
 
     def show_key_device_row(self, visible: bool) -> None:
         """KEY row stays packed (order-stable); dim when SSB/CW intent is off."""

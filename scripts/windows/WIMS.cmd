@@ -43,8 +43,8 @@ echo    3.  Start Flex 50 MHz pack     ^(SmartSDR + CAT + DAX + N1MM + WSJT-50^)
 echo    4.  Start IC-9700 144 pack     ^(wfview + N1MM + WSJT-144^)
 echo    5.  Open local agent page      ^(http://127.0.0.1:8790/^)
 echo    6.  Open server Status page    ^(%WIMS_SERVER%/status^)
-echo    7.  Put WIMS on Desktop        ^(menu + Agent icons^)
-echo    8.  Desktop: WIMS Agent only   ^(green agent icon^)
+echo    7.  Put WIMS on Desktop        ^(launcher icon only^)
+echo    8.  Put WIMS on Desktop        ^(same as 7^)
 echo    9.  Auto-start at logon        ^(install Startup for a radio pack^)
 echo    A.  Remove auto-start
 echo    P.  Set contest LAN Private    ^(N1MM Send/Receive / TCP 12070^)
@@ -127,7 +127,8 @@ pause
 goto menu
 
 :do_desktop_agent
-call "%HERE%Install-WimsAgent-Desktop-Shortcut.cmd" /nopause
+REM Install never creates WIMS Agent / WIMS Server desktop icons.
+call "%HERE%Install-WIMS-Desktop-Shortcut.cmd" /nopause
 echo.
 pause
 goto menu
