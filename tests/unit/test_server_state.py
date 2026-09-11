@@ -96,7 +96,7 @@ def test_n1mm_network_view_multi_and_none():
     # SSB-only logger on HF (not a digital band we have WSJT on) — no WSJT bind.
     t.observe_n1mm_xml(
         "<RadioInfo><app>N1MM</app><StationName>N1MM-SSB</StationName>"
-        "<OpCall>W1AW</OpCall><Freq>142000</Freq><Mode>USB</Mode></RadioInfo>",
+        "<OpCall>W1AW</OpCall><Freq>1420000</Freq><Mode>USB</Mode></RadioInfo>",
         now=10.0, src_ip="10.0.0.20")
 
     d = fleet_to_dict(t, now=11.0)
@@ -118,7 +118,7 @@ def test_n1mm_network_view_multi_and_none():
     assert ssb["role"] == "no_wsjt"
     assert ssb["wsjt_count"] == 0
     assert ssb["wsjt_instances"] == []
-    # RadioInfo Freq (100 Hz units → 14.200 MHz) contributes HF band
+    # RadioInfo Freq is 10 Hz units (1420000 → 14.200 MHz)
     assert "20m" in (ssb.get("bands") or ssb.get("bands_seen") or [])
 
     # 2m has no N1MM on that band → unbound

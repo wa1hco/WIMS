@@ -40,6 +40,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wims.core.bands import band_label, band_label_mhz  # noqa: E402
+from wims.log.radioinfo import n1mm_freq_units_to_hz  # noqa: E402
 from wims.udp import messages as M  # noqa: E402
 
 PULSE = 15  # WSJT-X heartbeat period (s); health thresholds are multiples of it.
@@ -351,23 +352,15 @@ class FleetTracker:
             except (TypeError, ValueError):
                 pass
         elif tag == "radioinfo":
-            # N1MM RadioInfo Freq is typically **100 Hz units**
-            # (14.020 MHz → 140200; 50.313 MHz → 503130). Convert ×100 → Hz.
+            # N1MM RadioInfo Freq/TXFreq is tens of Hz (10 Hz units).
+            # Docs: 6m 5012345 → 50.12345 MHz; 2m 14417400 → 144.174 MHz.
+            # Treating that as 100 Hz units maps 6m→70cm and 2m→23cm.
             for key in ("freq", "txfreq"):
                 raw = f.get(key)
                 if not raw:
                     continue
-                try:
-                    v = float(raw)
-                except (TypeError, ValueError):
-                    continue
-                if v > 1e8:          # already Hz (defensive)
-                    hz = int(v)
-                elif v > 1e4:        # 100 Hz units (covers HF…µwave)
-                    hz = int(v * 100)
-                elif v > 0:          # MHz
-                    hz = int(v * 1_000_000)
-                else:
+                hz = n1mm_freq_units_to_hz(raw)
+                if not hz:
                     continue
                 node.note_band(band_label(hz))
                 break

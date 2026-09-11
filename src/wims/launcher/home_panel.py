@@ -82,46 +82,57 @@ class AgentHomePanel:
         self._key_combo = None
         self._key_row = None
 
-        # —— Running (read-only) ——
+        # —— Running (read-only, two columns to keep the home short) ——
         run_fr = tk.LabelFrame(
             parent, text="Running on this PC",
-            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=8, pady=6,
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=6, pady=2,
         )
-        run_fr.pack(fill="x", pady=(0, 8))
-        for key, title in (
+        run_fr.pack(fill="x", pady=(0, 4))
+        run_grid = tk.Frame(run_fr, bg="#f4f4f4")
+        run_grid.pack(fill="x")
+        run_items = (
             ("n1mm", "N1MM"),
             ("wsjt", "WSJT-X"),
-            ("log", "N1MM agent (Log)"),
-            ("seat", "WSJT monitor"),
-            ("key", "N1MM agent (KEY)"),
+            ("log", "Log agent"),
+            ("seat", "Seat agent"),
+            ("key", "Key agent"),
             ("server", "Site server"),
-        ):
-            row = tk.Frame(run_fr, bg="#f4f4f4")
-            row.pack(fill="x", pady=1)
+        )
+        for i, (key, title) in enumerate(run_items):
+            r, c = divmod(i, 2)
+            cell = tk.Frame(run_grid, bg="#f4f4f4")
+            cell.grid(row=r, column=c, sticky="ew", padx=(0, 8), pady=0)
             tk.Label(
-                row, text=title, font=_ui_font(11), bg="#f4f4f4", fg="#333333",
-                width=14, anchor="w",
+                cell, text=title, font=_ui_font(11), bg="#f4f4f4", fg="#333333",
+                width=13, anchor="w",
             ).pack(side="left")
             var = tk.StringVar(value="…")
             tk.Label(
-                row, textvariable=var, font=_ui_font(11), bg="#f4f4f4",
+                cell, textvariable=var, font=_ui_font(11), bg="#f4f4f4",
                 fg="#444444", anchor="w",
             ).pack(side="left", fill="x", expand=True)
             self._run_labels[key] = var
+        run_grid.columnconfigure(0, weight=1)
+        run_grid.columnconfigure(1, weight=1)
 
         # —— Intent (remembered) ——
         intent_fr = tk.LabelFrame(
             parent, text="This seat will run",
-            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=8, pady=6,
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=6, pady=2,
         )
-        intent_fr.pack(fill="x", pady=(0, 8))
+        intent_fr.pack(fill="x", pady=(0, 4))
         self.intent_frame = intent_fr
         self._server_intent_row = None
         self._intent_help = None
+        ToolTip(
+            intent_fr,
+            "Intent is remembered on this PC. Check starts the matching agent; "
+            "uncheck stops it. Apps may start before or after.",
+        )
 
         for intent_id, label, agent, tip in _INTENT_ROWS:
             row = tk.Frame(intent_fr, bg="#f4f4f4")
-            row.pack(fill="x", pady=2)
+            row.pack(fill="x", pady=0)
             if intent_id == INTENT_SERVER:
                 self._server_intent_row = row
             var = intent_vars[intent_id]
@@ -144,7 +155,7 @@ class AgentHomePanel:
         # KEY device row (shown when SSB/CW KEY intent is on).
         if key_device_var is not None:
             key_row = tk.Frame(intent_fr, bg="#f4f4f4")
-            key_row.pack(fill="x", pady=(4, 0))
+            key_row.pack(fill="x", pady=(2, 0))
             self._key_row = key_row
             tk.Label(
                 key_row, text="KEY device", font=_ui_font(11),
@@ -153,7 +164,7 @@ class AgentHomePanel:
             try:
                 from tkinter import ttk
                 combo = ttk.Combobox(
-                    key_row, textvariable=key_device_var, width=28,
+                    key_row, textvariable=key_device_var, width=22,
                     font=_ui_font(11),
                 )
                 combo.pack(side="left", padx=(0, 4))
@@ -168,7 +179,7 @@ class AgentHomePanel:
                 self._key_combo = combo
             except Exception:
                 ent = tk.Entry(
-                    key_row, textvariable=key_device_var, width=30,
+                    key_row, textvariable=key_device_var, width=24,
                     font=_ui_font(11),
                 )
                 ent.pack(side="left", padx=(0, 4))
@@ -199,32 +210,24 @@ class AgentHomePanel:
                 "holding the port. Seat agent owns the port while Key is running.",
             )
 
-        self._intent_help = tk.Label(
-            intent_fr,
-            text="Intent is remembered on this PC. Checking a box starts the "
-                 "matching agent; uncheck stops it. Apps may start before or after.",
-            font=_ui_font(10), bg="#f4f4f4", fg="#666666",
-            wraplength=500, justify="left", anchor="w",
-        )
-        self._intent_help.pack(fill="x", pady=(6, 0))
-
         btns = tk.Frame(parent, bg="#f4f4f4")
-        btns.pack(fill="x", pady=4)
+        btns.pack(fill="x", pady=(4, 0))
+        self.btn_row = btns
         open_btn = tk.Button(
             btns, text="Open site console", font=_ui_font(12),
-            command=on_open_site, padx=12, pady=6,
+            command=on_open_site, padx=10, pady=4,
         )
         open_btn.pack(side="left")
         ToolTip(open_btn, "Fleet Operate / Status / Setup in the browser.")
         self.local_btn = tk.Button(
             btns, text="Open local status", font=_ui_font(12),
-            command=on_open_local, padx=12, pady=6,
+            command=on_open_local, padx=10, pady=4,
         )
         self.local_btn.pack(side="left", padx=(8, 0))
         ToolTip(self.local_btn, "Seat agent local page (:8790) when that agent is up.")
         self.start_server_btn = tk.Button(
             btns, text="Start site server", font=_ui_font(11),
-            command=(on_start_server or (lambda: None)), padx=10, pady=5,
+            command=(on_start_server or (lambda: None)), padx=8, pady=4,
         )
         ToolTip(
             self.start_server_btn,
@@ -233,7 +236,7 @@ class AgentHomePanel:
         )
         self.restart_server_btn = tk.Button(
             btns, text="Restart site server", font=_ui_font(11),
-            command=(on_restart_server or (lambda: None)), padx=10, pady=5,
+            command=(on_restart_server or (lambda: None)), padx=8, pady=4,
         )
         ToolTip(
             self.restart_server_btn,

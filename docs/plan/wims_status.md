@@ -80,7 +80,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.6`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.6).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.7`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.7).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -205,6 +205,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-11** — **Version `1.0.7`**. Compact scrollable launcher (Other tools…
+  no longer grows the window). Overview RadioInfo is **10 Hz units** (6m/2m were
+  showing as 70cm/23cm). Git clones already on `main` no longer nag from a newer
+  Release tag.
 - **2026-09-11** — **Version `1.0.6`**. Operate band without decodes: Status UDP
   dial (not a remote `.ini`). Quiet radios: unicast Replay to elicit Status.
   Checkboxes from live instances; heartbeat-only falls back to UDP id.
@@ -219,6 +223,13 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   else `C:\WSJT\wsjtx-inhibit\bin\wsjtx.exe` (`_resolve-wsjtx.cmd` + `find_wsjtx_exe`).
 - **2026-09-11** — **Version `1.0.3`**. Optional logon **Grok CLI**
   (`Start-GrokAtLogon` / `Install-GrokLogonStartup`) with `--always-approve`.
+- **2026-09-11** — Overview band list: N1MM `<RadioInfo>` Freq is **10 Hz units**
+  (same as the log agent). The site server had been treating it as 100 Hz, so a
+  6m logger showed as **70cm** and a 2m logger as **23cm**.
+- **2026-09-11** — Launcher home is **compact** (two-column Running list, one-line
+  header) and **scrollable**: Other tools… / role cards stay inside the window
+  (mouse wheel + scrollbar) instead of stretching toward fullscreen. Default size
+  shows Open site console / Start / Restart; Details lives under Other tools….
 - **2026-09-11** — **Version `1.0.2`**. Logon boot from saved **seat intent**: `Start-WimsAtLogon.cmd`
   / `Install-WimsLogonStartup.cmd`. This PC’s intent (WSJT on, N1MM/server off)
   starts WSJT-X (`--rig-name` from named configs) + the WIMS launcher.

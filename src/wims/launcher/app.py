@@ -86,6 +86,9 @@ _ICON_PNG = _REPO_ROOT / "scripts" / "assets" / "wims.png"
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = "http://192.168.1.119:8787"
+# Auto-size cap: never stretch the launcher toward fullscreen on a 4K/1440p box.
+# Other tools… scrolls inside this instead of growing the window.
+_LAUNCHER_MAX_AUTO_H = 620
 
 
 def _git_rev() -> str:
@@ -570,9 +573,9 @@ class LauncherApp:
         self.root = root
         self._rev = _git_rev()
         self.root.title(f"WIMS launcher  ·  v{__version__} ({self._rev})")
-        # Default height is fitted after build so "Other tools…" sits just
-        # below the fold; minsize keeps the seat home usable.
-        self.root.minsize(540, 420)
+        # Compact default; content scrolls if Other tools… or a short screen
+        # would otherwise clip Open / Start / Restart.
+        self.root.minsize(540, 360)
         self.root.configure(bg="#f4f4f4")
 
         self._procs: dict[str, subprocess.Popen] = {}
@@ -630,6 +633,7 @@ class LauncherApp:
         }
         self._starting: set[str] = set()  # prevent double-start races
         self._seat_flags: tuple[bool, bool] | None = None  # (log, key) last started
+        self._auto_fit_left = 0  # remaining startup geometry fits
 
         self._apply_icon()
         self._build()
@@ -672,35 +676,62 @@ class LauncherApp:
 
     def _build(self) -> None:
         tk = self.tk
-        pad = {"padx": 16, "pady": 6}
+        pad = {"padx": 12, "pady": 4}
 
-        home = tk.Frame(self.root, bg="#f4f4f4")
+        # Scrollable body: window stays compact; Other tools… does not grow it.
+        outer = tk.Frame(self.root, bg="#f4f4f4")
+        outer.pack(fill="both", expand=True)
+        outer.grid_rowconfigure(0, weight=1)
+        outer.grid_columnconfigure(0, weight=1)
+        self._scroll_outer = outer
+
+        canvas = tk.Canvas(
+            outer, bg="#f4f4f4", highlightthickness=0, bd=0,
+        )
+        vsb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        vsb.grid_remove()
+        self._canvas = canvas
+        self._vscroll = vsb
+
+        inner = tk.Frame(canvas, bg="#f4f4f4")
+        self._inner = inner
+        self._canvas_win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", self._on_inner_configure)
+        canvas.bind("<Configure>", self._on_canvas_configure)
+        self._bind_mousewheel()
+
+        home = tk.Frame(inner, bg="#f4f4f4")
         home.pack(fill="x", **pad)
         self._home = home
 
+        head = tk.Frame(home, bg="#f4f4f4")
+        head.pack(fill="x")
         tk.Label(
-            home, text="WIMS", font=_ui_font(22, "bold"),
+            head, text="WIMS", font=_ui_font(16, "bold"),
             bg="#f4f4f4", fg="#1a1a1a",
-        ).pack(anchor="w")
+        ).pack(side="left")
         tk.Label(
-            home,
-            text="Agents for apps on this PC — check a box to start",
-            font=_ui_font(12), bg="#f4f4f4", fg="#333333",
-        ).pack(anchor="w", pady=(0, 6))
+            head,
+            text="  Agents for apps on this PC — check a box to start",
+            font=_ui_font(11), bg="#f4f4f4", fg="#555555",
+        ).pack(side="left", pady=(2, 0))
 
         # Banner row: message + action button side by side, so e.g. Update WIMS
         # sits next to the "Update available" text instead of below the fold.
         banner_row = tk.Frame(home, bg="#f4f4f4")
-        banner_row.pack(fill="x", pady=(0, 4))
+        banner_row.pack(fill="x", pady=(4, 2))
         self._banner = tk.Label(
             banner_row, textvariable=self._banner_text,
-            font=_ui_font(16, "bold"), bg="#eaeaea", fg="#333333",
-            padx=12, pady=14, anchor="w", justify="left", wraplength=390,
+            font=_ui_font(14, "bold"), bg="#eaeaea", fg="#333333",
+            padx=10, pady=8, anchor="w", justify="left", wraplength=400,
         )
         self._banner.pack(side="left", fill="x", expand=True)
         self._update_btn = tk.Button(
-            banner_row, text="Update\nWIMS", font=_ui_font(12, "bold"),
-            command=self._do_update, padx=10, pady=6,
+            banner_row, text="Update\nWIMS", font=_ui_font(11, "bold"),
+            command=self._do_update, padx=8, pady=4,
         )
         ToolTip(
             self._update_btn,
@@ -710,9 +741,9 @@ class LauncherApp:
         # Packed by _show_update_button only while an update is pending.
         tk.Label(
             home, textvariable=self._fix_text,
-            font=_ui_font(12), bg="#f4f4f4", fg="#444444",
-            wraplength=500, justify="left", anchor="w",
-        ).pack(fill="x", pady=(0, 8))
+            font=_ui_font(11), bg="#f4f4f4", fg="#444444",
+            wraplength=520, justify="left", anchor="w",
+        ).pack(fill="x", pady=(0, 4))
 
         self._update_info: UpdateInfo | None = None
         self._updating = False  # block sync from restarting agents mid-update
@@ -738,7 +769,7 @@ class LauncherApp:
         self.root.after(1500, self._pulse_key_cts)
 
         self._screenshot_panel = None
-        self._adv_frame = tk.Frame(self.root, bg="#f4f4f4")
+        self._adv_frame = tk.Frame(inner, bg="#f4f4f4")
 
         tools_box = tk.LabelFrame(
             self._adv_frame, text="Tools",
@@ -827,13 +858,13 @@ class LauncherApp:
             if role.advanced:
                 self._add_role_card(self._adv_frame, role)
 
-        # —— Quiet details log (selectable + mirrored to scratch file) ——
-        # Fixed height (no expand) so we can clip the window just above Other tools….
+        # Details lives under Other tools… so the default home stays short
+        # enough that Open / Start / Restart stay on screen.
         self._details = tk.LabelFrame(
-            self.root, text="Details (optional)", font=_ui_font(10),
+            self._adv_frame, text="Details (optional)", font=_ui_font(10),
             bg="#f4f4f4", fg="#666666", padx=6, pady=2,
         )
-        self._details.pack(fill="x", padx=16, pady=(8, 4))
+        self._details.pack(fill="x", padx=14, pady=4, before=tools_box)
         self._log = tk.Text(
             self._details, height=4, font=_ui_font(10),
             bg="#ffffff", fg="#222222", wrap="word",
@@ -843,10 +874,9 @@ class LauncherApp:
         )
         self._log.pack(fill="x")
 
-        # Packed after Details (side=top). Default geometry clips just above this
-        # row so Other tools… is one small resize away.
-        self._tools = tk.Frame(self.root, bg="#f4f4f4")
-        self._tools.pack(fill="x", padx=16, pady=(4, 10))
+        # Always packed on the home: launch buttons above, this checkbox below.
+        self._tools = tk.Frame(inner, bg="#f4f4f4")
+        self._tools.pack(fill="x", padx=12, pady=(2, 8))
         adv_toggle = tk.Checkbutton(
             self._tools,
             text="Other tools…",
@@ -885,40 +915,164 @@ class LauncherApp:
         )
         seed_note = " (first-run, from apps on this PC)" if self._intent_seeded else ""
         self._append_log(f"Apps: N1MM {n1mm}. Seat intent: {intent_bits}{seed_note}.")
-        # After first real layout pass: default height ends just above Other tools….
-        # (after_idle can run before pack geometry is final — delay slightly.)
+        # First layout pass can run before pack geometry is final — delay + retry.
+        self._auto_fit_left = 4
         self.root.after(50, self._fit_default_geometry)
+        self.root.after(300, self._fit_default_geometry)
 
-    def _fit_default_geometry(self) -> None:
-        """Default size ends just above Other tools… (checkbox sits outside the fold)."""
+    def _widget_bottom_in_root(self, widget) -> int:
+        """Bottom edge of *widget* in the scroll inner-frame (pack layout).
+
+        Walk ``winfo_y()`` rather than screen rooty — unmapped / clipped
+        children report 0,0 for rooty on Windows.
+        """
+        stop = getattr(self, "_inner", self.root)
+        y = max(int(widget.winfo_height()), int(widget.winfo_reqheight()))
+        w = widget
+        while w is not None and w is not stop:
+            y += int(w.winfo_y())
+            w = w.master
+        return y
+
+    def _on_inner_configure(self, _event=None) -> None:
+        try:
+            self._canvas.configure(
+                scrollregion=self._canvas.bbox("all") or (0, 0, 0, 0),
+            )
+            self._update_scrollbar()
+        except Exception:
+            pass
+
+    def _on_canvas_configure(self, event) -> None:
+        try:
+            self._canvas.itemconfigure(
+                self._canvas_win, width=max(1, int(event.width)),
+            )
+            self._update_scrollbar()
+        except Exception:
+            pass
+
+    def _content_overflows(self) -> bool:
+        bbox = self._canvas.bbox("all")
+        if not bbox:
+            return False
+        return (bbox[3] - bbox[1]) > (int(self._canvas.winfo_height()) + 4)
+
+    def _update_scrollbar(self) -> None:
+        """Show the vertical bar only when the inner frame is taller than the view."""
+        try:
+            if self._content_overflows():
+                self._vscroll.grid()
+            else:
+                self._vscroll.grid_remove()
+                self._canvas.yview_moveto(0)
+        except Exception:
+            pass
+
+    def _bind_mousewheel(self) -> None:
+        # Windows delivers MouseWheel to the widget under the pointer, not root.
+        self.root.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        self.root.bind_all("<Button-4>", self._on_mousewheel_linux, add="+")
+        self.root.bind_all("<Button-5>", self._on_mousewheel_linux, add="+")
+        self.root.bind("<Destroy>", self._unbind_mousewheel, add="+")
+
+    def _unbind_mousewheel(self, event=None) -> None:
+        if event is not None and event.widget is not self.root:
+            return
+        try:
+            self.root.unbind_all("<MouseWheel>")
+            self.root.unbind_all("<Button-4>")
+            self.root.unbind_all("<Button-5>")
+        except Exception:
+            pass
+
+    def _wheel_for_us(self, event) -> bool:
+        widget = getattr(event, "widget", None)
+        if widget is None:
+            return False
+        try:
+            if not self.root.winfo_exists():
+                return False
+            if str(widget.winfo_toplevel()) != str(self.root):
+                return False
+            cls = widget.winfo_class()
+        except Exception:
+            return False
+        # Combobox uses the wheel to change the value / scroll its list.
+        if cls in ("TCombobox", "Combobox", "Listbox"):
+            return False
+        return True
+
+    def _on_mousewheel(self, event):
+        if not self._wheel_for_us(event) or not self._content_overflows():
+            return
+        delta = int(getattr(event, "delta", 0) or 0)
+        if delta == 0:
+            return
+        steps = int(-delta / 120) if abs(delta) >= 120 else (-1 if delta > 0 else 1)
+        self._canvas.yview_scroll(steps, "units")
+        return "break"
+
+    def _on_mousewheel_linux(self, event):
+        if not self._wheel_for_us(event) or not self._content_overflows():
+            return
+        self._canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
+        return "break"
+
+    def _fit_default_geometry(self, _tries: int = 0) -> None:
+        """Size to home + launch buttons + Other tools; content scrolls if taller.
+
+        Opening Other tools… must not stretch the window toward fullscreen —
+        role cards stay in the scroll pane.
+        """
+        if _tries == 0 and self._auto_fit_left <= 0:
+            return
+        if self._show_advanced.get() and _tries == 0:
+            return
         try:
             self.root.update_idletasks()
-            tools_y = int(self._tools.winfo_y())
-            if tools_y < 360:
+            btn = getattr(self._home_panel, "btn_row", None)
+            if btn is None or not btn.winfo_exists():
                 return
-            width = max(560, int(self.root.winfo_reqwidth()))
-            # Two pixels short of the checkbox row.
-            height = max(400, tools_y - 2)
+            btn_bottom = self._widget_bottom_in_root(btn)
+            if btn_bottom < 140 and _tries < 10:
+                self.root.after(50, lambda t=_tries: self._fit_default_geometry(t + 1))
+                return
+            pad = 8
+            inner_h = int(self._inner.winfo_reqheight())
+            inner_w = int(self._inner.winfo_reqwidth())
+            need_min = max(280, btn_bottom + pad)
+            need_default = max(need_min, inner_h + pad)
+            screen_h = int(self.root.winfo_screenheight())
+            screen_w = int(self.root.winfo_screenwidth())
+            max_h = max(need_min, min(_LAUNCHER_MAX_AUTO_H, screen_h - 80))
+            height = min(need_default, max_h)
+            width = min(
+                max(560, inner_w + 24),
+                max(560, screen_w - 40),
+            )
             self.root.geometry(f"{width}x{height}")
-            self.root.minsize(540, min(400, height - 20))
+            self.root.minsize(540, 360)
+            self.root.after_idle(self._on_inner_configure)
+            if self._auto_fit_left > 0:
+                self._auto_fit_left -= 1
         except Exception:
             pass
 
     def _toggle_advanced(self) -> None:
         if self._show_advanced.get():
             self._adv_frame.pack(
-                fill="both", expand=False, padx=0, pady=0, before=self._tools,
+                fill="x", expand=False, padx=0, pady=0, before=self._tools,
             )
-            try:
-                self.root.update_idletasks()
-                need = int(self._tools.winfo_y()) + int(self._tools.winfo_height()) + 12
-                cur_w = max(560, self.root.winfo_width())
-                self.root.geometry(f"{cur_w}x{max(self.root.winfo_height(), need)}")
-            except Exception:
-                pass
+            # Keep the current window size; scroll to the extra tools.
+            self.root.after_idle(self._on_inner_configure)
         else:
             self._adv_frame.pack_forget()
-            self.root.after_idle(self._fit_default_geometry)
+            try:
+                self._canvas.yview_moveto(0)
+            except Exception:
+                pass
+            self.root.after_idle(self._on_inner_configure)
 
     def _set_banner(self, level: str, title: str, fix: str) -> None:
         colors = {
@@ -1982,6 +2136,8 @@ class LauncherApp:
             restart_btn.pack(side="left", padx=(8, 0))
         elif not ok_site and offer:
             start_btn.pack(side="left", padx=(8, 0))
+        if self._auto_fit_left > 0 and not self._show_advanced.get():
+            self.root.after_idle(self._fit_default_geometry)
 
     def _open_screenshots(self) -> None:
         """map144-style capture panel → docs/manual/images/."""
@@ -2349,9 +2505,9 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     root = tk.Tk()
-    # Temporary size; LauncherApp._fit_default_geometry sets the real default
-    # so "Other tools…" sits just below the fold.
-    root.geometry("560x520")
+    # Temporary size; LauncherApp._fit_default_geometry sizes to the launch
+    # buttons. Other tools… scrolls inside the window instead of growing it.
+    root.geometry("560x440")
     LauncherApp(root)
     root.mainloop()
     return 0

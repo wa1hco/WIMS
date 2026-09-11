@@ -642,6 +642,8 @@ def inventory_bands(instances: list[dict], loggers: list[dict],
 
     for n in instances:
         b = n.get("band") or "?"
+        if b == "?":
+            continue
         r = row(b)
         # Prefer instance's own policy if present
         if n.get("share_policy"):
@@ -666,6 +668,8 @@ def inventory_bands(instances: list[dict], loggers: list[dict],
 
     for lg in loggers:
         b = lg.get("last_band") or "?"
+        if b == "?":
+            continue
         r = row(b)
         r["loggers"].append({
             "id": lg.get("id"),

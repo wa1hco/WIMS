@@ -19,7 +19,7 @@ from wims.core.bands import band_label
 def n1mm_freq_units_to_hz(raw: str | int | float) -> int | None:
     """Convert N1MM RadioInfo frequency units (10 Hz) to Hz."""
     try:
-        n = int(str(raw).strip())
+        n = int(float(str(raw).strip()))
     except (TypeError, ValueError):
         return None
     if n <= 0:

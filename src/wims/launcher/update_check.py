@@ -369,26 +369,24 @@ def check_for_update(
 ) -> UpdateInfo:
     """Git behind origin/main (lab) **or** behind the newest GitHub Release.
 
-    Release check always runs so ZIP / no-git PCs see tagged updates.
-    Git wins when it already knows we are behind main (one-click pull).
+    Git clones with a working fetch use origin/main only. A newer Release tag
+    than ``__version__`` must not keep offering after ``git pull`` already
+    matched main (that loop started when Releases were added for ZIP PCs).
+    ZIP / no-git trees, and git clones whose fetch failed, use Releases.
     """
     root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
     git_info = check_git_update(root, fetch=fetch)
-    rel_info = check_github_release(root)
-    if git_info.available:
+    git_usable = git_info.is_git and "fetch failed" not in (git_info.detail or "")
+    if git_usable:
         return git_info
+    rel_info = check_github_release(root)
     if rel_info.available:
         return rel_info
-    if git_info.is_git and "fetch failed" not in (git_info.detail or ""):
-        return git_info
     if rel_info.detail and "GitHub Releases" not in (rel_info.detail or ""):
         return rel_info
-    if git_info.is_git:
-        # Fetch failed: still report release result (up to date / error).
-        if rel_info.detail:
-            return rel_info
-        return git_info
-    return rel_info
+    if rel_info.detail:
+        return rel_info
+    return git_info
 
 
 def apply_git_update(

@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.udp import messages as M  # noqa: E402
 from wims.discovery.fleet import FleetTracker, ExpectedInstance  # noqa: E402
+from wims.server.state import fleet_to_dict  # noqa: E402
 
 HEARTBEAT = bytes.fromhex(
     "adbccbda00000002000000000000000657534a542d58"
@@ -155,10 +156,31 @@ def test_n1mm_radioinfo_presence_without_qso():
     assert n.mycall == "W2SZ"
     assert n.last_qso is None            # but no QSO logged yet
     assert n.qso_count == 0
+    # Freq 5031300 is 10 Hz units → 50.313 MHz. 100 Hz units would wrongly yield 70cm.
+    assert n.last_band == "6m"
     # A later contactinfo then records the QSO on the same node.
     t.observe_n1mm_xml("<contactinfo><app>N1MM</app><StationName>DESKTOP-E34PGI3</StationName>"
                        "<call>K1ABC</call><band>50</band></contactinfo>", now=160.0, src_ip="127.0.0.1")
     assert n.qso_count == 1 and n.last_qso == 160.0 and n.last_seen == 160.0
+
+
+def test_n1mm_radioinfo_vhf_is_not_uhf():
+    """Overview used 100 Hz units and painted 6m as 70cm / 2m as 23cm."""
+    t = FleetTracker()
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>MGEF-6M-FT8-1</StationName>"
+        "<Freq>5031300</Freq><mycall>W2SZ</mycall></RadioInfo>",
+        now=1.0, src_ip="192.168.1.245")
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>2M-LOG</StationName>"
+        "<Freq>14417400</Freq><mycall>W2SZ</mycall></RadioInfo>",
+        now=1.0, src_ip="192.168.1.198")
+    assert t.loggers["MGEF-6M-FT8-1"].last_band == "6m"
+    assert t.loggers["2M-LOG"].last_band == "2m"
+    d = fleet_to_dict(t, now=2.0)
+    bands = {b["band"] for b in d["bands"]}
+    assert bands == {"6m", "2m"}
+    assert "70cm" not in bands and "23cm" not in bands
 
 
 def test_n1mm_merges_stationname_and_netbios_same_host():

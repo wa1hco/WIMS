@@ -190,6 +190,42 @@ class GitHubReleaseCheckTests(unittest.TestCase):
         self.assertTrue(info.available)
         self.assertEqual(info.source, "git")
 
+    def test_check_for_update_git_current_ignores_newer_release(self):
+        git_info = UpdateInfo(
+            available=False, is_git=True, source="git",
+            local_sha="aaa", remote_sha="aaa", detail="up to date",
+        )
+        rel_info = UpdateInfo(
+            available=True, is_git=True, source="release",
+            release_tag="v1.0.6", remote_sha="b" * 40,
+            detail="update available (GitHub Release)",
+        )
+        with mock.patch("wims.launcher.update_check.check_git_update", return_value=git_info):
+            with mock.patch(
+                "wims.launcher.update_check.check_github_release", return_value=rel_info,
+            ):
+                info = check_for_update(ROOT, fetch=False)
+        self.assertFalse(info.available)
+        self.assertEqual(info.source, "git")
+        self.assertEqual(info.detail, "up to date")
+
+    def test_check_for_update_fetch_failed_falls_back_to_release(self):
+        git_info = UpdateInfo(
+            available=False, is_git=True, source="git",
+            local_sha="aaa", detail="fetch failed (offline?): network down",
+        )
+        rel_info = UpdateInfo(
+            available=True, is_git=True, source="release",
+            release_tag="v1.0.6", detail="update available (GitHub Release)",
+        )
+        with mock.patch("wims.launcher.update_check.check_git_update", return_value=git_info):
+            with mock.patch(
+                "wims.launcher.update_check.check_github_release", return_value=rel_info,
+            ):
+                info = check_for_update(ROOT, fetch=False)
+        self.assertTrue(info.available)
+        self.assertEqual(info.source, "release")
+
     def test_check_for_update_uses_release_when_not_git(self):
         git_info = UpdateInfo(
             available=False, is_git=False, detail="not a git checkout",
