@@ -247,6 +247,11 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        from wims.launcher.process_replace import hide_own_console_if_redirected
+        hide_own_console_if_redirected()
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,

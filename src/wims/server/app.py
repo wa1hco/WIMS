@@ -1304,6 +1304,11 @@ class _QuietThreadingHTTPServer(ThreadingHTTPServer):
 
 
 def main() -> None:
+    try:
+        from wims.launcher.process_replace import hide_own_console_if_redirected
+        hide_own_console_if_redirected()
+    except Exception:
+        pass
     from wims.discovery import presence as P
 
     ap = argparse.ArgumentParser(description="WIMS server (ingest + console).")

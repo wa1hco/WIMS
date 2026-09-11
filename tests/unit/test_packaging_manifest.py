@@ -57,9 +57,10 @@ class ManifestBuildTests(unittest.TestCase):
 
     def test_build_against_repo(self):
         # Live tree version — GA channel for bare X.Y.Z.
-        man = self.m.build_manifest(repo_root=ROOT, tag_or_version="1.0.0")
-        self.assertEqual(man["version_base"], "1.0.0")
-        self.assertEqual(man["version"], "1.0.0")
+        pkg = self.m.read_package_version(ROOT)
+        man = self.m.build_manifest(repo_root=ROOT, tag_or_version=pkg)
+        self.assertEqual(man["version_base"], pkg)
+        self.assertEqual(man["version"], pkg)
         self.assertEqual(man["channel"], "GA")
         self.assertEqual(man["name"], "wims")
         self.assertFalse(man["python_bundled"])

@@ -30,5 +30,19 @@ if /I "%~1"=="/silent" set "MODE=--logon"
 if /I "%~1"=="--logon" set "MODE=--logon"
 if /I "%~1"=="--dry-run" set "MODE=--dry-run"
 
-"%PYTHON_EXE%" -m wims.launcher.boot %MODE%
+REM Prefer pythonw so logon does not open a python.exe console.
+set "BOOT_EXE=%PYTHON_EXE%"
+if /I "%PYTHON_EXE%"=="py" (
+  where pyw >nul 2>&1 && set "BOOT_EXE=pyw"
+  goto :run
+)
+if /I "%PYTHON_EXE%"=="python" (
+  where pythonw >nul 2>&1 && set "BOOT_EXE=pythonw"
+  goto :run
+)
+for %%I in ("%PYTHON_EXE%") do set "PYDIR=%%~dpI"
+if exist "%PYDIR%pythonw.exe" set "BOOT_EXE=%PYDIR%pythonw.exe"
+
+:run
+"%BOOT_EXE%" -m wims.launcher.boot %MODE%
 exit /b %ERRORLEVEL%

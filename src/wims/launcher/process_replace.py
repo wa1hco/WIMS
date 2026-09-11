@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -26,6 +27,160 @@ Kind = Literal["log", "seat", "key", "n1mm_seat", "server", "other"]
 # n1mm_seat = combined log±key on the N1MM/SSB-CW PC (wims.seat).
 # "seat" remains the WSJT monitor (wims.agent --daemon).
 _SEAT_KINDS = frozenset({"log", "seat", "key", "n1mm_seat"})
+
+
+def windows_hidden_popen_kwargs() -> dict:
+    """Flags so a Windows console child (python.exe) does not open a terminal.
+
+    ``CREATE_NO_WINDOW`` is the real switch; STARTUPINFO/SW_HIDE is backup for
+    hosts that still flash a console. No-op on non-Windows.
+    """
+    if os.name != "nt":
+        return {}
+    kw: dict = {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+        kw["startupinfo"] = si
+    except Exception:
+        pass
+    return kw
+
+
+def _conhost_child_pids(parent_pids: set[int]) -> set[int]:
+    """PIDs of conhost.exe processes whose parent is in ``parent_pids``."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return set()
+    th32cs_snapprocess = 0x2
+
+    class PROCESSENTRY32W(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_void_p),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", wintypes.WCHAR * 260),
+        ]
+
+    kernel32 = ctypes.windll.kernel32
+    snap = kernel32.CreateToolhelp32Snapshot(th32cs_snapprocess, 0)
+    if snap in (0, -1, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF):
+        return set()
+    out: set[int] = set()
+    try:
+        pe = PROCESSENTRY32W()
+        pe.dwSize = ctypes.sizeof(PROCESSENTRY32W)
+        if not kernel32.Process32FirstW(snap, ctypes.byref(pe)):
+            return set()
+        while True:
+            if (
+                pe.szExeFile.lower() == "conhost.exe"
+                and int(pe.th32ParentProcessID) in parent_pids
+            ):
+                out.add(int(pe.th32ProcessID))
+            if not kernel32.Process32NextW(snap, ctypes.byref(pe)):
+                break
+        return out
+    finally:
+        kernel32.CloseHandle(snap)
+
+
+def hide_console_windows_for_pids(pids: Iterable[int]) -> int:
+    """Hide ConsoleWindowClass windows owned by ``pids`` (or their conhost).
+
+    1.0.1 hid *new* launcher children with CREATE_NO_WINDOW, but a site server
+    left running from before that still keeps its python.exe terminal. Call this
+    for leftover server PIDs (and after spawn, in case a console still appears).
+    Returns how many windows were hidden. No-op on non-Windows.
+    """
+    if os.name != "nt":
+        return 0
+    want = {int(p) for p in pids if p}
+    if not want:
+        return 0
+    try:
+        import ctypes
+        from ctypes import wintypes
+    except ImportError:
+        return 0
+
+    want |= _conhost_child_pids(want)
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    sw_hide = 0
+    hidden: list[int] = []
+    wnd_enum_proc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+    @wnd_enum_proc
+    def _enum(hwnd, _lparam):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value not in want:
+            return True
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buf, 256)
+        if buf.value == "ConsoleWindowClass":
+            user32.ShowWindow(hwnd, sw_hide)
+            hidden.append(int(hwnd))
+        return True
+
+    try:
+        user32.EnumWindows(_enum, 0)
+    except Exception:
+        pass
+
+    # Fallback: attach to the child's console and hide it (pythonw parent only;
+    # a process can have at most one console).
+    if not hidden and kernel32.GetConsoleWindow() == 0:
+        for pid in list(want):
+            try:
+                if not kernel32.AttachConsole(pid):
+                    continue
+                hwnd = kernel32.GetConsoleWindow()
+                if hwnd:
+                    user32.ShowWindow(hwnd, sw_hide)
+                    hidden.append(int(hwnd))
+                kernel32.FreeConsole()
+            except Exception:
+                try:
+                    kernel32.FreeConsole()
+                except Exception:
+                    pass
+    return len(hidden)
+
+
+def hide_own_console_if_redirected() -> bool:
+    """Detach this process from a Windows console when stdout is not a TTY.
+
+    Launcher children have stdout piped into Details, so hiding is safe.
+    Interactive ``Start-WimsServer.cmd`` keeps the console (isatty).
+    Set WIMS_KEEP_CONSOLE=1 to force a visible terminal.
+    """
+    if os.name != "nt":
+        return False
+    flag = (os.environ.get("WIMS_KEEP_CONSOLE") or "").strip().lower()
+    if flag in {"1", "true", "yes"}:
+        return False
+    try:
+        if sys.stdout is not None and sys.stdout.isatty():
+            return False
+    except Exception:
+        pass
+    try:
+        import ctypes
+        ctypes.windll.kernel32.FreeConsole()
+        return True
+    except Exception:
+        return False
 
 
 @dataclass(frozen=True)

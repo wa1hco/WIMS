@@ -19,9 +19,12 @@ if str(SRC) not in sys.path:
 from wims.launcher.process_replace import (
     classify_argv,
     find_procs_by_kind,
+    hide_console_windows_for_pids,
+    hide_own_console_if_redirected,
     iter_wims_procs,
     other_agent_running,
     replace_seat_agents,
+    windows_hidden_popen_kwargs,
 )
 
 
@@ -166,6 +169,40 @@ class ReplaceTests(unittest.TestCase):
             other = other_agent_running("seat")
         self.assertIsNotNone(other)
         self.assertEqual(other.pid, 42)
+
+
+class HiddenConsoleTests(unittest.TestCase):
+    def test_hide_empty_pids(self):
+        self.assertEqual(hide_console_windows_for_pids([]), 0)
+
+    def test_hide_noop_on_posix(self):
+        from unittest import mock
+        with mock.patch("wims.launcher.process_replace.os.name", "posix"):
+            self.assertEqual(hide_console_windows_for_pids([1, 2]), 0)
+            self.assertEqual(windows_hidden_popen_kwargs(), {})
+            self.assertFalse(hide_own_console_if_redirected())
+
+    def test_keep_console_env(self):
+        from unittest import mock
+        with mock.patch.dict("os.environ", {"WIMS_KEEP_CONSOLE": "1"}):
+            with mock.patch("wims.launcher.process_replace.os.name", "nt"):
+                self.assertFalse(hide_own_console_if_redirected())
+
+    def test_keep_console_when_tty(self):
+        from unittest import mock
+        tty = mock.Mock()
+        tty.isatty.return_value = True
+        with mock.patch("wims.launcher.process_replace.os.name", "nt"):
+            with mock.patch.dict("os.environ", {"WIMS_KEEP_CONSOLE": ""}, clear=False):
+                with mock.patch("wims.launcher.process_replace.sys.stdout", tty):
+                    self.assertFalse(hide_own_console_if_redirected())
+
+    @unittest.skipUnless(sys.platform.startswith("win"), "Windows only")
+    def test_windows_hidden_popen_kwargs(self):
+        kw = windows_hidden_popen_kwargs()
+        self.assertIn("creationflags", kw)
+        self.assertTrue(kw["creationflags"])
+        self.assertIn("startupinfo", kw)
 
 
 if __name__ == "__main__":

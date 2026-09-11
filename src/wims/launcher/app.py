@@ -62,8 +62,10 @@ from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import (
     find_procs_by_kind,
     format_replace_banner,
+    hide_console_windows_for_pids,
     replace_seat_agents,
     stop_pid,
+    windows_hidden_popen_kwargs,
 )
 from wims.launcher.tooltips import ToolTip
 from wims.launcher.update_check import (
@@ -972,6 +974,14 @@ class LauncherApp:
             self._append_log(line)
         for p in report.found:
             self._append_log(f"  saw {p.kind} pid={p.pid}: {p.cmdline}")
+        leftover = [p.pid for p in report.skipped_server]
+        if leftover:
+            n = hide_console_windows_for_pids(leftover)
+            if n:
+                self._append_log(
+                    f"Hid {n} leftover python.exe console(s) for site server "
+                    f"(process left running)."
+                )
         level, msg = format_replace_banner(report)
         fix = (
             "Site server left running." if report.skipped_server
@@ -1088,6 +1098,7 @@ class LauncherApp:
                         capture_output=True,
                         text=True,
                         timeout=120,
+                        **windows_hidden_popen_kwargs(),
                     )
                     out = (proc.stdout or "") + (proc.stderr or "")
                     ok = proc.returncode == 0
@@ -1120,17 +1131,37 @@ class LauncherApp:
             "New process will replace seat agents; site server stays up.",
         )
         self._append_log("Update OK - relaunching…")
+        try:
+            leftover = find_procs_by_kind("server")
+            if leftover:
+                n = hide_console_windows_for_pids([p.pid for p in leftover])
+                if n:
+                    self._append_log(
+                        f"Hid {n} leftover python.exe console(s) for site server."
+                    )
+        except Exception:
+            pass
         self.root.after(600, self._relaunch_self)
 
     def _relaunch_self(self) -> None:
         try:
             if sys.platform.startswith("win"):
+                hidden = windows_hidden_popen_kwargs()
+                vbs = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.vbs"
                 starter = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.cmd"
-                if starter.is_file():
+                if vbs.is_file():
+                    subprocess.Popen(
+                        ["wscript.exe", "//nologo", str(vbs)],
+                        cwd=str(vbs.parent),
+                        close_fds=True,
+                        **hidden,
+                    )
+                elif starter.is_file():
                     subprocess.Popen(
                         ["cmd", "/c", str(starter)],
                         cwd=str(starter.parent),
                         close_fds=True,
+                        **hidden,
                     )
                 else:
                     subprocess.Popen(
@@ -1138,6 +1169,7 @@ class LauncherApp:
                         cwd=str(_REPO_ROOT),
                         env=_role_env(),
                         close_fds=True,
+                        **hidden,
                     )
             else:
                 subprocess.Popen(
@@ -2040,8 +2072,7 @@ class LauncherApp:
         }
         # Never show a python.exe console on Windows. Tk agents have their own
         # window; site server / monitor logs go to Details via the pipe.
-        if sys.platform.startswith("win"):
-            popen_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        popen_kw.update(windows_hidden_popen_kwargs())
         if role.id in ("log", "key", "n1mm_seat"):
             self._append_log(f"{role.title} status window should open on this PC.")
         try:
@@ -2052,6 +2083,10 @@ class LauncherApp:
             return
         self._procs[role.id] = proc
         self._update_card_state(role.id)
+        if sys.platform.startswith("win"):
+            pid = proc.pid
+            hide_console_windows_for_pids([pid])
+            self.root.after(400, lambda p=pid: hide_console_windows_for_pids([p]))
         threading.Thread(target=self._reader, args=(role.id, proc), daemon=True).start()
 
         if role.id in ("key", "n1mm_seat") and ("--key" in py_argv):

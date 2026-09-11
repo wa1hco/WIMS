@@ -539,6 +539,11 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        from wims.launcher.process_replace import hide_own_console_if_redirected
+        hide_own_console_if_redirected()
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(
         description="WIMS host agent — local seat config check + optional export to site server. "
                     "Default: one-shot (exit). Use --daemon for continuous report to the server.",
