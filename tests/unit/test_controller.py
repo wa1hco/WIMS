@@ -63,6 +63,14 @@ def test_halt_sends_halt_tx():
     assert M.parse(fs.sent[0][0]).type == M.HALT_TX
 
 
+def test_replay_unicast_to_control_port():
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237))
+    c.replay("SIM-6M", dests=[("10.0.0.1", 54321)])
+    assert fs.sent[0][1] == ("10.0.0.1", 54321)
+    assert M.parse(fs.sent[0][0]).type == M.REPLAY
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

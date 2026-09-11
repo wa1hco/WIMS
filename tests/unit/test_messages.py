@@ -70,6 +70,16 @@ def test_status():
     assert msg.frequency_tolerance is None  # 0xFFFFFFFF -> N/A
 
 
+def test_status_truncated_keeps_dial():
+    """Newer/short Status still yields dial so band is known without a Decode."""
+    # magic+schema+type + id "WSJT-X" + dial 50_313_000 Hz; rest omitted.
+    raw = STATUS[: 12 + 4 + 6 + 8]
+    msg = m.parse(raw)
+    assert isinstance(msg, m.Status)
+    assert msg.dial_frequency == 50_313_000
+    assert msg.id == "WSJT-X"
+
+
 def test_decode_and_grid():
     msg = m.parse(DECODE)
     assert isinstance(msg, m.Decode)

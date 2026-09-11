@@ -319,22 +319,26 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
 
 
 def live_wsjt_bands(nodes: dict | None, now: float) -> list[str]:
-    """Bands with a live WSJT-X instance (Heartbeat/Status), even if quiet.
+    """Operate checkboxes for live WSJT-X (Heartbeat), even if quiet.
 
-    Decode traffic is *not* required — a dead band still has heartbeats. DEAD
-    instances drop off; STALE stays so a missed pulse does not hide the check.
-    Band label comes from Status dial frequency (Heartbeat has no freq).
+    Heartbeat is periodic and has **no frequency**. Status (dial → band) is
+    event-driven — an idle radio may only heartbeat after WIMS starts. Known
+    bands come first (Status dial); heartbeat-only instances fall back to the
+    UDP id so Operate is not stuck on "none yet". DEAD drops off; STALE stays.
     """
     from wims.core.bands import band_sort_key
 
-    seen: set[str] = set()
+    bands: set[str] = set()
+    pending: list[str] = []
     for n in (nodes or {}).values():
         if n.health(now) == "DEAD":
             continue
         b = n.band
         if b and b != "?":
-            seen.add(b)
-    return sorted(seen, key=band_sort_key)
+            bands.add(b)
+        elif n.id:
+            pending.append(n.id)
+    return sorted(bands, key=band_sort_key) + sorted(pending)
 
 
 def rotators_to_dict(registry, now: float) -> list:

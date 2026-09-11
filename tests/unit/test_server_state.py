@@ -314,11 +314,13 @@ def test_roster_live_bands_from_heartbeat_not_decodes():
     assert r["candidates"] == []
     assert r["live_bands"] == ["6m", "2m"]  # frequency order, no decodes needed
 
-    # Heartbeat only (no Status yet) has no dial → no band to offer.
+    # Heartbeat only (no Status yet): no dial — offer the UDP id so Operate
+    # is not stuck on "none yet" (Status is event-driven; idle radios may
+    # only heartbeat).
     live2 = LiveFleet()
     live2.observe_wsjtx(M.parse(E.build_heartbeat("SIM-70", version="2.7.0")),
                         now=now, src_ip="10.0.0.3")
-    assert live2.snapshot(now + 1.0)["roster"]["live_bands"] == []
+    assert live2.snapshot(now + 1.0)["roster"]["live_bands"] == ["SIM-70"]
 
     # DEAD instance drops off the offered set.
     t = FleetTracker()
@@ -326,6 +328,39 @@ def test_roster_live_bands_from_heartbeat_not_decodes():
               now=now, src_ip="10.0.0.4")
     assert live_wsjt_bands(t.nodes, now + 1.0) == ["6m"]
     assert live_wsjt_bands(t.nodes, now + 70.0) == []  # 4*PULSE = 60s → DEAD
+
+
+def test_heartbeat_without_band_sends_replay_for_status():
+    """Quiet radio: Heartbeat has no freq — Replay (UDP) asks for Status/dial."""
+    class _Tx:
+        dest = ("224.0.0.73", 2237)
+
+        def __init__(self):
+            self.replays = []
+
+        def replay(self, mid, dests=None, schema=2):
+            self.replays.append((mid, list(dests or [])))
+            return b""
+
+    tx = _Tx()
+    live = LiveFleet(tx_controller=tx)
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+        now=10.0, src_ip="10.0.0.1", src_port=54321,
+    )
+    assert len(tx.replays) == 1
+    assert tx.replays[0][0] == "SIM-6M"
+    assert ("10.0.0.1", 54321) in tx.replays[0][1]
+    live.observe_wsjtx(
+        M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8")),
+        now=11.0, src_ip="10.0.0.1", src_port=54321,
+    )
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+        now=50.0, src_ip="10.0.0.1", src_port=54321,
+    )
+    assert len(tx.replays) == 1  # band known — no more Replay
+    assert live.snapshot(51.0)["roster"]["live_bands"] == ["6m"]
 
 
 def test_livefleet_roster_armed_when_tx_enabled_for_dx():

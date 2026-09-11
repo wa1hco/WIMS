@@ -137,6 +137,13 @@ class TxController:
         self._send_all(raw, dests)
         return raw
 
+    def replay(self, instance_id: str, *, dests: list[tuple[str, int]] | None = None,
+               schema: int = 2) -> bytes:
+        """Ask `instance_id` to replay decodes and emit Status (dial/band)."""
+        raw = E.build_replay(instance_id, schema=schema)
+        self._send_all(raw, dests)
+        return raw
+
     def configure(self, instance_id: str, *, dx_call: str, dx_grid: str = "",
                   rx_df: int | None = None, generate_messages: bool = True,
                   mode: str = "", schema: int = 2,

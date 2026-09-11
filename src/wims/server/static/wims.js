@@ -1146,23 +1146,57 @@ function renderRoster(r) {
   rosDraw();
 }
 
+let _rosOffered = []; // live WSJT-X bands (or instance ids until Status)
+
+function operateOfferedBands(s) {
+  // Heartbeat-alive instances — not decode traffic. Status dial gives the
+  // band; Heartbeat has no frequency, so idle radios fall back to UDP id.
+  const inst = (s.instances || []).filter(n => (n.health || "") !== "DEAD");
+  const order = (s.bands || []).map(b => b.band);
+  const out = [];
+  const seen = new Set();
+  const add = (x) => {
+    if (!x || seen.has(x)) return;
+    seen.add(x);
+    out.push(x);
+  };
+  for (const n of inst) {
+    if (n.band && n.band !== "?") add(n.band);
+  }
+  const live = s.roster && s.roster.live_bands;
+  if (Array.isArray(live)) live.forEach(add);
+  out.sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if (ia >= 0 || ib >= 0) return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+    return a < b ? -1 : a > b ? 1 : 0;
+  });
+  for (const n of inst) {
+    if (!n.band || n.band === "?") add(n.id);
+  }
+  return out;
+}
+
 function rosDraw() {
   const r = _rosData; if (!r) return;
   rosSyncMaxAgeControl();
-  // Band checks follow live WSJT-X (heartbeat/status), not roster decodes —
-  // a quiet band still has an instance and must stay selectable.
-  const bands = Array.isArray(r.live_bands)
-    ? r.live_bands.filter(Boolean)
-    : [...new Set((r.candidates || []).map(c => c.band).filter(Boolean))].sort();
+  const bands = _rosOffered.length
+    ? _rosOffered
+    : (Array.isArray(r.live_bands)
+      ? r.live_bands.filter(Boolean)
+      : [...new Set((r.candidates || []).map(c => c.band).filter(Boolean))].sort());
   rosSyncBandChecks(bands);
   const selected = rosSelectedBands();
   const neededOnly = $("ros-needed") ? $("ros-needed").checked : false;
   const maxAge = rosMaxAgeSec();
   let rows = r.candidates.filter(c => {
     if (neededOnly && !c.is_needed) return false;
-    // Unknown band ("?" / empty): keep visible so Decode-only / pre-Status
-    // instances are not hidden by the band checks.
-    if (selected && c.band && c.band !== "?" && !selected.has(c.band)) return false;
+    if (selected && selected.size) {
+      const hitBand = c.band && c.band !== "?" && selected.has(c.band);
+      const hitInst = c.instance && selected.has(c.instance);
+      const unknown = !c.band || c.band === "?";
+      // Unknown-band lines stay visible until Status fills dial/band.
+      if (!hitBand && !hitInst && !unknown) return false;
+    }
     if (maxAge > 0 && c.age != null && c.age > maxAge) return false;
     return true;
   });
@@ -1387,6 +1421,7 @@ function render(s) {
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
   renderRotators(s.rotators);
   renderInterlock(s.interlock);
+  _rosOffered = operateOfferedBands(s);
   renderRoster(s.roster);
   renderInstances(s);
   renderActivity(s.activity);

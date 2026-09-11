@@ -56,6 +56,12 @@ def test_decode_roundtrip_with_grid():
     assert m.is_cq is True and m.dx_call == "NJ1H" and m.grid == "FN42"
 
 
+def test_replay_roundtrip():
+    raw = E.build_replay("SIM-6M-1")
+    m = M.parse(raw)
+    assert m is not None and m.type == M.REPLAY and m.id == "SIM-6M-1"
+
+
 def test_halt_and_reply_parse_as_known_types():
     halt = M.parse(E.build_halt_tx("SIM-6M-1", auto_only=False))
     assert halt.type == M.HALT_TX and halt.id == "SIM-6M-1"

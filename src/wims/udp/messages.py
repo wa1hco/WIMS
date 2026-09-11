@@ -453,30 +453,34 @@ def parse(data: bytes) -> WsjtxMessage | None:
         return msg
 
     if mtype == STATUS:
-        return Status(
-            schema, mtype, mid,
-            dial_frequency=r.u64(),
-            mode=r.utf8(),
-            dx_call=r.utf8(),
-            report=r.utf8(),
-            tx_mode=r.utf8(),
-            tx_enabled=r.boolean(),
-            transmitting=r.boolean(),
-            decoding=r.boolean(),
-            rx_df=r.u32(),
-            tx_df=r.u32(),
-            de_call=r.utf8(),
-            de_grid=r.utf8(),
-            dx_grid=r.utf8(),
-            tx_watchdog=r.boolean(),
-            sub_mode=r.utf8(),
-            fast_mode=r.boolean(),
-            special_op_mode=r.u8(),
-            frequency_tolerance=r.u32_opt(),
-            tr_period=r.u32_opt(),
-            config_name=r.utf8(),
-            tx_message=r.utf8(),
-        )
+        # Dial is first after id — keep it even if a newer WSJT-X adds/truncates
+        # trailing fields. Band for Operate comes from this frequency, not Decode.
+        msg = Status(schema, mtype, mid)
+        try:
+            msg.dial_frequency = r.u64()
+            msg.mode = r.utf8()
+            msg.dx_call = r.utf8()
+            msg.report = r.utf8()
+            msg.tx_mode = r.utf8()
+            msg.tx_enabled = r.boolean()
+            msg.transmitting = r.boolean()
+            msg.decoding = r.boolean()
+            msg.rx_df = r.u32()
+            msg.tx_df = r.u32()
+            msg.de_call = r.utf8()
+            msg.de_grid = r.utf8()
+            msg.dx_grid = r.utf8()
+            msg.tx_watchdog = r.boolean()
+            msg.sub_mode = r.utf8()
+            msg.fast_mode = r.boolean()
+            msg.special_op_mode = r.u8()
+            msg.frequency_tolerance = r.u32_opt()
+            msg.tr_period = r.u32_opt()
+            msg.config_name = r.utf8()
+            msg.tx_message = r.utf8()
+        except ValueError:
+            pass
+        return msg
 
     if mtype == DECODE:
         msg = Decode(

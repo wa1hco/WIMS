@@ -102,6 +102,8 @@ class LiveFleet:
         self._arbiter = TxArbiter(group_of=self.group_of)
         self._tx_prev: dict[str, bool] = {}        # per-instance last transmitting (edge)
         self._last_tx_action: dict | None = None   # last work/halt for the UI
+        # Last Replay probe (elicit Status/dial) per instance — Heartbeat has no freq.
+        self._status_probe_ts: dict[str, float] = {}
         # Live log copy (in-memory) feeds dupe/new-mult into the roster; kept current
         # from N1MM <contactinfo>. Empty at start => every grid reads as a new mult,
         # flipping to dupe/worked as QSOs are logged (plan §3.6).
@@ -714,6 +716,7 @@ class LiveFleet:
         return instance_id
 
     def observe_wsjtx(self, msg, now, src_ip, src_port=None):
+        need_replay: tuple[str, list[tuple[str, int]]] | None = None
         with self._lock:
             self.wsjt_pkts += 1
             mid = getattr(msg, "id", None) or "?"
@@ -782,6 +785,23 @@ class LiveFleet:
                     "is_cq": msg.is_cq,
                     "band": band,
                 })
+            elif isinstance(msg, M.Heartbeat) and self._tx is not None:
+                # Heartbeat is periodic but has no frequency. Status (dial → band)
+                # is event-driven and may never arrive on a quiet radio. Replay
+                # over UDP (not a remote .ini) asks WSJT-X to emit Status.
+                node = self._tracker.nodes.get(mid)
+                if node is not None and (not node.band or node.band == "?"):
+                    dests = self._tx_dests_for(mid)
+                    last = self._status_probe_ts.get(mid)
+                    if dests and (last is None or (now - last) >= 30.0):
+                        self._status_probe_ts[mid] = now
+                        need_replay = (mid, dests)
+        if need_replay is not None:
+            mid, dests = need_replay
+            try:
+                self._tx.replay(mid, dests=dests)
+            except OSError:
+                pass
 
     def observe_n1mm(self, xml_text, now, src_ip):
         with self._lock:

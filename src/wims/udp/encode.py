@@ -29,7 +29,7 @@ import struct
 from datetime import date, datetime, timezone
 
 from wims.udp.messages import (
-    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, HALT_TX, CONFIGURE,
+    MAGIC, HEARTBEAT, STATUS, DECODE, REPLY, REPLAY, HALT_TX, CONFIGURE,
     QSO_LOGGED, LOGGED_ADIF, INHIBIT_STATUS, QUINT32_MAX,
 )
 
@@ -161,6 +161,15 @@ def build_reply(mid: str, *, time_ms: int, snr: int, delta_time: float, delta_fr
     w.u32(time_ms); w.i32(snr); w.double(delta_time); w.u32(delta_frequency)
     w.utf8(mode); w.utf8(message); w.boolean(low_confidence); w.u8(modifiers)
     return w.bytes()
+
+
+def build_replay(mid: str, *, schema: int = 2) -> bytes:
+    """Replay (msg 7): ask WSJT-X to resend Band Activity + a Status (dial/band).
+
+    Status is event-driven; Heartbeat has no frequency. Replay is the network
+    way to learn dial/band with no decodes and without reading a remote .ini.
+    """
+    return _Writer(schema, REPLAY, mid).bytes()
 
 
 def build_halt_tx(mid: str, *, auto_only: bool = False, schema: int = 2) -> bytes:

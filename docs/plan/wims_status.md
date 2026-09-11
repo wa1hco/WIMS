@@ -80,7 +80,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.5`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.5).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.6`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.6).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -205,6 +205,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-11** — **Version `1.0.6`**. Operate band without decodes: Status UDP
+  dial (not a remote `.ini`). Quiet radios: unicast Replay to elicit Status.
+  Checkboxes from live instances; heartbeat-only falls back to UDP id.
 - **2026-09-11** — **Version `1.0.5`**. WSJT-X start uses `C:\WSJT\wsjtx` if present,
   else `wsjtx-inhibit`. Operate band checks follow live WSJT-X (Heartbeat/Status),
   not roster decodes (`roster.live_bands`). Hide Update WIMS when already current.
