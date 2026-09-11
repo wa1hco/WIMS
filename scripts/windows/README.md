@@ -84,6 +84,7 @@ When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` a
 | **`radio-flex50.example.cmd`** / **`radio-flex50.cmd`** | Flex paths + 50 MHz `WSJTX_RIG_NAME`. |
 | **`radio-ic9700-144.example.cmd`** / **`radio-ic9700-144.cmd`** | wfview path + 144 MHz `WSJTX_RIG_NAME`. |
 | **`Start-WSJTX.cmd`** | Generic launcher with required `--rig-name=` (arg or config). |
+| **`_resolve-wsjtx.cmd`** | Pick `wsjtx.exe`: override if it exists, else `C:\WSJT\wsjtx`, else `wsjtx-inhibit`. |
 | **`Start-WSJTX-50.cmd`** / **`Start-WSJTX-144.cmd`** | Band-specific WSJT-X only (tired-op safe). |
 | **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
 | **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |

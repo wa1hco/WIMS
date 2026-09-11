@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 from wims.launcher.assets import INTENT_N1MM, INTENT_SERVER, INTENT_WSJT
 from wims.launcher.boot import (
     apply_boot_plan,
+    find_wsjtx_exe,
     load_seat_cmd_env,
     named_wsjtx_rigs,
     parse_cmd_sets,
@@ -104,6 +105,47 @@ class BootPlanTests(unittest.TestCase):
 def os_environ():
     import os
     return os.environ
+
+
+class FindWsjtxExeTests(unittest.TestCase):
+    def _exe(self, root: Path, folder: str) -> Path:
+        p = root / folder / "bin" / "wsjtx.exe"
+        p.parent.mkdir(parents=True)
+        p.write_bytes(b"mz")
+        return p
+
+    def test_prefers_default_over_inhibit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            default = self._exe(root, "wsjtx")
+            inhibit = self._exe(root, "wsjtx-inhibit")
+            got = find_wsjtx_exe(
+                cmd_env={},
+                search_paths=[str(default), str(inhibit)],
+            )
+        self.assertEqual(got, default)
+
+    def test_falls_back_to_inhibit(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            missing = root / "wsjtx" / "bin" / "wsjtx.exe"
+            inhibit = self._exe(root, "wsjtx-inhibit")
+            got = find_wsjtx_exe(
+                cmd_env={},
+                search_paths=[str(missing), str(inhibit)],
+            )
+        self.assertEqual(got, inhibit)
+
+    def test_missing_override_falls_back(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            missing = root / "gone" / "wsjtx.exe"
+            inhibit = self._exe(root, "wsjtx-inhibit")
+            got = find_wsjtx_exe(
+                cmd_env={"WSJTX_EXE": str(missing)},
+                search_paths=[str(root / "wsjtx" / "bin" / "wsjtx.exe"), str(inhibit)],
+            )
+        self.assertEqual(got, inhibit)
 
 
 class NamedRigTests(unittest.TestCase):

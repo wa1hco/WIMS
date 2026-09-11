@@ -10,11 +10,12 @@ REM (NOT WSJT-X.ini — that is only the no-rig-name default profile.)
 cd /d "%~dp0"
 set "HERE=%~dp0"
 
-set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
+set "WSJTX_EXE="
 set "WSJTX_RIG_NAME="
 
 if exist "%HERE%seat-local.cmd" call "%HERE%seat-local.cmd"
 if not defined WSJTX_RIG_NAME if exist "%HERE%seat-config.example.cmd" call "%HERE%seat-config.example.cmd"
+call "%HERE%_resolve-wsjtx.cmd"
 
 REM Optional override: Start-WSJTX.cmd SomeName
 if not "%~1"=="" set "WSJTX_RIG_NAME=%~1"

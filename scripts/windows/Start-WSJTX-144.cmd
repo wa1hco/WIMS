@@ -5,12 +5,13 @@ setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
 set "HERE=%~dp0"
 
-set "EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
+set "WSJTX_EXE="
 set "RIG=WSJTX-144"
 
 if exist "%HERE%seat-common.cmd" call "%HERE%seat-common.cmd"
 if exist "%HERE%radio-ic9700-144.cmd" call "%HERE%radio-ic9700-144.cmd"
-if defined WSJTX_EXE set "EXE=!WSJTX_EXE!"
+call "%HERE%_resolve-wsjtx.cmd"
+set "EXE=!WSJTX_EXE!"
 if defined WSJTX_RIG_NAME set "RIG=!WSJTX_RIG_NAME!"
 
 if not exist "%EXE%" (

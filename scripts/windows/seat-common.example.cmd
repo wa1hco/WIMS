@@ -22,9 +22,10 @@ set "START_AGENT=1"
 REM 1 = kill existing wims.agent and start fresh (dev-friendly)
 set "START_AGENT_RESTART=1"
 
-REM Common paths
+REM Common paths. WSJTX_EXE is optional: launchers use C:\WSJT\wsjtx\bin\wsjtx.exe
+REM if present, else C:\WSJT\wsjtx-inhibit\bin\wsjtx.exe.
 set "N1MM_EXE=C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe"
-set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
+REM set "WSJTX_EXE=C:\WSJT\wsjtx\bin\wsjtx.exe"
 
 REM Settle after middleware / after N1MM (seconds)
 set "START_DELAY_SEC=5"

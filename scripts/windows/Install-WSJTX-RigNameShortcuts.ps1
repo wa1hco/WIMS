@@ -8,6 +8,9 @@ $ErrorActionPreference = "Continue"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Launcher = Join-Path $Here "Start-WSJTX.cmd"
 $Icon = "C:\WSJT\wsjtx\bin\wsjtx.exe"
+if (-not (Test-Path -LiteralPath $Icon)) {
+  $Icon = "C:\WSJT\wsjtx-inhibit\bin\wsjtx.exe"
+}
 
 if (-not (Test-Path $Launcher)) {
   Write-Error "Missing $Launcher"

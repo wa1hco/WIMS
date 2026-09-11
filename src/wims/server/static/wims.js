@@ -1149,7 +1149,11 @@ function renderRoster(r) {
 function rosDraw() {
   const r = _rosData; if (!r) return;
   rosSyncMaxAgeControl();
-  const bands = [...new Set(r.candidates.map(c => c.band).filter(Boolean))].sort();
+  // Band checks follow live WSJT-X (heartbeat/status), not roster decodes —
+  // a quiet band still has an instance and must stay selectable.
+  const bands = Array.isArray(r.live_bands)
+    ? r.live_bands.filter(Boolean)
+    : [...new Set((r.candidates || []).map(c => c.band).filter(Boolean))].sort();
   rosSyncBandChecks(bands);
   const selected = rosSelectedBands();
   const neededOnly = $("ros-needed") ? $("ros-needed").checked : false;

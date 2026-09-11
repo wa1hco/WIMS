@@ -24,6 +24,7 @@ if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EX
 
 if exist "%~dp0seat-common.cmd" call "%~dp0seat-common.cmd"
 if exist "%~dp0seat-local.cmd" call "%~dp0seat-local.cmd"
+call "%~dp0_resolve-wsjtx.cmd"
 
 set "MODE="
 if /I "%~1"=="/silent" set "MODE=--logon"

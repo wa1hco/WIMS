@@ -1012,6 +1012,7 @@ class LauncherApp:
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
         if not info.available:
+            self._show_update_button(False)
             if info.detail and (
                 "fetch failed" in info.detail or "GitHub Releases:" in info.detail
             ):

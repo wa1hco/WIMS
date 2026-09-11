@@ -44,6 +44,12 @@ _SET_RE = re.compile(
 _WIN_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts" / "windows"
 _DEFAULT_WSJTX = Path(r"C:\WSJT\wsjtx\bin\wsjtx.exe")
 _DEFAULT_N1MM = Path(r"C:\Program Files (x86)\N1MM Logger+\N1MMLogger.net.exe")
+# Default install first; wsjtx-inhibit only when that exe is missing.
+_WSJTX_SEARCH = (
+    str(_DEFAULT_WSJTX),
+    r"C:\WSJT\wsjtx-inhibit\bin\wsjtx.exe",
+    r"C:\Program Files\WSJT\wsjtx\bin\wsjtx.exe",
+)
 
 
 @dataclass
@@ -113,19 +119,25 @@ def named_wsjtx_rigs() -> list[str]:
     return names
 
 
-def find_wsjtx_exe(cmd_env: dict[str, str] | None = None) -> Path | None:
+def find_wsjtx_exe(
+    cmd_env: dict[str, str] | None = None,
+    *,
+    search_paths: list[str] | tuple[str, ...] | None = None,
+) -> Path | None:
+    """First existing wsjtx.exe: override, default ``C:\\WSJT\\wsjtx``, then inhibit."""
     env = cmd_env or {}
-    candidates = [
-        env.get("WSJTX_EXE"),
-        os.environ.get("WSJTX_EXE"),
-        str(_DEFAULT_WSJTX),
-        r"C:\Program Files\WSJT\wsjtx\bin\wsjtx.exe",
-        r"C:\WSJT\wsjtx\bin\wsjtx.exe",
-    ]
-    for raw in candidates:
-        if not raw:
-            continue
+    ordered: list[str] = []
+    for raw in (env.get("WSJTX_EXE"), os.environ.get("WSJTX_EXE")):
+        if raw and raw.strip():
+            ordered.append(raw.strip())
+    ordered.extend(search_paths if search_paths is not None else _WSJTX_SEARCH)
+    seen: set[str] = set()
+    for raw in ordered:
         p = Path(raw)
+        key = str(p).lower()
+        if key in seen:
+            continue
+        seen.add(key)
         if p.is_file():
             return p
     return None

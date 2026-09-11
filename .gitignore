@@ -39,6 +39,7 @@ scripts/windows/seat-startup-log.txt
 scripts/windows/seat-startup-flex50-log.txt
 scripts/windows/seat-startup-ic9700-144-log.txt
 scripts/windows/agent-daemon-log.txt
+scripts/windows/update-log.txt
 
 # Editors / OS
 .vscode/

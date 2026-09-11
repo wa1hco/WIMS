@@ -28,7 +28,7 @@ from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, identity_groups  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, decodes_to_dict,
-    n1mm_sync_to_dict, inventory_bands, normalize_share_policy,
+    n1mm_sync_to_dict, inventory_bands, live_wsjt_bands, normalize_share_policy,
     DEFAULT_SHARE_POLICY, API_VERSION)
 from wims.server.app import LiveFleet  # noqa: E402
 
@@ -283,6 +283,7 @@ def test_livefleet_roster_lists_all_decodes():
                        now=1.1, src_ip="192.168.10.21")  # directed at us
     r = live.snapshot(2.0)["roster"]
     assert r["strategy"] == "vhf-default" and r["condition"] == "open"
+    assert r["live_bands"] == ["6m"]
     by = {c["call"]: c for c in r["candidates"]}
     assert set(by) == {"K1ABC", "W2XYZ"}                     # CQ and non-CQ both listed
     assert by["K1ABC"]["is_cq"] is True and by["K1ABC"]["to_call"] == "CQ"
@@ -295,6 +296,36 @@ def test_livefleet_roster_lists_all_decodes():
     assert by["W2XYZ"]["is_cq"] is False and by["W2XYZ"]["to_call"] == "WA1HCO"
     assert by["W2XYZ"]["is_calling_us"] is True              # WA1HCO is de_call
     assert by["W2XYZ"]["is_armed"] is False
+
+
+def test_roster_live_bands_from_heartbeat_not_decodes():
+    """Operate band checks: quiet WSJT-X still offers its band (Status/Heartbeat)."""
+    live = LiveFleet()
+    now = 10.0
+    live.observe_wsjtx(M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+                       now=now, src_ip="10.0.0.1")
+    live.observe_wsjtx(M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8")),
+                       now=now, src_ip="10.0.0.1")
+    live.observe_wsjtx(M.parse(E.build_heartbeat("SIM-2M", version="2.7.0")),
+                       now=now, src_ip="10.0.0.2")
+    live.observe_wsjtx(M.parse(E.build_status("SIM-2M", 144_174_000, mode="FT8")),
+                       now=now, src_ip="10.0.0.2")
+    r = live.snapshot(now + 1.0)["roster"]
+    assert r["candidates"] == []
+    assert r["live_bands"] == ["6m", "2m"]  # frequency order, no decodes needed
+
+    # Heartbeat only (no Status yet) has no dial → no band to offer.
+    live2 = LiveFleet()
+    live2.observe_wsjtx(M.parse(E.build_heartbeat("SIM-70", version="2.7.0")),
+                        now=now, src_ip="10.0.0.3")
+    assert live2.snapshot(now + 1.0)["roster"]["live_bands"] == []
+
+    # DEAD instance drops off the offered set.
+    t = FleetTracker()
+    t.observe(M.parse(E.build_status("OLD-6M", 50_313_000, mode="FT8")),
+              now=now, src_ip="10.0.0.4")
+    assert live_wsjt_bands(t.nodes, now + 1.0) == ["6m"]
+    assert live_wsjt_bands(t.nodes, now + 70.0) == []  # 4*PULSE = 60s → DEAD
 
 
 def test_livefleet_roster_armed_when_tx_enabled_for_dx():
