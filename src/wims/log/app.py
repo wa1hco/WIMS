@@ -682,6 +682,7 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
         with state._lock:
             state.last_radio_at = time.time()
         band, meta = band_from_radioinfo_xml(text)
+        reason = None
         if band and band != "?":
             reason = radioinfo_ignore_reason(
                 meta,
@@ -699,9 +700,10 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
             elif state.set_live_band(band, meta):
                 rescan(state)
         # Fleet: N1MM → 127.0.0.1:12060 → site server (presence + contacts).
+        # Do not POST inactive-radio RadioInfo (SO2R flood → site timeouts).
         fwd = state.broadcast_fwd
-        if fwd is not None:
-            fwd.maybe_forward(text)
+        if fwd is not None and not reason:
+            fwd.submit(text)
     try:
         sock.close()
     except OSError:

@@ -26,8 +26,11 @@ filter by "needed" (not yet worked). The console decides what to show; this laye
 the facts (score, needed, band, azimuth inputs) for all retained rows.
 
 Keyed on `(instance, call, grid)` so a **rover in a new grid** is a distinct, fresh row
-(a new mult), never collapsed onto its old grid. Nothing here transmits — it only ranks
-recommendations for the operator (§4.2). Time is injected (`now`) for replayability.
+(a new mult), never collapsed onto its old grid. A later report **without** a grid
+(``R-10``, ``RR73``, ``73``) updates that station's existing row instead of opening a
+second empty-grid line — otherwise one QSO paints two red "calling us" rows.
+Nothing here transmits — it only ranks recommendations for the operator (§4.2).
+Time is injected (`now`) for replayability.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ class _Entry:
     last_seen: float
     dial_hz: int = 0      # instance dial at receipt -> RF freq = dial + decode df
     de_grid: str | None = None   # instance's own grid -> azimuth reference
+    grid: str | None = None      # last known Maidenhead; kept across no-grid reports
 
 
 class RosterBuilder:
@@ -60,9 +64,27 @@ class RosterBuilder:
         need; a decode with no resolvable call is dropped."""
         if not decode.dx_call:
             return
-        key = (decode.id or "?", (decode.dx_call or "").upper(), decode.grid or "")
-        self._entries[key] = _Entry(decode=decode, band=band, last_seen=now,
-                                    dial_hz=dial_hz, de_grid=de_grid)
+        inst = decode.id or "?"
+        call = (decode.dx_call or "").upper()
+        grid = (decode.grid or "").strip().upper()
+        if grid:
+            # A grid is now known: drop the placeholder empty-grid row if we had one.
+            empty_key = (inst, call, "")
+            if empty_key in self._entries:
+                del self._entries[empty_key]
+            key = (inst, call, grid)
+        else:
+            # RR73 / R-10 / 73 carry no grid — fold into the latest row for this
+            # instance+call (rover with two grids: the most recently heard one).
+            existing = [k for k in self._entries if k[0] == inst and k[1] == call]
+            key = (max(existing, key=lambda k: self._entries[k].last_seen)
+                   if existing else (inst, call, ""))
+        prev = self._entries.get(key)
+        keep_grid = grid or (prev.grid if prev else "") or None
+        self._entries[key] = _Entry(
+            decode=decode, band=band, last_seen=now,
+            dial_hz=dial_hz, de_grid=de_grid, grid=keep_grid,
+        )
 
     def _prune(self, now: float) -> None:
         dead = [k for k, e in self._entries.items() if now - e.last_seen > self.ttl]
@@ -124,7 +146,7 @@ class RosterBuilder:
         rows: list[tuple] = []
         not_needed = 0
         for e in self._entries.values():
-            cand = S.build_candidate(e.decode, e.band, self.log)
+            cand = S.build_candidate(e.decode, e.band, self.log, grid=e.grid)
             sc = self.strategy.score(cand, ctx)
             if cand.is_dupe:
                 not_needed += 1

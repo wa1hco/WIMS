@@ -145,6 +145,15 @@ def test_cq_directed_variants():
         assert grid == want_grid, msg
 
 
+def test_decode_is_signoff():
+    assert m.decode_is_signoff("W2SZ N2MKT RR73") is True
+    assert m.decode_is_signoff("W2SZ N2MKT 73") is True
+    assert m.decode_is_signoff("W2SZ N2MKT RRR") is True
+    assert m.decode_is_signoff("W2SZ N2MKT FN13") is False
+    assert m.decode_is_signoff("CQ K1ABC FN42") is False
+    assert m.decode_is_signoff("") is False
+
+
 def test_non_wsjtx_returns_none():
     assert m.parse(b"not a wsjtx datagram") is None
 

@@ -30,6 +30,7 @@ from wims.engine.geo import (
     bearing as _bearing, distance_km as _distance_km, base_call as _base_call,
     delta_az as _delta_az,
 )
+from wims.udp.messages import decode_is_signoff as _decode_is_signoff
 
 API_VERSION = 1
 
@@ -244,8 +245,12 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         is_qsy = bool(getattr(d, "is_qsy", False))
         # Calling us: exchange addressed to our call (not CQ). Base-call match.
         # QSY Message System: target call is dx_call — highlight when it's us.
+        # Skip already-worked (dupe) rows and 73/RR73/RRR — a finished 2m QSO
+        # must not stay red while 6m is working someone else, and a no-grid
+        # sign-off must not open a second red line for the same contact.
+        is_signoff = _decode_is_signoff(getattr(d, "message", None))
         is_calling_us = bool(
-            de and (
+            de and not c.is_dupe and not is_signoff and (
                 (
                     to
                     and str(to).upper() not in ("CQ", "QRZ", "DE")

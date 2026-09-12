@@ -292,6 +292,17 @@ def extract_grid(message: str | None) -> str | None:
     return last.upper() if _GRID_RE.match(last) else None
 
 
+_SIGNOFF_TOKENS = frozenset({"73", "RR73", "RRR"})
+
+
+def decode_is_signoff(message: str | None) -> bool:
+    """True if the FT8 text is a completed-QSO sign-off (73 / RR73 / RRR)."""
+    text = (message or "").strip()
+    if not text:
+        return False
+    return text.split()[-1].upper() in _SIGNOFF_TOKENS
+
+
 def _looks_like_callsign(token: str | None) -> bool:
     """True if token is a plausible amateur call (not a CQ tag or grid).
 

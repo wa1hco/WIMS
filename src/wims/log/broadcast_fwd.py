@@ -13,7 +13,9 @@ does not depend on LAN multicast for plane B.
 from __future__ import annotations
 
 import json
+import queue
 import socket
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -22,6 +24,8 @@ from wims import __version__ as _WIMS_VERSION
 
 # Don't spam the server with RadioInfo (often 1–2 Hz). Contacts always go.
 _RADIOINFO_MIN_INTERVAL_S = 2.0
+_CONTACT_RETRIES = 4
+_QUEUE_MAX = 256
 
 
 def format_fwd_error(exc: BaseException | str) -> str:
@@ -103,6 +107,55 @@ class BroadcastForwarder:
         self.last_error: str | None = None
         self.last_ok_at: float | None = None
         self._last_radioinfo_try = 0.0
+        self._q: queue.Queue = queue.Queue(maxsize=_QUEUE_MAX)
+        self._worker: threading.Thread | None = None
+        if self.site_url:
+            t = threading.Thread(
+                target=self._run, name="n1mm-bcast-fwd", daemon=True,
+            )
+            t.start()
+            self._worker = t
+
+    def submit(self, xml_text: str, *, now: float | None = None) -> str:
+        """Non-blocking enqueue for the RadioInfo UDP thread.
+
+        HTTP POST used to run inline; a 1s timeout blocked N1MM Broadcast
+        recv and dropped contactinfo (QSOs never reached the site).
+        """
+        now = time.time() if now is None else now
+        if not self.site_url:
+            self.n_skip += 1
+            return "nosite"
+        if not looks_like_n1mm_broadcast_xml(xml_text):
+            self.n_skip += 1
+            return "skip"
+        if is_radioinfo(xml_text):
+            if now - self._last_radioinfo_try < _RADIOINFO_MIN_INTERVAL_S:
+                self.n_skip += 1
+                return "skip"
+            self._last_radioinfo_try = now
+        contact = is_contact_xml(xml_text)
+        try:
+            self._q.put_nowait((xml_text, contact, 0))
+            return "queued"
+        except queue.Full:
+            self.n_err += 1
+            self.last_error = "queue full"
+            return "err"
+
+    def _run(self) -> None:
+        while True:
+            item = self._q.get()
+            if item is None:
+                return
+            xml_text, contact, tries = item
+            st = self._post(xml_text, now=time.time())
+            if st == "err" and contact and tries < _CONTACT_RETRIES:
+                time.sleep(min(1.0, 0.15 * (tries + 1)))
+                try:
+                    self._q.put_nowait((xml_text, True, tries + 1))
+                except queue.Full:
+                    pass
 
     def maybe_forward(self, xml_text: str, *, now: float | None = None) -> str:
         """Forward if appropriate. Returns status token: sent|skip|err|nosite."""

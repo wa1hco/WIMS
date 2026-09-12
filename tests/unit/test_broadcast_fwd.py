@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -103,6 +105,42 @@ class BroadcastForwarderTests(unittest.TestCase):
             self.assertEqual(f.maybe_forward(RADIO, now=12.1), "err")
         self.assertEqual(f.n_err, 2)
         self.assertEqual(f.last_error, "connection refused")
+
+    def test_submit_does_not_block_on_http(self):
+        """Radio UDP thread must enqueue, not wait on urlopen."""
+        started = threading.Event()
+        release = threading.Event()
+        posts = []
+
+        class Resp:
+            status = 200
+            def read(self):
+                return b'{"ok":true}'
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=0):
+            started.set()
+            release.wait(timeout=2)
+            posts.append(1)
+            return Resp()
+
+        f = BroadcastForwarder(
+            site_url="http://127.0.0.1:8787", agent_id="t",
+        )
+        with mock.patch("urllib.request.urlopen", fake_urlopen):
+            t0 = time.monotonic()
+            self.assertEqual(f.submit(CONTACT), "queued")
+            self.assertLess(time.monotonic() - t0, 0.2)
+            self.assertTrue(started.wait(timeout=1.0))
+            release.set()
+            for _ in range(50):
+                if f.n_fwd:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(f.n_fwd, 1)
 
 
 class ServerBroadcastIngestTests(unittest.TestCase):

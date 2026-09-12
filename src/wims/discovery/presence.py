@@ -128,14 +128,21 @@ def _primary_lan_ip(iface: str) -> str:
         if _usable_lan_ip(iface):
             return iface
     ips = list_lan_ipv4s()
-    # Prefer RFC1918 contest LAN over CGNAT 100.x / virbr
+    # Prefer contest LAN 192.168.10.0/24 (wims_networking) over other 192.168
+    # (lab/home NIC). Dual-homed 6m logger was advertising 192.168.1.245.
     def score(ip: str) -> tuple:
         a = ipaddress.IPv4Address(ip)
-        # Prefer 192.168.x, then 10.x, then 172.16-31, then other
+        contest = ip.startswith("192.168.10.")
         priv = a.is_private
         ts = ip.startswith("100.")
         vir = ip.startswith("192.168.122.") or ip.startswith("192.168.123.")
-        return (0 if priv and not ts and not vir else 1, ts, vir, ip)
+        return (
+            0 if contest else 1,
+            0 if priv and not ts and not vir else 1,
+            ts,
+            vir,
+            ip,
+        )
 
     if ips:
         return sorted(ips, key=score)[0]

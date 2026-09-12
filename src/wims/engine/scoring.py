@@ -208,11 +208,18 @@ register(WeightedFactorStrategy())
 # --------------------------------------------------------------------------- #
 
 
-def build_candidate(decode, band: str, log=None, reachable: bool = True) -> Candidate:
+def build_candidate(decode, band: str, log=None, reachable: bool = True,
+                    grid: str | None = None) -> Candidate:
     """Turn a parsed messages.Decode into a Candidate, resolving dupe/new-mult from
-    the log store (§3.6) when provided."""
+    the log store (§3.6) when provided.
+
+    `grid` overrides `decode.grid` so the roster can keep a last-known Maidenhead
+    after a no-grid report (RR73 / R-10) folded into the same row.
+    """
     call = (decode.dx_call or "").upper()
-    grid = decode.grid
+    grid = (grid or decode.grid or None)
+    if grid:
+        grid = str(grid).strip().upper() or None
     is_dupe = bool(log and call and log.is_dupe(call, band, grid))
     is_new_mult = bool(log and grid and log.is_new_mult(grid, band))
     is_rover = "/R" in call

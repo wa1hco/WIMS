@@ -108,6 +108,35 @@ def test_drop_other_bands_keeps_unknown_band_rows():
     assert rb.entry_for("SIM-A|K1ABC|FN42").band == "6m"
 
 
+def test_nongrid_report_does_not_split_row():
+    """RR73 / R-10 must update the gridded row, not open a second empty-grid line."""
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("SIM-2M", "W2SZ N2MKT FN13"), "2m", now=10.0)
+    rb.observe_decode(_decode("SIM-2M", "W2SZ N2MKT RR73"), "2m", now=11.0)
+    rows, _ = rb.ranked(now=12.0)
+    assert len(rows) == 1
+    sc, e = rows[0]
+    assert sc.candidate.call == "N2MKT"
+    assert sc.candidate.grid == "FN13"          # last-known grid kept
+    assert e.grid == "FN13"
+    assert e.decode.message.endswith("RR73")    # latest decode retained
+    assert rb.entry_for("SIM-2M|N2MKT|FN13") is not None
+    assert rb.entry_for("SIM-2M|N2MKT|") is None
+
+
+def test_grid_after_nongrid_promotes_single_row():
+    """First heard as RR73 (no grid), then a grid — still one row."""
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("SIM-2M", "W2SZ W1ZFG RR73"), "2m", now=10.0)
+    assert rb.entry_for("SIM-2M|W1ZFG|") is not None
+    rb.observe_decode(_decode("SIM-2M", "W2SZ W1ZFG FN42"), "2m", now=11.0)
+    rows, _ = rb.ranked(now=12.0)
+    assert len(rows) == 1
+    assert rows[0][0].candidate.grid == "FN42"
+    assert rb.entry_for("SIM-2M|W1ZFG|") is None
+    assert rb.entry_for("SIM-2M|W1ZFG|FN42") is not None
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

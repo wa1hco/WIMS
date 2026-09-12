@@ -26,6 +26,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -146,6 +147,14 @@ def test_announcer_sends_and_stops():
 
 def test_primary_lan_ip_prefers_iface():
     assert P._primary_lan_ip("192.168.10.5") == "192.168.10.5"
+
+
+def test_primary_lan_ip_prefers_contest_10_over_other_192168():
+    with mock.patch.object(
+        P, "list_lan_ipv4s",
+        return_value=["192.168.1.245", "192.168.10.50", "25.1.2.3"],
+    ):
+        assert P._primary_lan_ip("0.0.0.0") == "192.168.10.50"
 
 
 def test_http_probe_finds_local_healthz():

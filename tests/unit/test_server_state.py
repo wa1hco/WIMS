@@ -298,6 +298,44 @@ def test_livefleet_roster_lists_all_decodes():
     assert by["W2XYZ"]["is_armed"] is False
 
 
+def test_calling_us_false_for_logged_dupe():
+    """A finished 2m QSO must not stay red while another band is working."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status(
+        "SIM-2M", 144_174_000, mode="FT8", de_call="W2SZ", de_grid="FN32")),
+                       now=1.0, src_ip="10.0.0.2")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-2M", time_ms=0, snr=-3, delta_time=0.1, delta_frequency=1500,
+        message="W2SZ N2MKT FN13")), now=1.1, src_ip="10.0.0.2")
+    live.observe_n1mm(
+        "<contactinfo><app>N1MM</app><ID>q-2m-1</ID><call>N2MKT</call>"
+        "<band>144</band><gridsquare>FN13</gridsquare></contactinfo>",
+        now=1.5, src_ip="10.0.0.2")
+    k = next(c for c in live.snapshot(2.0)["roster"]["candidates"] if c["call"] == "N2MKT")
+    assert k["is_dupe"] is True
+    assert k["is_calling_us"] is False
+
+
+def test_calling_us_false_for_rr73_and_no_split_row():
+    """RR73 is a sign-off: one row, not red, grid kept from the earlier exchange."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status(
+        "SIM-2M", 144_174_000, mode="FT8", de_call="W2SZ", de_grid="FN32")),
+                       now=1.0, src_ip="10.0.0.2")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-2M", time_ms=0, snr=-1, delta_time=0.1, delta_frequency=1500,
+        message="W2SZ N2MKT FN13")), now=1.1, src_ip="10.0.0.2")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-2M", time_ms=0, snr=-1, delta_time=0.1, delta_frequency=1500,
+        message="W2SZ N2MKT RR73")), now=1.2, src_ip="10.0.0.2")
+    cands = live.snapshot(2.0)["roster"]["candidates"]
+    n2 = [c for c in cands if c["call"] == "N2MKT"]
+    assert len(n2) == 1
+    assert n2[0]["grid"] == "FN13"
+    assert n2[0]["is_calling_us"] is False
+    assert n2[0]["to_call"] == "W2SZ"
+
+
 def test_roster_live_bands_from_heartbeat_not_decodes():
     """Operate band checks: quiet WSJT-X still offers its band (Status/Heartbeat)."""
     live = LiveFleet()
