@@ -205,6 +205,19 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-12** — **Version `1.0.8`**. False **⚠ shared id** when the site
+  server sent Replay/Reply to `224.0.0.73:2237` (instance id in the payload,
+  source = server IP). Ingest treated that as a second WSJT-X host. Control
+  now unicasts only to MessageClient; inbound Replay/Halt/Reply are not
+  presence. Windows Install skips LibreOffice / Store-stub Python and pins a
+  real `python.exe` via `python-path.txt`.
+- **2026-09-12** — Windows Install no longer treats **LibreOffice**'s bundled
+  Python as the WIMS runtime. LibreOffice's `python.exe` reports
+  `sys.executable` as `python-core-3.x.y` (a **directory**), which then failed
+  the smoke test (`The term '...\python-core-3.12.12' is not recognized`).
+  Finder requires a real `python.exe` with Tk, skips vendor embeds, and does
+  not recurse all of Program Files. Pin stays in gitignored `python-path.txt`;
+  `Start-WimsServer.cmd` uses `_resolve-python.cmd` like the other launchers.
 - **2026-09-11** — **Version `1.0.7`**. Compact scrollable launcher (Other tools…
   no longer grows the window). Overview RadioInfo is **10 Hz units** (6m/2m were
   showing as 70cm/23cm). Git clones already on `main` no longer nag from a newer

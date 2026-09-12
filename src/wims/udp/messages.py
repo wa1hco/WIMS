@@ -50,6 +50,13 @@ CONFIGURE = 15
 INHIBIT_STATUS = 17  # Out — TX Inhibit telemetry (wsjtx-inhibit)
 TX_INHIBIT = 18      # In  — hold/release (parsed elsewhere; not on plane A)
 
+# Types WIMS / GridTracker *send* (not WSJT-X presence). Ingesting our own
+# Replay/Reply/Halt on the multicast group makes the site-server IP look like
+# a second host for that --rig-name (false ⚠ shared id).
+INBOUND_CONTROL_TYPES = frozenset({
+    REPLY, REPLAY, HALT_TX, FREE_TEXT, LOCATION, CONFIGURE, TX_INHIBIT,
+})
+
 QUINT32_MAX = 0xFFFFFFFF
 
 # A Maidenhead 4- or 6-char grid. "RR73" matches the shape but is an FT8 sign-off,

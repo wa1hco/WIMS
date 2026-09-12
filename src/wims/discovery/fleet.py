@@ -381,6 +381,11 @@ class FleetTracker:
                 src_port: int | None = None) -> None:
         if not isinstance(msg, M.WsjtxMessage):
             return
+        # Ignore Reply/Replay/Halt/… — those are commands *to* WSJT-X. The site
+        # server (and GT) emit them with the instance id; counting them as
+        # presence tags the server IP as a second host.
+        if getattr(msg, "type", None) in M.INBOUND_CONTROL_TYPES:
+            return
         mid = msg.id or "?"
         n = self.nodes.get(mid)
         if n is None:

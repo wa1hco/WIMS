@@ -27,12 +27,18 @@ if exist "%~dp0python-path.txt" (
   )
 )
 :have_pin
-if defined PYTHON_EXE if exist "%PYTHON_EXE%" goto :eof
+call :pin_ok
+if not errorlevel 1 goto :eof
+set "PYTHON_EXE="
+set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python314\python.exe"
+if exist "%PYTHON_EXE%" goto :eof
 set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python313\python.exe"
 if exist "%PYTHON_EXE%" goto :eof
 set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python312\python.exe"
 if exist "%PYTHON_EXE%" goto :eof
 set "PYTHON_EXE=%LocalAppData%\Programs\Python\Python311\python.exe"
+if exist "%PYTHON_EXE%" goto :eof
+set "PYTHON_EXE=%ProgramFiles%\Python314\python.exe"
 if exist "%PYTHON_EXE%" goto :eof
 set "PYTHON_EXE=%ProgramFiles%\Python313\python.exe"
 if exist "%PYTHON_EXE%" goto :eof
@@ -40,8 +46,27 @@ set "PYTHON_EXE=%ProgramFiles%\Python312\python.exe"
 if exist "%PYTHON_EXE%" goto :eof
 where py >nul 2>&1
 if not errorlevel 1 (
-  set "PYTHON_EXE=py"
-  goto :eof
+  for /f "delims=" %%P in ('where py 2^>nul') do (
+    echo %%P | findstr /I /C:"WindowsApps" >nul
+    if errorlevel 1 (
+      set "PYTHON_EXE=py"
+      goto :eof
+    )
+  )
 )
 REM Last resort — may be Store stub; prefer failing clearly
 set "PYTHON_EXE=python"
+goto :eof
+
+:pin_ok
+REM Pin must be a real python.exe file. Directories (LibreOffice python-core-*)
+REM and vendor embeds exist on disk but are not a WIMS runtime.
+if not defined PYTHON_EXE exit /b 1
+if not exist "%PYTHON_EXE%" exit /b 1
+if exist "%PYTHON_EXE%\*" exit /b 1
+echo %PYTHON_EXE% | findstr /I /C:"LibreOffice" /C:"WindowsApps" /C:"python-core-" >nul
+if not errorlevel 1 exit /b 1
+if /I "%PYTHON_EXE:~-10%"=="python.exe" exit /b 0
+if /I "%PYTHON_EXE:~-11%"=="pythonw.exe" exit /b 0
+if /I "%PYTHON_EXE:~-11%"=="python3.exe" exit /b 0
+exit /b 1

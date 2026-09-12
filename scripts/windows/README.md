@@ -197,9 +197,11 @@ Copy the contest **`.s3db`** into `Documents\N1MM Logger+\Databases` on the **se
 | **Python ≥ 3.10** | 1) `winget` (machine scope if admin) 2) if still missing, **silent download** of python.org 3.12.x |
 | **Git** | `winget` if missing. Required to clone, for **Update WIMS**, and for the launcher GitHub update check (`git fetch origin/main`). Release ZIP trees (no `.git`) skip this. |
 | **Firewall TCP 8787** | `New-NetFirewallRule` (admin) |
-| **Start launcher** | Rewrites `Start-WimsServer.cmd` with the **full path** to `python.exe` (PATH refresh not required) |
+| **Start launcher** | Writes `python-path.txt` with the **full path** to `python.exe`. Launchers (`Start-WimsServer.cmd` and the rest) call `_resolve-python.cmd` so PATH refresh is not required. |
 
 After install, `scripts\windows\python-path.txt` records the chosen interpreter.
+Install **ignores** LibreOffice / Office / Store-stub Pythons (LibreOffice's
+`python.exe` reports `sys.executable` as a `python-core-*` **directory**).
 
 **Not** installed: N1MM, WSJT-X, GridTracker, Icom USB drivers.
 
@@ -208,7 +210,8 @@ After install, `scripts\windows\python-path.txt` records the chosen interpreter.
 1. Double-click **`Install-Wims.cmd`** again (allow UAC).  
 2. Read the window for errors; install should not finish green without a Python path.  
 3. Sign out/in once, then Install again (rare PATH timing issue).  
-4. Manual fallback: https://www.python.org/downloads/ — check **Add python.exe to PATH**, then Install-Wims.cmd again.
+4. If the log mentions **LibreOffice**, that is not a usable Python — Install should skip it and download CPython. Re-run after this fix.  
+5. Manual fallback: https://www.python.org/downloads/ — check **Add python.exe to PATH**, then Install-Wims.cmd again.
 
 ## Radio seat checklist (no WIMS install)
 

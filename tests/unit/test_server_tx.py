@@ -91,8 +91,9 @@ def test_work_sends_reply_without_arm():
     assert r["ok"] and r["sent"] == "reply" and r["call"] == "K1ABC"
     assert r.get("auto_tx_eligible") is True
     assert r.get("dest")  # control destination echoed for UI diagnostics
-    # Unicast to MessageClient ephemeral source first — not UDP Server :2237.
-    assert tx.last_dests and tx.last_dests[0] == ("127.0.0.1", CTRL_PORT)
+    # Unicast to MessageClient ephemeral source — never also the multicast group
+    # (that tagged the site-server IP as a second host).
+    assert tx.last_dests == [("127.0.0.1", CTRL_PORT)]
     assert tx.sent[-1] == ("reply", MID, "CQ K1ABC FN31")   # exact echo of the decode
     # CQ path must not need Configure.
     assert not any(s[0] == "configure" for s in tx.sent)

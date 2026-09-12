@@ -350,7 +350,8 @@ def test_heartbeat_without_band_sends_replay_for_status():
     )
     assert len(tx.replays) == 1
     assert tx.replays[0][0] == "SIM-6M"
-    assert ("10.0.0.1", 54321) in tx.replays[0][1]
+    assert tx.replays[0][1] == [("10.0.0.1", 54321)]
+    assert ("224.0.0.73", 2237) not in tx.replays[0][1]
     live.observe_wsjtx(
         M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8")),
         now=11.0, src_ip="10.0.0.1", src_port=54321,

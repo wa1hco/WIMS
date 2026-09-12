@@ -69,8 +69,10 @@ function Update-SessionPath {
     foreach ($extra in @(
         "${env:ProgramFiles}\Python312",
         "${env:ProgramFiles}\Python313",
+        "${env:ProgramFiles}\Python314",
         "${env:LocalAppData}\Programs\Python\Python312",
         "${env:LocalAppData}\Programs\Python\Python313",
+        "${env:LocalAppData}\Programs\Python\Python314",
         "${env:ProgramFiles}\Git\cmd",
         "${env:LocalAppData}\Programs\Git\cmd"
     )) {
@@ -80,12 +82,36 @@ function Update-SessionPath {
     }
 }
 
+function Test-IsVendorPython([string] $Exe) {
+    if (-not $Exe) { return $true }
+    $n = $Exe.ToLowerInvariant()
+    # Interpreters bundled inside other apps are not a WIMS runtime.
+    # LibreOffice's python.exe reports sys.executable as python-core-3.x.y (a directory).
+    foreach ($frag in @(
+        '\libreoffice\',
+        '\windowsapps\',
+        '\microsoft office\',
+        '\osgeo',
+        '\qgis',
+        '\blender\',
+        '\arcgis',
+        '\gimp\',
+        '\inkscape\',
+        'python-core-'
+    )) {
+        if ($n.Contains($frag)) { return $true }
+    }
+    return $false
+}
+
 function Test-PythonExe([string] $Exe) {
     if (-not $Exe) { return $null }
     $Exe = $Exe.Trim().Trim('"')
-    if (-not (Test-Path -LiteralPath $Exe)) { return $null }
-    # Reject Windows Store stub
-    if ($Exe -match "WindowsApps\\python") { return $null }
+    # Must be an actual file. Test-Path on LibreOffice's python-core-* dir is True.
+    if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return $null }
+    $leaf = Split-Path -Leaf $Exe
+    if ($leaf -notmatch '^(python|pythonw|python3)\.exe$') { return $null }
+    if (Test-IsVendorPython $Exe) { return $null }
     # IMPORTANT: do not use Start-Process -ArgumentList for python -c.
     # PS 5.1 mangles quoting, and %d in format strings expands as env vars under cmd.
     $prevEap = $ErrorActionPreference
@@ -101,10 +127,17 @@ function Test-PythonExe([string] $Exe) {
         if ($parts.Count -lt 2) { return $null }
         if ([int]$parts[0] -lt 3 -or ([int]$parts[0] -eq 3 -and [int]$parts[1] -lt 10)) { return $null }
         $resolved = $Exe
-        if ($lines.Count -ge 2 -and (Test-Path -LiteralPath $lines[1].Trim())) {
-            $resolved = $lines[1].Trim()
+        if ($lines.Count -ge 2) {
+            $cand = $lines[1].Trim().Trim('"')
+            if ((Test-Path -LiteralPath $cand -PathType Leaf) -and -not (Test-IsVendorPython $cand)) {
+                $resolved = $cand
+            }
         }
-        if ($resolved -match "WindowsApps\\python") { return $null }
+        if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) { return $null }
+        if (Test-IsVendorPython $resolved) { return $null }
+        # Desktop launcher needs Tk. Official CPython ships it; vendor embeds often do not.
+        $null = & $resolved -c "import tkinter" 2>&1
+        if ($LASTEXITCODE -ne 0) { return $null }
         return @{ Exe = $resolved; Version = $ver }
     } catch {
         return $null
@@ -117,12 +150,15 @@ function Find-Python {
     Update-SessionPath
     Log "    Searching for python.exe..."
 
-    # py -3
+    # py -3 — skip the Windows Store stub (running it opens the Store UI).
     try {
-        $out = & py -3 -c "import sys; print(sys.executable)" 2>$null
-        if ($LASTEXITCODE -eq 0 -and $out) {
-            $info = Test-PythonExe $out.Trim()
-            if ($info) { Log "    found via py -3: $($info.Exe)"; return $info }
+        $pyCmd = Get-Command py -ErrorAction SilentlyContinue
+        if ($pyCmd -and -not (Test-IsVendorPython $pyCmd.Source)) {
+            $out = & py -3 -c "import sys; print(sys.executable)" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $out) {
+                $info = Test-PythonExe $out.Trim()
+                if ($info) { Log "    found via py -3: $($info.Exe)"; return $info }
+            }
         }
     } catch { }
 
@@ -131,20 +167,35 @@ function Find-Python {
         if ($cmd) {
             $info = Test-PythonExe $cmd.Source
             if ($info) { Log "    found on PATH: $($info.Exe)"; return $info }
+            Log "    skip PATH ${name}: $($cmd.Source)"
         }
     }
 
+    # Official CPython layouts only. Do not recurse all of Program Files —
+    # that picks up LibreOffice\program\python.exe and similar embeds.
     $searchRoots = @(
+        "$env:LocalAppData\Python",
         "$env:LocalAppData\Programs\Python",
-        "$env:ProgramFiles\Python312",
+        "$env:ProgramFiles\Python314",
         "$env:ProgramFiles\Python313",
+        "$env:ProgramFiles\Python312",
         "$env:ProgramFiles\Python311",
         "$env:ProgramFiles\Python310",
+        "${env:ProgramFiles(x86)}\Python314",
+        "${env:ProgramFiles(x86)}\Python313",
         "${env:ProgramFiles(x86)}\Python312",
-        "$env:ProgramFiles"
+        "${env:ProgramFiles(x86)}\Python311",
+        "${env:ProgramFiles(x86)}\Python310"
     )
+    foreach ($base in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, "$env:LocalAppData\Programs")) {
+        if (-not $base -or -not (Test-Path $base)) { continue }
+        try {
+            $searchRoots += @(Get-ChildItem -Path $base -Directory -Filter "Python3*" -ErrorAction SilentlyContinue |
+                ForEach-Object { $_.FullName })
+        } catch { }
+    }
     $found = @()
-    foreach ($root in $searchRoots) {
+    foreach ($root in ($searchRoots | Select-Object -Unique)) {
         if (-not (Test-Path $root)) { continue }
         try {
             $found += Get-ChildItem -Path $root -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue -Depth 4 |
@@ -173,6 +224,10 @@ function Find-Python {
     # Prefer higher versions when multiple are present
     $candidates = @($found | Where-Object { $_ } | Select-Object -Unique | Sort-Object -Descending)
     foreach ($c in $candidates) {
+        if (Test-IsVendorPython $c) {
+            Log "    skip vendor/embedded: $c"
+            continue
+        }
         $info = Test-PythonExe $c
         if ($info) { Log "    found on disk: $($info.Exe)"; return $info }
     }
@@ -190,7 +245,7 @@ function Install-PythonWinget {
     $ids = @("Python.Python.3.12", "Python.Python.3.13", "Python.Python.3.11")
     foreach ($id in $ids) {
         Log "    winget install -e --id $id"
-        $args = @("install", "-e", "--id", $id, "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
+        $args = @("install", "-e", "--id", $id, "--source", "winget", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
         if (Test-IsAdmin) { $args += @("--scope", "machine") }
         & winget @args 2>&1 | ForEach-Object { Log "      $_" }
         $code = $LASTEXITCODE
@@ -416,9 +471,31 @@ function Set-Firewall8787 {
 }
 
 function Write-StartCmd([string] $PythonExe, [string] $OutCmd) {
-    $py = $PythonExe
+    # Pin lives in python-path.txt (gitignored). Do not hardcode a machine path
+    # into this tracked launcher — that is how LibreOffice python-core-* got
+    # committed on a failed install. Consume the pin like the other .cmd files.
+    $null = $PythonExe
     $body = @"
 @echo off
+
+REM WIMS - WSJT-X Instance Management System
+REM Copyright (C) 2026 Jeff Millar, WA1HCO
+REM
+REM SPDX-License-Identifier: GPL-3.0-or-later
+REM
+REM This program is free software: you can redistribute it and/or modify
+REM it under the terms of the GNU General Public License as published by
+REM the Free Software Foundation, either version 3 of the License, or
+REM (at your option) any later version.
+REM
+REM This program is distributed in the hope that it will be useful,
+REM but WITHOUT ANY WARRANTY; without even the implied warranty of
+REM MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+REM GNU General Public License for more details.
+REM
+REM You should have received a copy of the GNU General Public License
+REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 setlocal EnableExtensions
 cd /d "%~dp0"
 set "ROOT=%~dp0..\.."
@@ -428,17 +505,33 @@ popd
 set "PYTHONPATH=%ROOT%\src"
 cd /d "%ROOT%"
 
-set "PYTHON_EXE=$py"
-if not exist "%PYTHON_EXE%" (
-  echo Python missing: %PYTHON_EXE%
-  echo Run Install-Wims.cmd again.
+call "%~dp0_resolve-python.cmd"
+if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EXE%"=="python" (
+  echo Python missing. Run Install-Wims.cmd again.
   pause
   exit /b 1
 )
 
+REM Optional: prefer profile Databases when present.
+REM Server also multi-scans UserDir/Documents. Override: set WIMS_SEED_DB_DIR=...
+if not defined WIMS_SEED_DB_DIR (
+  if exist "%USERPROFILE%\Databases\" set "WIMS_SEED_DB_DIR=%USERPROFILE%\Databases"
+)
+
+REM Optional GridTracker merge: set WIMS_GT_FORWARD=host:22370
+REM GT Receive UDP = 22370; WIMS reverse defaults to 22371. See --gt-forward help.
+
 REM Server picks the contest LAN for multicast joins; pass --iface if needed.
 REM Extra args (lab only): %*
-"%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
+if defined WIMS_SEED_DB_DIR if defined WIMS_GT_FORWARD (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --seed-db-dir "%WIMS_SEED_DB_DIR%" --gt-forward %WIMS_GT_FORWARD% %*
+) else if defined WIMS_SEED_DB_DIR (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --seed-db-dir "%WIMS_SEED_DB_DIR%" %*
+) else if defined WIMS_GT_FORWARD (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 --gt-forward %WIMS_GT_FORWARD% %*
+) else (
+  "%PYTHON_EXE%" -m wims.server.app --iface 0.0.0.0 --n1mm-group 224.0.0.73 --http-port 8787 %*
+)
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )
 exit /b %ERR%
@@ -525,6 +618,13 @@ try {
     if ($script:LogFile -ne $repoLog) {
         Copy-Item $script:LogFile $repoLog -Force -ErrorAction SilentlyContinue
         $script:LogFile = $repoLog
+    }
+
+    if (-not (Test-Path -LiteralPath $py.Exe -PathType Leaf)) {
+        throw "Refusing to pin non-exe Python path: $($py.Exe)"
+    }
+    if (Test-IsVendorPython $py.Exe) {
+        throw "Refusing to pin vendor/embedded Python: $($py.Exe)"
     }
 
     Step "Writing Start-WimsServer.cmd with pinned Python"

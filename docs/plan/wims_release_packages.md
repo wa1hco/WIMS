@@ -31,8 +31,8 @@ This design defines **release packages** for Windows (primary) and Linux (second
 |------|--------|
 | Runtime | stdlib Python ≥3.10; `dependencies = []` in `pyproject.toml` |
 | UI | Browser console (static files under `src/wims/server/static/`); optional Tk launcher |
-| Windows install | `scripts/windows/Install-Wims.cmd` → `Install-Wims.ps1`: finds/installs Python, optional Git clone, firewall TCP 8787, writes `python-path.txt`, regenerates `Start-WimsServer.cmd`, smoke `import wims.server.app` → `import ok` |
-| Python pin consume | Most `.cmd` launchers call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python` |
+| Windows install | `scripts/windows/Install-Wims.cmd` → `Install-Wims.ps1`: finds/installs **official CPython** (skips LibreOffice / Store stub / other embeds), optional Git clone, firewall TCP 8787, writes `python-path.txt`, regenerates `Start-WimsServer.cmd` to consume that pin via `_resolve-python.cmd`, smoke `import wims.server.app` → `import ok` |
+| Python pin consume | All `.cmd` launchers (including `Start-WimsServer.cmd`) call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python`. A pin that is a directory or vendor embed is ignored. |
 | Windows update | `Update-Wims.ps1`: `git pull --ff-only origin/main` when `.git` exists. Startup (`check_for_update`) also queries **GitHub Releases**; ZIP / no-git trees get the banner and open the release URL. Tag `v*` publishes; push to `main` does not. |
 | Local seat configs (gitignored) | `scripts/windows/seat-common.cmd`, `seat-local.cmd`, `radio-flex50.cmd`, `radio-ic9700-144.cmd`, `python-path.txt` |
 | Linux | `apt install git python3 python3-tk`; run from tree; `scripts/install-wims-desktop.sh` |

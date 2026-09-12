@@ -23,6 +23,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
+from wims.udp import encode as E  # noqa: E402
 from wims.udp import messages as M  # noqa: E402
 from wims.discovery.fleet import FleetTracker, ExpectedInstance  # noqa: E402
 from wims.server.state import fleet_to_dict  # noqa: E402
@@ -75,6 +76,18 @@ def test_prune_drops_silent_instances():
     removed = t.prune(now=230.0)   # 130s silent > 120s
     assert removed == ["WSJT-X"]
     assert "WSJT-X" not in t.nodes
+
+
+def test_inbound_replay_does_not_count_as_second_host():
+    """Site-server Replay on the group must not look like another WSJT-X."""
+    t = FleetTracker()
+    t.observe(M.parse(E.build_heartbeat("WSJT-X - 6M-1")), now=100.0,
+              src_ip="192.168.10.69", src_port=52674)
+    t.observe(M.parse(E.build_replay("WSJT-X - 6M-1")), now=101.0,
+              src_ip="192.168.10.12")
+    n = t.nodes["WSJT-X - 6M-1"]
+    assert n.id_collision_at(now=101.0) is False
+    assert n.hosts_recent(101.0) == {"192.168.10.69"}
 
 
 def test_id_collision_recent_hosts_only():

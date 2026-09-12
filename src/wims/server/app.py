@@ -548,10 +548,12 @@ class LiveFleet:
                 ip = max(node.host_seen.items(), key=lambda kv: kv[1])[0]
                 if ip:
                     dests.append((ip, port))
-        if self._tx is not None:
-            d = (str(self._tx.dest[0]), int(self._tx.dest[1]))
-            if d not in dests:
-                dests.append(d)
+        # Do NOT also send to the multicast group when we have a unicast dest.
+        # Reply/Replay on 224.0.0.73:2237 never reaches MessageClient, and the
+        # site server then ingests its own packet as a second host (false
+        # id_collision). Multicast is last-resort only when no source is known.
+        if not dests and self._tx is not None:
+            dests.append((str(self._tx.dest[0]), int(self._tx.dest[1])))
         return dests
 
     def work_station(self, row_id: str) -> dict:

@@ -1,6 +1,6 @@
 @echo off
 
-REM WIMS — WSJT-X Instance Management System
+REM WIMS - WSJT-X Instance Management System
 REM Copyright (C) 2026 Jeff Millar, WA1HCO
 REM
 REM SPDX-License-Identifier: GPL-3.0-or-later
@@ -27,21 +27,20 @@ popd
 set "PYTHONPATH=%ROOT%\src"
 cd /d "%ROOT%"
 
-set "PYTHON_EXE=C:\Users\W2SZ\AppData\Local\Programs\Python\Python313\python.exe"
-if not exist "%PYTHON_EXE%" (
-  echo Python missing: %PYTHON_EXE%
-  echo Run Install-Wims.cmd again.
+call "%~dp0_resolve-python.cmd"
+if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EXE%"=="python" (
+  echo Python missing. Run Install-Wims.cmd again.
   pause
   exit /b 1
 )
 
-REM Optional: prefer profile Databases when present (W2SZ: C:\Users\W2SZ\Databases).
+REM Optional: prefer profile Databases when present.
 REM Server also multi-scans UserDir/Documents. Override: set WIMS_SEED_DB_DIR=...
 if not defined WIMS_SEED_DB_DIR (
   if exist "%USERPROFILE%\Databases\" set "WIMS_SEED_DB_DIR=%USERPROFILE%\Databases"
 )
 
-REM Optional GridTracker merge (e.g. Linux desktop): set WIMS_GT_FORWARD=192.168.1.50:22370
+REM Optional GridTracker merge: set WIMS_GT_FORWARD=host:22370
 REM GT Receive UDP = 22370; WIMS reverse defaults to 22371. See --gt-forward help.
 
 REM Server picks the contest LAN for multicast joins; pass --iface if needed.
