@@ -66,6 +66,14 @@ class UpdateInfo:
         return f"{s} {self.remote_date}".strip() if self.remote_date else s
 
 
+def _git_env() -> dict[str, str]:
+    """Never wait on Git Credential Manager in a hidden launcher child."""
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GCM_INTERACTIVE"] = "never"
+    return env
+
+
 def _git(
     repo: Path,
     args: list[str],
@@ -74,11 +82,12 @@ def _git(
 ) -> tuple[int, str]:
     try:
         proc = subprocess.run(
-            ["git", "-C", str(repo), *args],
+            ["git", "-c", "credential.helper=", "-C", str(repo), *args],
             capture_output=True,
             text=True,
             timeout=timeout,
             check=False,
+            env=_git_env(),
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as e:

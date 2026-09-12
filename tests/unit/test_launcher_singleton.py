@@ -32,7 +32,20 @@ class LauncherSingletonTests(unittest.TestCase):
                 sing._lock_fp = None
                 self.assertFalse(sing.try_acquire_launcher_lock())
                 sing._lock_fp = held
-                sing._release_launcher_lock()
+                sing.release_launcher_lock()
+
+    def test_release_allows_replacement_acquire(self):
+        """Update relaunch must drop the lock before spawning the new process."""
+        import wims.launcher.singleton as sing
+
+        with tempfile.TemporaryDirectory() as td:
+            lock = Path(td) / "launcher.lock"
+            with mock.patch.dict("os.environ", {"WIMS_LAUNCHER_LOCK": str(lock)}):
+                sing._lock_fp = None
+                self.assertTrue(sing.try_acquire_launcher_lock())
+                sing.release_launcher_lock()
+                self.assertTrue(sing.try_acquire_launcher_lock())
+                sing.release_launcher_lock()
 
 
 if __name__ == "__main__":

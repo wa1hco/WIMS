@@ -205,6 +205,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-12** — Seat **Update WIMS** relaunch dropped the new launcher:
+  the parent still held `launcher.lock`, so `pythonw` exited with no window
+  and the old UI then closed. Status refresh also restored "Update available"
+  over "Updating WIMS…". Fix: release the lock before spawn; hold the banner
+  while `_updating`; git fetch never waits on Credential Manager.
 - **2026-09-12** — **Version `1.0.9`**. Launcher start/idle no longer blocks the
   UI on repeated ``tasklist`` / PowerShell / WMIC (and git fetch). Process
   lists are cached; detect + site probe run off the UI thread; git children

@@ -1171,6 +1171,8 @@ class LauncherApp:
 
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
+        if self._updating:
+            return
         if not info.available:
             self._show_update_button(False)
             if info.detail and (
@@ -1215,6 +1217,8 @@ class LauncherApp:
 
     def _do_update(self) -> None:
         """Pull origin/main when this is a git clone; else open GitHub Releases."""
+        if self._updating:
+            return
         info = self._update_info
         if info is not None and not info.is_git:
             url = (info.release_url or "").strip() or (
@@ -1305,6 +1309,14 @@ class LauncherApp:
         self.root.after(600, self._relaunch_self)
 
     def _relaunch_self(self) -> None:
+        # Drop the singleton lock *before* spawn. The child acquires the same
+        # lock at startup; if we still hold it, pythonw exits silently and
+        # this window then closes — Update WIMS never comes back.
+        from wims.launcher.singleton import (
+            release_launcher_lock,
+            try_acquire_launcher_lock,
+        )
+        release_launcher_lock()
         try:
             if sys.platform.startswith("win"):
                 hidden = windows_hidden_popen_kwargs()
@@ -1340,6 +1352,11 @@ class LauncherApp:
                     start_new_session=True,
                 )
         except Exception as e:
+            try:
+                try_acquire_launcher_lock()
+            except Exception:
+                pass
+            self._updating = False
             self._append_log(f"Relaunch failed: {e}")
             self._set_banner("err", "Updated but relaunch failed", str(e))
             return
@@ -1886,6 +1903,12 @@ class LauncherApp:
             server_existing=bool(ok_site and not owned_server),
         )
         self._sync_server_action_buttons(ok_site=ok_site, base=base)
+
+        if self._updating:
+            # Keep "Updating WIMS…" / "Updated — restarting". The 4s status
+            # pulse used to restore "Update available" so the click looked dead.
+            self._schedule_status(4000)
+            return
 
         if not want_any:
             self._set_banner(

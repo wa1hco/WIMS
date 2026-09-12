@@ -77,7 +77,7 @@ def try_acquire_launcher_lock() -> bool:
     except OSError:
         pass
     _lock_fp = fp
-    atexit.register(_release_launcher_lock)
+    atexit.register(release_launcher_lock)
     return True
 
 
@@ -103,7 +103,13 @@ def _lock_win(fp) -> bool:
         return False
 
 
-def _release_launcher_lock() -> None:
+def release_launcher_lock() -> None:
+    """Drop the session lock so a replacement launcher can start.
+
+    ``_relaunch_self`` must call this *before* spawning the new process;
+    otherwise the child sees the lock, exits, and the parent then quits —
+    Update WIMS looks like it never completed.
+    """
     global _lock_fp
     fp = _lock_fp
     _lock_fp = None

@@ -19,6 +19,7 @@ if str(SRC) not in sys.path:
 
 from wims.launcher.update_check import (
     UpdateInfo,
+    _git,
     check_for_update,
     check_git_update,
     check_github_release,
@@ -91,6 +92,18 @@ class UpdateCheckTests(unittest.TestCase):
             info = check_git_update(ROOT, fetch=True)
         self.assertFalse(info.available)
         self.assertIn("fetch failed", info.detail)
+
+    def test_git_disables_credential_prompt(self):
+        completed = mock.Mock(returncode=0, stdout="abc\n", stderr="")
+        with mock.patch("subprocess.run", return_value=completed) as run:
+            code, out = _git(ROOT, ["rev-parse", "HEAD"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "abc")
+        argv = run.call_args.args[0]
+        self.assertEqual(argv[:3], ["git", "-c", "credential.helper="])
+        env = run.call_args.kwargs.get("env") or {}
+        self.assertEqual(env.get("GIT_TERMINAL_PROMPT"), "0")
+        self.assertEqual(env.get("GCM_INTERACTIVE"), "never")
 
     def test_update_info_shorts(self):
         u = UpdateInfo(available=True, local_sha="abcdef0123", remote_sha="fedcba9876")

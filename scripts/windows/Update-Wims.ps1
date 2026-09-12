@@ -81,13 +81,17 @@ try {
     if (-not $before) { $before = "?" }
     Log "Before: $before"
 
+    # Hidden launcher child has no console — never wait on Credential Manager.
+    $env:GIT_TERMINAL_PROMPT = "0"
+    $env:GCM_INTERACTIVE = "never"
+
     # git writes progress to stderr; with $ErrorActionPreference=Stop that becomes
     # a NativeCommandError even on success ("From https://github.com/...").
     $prevEap = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
         Log "git fetch $Remote $Branch ..."
-        git fetch --quiet $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
+        git -c credential.helper= fetch --quiet $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
         if ($LASTEXITCODE -ne 0) {
             Log "FAIL: git fetch failed (network?). See update-log.txt" "Red"
             if (-not $NoPause) { pause }
@@ -108,7 +112,7 @@ try {
             }
         } else {
             Log "git pull --ff-only $Remote $Branch ..."
-            git pull --ff-only $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
+            git -c credential.helper= pull --ff-only $Remote $Branch 2>&1 | ForEach-Object { Log "  $_" }
             $gitCode = $LASTEXITCODE
             if ($gitCode -ne 0) {
                 Log "FAIL: pull --ff-only failed (exit $gitCode). Local changes? Check SHA below." "Red"
