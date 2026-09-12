@@ -181,8 +181,20 @@ def _looks_like_wsjtx_cmdline(s: str) -> bool:
     return base in ("wsjtx", "wsjtx.exe") or base.endswith("wsjtx.exe")
 
 
+_WSJTX_CMDLINE_TTL_S = 5.0
+_wsjtx_cmdline_ts: float = 0.0
+_wsjtx_cmdline_cache: list[str] | None = None
+
+
 def _windows_wsjtx_cmdlines() -> list[str] | None:
     """Return wsjtx.exe CommandLine strings, or None if process list unavailable."""
+    global _wsjtx_cmdline_ts, _wsjtx_cmdline_cache
+    now = time.monotonic()
+    if (
+        _wsjtx_cmdline_cache is not None
+        and (now - _wsjtx_cmdline_ts) < _WSJTX_CMDLINE_TTL_S
+    ):
+        return _wsjtx_cmdline_cache
     creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     # Prefer CIM/PowerShell — WMIC is removed/broken on many Win11 images and
     # often prints "No Instance(s) Available." which must not look like argv.
@@ -190,28 +202,34 @@ def _windows_wsjtx_cmdlines() -> list[str] | None:
         "Get-CimInstance Win32_Process -Filter \"Name='wsjtx.exe'\" | "
         "ForEach-Object { $_.CommandLine }"
     )
+    lines: list[str] | None
     try:
         out = subprocess.check_output(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=12,
+            timeout=6,
             creationflags=creation,
         )
-        return [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
+        lines = [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
     except (OSError, subprocess.SubprocessError):
-        pass
-    try:
-        out = subprocess.check_output(
-            ["wmic", "process", "where", "name='wsjtx.exe'", "get", "CommandLine"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=8,
-            creationflags=creation,
-        )
-        return [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
-    except (OSError, subprocess.SubprocessError):
-        return None
+        lines = None
+    if lines is None:
+        try:
+            out = subprocess.check_output(
+                ["wmic", "process", "where", "name='wsjtx.exe'", "get", "CommandLine"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=5,
+                creationflags=creation,
+            )
+            lines = [ln.strip() for ln in out.splitlines() if _looks_like_wsjtx_cmdline(ln)]
+        except (OSError, subprocess.SubprocessError):
+            lines = None
+    if lines is not None:
+        _wsjtx_cmdline_cache = lines
+        _wsjtx_cmdline_ts = now
+    return lines
 
 
 def _wsjtx_running_rig_names() -> set[str] | None:
@@ -261,6 +279,32 @@ def _wsjtx_running_rig_names() -> set[str] | None:
     return names
 
 
+_TASKLIST_TTL_S = 4.0
+_tasklist_ts: float = 0.0
+_tasklist_csv: str | None = None
+
+
+def _windows_tasklist_csv() -> str | None:
+    """Cached ``tasklist /FO CSV`` — detect_assets used to spawn this twice."""
+    global _tasklist_ts, _tasklist_csv
+    now = time.monotonic()
+    if _tasklist_csv is not None and (now - _tasklist_ts) < _TASKLIST_TTL_S:
+        return _tasklist_csv
+    try:
+        out = subprocess.check_output(
+            ["tasklist", "/FO", "CSV", "/NH"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    _tasklist_csv = out or ""
+    _tasklist_ts = now
+    return _tasklist_csv
+
+
 def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()) -> bool | None:
     """Return True/False if we can list processes; None if unknown.
 
@@ -286,13 +330,9 @@ def _process_running(names: tuple[str, ...], *, substrings: tuple[str, ...] = ()
 
     try:
         if os.name == "nt":
-            out = subprocess.check_output(
-                ["tasklist", "/FO", "CSV", "/NH"],
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=8,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
+            out = _windows_tasklist_csv()
+            if out is None:
+                return None
             for line in out.splitlines():
                 # "image.exe","pid",...
                 part = line.split(",", 1)[0].strip().strip('"')

@@ -337,7 +337,7 @@ def _windows_wmic_table() -> list[tuple[int, list[str]]]:
             ],
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=12,
+            timeout=6,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
@@ -377,7 +377,7 @@ def _windows_powershell_table() -> list[tuple[int, list[str]]]:
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
             stderr=subprocess.DEVNULL,
             text=True,
-            timeout=15,
+            timeout=6,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError):
@@ -426,12 +426,37 @@ def _split_cmdline(cmdline: str) -> list[str]:
         return cmdline.split()
 
 
-def list_process_table() -> list[tuple[int, list[str]]]:
-    """Return (pid, argv) for candidate processes on this host."""
+_PROC_TABLE_TTL_S = 4.0
+_proc_table_ts: float = 0.0
+_proc_table: list[tuple[int, list[str]]] | None = None
+
+
+def list_process_table(*, fresh: bool = False) -> list[tuple[int, list[str]]]:
+    """Return (pid, argv) for candidate processes on this host.
+
+    Cached briefly: the launcher used to spawn wmic/PowerShell on every
+    Running-list refresh (UI thread), which made start + idle feel frozen.
+    """
+    global _proc_table_ts, _proc_table
+    now = time.monotonic()
+    if (
+        not fresh
+        and _proc_table is not None
+        and (now - _proc_table_ts) < _PROC_TABLE_TTL_S
+    ):
+        return _proc_table
     if os.name == "nt":
-        return _windows_wmic_table()
-    rows = _linux_proc_table()
-    return rows if rows else _linux_ps_table()
+        # PowerShell CIM first — WMIC is missing/slow on many Win11 images.
+        rows = _windows_powershell_table()
+        if not rows:
+            rows = _windows_wmic_table()
+    else:
+        rows = _linux_proc_table()
+        if not rows:
+            rows = _linux_ps_table()
+    _proc_table = rows
+    _proc_table_ts = now
+    return rows
 
 
 def iter_wims_procs(

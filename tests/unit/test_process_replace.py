@@ -22,6 +22,7 @@ from wims.launcher.process_replace import (
     hide_console_windows_for_pids,
     hide_own_console_if_redirected,
     iter_wims_procs,
+    list_process_table,
     other_agent_running,
     replace_seat_agents,
     windows_hidden_popen_kwargs,
@@ -169,6 +170,42 @@ class ReplaceTests(unittest.TestCase):
             other = other_agent_running("seat")
         self.assertIsNotNone(other)
         self.assertEqual(other.pid, 42)
+
+
+class ProcessTableCacheTests(unittest.TestCase):
+    def test_list_process_table_uses_ttl_cache(self):
+        import time
+        from unittest import mock
+        import wims.launcher.process_replace as pr
+
+        fake = [(7, ["python", "-m", "wims.log"])]
+        pr._proc_table = fake
+        pr._proc_table_ts = time.monotonic()
+        with mock.patch.object(
+            pr, "_windows_powershell_table", side_effect=AssertionError("cache miss")
+        ):
+            with mock.patch.object(
+                pr, "_windows_wmic_table", side_effect=AssertionError("cache miss")
+            ):
+                with mock.patch.object(
+                    pr, "_linux_proc_table", side_effect=AssertionError("cache miss")
+                ):
+                    rows = list_process_table()
+        self.assertEqual(rows, fake)
+
+    def test_list_process_table_fresh_bypasses_cache(self):
+        import time
+        from unittest import mock
+        import wims.launcher.process_replace as pr
+
+        pr._proc_table = [(1, ["stale"])]
+        pr._proc_table_ts = time.monotonic()
+        with mock.patch.object(pr, "os") as osmod:
+            osmod.name = "posix"
+            with mock.patch.object(pr, "_linux_proc_table", return_value=[(2, ["fresh"])]):
+                with mock.patch.object(pr, "_linux_ps_table", return_value=[]):
+                    rows = list_process_table(fresh=True)
+        self.assertEqual(rows, [(2, ["fresh"])])
 
 
 class HiddenConsoleTests(unittest.TestCase):

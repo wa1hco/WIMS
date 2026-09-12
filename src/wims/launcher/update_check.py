@@ -79,6 +79,7 @@ def _git(
             text=True,
             timeout=timeout,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as e:
         return 127, str(e)
@@ -94,7 +95,7 @@ def check_git_update(
     remote: str = "origin",
     branch: str = "main",
     fetch: bool = True,
-    fetch_timeout: float = 25.0,
+    fetch_timeout: float = 8.0,
 ) -> UpdateInfo:
     """Return whether ``repo`` is behind ``remote/branch``.
 

@@ -51,6 +51,7 @@ from wims.launcher.assets import (
     detect_assets,
     is_wsjt_only_seat,
     load_key_device,
+    AssetSnapshot,
     load_seat_intent,
     missing_intent_agent_labels,
     n1mm_seat_flags,
@@ -593,14 +594,14 @@ class LauncherApp:
         self._server_start_blocked = False  # dual-primary / refuse restart spam
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
-        self._last_snap = detect_assets()
-        # Seat intent (remembered) — separate from Running list.
-        # First open on this PC: seed from detected apps so an N1MM logger
-        # starts the N1MM agent without an extra checkbox click.
+        # Don't block window creation on tasklist/PowerShell (seconds on Win11)
+        # except first-ever seed, which needs a real app scan.
         self._intent_seeded = False
         if seat_intent_saved():
+            self._last_snap = AssetSnapshot()
             self._intent = load_seat_intent()
         else:
+            self._last_snap = detect_assets()
             self._intent = seed_intent_from_assets(self._last_snap)
             save_seat_intent(self._intent)
             self._intent_seeded = True
@@ -634,15 +635,16 @@ class LauncherApp:
         self._starting: set[str] = set()  # prevent double-start races
         self._seat_flags: tuple[bool, bool] | None = None  # (log, key) last started
         self._auto_fit_left = 0  # remaining startup geometry fits
+        self._detect_busy = False
 
         self._apply_icon()
         self._build()
         self._replace_done = False
         self.root.after(100, self._startup_replace_seat_agents)
         self.root.after(200, self._kick_site_discover)
-        self.root.after(400, self._refresh_status)
+        self.root.after(800, self._refresh_status)
         self.root.after(1000, self._poll_procs)
-        self.root.after(2500, self._kick_update_check)
+        self.root.after(4000, self._kick_update_check)
         # Mid-contest gentle re-check while launcher stays open (default 45 min).
         try:
             self._update_period_ms = int(
@@ -1125,7 +1127,7 @@ class LauncherApp:
     def _on_replace_done_error(self, err: str) -> None:
         self._append_log(f"Seat-agent replace failed: {err}")
         self._replace_done = True
-        self._sync_detect_and_agents()
+        self._kick_detect()
 
     def _on_replace_done(self, report) -> None:
         for line in report.lines:
@@ -1147,7 +1149,7 @@ class LauncherApp:
         )
         self._set_banner(level, msg, fix)
         self._replace_done = True
-        self._sync_detect_and_agents()
+        self._kick_detect()
 
     def _kick_update_check(self) -> None:
         if env_skip_update_check():
@@ -1349,8 +1351,36 @@ class LauncherApp:
 
     def _pulse_detect(self) -> None:
         if self._replace_done:
-            self._sync_detect_and_agents()
+            self._kick_detect()
         self.root.after(5000, self._pulse_detect)
+
+    def _kick_detect(self) -> None:
+        """Scan apps / site off the UI thread (tasklist + PowerShell are slow)."""
+        if not self._replace_done or self._detect_busy:
+            return
+        self._detect_busy = True
+        preferred = (self._site_var.get() or "").strip() or None
+        known_ok = bool(self._site_ok)
+
+        def work() -> None:
+            snap = detect_assets()
+            try:
+                if known_ok and preferred:
+                    ok, base = site_reachable(preferred, timeout=0.4)
+                    if not ok:
+                        ok, base = probe_site_urls(preferred, timeout=0.5)
+                else:
+                    ok, base = probe_site_urls(preferred, timeout=0.5)
+            except Exception:
+                ok, base = False, (preferred or site_base_url())
+            self.root.after(0, self._on_detect_done, snap, ok, base)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_detect_done(self, snap, ok_site: bool, base: str) -> None:
+        self._detect_busy = False
+        self._last_snap = snap
+        self._sync_detect_and_agents(snap=snap, site=(ok_site, base))
 
     def _current_intent(self) -> dict[str, bool]:
         return {k: bool(v.get()) for k, v in self._intent_vars.items()}
@@ -1441,14 +1471,22 @@ class LauncherApp:
         finally:
             self.root.after(1000, self._pulse_key_cts)
 
-    def _sync_detect_and_agents(self) -> None:
+    def _sync_detect_and_agents(self, snap=None, site=None) -> None:
         """Refresh Running list; start/stop agents from seat intent."""
         if not self._replace_done:
             return
-        snap = detect_assets()
+        if snap is None:
+            snap = self._last_snap or AssetSnapshot()
         self._last_snap = snap
 
-        ok_site, base = probe_site_urls(self._site_var.get().strip() or None)
+        if site is None:
+            pref = self._site_var.get().strip() or None
+            if self._site_ok and pref:
+                ok_site, base = site_reachable(pref, timeout=0.4)
+            else:
+                ok_site, base = probe_site_urls(pref, timeout=0.5)
+        else:
+            ok_site, base = site
         self._site_ok = ok_site
         if ok_site:
             self._site_var.set(base)
@@ -1803,7 +1841,10 @@ class LauncherApp:
 
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
-        ok_site, base = probe_site_urls(base)
+        if self._site_ok:
+            ok_site, base = site_reachable(base, timeout=0.4)
+        else:
+            ok_site, base = probe_site_urls(base, timeout=0.5)
         self._site_ok = ok_site
         if ok_site:
             self._site_var.set(base)
@@ -1837,7 +1878,7 @@ class LauncherApp:
         owned_server = self._proc_running(self._agent_role[AGENT_SERVER])
 
         self._home_panel.update_running(
-            snap or detect_assets(),
+            snap or AssetSnapshot(),
             log_up=bool(n1mm_seat_up and n1mm_intent),
             seat_up=seat_up,
             key_up=bool(n1mm_seat_up and intent.get(INTENT_SSB_CW)),

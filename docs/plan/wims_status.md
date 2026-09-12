@@ -205,6 +205,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-12** — **Version `1.0.9`**. Launcher start/idle no longer blocks the
+  UI on repeated ``tasklist`` / PowerShell / WMIC (and git fetch). Process
+  lists are cached; detect + site probe run off the UI thread; git children
+  use CREATE_NO_WINDOW.
 - **2026-09-12** — **Version `1.0.8`**. False **⚠ shared id** when the site
   server sent Replay/Reply to `224.0.0.73:2237` (instance id in the payload,
   source = server IP). Ingest treated that as a second WSJT-X host. Control

@@ -322,6 +322,8 @@ def test_process_match_n1mmlogger_net_via_tasklist_mock():
 
     subprocess.check_output = fake_check_output  # type: ignore
     os.name = "nt"  # type: ignore[misc]
+    R._tasklist_csv = None
+    R._tasklist_ts = 0.0
     try:
         assert R._process_running(
             ("n1mm logger+.exe",),

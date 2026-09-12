@@ -24,6 +24,7 @@ def git_stamp(repo: Path | None = None) -> str:
             stderr=subprocess.DEVNULL,
             text=True,
             timeout=2,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return (out or "").strip() or "?"
     except (OSError, subprocess.SubprocessError, ValueError):
