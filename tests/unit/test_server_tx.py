@@ -221,6 +221,22 @@ def test_halt_explicit_instance_refuses_other_dashboard():
     assert tx.sent == []
 
 
+def test_work_refuses_multicast_control_addr():
+    """224.x as recvfrom source must not become a sendto dest (WinError 22)."""
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, mode="FT8")),
+                       now, "224.0.0.73", 2237)
+    live.observe_wsjtx(M.parse(E.build_decode(
+        MID, time_ms=1000, snr=-8, delta_time=0.2, delta_frequency=1500,
+        message="CQ K1ABC FN31")), now, "224.0.0.73", 2237)
+    row_id = live.snapshot(now)["roster"]["candidates"][0]["id"]
+    r = live.work_station(row_id)
+    assert r["ok"] is False and r["error"] == "no_control_port"
+    assert tx.sent == []
+
+
 def test_work_unknown_row():
     live, _tx, _row_id = _fleet_with_cq_decode()
     r = live.work_station("no|such|row")

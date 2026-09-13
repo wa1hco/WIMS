@@ -425,24 +425,40 @@ def activity_to_dict(amap, now: float | None = None) -> dict:
     }
 
 
-def decodes_to_dict(buffer, now: float, limit: int = 120) -> list:
+def decodes_to_dict(buffer, now: float, limit: int = 120,
+                    *, per_instance: int | None = None) -> list:
     """Recent decodes across the whole fleet, newest first (plan §2.2 decode log).
 
     `buffer` is an iterable of stored decode dicts
     (ts/instance/snr/df/message/is_cq[/band]); we project them and ship the
     epoch `ts` so the console formats the clock. ``instance`` is the WSJT-X
-    UDP id (``--rig-name``) — the decode source."""
-    items = list(buffer)[-limit:]
+    UDP id (``--rig-name``) — the decode source.
+
+    One instance cannot occupy the whole window (a Replay dump of Band
+    Activity would otherwise hide every other radio).
+    """
+    items = list(buffer)
     items.reverse()
-    return [{
-        "ts": e["ts"],
-        "instance": e["instance"],
-        "band": e.get("band") or "",
-        "snr": e["snr"],
-        "df": e["df"],
-        "message": e["message"],
-        "is_cq": e["is_cq"],
-    } for e in items]
+    cap = per_instance if per_instance is not None else max(24, limit // 2)
+    counts: dict[str, int] = {}
+    out = []
+    for e in items:
+        inst = e.get("instance") or ""
+        if counts.get(inst, 0) >= cap:
+            continue
+        counts[inst] = counts.get(inst, 0) + 1
+        out.append({
+            "ts": e["ts"],
+            "instance": e["instance"],
+            "band": e.get("band") or "",
+            "snr": e["snr"],
+            "df": e["df"],
+            "message": e["message"],
+            "is_cq": e["is_cq"],
+        })
+        if len(out) >= limit:
+            break
+    return out
 
 
 def n1mm_sync_to_dict(now: float, *, n1mm_pkts: int, last_n1mm: float | None,

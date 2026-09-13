@@ -151,7 +151,11 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
             details.append(f"[!] Broadcast fwd: {site_err}")
 
     if do_log:
-        counts = f"FWD {snap['n_fwd']} · DROP {snap['n_drop']} · WAIT {snap['n_wait']}"
+        counts = (
+            f"FWD {snap['n_fwd']} · LOGGED {snap.get('n_logged', 0)} · "
+            f"UNCONF {snap.get('n_unconfirmed', 0)} · DROP {snap['n_drop']} · "
+            f"WAIT {snap['n_wait']}"
+        )
         tcp_port = snap.get("tcp_port", DEFAULT_TCP_PORT)
         tcp_dest = f"127.0.0.1:{tcp_port}"
         if snap.get("join_error"):
@@ -183,6 +187,13 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
             details.append(f"Last FWD {snap['last_fwd']}")
         if snap.get("last_delivery"):
             details.append(f"Last send {snap['last_delivery']}")
+        if snap.get("n_unconfirmed"):
+            details.append(
+                f"[!] {snap['n_unconfirmed']} WSJT QSO(s) N1MM did not insert "
+                f"- log by hand; Configurer > WSJT/JTDX Setup > JTDX/Others TCP"
+            )
+            if level == "ok":
+                level, banner = "warn", f"N1MM agent — {band} · log unconfirmed"
 
     warn_note = ""
     if do_key and key is not None:
@@ -199,8 +210,9 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
                              if "no KEY device" in str(ks["cts_error"])
                              else "key device error")
                 fix = (
-                    f"Key: {ks['cts_error']} — set WIMS_KEY_DEVICE "
-                    f"(COM port of the keyline interface; sim:up/sim:down for lab)"
+                    f"Key: {ks['cts_error']} — pick the keyline USB COM port "
+                    f"(not radio CAT). If this PC has no keyline, uncheck "
+                    f"SSB/CW KEY. The agent retries the port if it was busy."
                 )
             details.append(f"[!] CTS {ks['cts_error']}")
         else:

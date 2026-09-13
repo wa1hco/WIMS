@@ -48,6 +48,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # Client went away mid-request (browser refresh, agent kill, firewall). Not a server bug.
 _CLIENT_GONE = (ConnectionAbortedError, ConnectionResetError, BrokenPipeError, TimeoutError)
+import struct
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -57,7 +58,7 @@ from wims.udp import messages as M  # noqa: E402
 from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
-from wims.udp.controller import TxController  # noqa: E402
+from wims.udp.controller import TxController, v4_unicast_dest  # noqa: E402
 from wims.udp.gt_bridge import (  # noqa: E402
     DEFAULT_GT_BRIDGE_PORT, DEFAULT_GT_FORWARD_PORT, GridTrackerBridge,
     is_loopback_host, parse_host_port)
@@ -120,6 +121,9 @@ class LiveFleet:
         self._tx_claims: dict[str, dict] = {}
         # Last Replay probe (elicit Status/dial) per instance — Heartbeat has no freq.
         self._status_probe_ts: dict[str, float] = {}
+        # (instance, message, df) → last ingest time. Replay dumps Band Activity
+        # in a burst; skip roster/log clones inside one FT8 period.
+        self._recent_decode_keys: dict[tuple, float] = {}
         # Live log copy (in-memory) feeds dupe/new-mult into the roster; kept current
         # from N1MM <contactinfo>. Empty at start => every grid reads as a new mult,
         # flipping to dupe/worked as QSOs are logged (plan §3.6).
@@ -558,18 +562,18 @@ class LiveFleet:
         node = self._tracker.nodes.get(instance_id)
         if node is not None:
             ctrl = getattr(node, "control_addr", None)
-            if ctrl and ctrl[0] and int(ctrl[1]) > 0:
-                dests.append((str(ctrl[0]), int(ctrl[1])))
-            elif node.host_seen:
+            if ctrl:
+                d = v4_unicast_dest(ctrl[0], ctrl[1])
+                if d is not None:
+                    dests.append(d)
+            if not dests and node.host_seen:
                 ip = max(node.host_seen.items(), key=lambda kv: kv[1])[0]
-                if ip:
-                    dests.append((ip, port))
-        # Do NOT also send to the multicast group when we have a unicast dest.
-        # Reply/Replay on 224.0.0.73:2237 never reaches MessageClient, and the
-        # site server then ingests its own packet as a second host (false
-        # id_collision). Multicast is last-resort only when no source is known.
-        if not dests and self._tx is not None:
-            dests.append((str(self._tx.dest[0]), int(self._tx.dest[1])))
+                d = v4_unicast_dest(ip, port)
+                if d is not None:
+                    dests.append(d)
+        # Do not fall back to the multicast group. sendto(224.x) on the unicast
+        # socket is Windows error 22/10022, and Reply on :2237 never reaches
+        # MessageClient anyway.
         return dests
 
     def work_station(self, row_id: str, dashboard_id: str | None = None) -> dict:
@@ -635,6 +639,14 @@ class LiveFleet:
             # Hold Tx Freq (in WSJT-X) for Reply to Enable Tx (replyToCQ rules).
             auto_tx = M.reply_auto_tx_eligible(msg_text)
             dests = self._tx_dests_for(inst)
+            if not dests:
+                return {
+                    "ok": False, "error": "no_control_port",
+                    "detail": (
+                        f"No UDP control address for {inst!r} yet. "
+                        "Wait until that WSJT-X shows Status (Accept UDP requests on)."
+                    ),
+                }
             dash = _normalize_dashboard_id(dashboard_id)
             claim_band = cur_band or row_band or "?"
             age_hint = ""
@@ -660,12 +672,20 @@ class LiveFleet:
                     generate_messages=True, schema=schema, dests=dests,
                 )
                 sent_parts.append("configure")
-        except OSError as e:
+        except (OSError, struct.error, TypeError, ValueError) as e:
             with self._lock:
                 self._arbiter.release(inst)
+            win = getattr(e, "winerror", None) or getattr(e, "errno", None)
             print(f"TX Work FAIL {inst} {call} dests={dests}: {e}", flush=True)
-            return {"ok": False, "error": f"send_failed: {e}",
-                    "detail": f"UDP send to {dests} failed — check --tx-host/--iface and firewall."}
+            return {
+                "ok": False,
+                "error": f"send_failed: {e}",
+                "detail": (
+                    f"UDP Work {call} → {dests} failed"
+                    + (f" (err {win})" if win is not None else "")
+                    + f": {e}"
+                ),
+            }
         dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
         print(f"TX Work ok {inst!r} {call!r} msg={msg_text!r} "
               f"via={'+'.join(sent_parts)} → [{dest_s}]", flush=True)
@@ -880,24 +900,41 @@ class LiveFleet:
                 self._roster.drop_own_station(own)
                 # Other radio on this band heard our TX — not a DX decode.
                 if not is_own_tx_decode(msg, own):
-                    self._roster.observe_decode(
-                        msg, band, now,
-                        dial_hz=(node.dial_hz if node else 0),
-                        de_grid=(node.de_grid if node else None),
-                        own_calls=own)
-                    self._maps[mid].add(msg)
-                    self._decodes.append({
-                        "ts": now, "instance": mid, "snr": msg.snr,
-                        "df": msg.delta_frequency, "message": msg.message or "",
-                        "is_cq": msg.is_cq,
-                        "band": band,
-                    })
+                    # Replay (Status probe) resends the whole Band Activity window
+                    # in one burst. Same (id, text, df) inside ~8s is not a new
+                    # period — don't fill the operate log / roster with clones.
+                    dkey = (mid, msg.message or "", int(msg.delta_frequency or 0))
+                    prev = self._recent_decode_keys.get(dkey)
+                    burst_dup = prev is not None and (now - prev) < 8.0
+                    self._recent_decode_keys[dkey] = now
+                    if len(self._recent_decode_keys) > 400:
+                        cut = now - 30.0
+                        self._recent_decode_keys = {
+                            k: t for k, t in self._recent_decode_keys.items()
+                            if t >= cut
+                        }
+                    if not burst_dup:
+                        self._roster.observe_decode(
+                            msg, band, now,
+                            dial_hz=(node.dial_hz if node else 0),
+                            de_grid=(node.de_grid if node else None),
+                            own_calls=own)
+                        self._maps[mid].add(msg)
+                        self._decodes.append({
+                            "ts": now, "instance": mid, "snr": msg.snr,
+                            "df": msg.delta_frequency, "message": msg.message or "",
+                            "is_cq": msg.is_cq,
+                            "band": band,
+                        })
             elif isinstance(msg, M.Heartbeat) and self._tx is not None:
                 # Heartbeat is periodic but has no frequency. Status (dial → band)
                 # is event-driven and may never arrive on a quiet radio. Replay
-                # over UDP (not a remote .ini) asks WSJT-X to emit Status.
+                # over UDP asks WSJT-X to emit Status *and* dump Band Activity.
+                # Probe only until the first Status — a radio with dial_hz=0
+                # (no CAT) still sends Status; replaying it every 30s floods the
+                # operate console and hides other bands.
                 node = self._tracker.nodes.get(mid)
-                if node is not None and (not node.band or node.band == "?"):
+                if node is not None and node.last_status is None:
                     dests = self._tx_dests_for(mid)
                     last = self._status_probe_ts.get(mid)
                     if dests and (last is None or (now - last) >= 30.0):
@@ -1588,7 +1625,11 @@ def main() -> None:
         if args.tx_host:
             tx_controller = TxController.for_unicast(args.tx_host, tx_port)
         else:
-            tx_controller = TxController.for_group(args.group, tx_port, iface=args.iface)
+            tx_iface = args.iface
+            if tx_iface in ("0.0.0.0", "::", ""):
+                tx_iface = P._primary_lan_ip("0.0.0.0") or "0.0.0.0"
+            tx_controller = TxController.for_group(
+                args.group, tx_port, iface=tx_iface)
 
     live = LiveFleet(grouping=args.group_by, condition=args.condition,
                      tx_controller=tx_controller,

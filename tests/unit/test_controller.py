@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.udp import messages as M  # noqa: E402
 from wims.udp import encode as E  # noqa: E402
-from wims.udp.controller import TxController  # noqa: E402
+from wims.udp.controller import TxController, v4_unicast_dest  # noqa: E402
 
 
 class _FakeSock:
@@ -40,7 +40,7 @@ def test_reply_mirrors_decode_and_addresses_instance():
     d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
                                delta_frequency=1500, message="CQ K1ABC FN42"))
     fs = _FakeSock()
-    c = TxController(fs, ("224.0.0.73", 2237))
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
     raw = c.reply("SIM-6M", d)
     assert fs.sent[0][1] == ("224.0.0.73", 2237)
     r = M.parse(raw)
@@ -51,21 +51,56 @@ def test_reply_unicast_and_multicast_dests():
     d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
                                delta_frequency=1500, message="CQ K1ABC FN42"))
     fs = _FakeSock()
-    c = TxController(fs, ("224.0.0.73", 2237))
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
     c.reply("SIM-6M", d, dests=[("192.168.1.50", 2237), ("224.0.0.73", 2237)])
     assert [s[1] for s in fs.sent] == [("192.168.1.50", 2237), ("224.0.0.73", 2237)]
 
 
+def test_send_skips_bad_dest_and_sends_good():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("192.168.1.50", 2237))
+    c.reply("SIM-6M", d, dests=[("", 0), ("192.168.1.50", 2237)])
+    assert [s[1] for s in fs.sent] == [("192.168.1.50", 2237)]
+
+
+def test_reply_coerces_float_snr():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    d.snr = -7.0  # type: ignore[assignment]
+    fs = _FakeSock()
+    c = TxController(fs, ("127.0.0.1", 2237))
+    raw = c.reply("SIM-6M", d)
+    assert M.parse(raw).type == M.REPLY
+
+
+def test_v4_unicast_dest_strips_mapped_v6_and_drops_mcast():
+    assert v4_unicast_dest("::ffff:192.168.10.5", 54321) == ("192.168.10.5", 54321)
+    assert v4_unicast_dest("224.0.0.73", 2237) is None
+    assert v4_unicast_dest("0.0.0.0", 2237) is None
+    assert v4_unicast_dest("127.0.0.1", 2237) == ("127.0.0.1", 2237)
+
+
+def test_send_skips_multicast_without_mcast_sock():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237))  # no mcast_sock
+    c.reply("SIM-6M", d, dests=[("192.168.1.50", 54321), ("224.0.0.73", 2237)])
+    assert [s[1] for s in fs.sent] == [("192.168.1.50", 54321)]
+
+
 def test_halt_sends_halt_tx():
     fs = _FakeSock()
-    c = TxController(fs, ("224.0.0.73", 2237))
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
     c.halt("SIM-6M")
     assert M.parse(fs.sent[0][0]).type == M.HALT_TX
 
 
 def test_replay_unicast_to_control_port():
     fs = _FakeSock()
-    c = TxController(fs, ("224.0.0.73", 2237))
+    c = TxController(fs, ("10.0.0.1", 2237))
     c.replay("SIM-6M", dests=[("10.0.0.1", 54321)])
     assert fs.sent[0][1] == ("10.0.0.1", 54321)
     assert M.parse(fs.sent[0][0]).type == M.REPLAY

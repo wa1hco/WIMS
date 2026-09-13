@@ -440,9 +440,11 @@ function dlogDraw() {
   const allowed = opsCols ? rosSelectedBands() : null;
   const rows = list.filter(e => {
     if (!allowed) return true;
-    // Keep unknown-band lines so operators still see traffic while Status catches up.
-    if (!e.band || e.band === "?") return true;
-    return allowed.has(e.band);
+    if (e.band && e.band !== "?" && allowed.has(e.band)) return true;
+    // Unknown-band (no Status dial yet): show only if that instance id is
+    // checked. Do not dump '?' Replay floods onto a 2m-only filter.
+    if (e.instance && allowed.has(e.instance)) return true;
+    return false;
   });
   const empty = $("dlog-empty");
   if (empty) empty.style.display = rows.length ? "none" : "block";
@@ -1334,6 +1336,8 @@ function txFlash(j, url) {
       unknown_row: "Row gone — wait for a new decode",
       group_busy: "Another radio holds TX — Halt first",
       other_dashboard: "Started from another console",
+      no_control_port: "No UDP control port for that WSJT-X yet",
+      send_failed: "UDP send failed (Windows 22 = bad dest; wait for Status)",
     }[err];
     const isHalt = url && String(url).indexOf("/halt") >= 0;
     m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")

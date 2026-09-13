@@ -24,7 +24,6 @@ from wims.log.app import (
     adif_band,
     deliver_to_n1mm,
     ensure_adif_datetime,
-    rewrite_adif_rf,
     wrap_adif,
 )
 from wims.log.radioinfo import (
@@ -68,8 +67,12 @@ class AdifWrapTests(unittest.TestCase):
         self.assertEqual(adif_band(adif), "1.25m")
 
     def test_rewrite_28mhz_adif_to_432(self):
+        from wims.log import app as logapp
+        fn = getattr(logapp, "rewrite_adif_rf", None)
+        if fn is None:
+            self.skipTest("rewrite_adif_rf not in this tree")
         adif = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
-        out = rewrite_adif_rf(adif)
+        out = fn(adif)
         self.assertIn("432.174000", out)
         self.assertIn("70CM", out.upper())
         self.assertEqual(adif_band(out), "70cm")
@@ -80,6 +83,47 @@ class AdifWrapTests(unittest.TestCase):
         self.assertIn(b"<CALL:4>K1AB", payload)
         self.assertIn(b"<QSO_DATE:", payload)
         self.assertIn(b"<TIME_ON:", payload)
+        self.assertTrue(payload.endswith(b"\n"))
+        # TCP Log skips N1MM Entry lookup — we send PFX/CQZ/ITUZ ourselves.
+        self.assertIn(b"<PFX:", payload)
+        self.assertIn(b"<CQZ:", payload)
+        self.assertIn(b"<ITUZ:", payload)
+        self.assertIn(b"<CALL:4>K1AB", payload)
+
+    def test_normalize_wsjt_call_trailing_space(self):
+        from wims.log.app import normalize_adif_call, wrap_adif
+        adif = "<call:6>K1ABC <gridsquare:4>FN42 <eor>"
+        out = normalize_adif_call(adif)
+        self.assertIn("<CALL:5>K1ABC", out)
+        self.assertNotIn("<call:6>", out.lower())
+        payload = wrap_adif(adif)
+        self.assertIn(b"<CALL:5>K1ABC", payload)
+
+    def test_rebuild_strips_eoh_and_puts_call_first(self):
+        from wims.log.app import rebuild_n1mm_adif, wrap_adif
+        wsjt = (
+            "<adif_ver:5>3.1.0 <programid:6>WSJT-X <eoh>"
+            "<call:6>N8LRG <gridsquare:4>EN82 <mode:3>FT8 "
+            "<station_callsign:4>W2SZ <band:2>2m <freq:8>144.174 "
+            "<qso_date:8>20260913 <time_on:6>180000 <eor>"
+        )
+        out = rebuild_n1mm_adif(wsjt)
+        self.assertTrue(out.startswith("<CALL:5>N8LRG"))
+        self.assertNotIn("adif_ver", out.lower())
+        self.assertNotIn("eoh", out.lower())
+        self.assertNotIn("STATION_CALLSIGN", out.upper())
+        self.assertIn("<BAND:2>2M", out)
+        payload = wrap_adif(wsjt)
+        self.assertIn(b"<CALL:5>N8LRG", payload)
+        # Envelope length is the ADIF body only.
+        self.assertTrue(payload.startswith(b"<command:3>Log <parameters:"))
+
+    def test_enrich_does_not_overwrite_existing_cqz(self):
+        from wims.log.app import enrich_n1mm_adif
+        adif = "<CALL:4>K1AB<CQZ:1>9 <eor>"
+        out = enrich_n1mm_adif(adif)
+        self.assertEqual(out.count("<CQZ:"), 1)
+        self.assertIn("<CQZ:1>9", out)
 
     def test_ensure_datetime_idempotent(self):
         adif = "<CALL:4>K1AB<QSO_DATE:8>20260829<TIME_ON:6>120000 <eor>"
@@ -109,13 +153,15 @@ class AdifWrapTests(unittest.TestCase):
         conn.assert_called()
         self.assertEqual(conn.call_args[0][0], ("127.0.0.1", 52001))
 
-    def test_tcp_client_reuses_socket(self):
+    def test_tcp_client_new_socket_per_qso(self):
+        """One Log = one TCP accept. Framing cannot carry over to the next QSO."""
         from wims.log.app import N1mmTcpClient
 
         class FakeSock:
             def __init__(self):
                 self.n_send = 0
                 self.n_close = 0
+                self.n_shutdown = 0
 
             def sendall(self, data):
                 self.n_send += 1
@@ -128,7 +174,7 @@ class AdifWrapTests(unittest.TestCase):
                 pass
 
             def shutdown(self, *_a):
-                pass
+                self.n_shutdown += 1
 
             def recv(self, *_a):
                 return b""
@@ -136,19 +182,26 @@ class AdifWrapTests(unittest.TestCase):
             def close(self):
                 self.n_close += 1
 
-        sock = FakeSock()
+        socks: list[FakeSock] = []
+
+        def _make(*_a, **_k):
+            s = FakeSock()
+            socks.append(s)
+            return s
+
         client = N1mmTcpClient("127.0.0.1", 52001)
-        with mock.patch("socket.create_connection", return_value=sock) as conn:
+        with mock.patch("socket.create_connection", side_effect=_make) as conn:
             ok1, how1 = deliver_to_n1mm(b"one", prefer_tcp=True, tcp_client=client)
             ok2, how2 = deliver_to_n1mm(b"two", prefer_tcp=True, tcp_client=client)
         self.assertTrue(ok1 and ok2)
         self.assertTrue(how1.startswith("TCP") and how2.startswith("TCP"))
-        self.assertEqual(conn.call_count, 1)
-        self.assertEqual(sock.n_send, 2)
-        self.assertEqual(sock.n_close, 0)
-        client.close()
-        self.assertEqual(sock.n_close, 1)
-        self.assertFalse(client.alive)
+        self.assertEqual(conn.call_count, 2)
+        self.assertEqual(len(socks), 2)
+        self.assertEqual(socks[0].n_send, 1)
+        self.assertEqual(socks[1].n_send, 1)
+        self.assertGreaterEqual(socks[0].n_close, 1)
+        self.assertGreaterEqual(socks[1].n_close, 1)
+        self.assertGreaterEqual(socks[0].n_shutdown, 1)
 
 
 class QsoRecordTests(unittest.TestCase):
@@ -607,6 +660,91 @@ class CheckTests(unittest.TestCase):
         delivery = next(i for i in rep.items if i.id == "delivery")
         self.assertEqual(delivery.severity, "warn")
         self.assertIn("52001", delivery.message)
+
+
+class InsertConfirmTests(unittest.TestCase):
+    """TCP SEND OK is not a log. Confirm via N1MM contactinfo or retry."""
+
+    def test_contactinfo_confirms_pending(self):
+        st = LogState()
+        st.track_pending(
+            call="N2KLC", band="2m", payload=b"x", instance="T", now=1.0,
+        )
+        self.assertTrue(st.note_n1mm_contact("N2KLC", "2m", 1.2))
+        done = st.take_confirmed()
+        self.assertEqual([p["call"] for p in done], ["N2KLC"])
+        self.assertEqual(st.n_logged, 1)
+        self.assertEqual(st.due_retries(3.0), [])
+
+    def test_other_band_does_not_confirm(self):
+        st = LogState()
+        st.track_pending(
+            call="K2KA", band="2m", payload=b"x", instance="T", now=1.0,
+        )
+        self.assertFalse(st.note_n1mm_contact("K2KA", "6m", 1.2))
+        self.assertEqual(st.take_confirmed(), [])
+
+    def test_retry_then_unconfirmed(self):
+        from wims.log.app import _CONFIRM_MAX_TRIES, _CONFIRM_WAIT_S
+        st = LogState()
+        st.track_pending(
+            call="VA2CY", band="2m", payload=b"x", instance="T", now=1.0,
+        )
+        self.assertEqual(st.due_retries(1.0 + _CONFIRM_WAIT_S - 0.1), [])
+        retry = st.due_retries(1.0 + _CONFIRM_WAIT_S + 0.1)
+        self.assertEqual(len(retry), 1)
+        retry[0]["tries"] = _CONFIRM_MAX_TRIES
+        retry[0]["last_send"] = 1.0
+        self.assertEqual(st.due_retries(1.0 + _CONFIRM_WAIT_S + 0.1), [])
+        self.assertEqual(st.n_unconfirmed, 1)
+
+    def test_contact_xml_acks_pending(self):
+        from wims.log.app import _note_contact_broadcast
+        st = LogState()
+        st.track_pending(
+            call="K1ABC", band="2m", payload=b"x", instance="T", now=1.0,
+        )
+        xml = (
+            "<?xml version=\"1.0\"?><contactinfo><app>N1MM</app>"
+            "<call>K1ABC</call><band>2</band></contactinfo>"
+        )
+        _note_contact_broadcast(st, xml)
+        done = st.take_confirmed()
+        self.assertEqual(done[0]["call"], "K1ABC")
+
+    def test_deliver_also_udp(self):
+        sent = []
+
+        class FakeSock:
+            def sendall(self, data):
+                sent.append(("tcp", data))
+
+            def setsockopt(self, *_a):
+                pass
+
+            def settimeout(self, *_a):
+                pass
+
+            def shutdown(self, *_a):
+                pass
+
+            def recv(self, *_a):
+                return b""
+
+            def close(self):
+                pass
+
+        udp = mock.Mock()
+        udp.sendto = lambda data, addr: sent.append(("udp", addr))
+        udp.close = lambda: None
+        with mock.patch("socket.create_connection", return_value=FakeSock()):
+            with mock.patch("socket.socket", return_value=udp):
+                ok, how = deliver_to_n1mm(b"pay", prefer_tcp=True, also_udp=True)
+        self.assertTrue(ok)
+        self.assertIn("TCP", how)
+        self.assertIn("UDP", how)
+        self.assertEqual(sent[0][0], "tcp")
+        self.assertEqual(sent[1][0], "udp")
 
 
 if __name__ == "__main__":

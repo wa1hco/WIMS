@@ -20,6 +20,20 @@ from dataclasses import dataclass
 
 TIOCMGET = 0x5415
 TIOCM_CTS = 0x020
+MS_CTS_ON = 0x0010
+
+# CreateFile / GetCommModemStatus without HANDLE restype truncates 64-bit
+# handles to 32-bit → ERROR_INVALID_HANDLE (6) on 64-bit Windows.
+_k32 = None
+
+_WINERR = {
+    1: "not a serial port",
+    2: "port not found",
+    5: "access denied (port already open)",
+    6: "invalid handle",
+    32: "sharing violation (port already open)",
+    1167: "device disconnected",
+}
 
 
 def win_com_path(device: str) -> str:
@@ -28,6 +42,47 @@ def win_com_path(device: str) -> str:
     if re.fullmatch(r"(?i)COM\d+", dev):
         return "\\\\.\\" + dev.upper()
     return dev
+
+
+def _kernel32():
+    """kernel32 with pointer-sized HANDLE (must not use default c_int restype)."""
+    global _k32
+    if _k32 is not None:
+        return _k32
+    import ctypes
+    from ctypes import wintypes
+    k = ctypes.WinDLL("kernel32", use_last_error=True)
+    k.CreateFileW.restype = wintypes.HANDLE
+    k.CreateFileW.argtypes = (
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    )
+    k.GetCommModemStatus.restype = wintypes.BOOL
+    k.GetCommModemStatus.argtypes = (
+        wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD),
+    )
+    k.CloseHandle.restype = wintypes.BOOL
+    k.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _k32 = k
+    return k
+
+
+def _win_fail(op: str, device: str, code: int | None = None) -> str:
+    import ctypes
+    n = int(code if code is not None else (ctypes.get_last_error() or 0))
+    hint = _WINERR.get(n)
+    extra = f": {hint}" if hint else ""
+    return f"{op} failed on {device} (win32 {n}{extra})"
+
+
+def _handle_value(handle) -> int | None:
+    """Normalize CreateFileW HANDLE to an int; None if invalid."""
+    if handle is None:
+        return None
+    hv = int(getattr(handle, "value", handle) or 0)
+    if hv == 0 or hv == -1 or hv == 0xFFFFFFFF or hv == 0xFFFFFFFFFFFFFFFF:
+        return None
+    return hv
 
 
 @dataclass
@@ -71,19 +126,33 @@ class CtsSource:
         except ImportError as e:
             self.error = f"ctypes unavailable: {e}"
             return
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k = _kernel32()
         GENERIC_READ = 0x80000000
-        GENERIC_WRITE = 0x40000000
+        FILE_SHARE_READ = 0x00000001
         OPEN_EXISTING = 3
-        handle = kernel32.CreateFileW(
-            win_com_path(self.device), GENERIC_READ | GENERIC_WRITE, 0, None,
+        # Sense-only: no GENERIC_WRITE (that is what radio CAT often holds).
+        ctypes.set_last_error(0)
+        handle = k.CreateFileW(
+            win_com_path(self.device), GENERIC_READ, FILE_SHARE_READ, None,
             OPEN_EXISTING, 0, None,
         )
-        INVALID = wintypes.HANDLE(-1).value
-        if handle == INVALID or handle is None:
-            self.error = f"CreateFile failed for {self.device}"
+        create_err = ctypes.get_last_error()
+        hv = _handle_value(handle)
+        if hv is None:
+            self.error = _win_fail("CreateFile", self.device, create_err)
             return
-        self._handle = int(handle)
+        self._handle = hv
+        # Probe now so a non-UART COM (or truncated handle) fails at open.
+        ctypes.set_last_error(0)
+        status = wintypes.DWORD(0)
+        ok = k.GetCommModemStatus(
+            wintypes.HANDLE(self._handle), ctypes.byref(status),
+        )
+        if not ok:
+            self.error = _win_fail(
+                "GetCommModemStatus", self.device, ctypes.get_last_error(),
+            )
+            self.close()
 
     def close(self) -> None:
         if self._fd is not None:
@@ -94,8 +163,7 @@ class CtsSource:
             self._fd = None
         if self._handle is not None:
             try:
-                import ctypes
-                ctypes.WinDLL("kernel32", use_last_error=True).CloseHandle(self._handle)
+                _kernel32().CloseHandle(self._handle)
             except Exception:
                 pass
             self._handle = None
@@ -125,26 +193,15 @@ class CtsSource:
     def _read_win(self) -> bool:
         import ctypes
         from ctypes import wintypes
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        status = wintypes.DWORD()
-        ok = kernel32.GetCommModemStatus(self._handle, ctypes.byref(status))
+        k = _kernel32()
+        ctypes.set_last_error(0)
+        status = wintypes.DWORD(0)
+        ok = k.GetCommModemStatus(
+            wintypes.HANDLE(self._handle), ctypes.byref(status),
+        )
         if not ok:
-            self.error = "GetCommModemStatus failed"
+            self.error = _win_fail(
+                "GetCommModemStatus", self.device, ctypes.get_last_error(),
+            )
             return False
-        MS_CTS_ON = 0x0010
         return bool(status.value & MS_CTS_ON)
-
-    def close(self) -> None:
-        if self._fd is not None:
-            try:
-                os.close(self._fd)
-            except OSError:
-                pass
-            self._fd = None
-        if self._handle is not None and sys.platform.startswith("win"):
-            try:
-                import ctypes
-                ctypes.WinDLL("kernel32").CloseHandle(self._handle)
-            except Exception:
-                pass
-            self._handle = None

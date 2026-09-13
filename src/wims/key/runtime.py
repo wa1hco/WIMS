@@ -28,6 +28,7 @@ from wims.udp import messages as M
 from wims.udp.sink import open_socket
 
 TICK_S = 0.05
+CTS_RETRY_S = 1.0
 
 
 def parse_target_override(text: str) -> list[tuple[str, int]]:
@@ -277,6 +278,19 @@ class KeyRuntime:
             self.state.cts_error = cts.error
         try:
             while not self._stop.is_set():
+                # First open often loses to the launcher CTS sample (exclusive
+                # COM). Do not stick on that error after the other handle drops.
+                if cts.error and (self.device or "").strip():
+                    with self.state._lock:
+                        self.state.cts_error = cts.error
+                    cts.close()
+                    self._stop.wait(CTS_RETRY_S)
+                    if self._stop.is_set():
+                        break
+                    cts = CtsSource.open(self.device)
+                    with self.state._lock:
+                        self.state.cts_error = cts.error
+                    continue
                 now = time.monotonic()
                 band = self._band()
                 keyed = cts.read()

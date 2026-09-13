@@ -158,7 +158,11 @@ def build_reply(mid: str, *, time_ms: int, snr: int, delta_time: float, delta_fr
     modifiers (no 'New' field — that's Decode-only).
     """
     w = _Writer(schema, REPLY, mid)
-    w.u32(time_ms); w.i32(snr); w.double(delta_time); w.u32(delta_frequency)
+    # Coerce: JSON/float snr or df used to raise struct.error on Work.
+    w.u32(int(time_ms or 0) & 0xFFFFFFFF)
+    w.i32(max(-2_147_483_648, min(2_147_483_647, int(snr or 0))))
+    w.double(float(delta_time or 0.0))
+    w.u32(int(delta_frequency or 0) & 0xFFFFFFFF)
     w.utf8(mode); w.utf8(message); w.boolean(low_confidence); w.u8(modifiers)
     return w.bytes()
 

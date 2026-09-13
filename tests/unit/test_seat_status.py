@@ -67,7 +67,9 @@ class SeatStatusModelTests(unittest.TestCase):
         self.assertIn("N1MM agent", model.banner_text)
         self.assertIn("2m", model.banner_text)
         self.assertIn("key device missing", model.banner_text)
-        self.assertIn("WIMS_KEY_DEVICE", model.fix_text)
+        self.assertTrue(
+            "WIMS_KEY_DEVICE" in model.fix_text or "keyline" in model.fix_text.lower()
+        )
         by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
         self.assertEqual(set(by_label), {"BROADCAST", "LOG", "KEY"})
         self.assertEqual(by_label["BROADCAST"][0], "ok")

@@ -437,6 +437,61 @@ def test_heartbeat_without_band_sends_replay_for_status():
     assert live.snapshot(51.0)["roster"]["live_bands"] == ["6m"]
 
 
+def test_status_with_zero_dial_does_not_keep_replaying():
+    """6M-3o3 live: Status arrives with dial_hz=0 (no CAT) so band stays '?'.
+
+    Replay must stop after that Status — otherwise WSJT-X dumps Band Activity
+    every 30s and the operate log hides every other radio.
+    """
+    class _Tx:
+        dest = ("224.0.0.73", 2237)
+
+        def __init__(self):
+            self.replays = []
+
+        def replay(self, mid, dests=None, schema=2):
+            self.replays.append((mid, list(dests or [])))
+            return b""
+
+    tx = _Tx()
+    live = LiveFleet(tx_controller=tx)
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("WSJT-X - 6M-3o3", version="3.0.2-rc3")),
+        now=10.0, src_ip="192.168.10.69", src_port=59561,
+    )
+    assert len(tx.replays) == 1
+    live.observe_wsjtx(
+        M.parse(E.build_status(
+            "WSJT-X - 6M-3o3", 0, mode="FT8", de_call="W2SZ", dx_call="KE1LI")),
+        now=11.0, src_ip="192.168.10.69", src_port=59561,
+    )
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("WSJT-X - 6M-3o3", version="3.0.2-rc3")),
+        now=50.0, src_ip="192.168.10.69", src_port=59561,
+    )
+    assert len(tx.replays) == 1  # Status seen (even dial 0) — do not Replay again
+
+
+def test_replay_burst_does_not_clone_decode_log():
+    """Same (instance, message, df) inside 8s is a Replay dump, not a new period."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status(
+        "WSJT-X - 6M-3o3", 0, mode="FT8", de_call="W2SZ")),
+                       now=1.0, src_ip="192.168.10.69")
+    pkt = M.parse(E.build_decode(
+        "WSJT-X - 6M-3o3", time_ms=0, snr=16, delta_time=0.1,
+        delta_frequency=800, message="CQ TEST W1BS FN32"))
+    live.observe_wsjtx(pkt, now=2.0, src_ip="192.168.10.69")
+    live.observe_wsjtx(pkt, now=2.01, src_ip="192.168.10.69")
+    live.observe_wsjtx(pkt, now=2.02, src_ip="192.168.10.69")
+    msgs = [d["message"] for d in live.snapshot(3.0)["decodes"]]
+    assert msgs.count("CQ TEST W1BS FN32") == 1
+    # Next FT8 period (15s later) still logs.
+    live.observe_wsjtx(pkt, now=17.0, src_ip="192.168.10.69")
+    msgs = [d["message"] for d in live.snapshot(18.0)["decodes"]]
+    assert msgs.count("CQ TEST W1BS FN32") == 2
+
+
 def test_livefleet_roster_armed_when_tx_enabled_for_dx():
     """Enable Tx + DX Call matching a row → is_armed (green highlight)."""
     live = LiveFleet()
@@ -551,6 +606,21 @@ def test_decodes_to_dict_newest_first():
     assert [e["message"] for e in out] == ["WA1HCO K1ABC -01", "CQ K1ABC FN42"]  # newest first
     assert out[0]["is_cq"] is False and out[1]["is_cq"] is True
     assert out[1]["ts"] == 10.0 and out[1]["df"] == 1500
+
+
+def test_decodes_to_dict_caps_one_instance():
+    """A Replay flood from one radio must not hide the other band."""
+    buf = (
+        [{"ts": float(i), "instance": "3o3", "snr": 0, "df": 1,
+          "message": f"CQ A{i} FN32", "is_cq": True} for i in range(80)]
+        + [{"ts": 80.5, "instance": "2M-Trailer", "snr": 6, "df": 2,
+            "message": "CQ TEST W2EA FN21", "is_cq": True}]
+    )
+    out = decodes_to_dict(buf, now=81.0, limit=40, per_instance=20)
+    inst = [e["instance"] for e in out]
+    assert inst.count("2M-Trailer") == 1
+    assert inst.count("3o3") == 20
+    assert out[0]["instance"] == "2M-Trailer"  # newest first
 
 
 def test_n1mm_sync_states():

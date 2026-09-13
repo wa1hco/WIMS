@@ -615,6 +615,10 @@ class LauncherApp:
         self._key_device_var = tk.StringVar(value=load_key_device())
         if self._key_device_var.get().strip():
             os.environ["WIMS_KEY_DEVICE"] = self._key_device_var.get().strip()
+        # Last device we applied to the running seat. Combobox FocusOut /
+        # values-refresh fires _on_key_device_change even when COM6 is unchanged;
+        # restarting the seat there tears down N1MM TCP :52001 and drops QSOs.
+        self._key_device_applied = (self._key_device_var.get() or "").strip()
         self._cts_monitor = None  # open only while sampling (not while seat Key owns port)
         # role_id mapping for _procs / _start_role
         self._agent_role = {
@@ -1425,6 +1429,14 @@ class LauncherApp:
         device = (self._key_device_var.get() or "").strip()
         save_key_device(device)
         self._close_cts_monitor()
+        applied = getattr(self, "_key_device_applied", None)
+        if device == applied:
+            return
+        self._key_device_applied = device
+        if device:
+            os.environ["WIMS_KEY_DEVICE"] = device
+        else:
+            os.environ.pop("WIMS_KEY_DEVICE", None)
         self._append_log(f"KEY device → {device or '(none)'}")
         # If Key seat is already up, restart so it picks up the new device.
         intent = self._current_intent()
@@ -1677,7 +1689,11 @@ class LauncherApp:
             want_log, want_key = n1mm_seat_flags(self._current_intent())
             self._seat_flags = (want_log, want_key)
             if want_key:
-                save_key_device((self._key_device_var.get() or "").strip())
+                dev = (self._key_device_var.get() or "").strip()
+                save_key_device(dev)
+                self._key_device_applied = dev
+                # Drop launcher CTS sample before the seat opens the same COM.
+                self._close_cts_monitor()
             self._append_log(
                 f"Starting N1MM seat "
                 f"(log={'on' if want_log else 'off'}, key={'on' if want_key else 'off'}"
