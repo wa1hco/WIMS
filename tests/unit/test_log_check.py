@@ -85,6 +85,15 @@ class AdifWrapTests(unittest.TestCase):
         self.assertIn(b"<time_on:", payload)
         self.assertTrue(payload.endswith(b"\n"))
         self.assertNotIn(b"<CALL:", payload)
+        # First byte of the N-byte body is a space (N1MM skips it).
+        import re
+        m = re.match(br"<command:3>Log <parameters:(\d+)>", payload)
+        n = int(m.group(1))
+        body = payload[m.end():]
+        if body.endswith(b"\n"):
+            body = body[:-1]
+        self.assertEqual(len(body), n)
+        self.assertTrue(body.startswith(b" <call:"))
 
     def test_normalize_wsjt_call_trailing_space(self):
         from wims.log.app import normalize_adif_call, wrap_adif

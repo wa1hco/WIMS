@@ -255,8 +255,14 @@ def wrap_adif(adif: str) -> bytes:
     if "<eor>" not in text.lower():
         text += " <eor>"
     raw = text.encode("ascii", "replace")
-    # Length is ADIF only. Space after '>' is in the N1MM example; do not
-    # include it in N. Newline after EOR is not in N (JTDX same).
+    # N1MM LoggingTCP (measured 2026-09-13 on this PC, ham.s3db):
+    # it discards the first byte after ``<parameters:N>`` then searches
+    # ``<call:``. If the ADIF starts at that byte, Call is stored empty
+    # while gridsquare/mode/freq/band still parse. A leading space *inside
+    # N* fixes it. Confirmed: wrap_adif without space → Call=''; space in N
+    # → Call='W9WIMS'; WSJT ``<EOH>`` blob also works (first byte is not
+    # the ``<`` of ``<call:``). Newline after EOR is not in N.
+    raw = b" " + raw
     header = f"<command:3>Log <parameters:{len(raw)}>"
     return header.encode("ascii") + raw + b"\n"
 
