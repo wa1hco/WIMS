@@ -1708,6 +1708,7 @@ class LauncherApp:
                 open_browser=open_browser,
                 want_log=want_log,
                 want_key=want_key,
+                gui=False,
             )
             self._starting.discard(agent_id)
             self._schedule_status(1500)
@@ -1917,6 +1918,17 @@ class LauncherApp:
             key_up=bool(n1mm_seat_up and intent.get(INTENT_SSB_CW)),
             server_up=self._agent_effective(AGENT_SERVER),
             server_existing=bool(ok_site and not owned_server),
+        )
+        try:
+            from wims.seat.status_io import read_status
+            n1mm_st = read_status() if n1mm_seat_up else None
+        except Exception:
+            n1mm_st = None
+        self._home_panel.update_n1mm_agent_status(
+            n1mm_st,
+            log_on=bool(n1mm_intent),
+            key_on=bool(intent.get(INTENT_SSB_CW)),
+            seat_up=n1mm_seat_up,
         )
         self._sync_server_action_buttons(ok_site=ok_site, base=base)
 
@@ -2359,10 +2371,14 @@ class LauncherApp:
             # Live band from N1MM RadioInfo — do not pass a launcher pin.
             kwargs.pop("band", None)
             os.environ.pop("WIMS_BAND", None)
+        if role.id in ("log", "key", "n1mm_seat"):
+            kwargs.setdefault("gui", False)
         try:
             py_argv = role.build_argv(**kwargs)
         except TypeError:
             py_argv = role.build_argv()
+        if role.id in ("log", "key", "n1mm_seat") and "--no-gui" not in py_argv:
+            py_argv = list(py_argv) + ["--no-gui"]
         cmd = _python_cmd() + py_argv
         self._append_log(f"$ {' '.join(cmd)}")
         popen_kw: dict = {
@@ -2373,11 +2389,13 @@ class LauncherApp:
             "text": True,
             "bufsize": 1,
         }
-        # Never show a python.exe console on Windows. Tk agents have their own
-        # window; site server / monitor logs go to Details via the pipe.
+        # Never show a python.exe console on Windows. N1MM agent is --no-gui;
+        # status rows live in this launcher. Other roles log to Details.
         popen_kw.update(windows_hidden_popen_kwargs())
         if role.id in ("log", "key", "n1mm_seat"):
-            self._append_log(f"{role.title} status window should open on this PC.")
+            self._append_log(
+                f"{role.title} runs in this window (Broadcast / Log / KEY from seat options)."
+            )
         try:
             proc = subprocess.Popen(cmd, **popen_kw)
         except Exception as e:

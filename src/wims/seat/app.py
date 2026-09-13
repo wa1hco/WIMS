@@ -27,6 +27,7 @@ import threading
 import time
 
 from wims.agent_ui import AgentStatusModel, AgentStatusWindow
+from wims.seat.status_io import clear_status, write_status
 from wims.key.runtime import KeyRuntime, default_controller_id
 from wims.log import GROUP, PORT
 from wims.log.app import (
@@ -245,7 +246,7 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         else:
             banner = f"N1MM agent — {band} · {warn_note or 'warnings (see below)'}"
 
-    return AgentStatusModel(
+    model = AgentStatusModel(
         title=title,
         banner_level=level,
         banner_text=banner,
@@ -256,6 +257,17 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         hover_text="\n".join(details),
         site_url=snap.get("site_url"),
     )
+    write_status({
+        "ts": time.time(),
+        "running": True,
+        "do_log": do_log,
+        "do_key": do_key,
+        "banner_level": model.banner_level,
+        "banner_text": model.banner_text,
+        "fix_text": model.fix_text,
+        "status_rows": list(model.status_rows),
+    })
+    return model
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -410,13 +422,27 @@ def main(argv: list[str] | None = None) -> int:
         try:
             while not stop.is_set():
                 if fwd_thread and not fwd_thread.is_alive() and do_log:
-                    break
+                    _log_line("seat-agent: log thread died — restarting")
+                    fwd_thread = threading.Thread(
+                        target=_forward_loop, args=(state, args, stop),
+                        daemon=True, name="seat-log",
+                    )
+                    fwd_thread.start()
+                if not radio_thread.is_alive():
+                    _log_line("seat-agent: broadcast thread died — restarting")
+                    radio_thread = threading.Thread(
+                        target=_radio_loop, args=(state, stop),
+                        daemon=True, name="seat-radio",
+                    )
+                    radio_thread.start()
+                _status_model(state, key_rt, do_log=do_log, do_key=do_key)
                 time.sleep(0.5)
         except KeyboardInterrupt:
             stop.set()
             _log_line("seat-agent: quit")
 
     stop.set()
+    clear_status()
     if key_rt is not None:
         key_rt.stop()
     if fwd_thread is not None:

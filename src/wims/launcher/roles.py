@@ -80,9 +80,12 @@ def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
     return argv
 
 
-def _key_agent_argv() -> list[str]:
+def _key_agent_argv(*, gui: bool = True) -> list[str]:
     # Escape: Key-only seat process.
-    return ["-m", "wims.seat", "--key"]
+    argv = ["-m", "wims.seat", "--key"]
+    if not gui:
+        argv.append("--no-gui")
+    return argv
 
 
 def _n1mm_seat_argv(*, want_log: bool = True, want_key: bool = False,
@@ -165,7 +168,7 @@ ROLES: tuple[Role, ...] = (
         recommended=False,
         advanced=True,
         long_running=True,
-        build_argv=lambda **_: _key_agent_argv(),
+        build_argv=lambda gui=True, **_: _key_agent_argv(gui=gui),
     ),
     Role(
         id="wsjt_check",

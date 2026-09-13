@@ -81,7 +81,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.14`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.14).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.15`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.15).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -206,6 +206,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-13** — **Version `1.0.15`**. N1MM Log OPERATOR is the rig-name
+  (strip `WSJT-X - `). ADIF `BAND` 10m/15m maps to 70cm/1.25m IF. Launcher
+  is the only N1MM-agent window (`--no-gui`; Broadcast/Log/KEY rows in the
+  launcher). UDP ingest stall watchdog + dashboard stall badge. CI
+  `adif_band` IF tests pass.
 - **2026-09-13** — **Version `1.0.14`**. N1MM TCP Log Call: measured on
   live `:52001`/`ham.s3db` — N1MM skips the first byte after
   `<parameters:N>`. Prefix ADIF with a space *inside* N. Live test

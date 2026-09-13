@@ -404,7 +404,11 @@ def test_roster_live_bands_from_heartbeat_not_decodes():
 
 
 def test_heartbeat_without_band_sends_replay_for_status():
-    """Quiet radio: Heartbeat has no freq — Replay (UDP) asks for Status/dial."""
+    """Quiet radio: Heartbeat has no freq — Replay (UDP) asks for Status/dial.
+
+    Not on the first Heartbeat: that is a site-server restart, and Replay
+    dumps Band Activity into Operate. Wait until the instance is old enough.
+    """
     class _Tx:
         dest = ("224.0.0.73", 2237)
 
@@ -421,20 +425,25 @@ def test_heartbeat_without_band_sends_replay_for_status():
         M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
         now=10.0, src_ip="10.0.0.1", src_port=54321,
     )
+    assert tx.replays == []  # startup — do not dump Band Activity
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+        now=55.0, src_ip="10.0.0.1", src_port=54321,
+    )
     assert len(tx.replays) == 1
     assert tx.replays[0][0] == "SIM-6M"
     assert tx.replays[0][1] == [("10.0.0.1", 54321)]
     assert ("224.0.0.73", 2237) not in tx.replays[0][1]
     live.observe_wsjtx(
         M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8")),
-        now=11.0, src_ip="10.0.0.1", src_port=54321,
+        now=56.0, src_ip="10.0.0.1", src_port=54321,
     )
     live.observe_wsjtx(
         M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
-        now=50.0, src_ip="10.0.0.1", src_port=54321,
+        now=90.0, src_ip="10.0.0.1", src_port=54321,
     )
     assert len(tx.replays) == 1  # band known — no more Replay
-    assert live.snapshot(51.0)["roster"]["live_bands"] == ["6m"]
+    assert live.snapshot(91.0)["roster"]["live_bands"] == ["6m"]
 
 
 def test_status_with_zero_dial_does_not_keep_replaying():
@@ -459,7 +468,7 @@ def test_status_with_zero_dial_does_not_keep_replaying():
         M.parse(E.build_heartbeat("WSJT-X - 6M-3o3", version="3.0.2-rc3")),
         now=10.0, src_ip="192.168.10.69", src_port=59561,
     )
-    assert len(tx.replays) == 1
+    assert tx.replays == []  # too soon — Status may still arrive
     live.observe_wsjtx(
         M.parse(E.build_status(
             "WSJT-X - 6M-3o3", 0, mode="FT8", de_call="W2SZ", dx_call="KE1LI")),
@@ -469,7 +478,7 @@ def test_status_with_zero_dial_does_not_keep_replaying():
         M.parse(E.build_heartbeat("WSJT-X - 6M-3o3", version="3.0.2-rc3")),
         now=50.0, src_ip="192.168.10.69", src_port=59561,
     )
-    assert len(tx.replays) == 1  # Status seen (even dial 0) — do not Replay again
+    assert tx.replays == []  # Status seen (even dial 0) — never needed Replay
 
 
 def test_replay_burst_does_not_clone_decode_log():
@@ -490,6 +499,67 @@ def test_replay_burst_does_not_clone_decode_log():
     live.observe_wsjtx(pkt, now=17.0, src_ip="192.168.10.69")
     msgs = [d["message"] for d in live.snapshot(18.0)["decodes"]]
     assert msgs.count("CQ TEST W1BS FN32") == 2
+
+
+def test_decode_before_status_is_not_logged():
+    """Startup / Replay dump arrives as Decode with no Status yet (band '?')."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_heartbeat("WSJT-X - 6M-WAMC", version="2.7.0")),
+                       now=1.0, src_ip="192.168.10.84")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=-12, delta_time=0.1,
+        delta_frequency=800, message="CQ KE1LI FN41")),
+                       now=1.05, src_ip="192.168.10.84")
+    assert live.snapshot(1.1)["decodes"] == []
+    live.observe_wsjtx(M.parse(E.build_status(
+        "WSJT-X - 6M-WAMC", 50_313_000, mode="FT8")),
+                       now=1.2, src_ip="192.168.10.84")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=-12, delta_time=0.1,
+        delta_frequency=900, message="CQ TEST AA1ON FN42")),
+                       now=1.3, src_ip="192.168.10.84")
+    msgs = [d["message"] for d in live.snapshot(1.4)["decodes"]]
+    assert msgs == ["CQ TEST AA1ON FN42"]
+
+
+def test_replay_hold_drops_band_activity_dump():
+    """After a late Status probe, ignore the Replay Band Activity burst."""
+    class _Tx:
+        dest = ("224.0.0.73", 2237)
+
+        def __init__(self):
+            self.replays = []
+
+        def replay(self, mid, dests=None, schema=2):
+            self.replays.append(mid)
+            return b""
+
+    tx = _Tx()
+    live = LiveFleet(tx_controller=tx)
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+        now=10.0, src_ip="10.0.0.1", src_port=54321,
+    )
+    live.observe_wsjtx(
+        M.parse(E.build_heartbeat("SIM-6M", version="2.7.0")),
+        now=55.0, src_ip="10.0.0.1", src_port=54321,
+    )
+    assert tx.replays == ["SIM-6M"]
+    live.observe_wsjtx(
+        M.parse(E.build_status("SIM-6M", 50_313_000, mode="FT8")),
+        now=55.05, src_ip="10.0.0.1", src_port=54321,
+    )
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-6M", time_ms=0, snr=5, delta_time=0.1,
+        delta_frequency=500, message="CQ OLD FN42")),
+                       now=55.1, src_ip="10.0.0.1")
+    assert live.snapshot(55.2)["decodes"] == []
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "SIM-6M", time_ms=15000, snr=5, delta_time=0.1,
+        delta_frequency=600, message="CQ NEW FN42")),
+                       now=58.0, src_ip="10.0.0.1")
+    msgs = [d["message"] for d in live.snapshot(58.1)["decodes"]]
+    assert msgs == ["CQ NEW FN42"]
 
 
 def test_livefleet_roster_armed_when_tx_enabled_for_dx():

@@ -95,6 +95,21 @@ class AdifWrapTests(unittest.TestCase):
         self.assertEqual(len(body), n)
         self.assertTrue(body.startswith(b" <call:"))
 
+    def test_operator_is_rig_name_not_wsjt_op(self):
+        from wims.log.app import operator_from_instance_id
+        self.assertEqual(operator_from_instance_id("WSJT-X - 2M-Trailer"), "2M-Trailer")
+        self.assertEqual(operator_from_instance_id("2M-Trailer"), "2M-Trailer")
+        self.assertEqual(operator_from_instance_id("WSJT-X"), "WSJT-X")
+        adif = (
+            "<call:5>K1ABC <gridsquare:4>FN42 <mode:3>FT8 "
+            "<operator:6>W1ABC <eor>"
+        )
+        payload = wrap_adif(adif, operator=operator_from_instance_id("WSJT-X - 2M-Trailer"))
+        self.assertIn(b"<operator:10>2M-Trailer", payload)
+        self.assertNotIn(b"WSJT-X - ", payload)
+        self.assertNotIn(b"<operator:6>W1ABC", payload)
+        self.assertIn(b" <call:5>K1ABC", payload)
+
     def test_normalize_wsjt_call_trailing_space(self):
         from wims.log.app import normalize_adif_call, wrap_adif
         adif = "<call:6>K1ABC <gridsquare:4>FN42 <eor>"

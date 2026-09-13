@@ -124,6 +124,8 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertEqual(argv[:2], ["-m", "wims.seat"])
         self.assertIn("--log", argv)
         self.assertIn("--key", argv)
+        argv_ng = seat.build_argv(want_log=True, want_key=True, gui=False)
+        self.assertIn("--no-gui", argv_ng)
 
     def test_band_ports_skip_2240(self):
         ports = [p for _, p in BAND_PORTS]

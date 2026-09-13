@@ -115,6 +115,22 @@ class AgentHomePanel:
         run_grid.columnconfigure(0, weight=1)
         run_grid.columnconfigure(1, weight=1)
 
+        # N1MM agent live rows (Broadcast / Log / KEY) — this launcher window,
+        # not a second Tk process.
+        self._n1mm_fr = tk.LabelFrame(
+            parent, text="N1MM agent",
+            font=_ui_font(11), bg="#f4f4f4", fg="#333333", padx=6, pady=2,
+        )
+        self._n1mm_row_vars: list[Any] = []
+        self._n1mm_row_labels: list[Any] = []
+        self._n1mm_empty = tk.StringVar(value="off")
+        self._n1mm_empty_lbl = tk.Label(
+            self._n1mm_fr, textvariable=self._n1mm_empty,
+            font=_ui_font(11), bg="#f4f4f4", fg="#666666", anchor="w",
+        )
+        self._n1mm_empty_lbl.pack(fill="x")
+        self._n1mm_fr.pack(fill="x", pady=(0, 4))
+
         # —— Intent (remembered) ——
         intent_fr = tk.LabelFrame(
             parent, text="This seat will run",
@@ -292,6 +308,63 @@ class AgentHomePanel:
             self._run_labels["server"].set("up")
         else:
             self._run_labels["server"].set("off")
+
+    def update_n1mm_agent_status(
+        self,
+        status: dict | None,
+        *,
+        log_on: bool,
+        key_on: bool,
+        seat_up: bool,
+    ) -> None:
+        """Show Broadcast/Log/KEY rows from the seat snapshot (options that run)."""
+        for lab in self._n1mm_row_labels:
+            try:
+                lab.destroy()
+            except Exception:
+                pass
+        self._n1mm_row_labels = []
+        rows = []
+        if status and seat_up:
+            raw = status.get("status_rows") or []
+            for item in raw:
+                if not (isinstance(item, (list, tuple)) and len(item) >= 3):
+                    continue
+                level, label, text = item[0], item[1], item[2]
+                lab_u = str(label).upper()
+                if lab_u == "LOG" and not log_on:
+                    continue
+                if lab_u == "KEY" and not key_on:
+                    continue
+                rows.append((str(level), str(label), str(text)))
+        if not rows:
+            self._n1mm_empty.set(
+                "up — waiting for status…" if seat_up else "off"
+            )
+            if not self._n1mm_empty_lbl.winfo_manager():
+                self._n1mm_empty_lbl.pack(fill="x")
+            return
+        self._n1mm_empty.set("")
+        try:
+            self._n1mm_empty_lbl.pack_forget()
+        except Exception:
+            pass
+        colors = {
+            "ok": ("#d8f3dc", "#0a7a2f"),
+            "warn": ("#fff3cd", "#7a5b00"),
+            "busy": ("#fff3cd", "#7a5b00"),
+            "err": ("#f8d7da", "#a4000f"),
+        }
+        for level, label, text in rows:
+            bg, fg = colors.get(level, ("#f4f4f4", "#222222"))
+            line = self.tk.Label(
+                self._n1mm_fr,
+                text=f"{label}  {text}",
+                font=_ui_font(11), bg=bg, fg=fg,
+                anchor="w", padx=6, pady=2, justify="left",
+            )
+            line.pack(fill="x", pady=1)
+            self._n1mm_row_labels.append(line)
 
     def set_key_port_choices(self, ports: list[str]) -> None:
         """Update KEY device combobox values; keep current selection if still listed."""

@@ -46,8 +46,31 @@ function fmtBands(list, sep) {
 }
 
 function renderHeader(s) {
-  if ($("rx")) $("rx").textContent = `rx ${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM`;
+  const ing = s.ingest || {};
+  if ($("rx")) {
+    let rx = `rx ${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM`;
+    if (ing.wsjt_age_s != null) rx += ` · last WSJT ${age(ing.wsjt_age_s)}`;
+    $("rx").textContent = rx;
+  }
   if ($("clock")) $("clock").textContent = new Date(s.now*1000).toLocaleTimeString();
+  renderIngestStall(s);
+}
+
+function renderIngestStall(s) {
+  const el = $("ingest-stall");
+  if (!el) return;
+  const ing = s.ingest || {};
+  if (!ing.stale) {
+    el.hidden = true;
+    el.textContent = "";
+    el.className = "meta";
+    return;
+  }
+  el.hidden = false;
+  el.className = "meta warn";
+  const a = age(ing.wsjt_age_s);
+  el.textContent = `WSJT multicast silent ${a} — rejoining`;
+  el.title = `IGMP membership may have dropped. Auto-rejoin ${ing.rejoins || 0}, socket rebind ${ing.rebinds || 0}.`;
 }
 
 // -- system status page ----------------------------------------------------- //
@@ -80,7 +103,12 @@ function renderSystem(s) {
     `<span><span class="k">N1MM loggers:</span>${(s.loggers||[]).length}</span>` +
     `<span><span class="k">seat agents:</span>${agents.length}` +
       (aErr ? ` · <span class="warn">${aErr} error</span>` : ``) + `</span>` +
-    `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>`;
+    `<span><span class="k">rx:</span>${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM pkts</span>` +
+    (s.ingest && s.ingest.stale
+      ? `<span class="warn">WSJT multicast silent ${age(s.ingest.wsjt_age_s)} — rejoining</span>`
+      : (s.ingest && s.ingest.wsjt_age_s != null
+        ? `<span><span class="k">last WSJT:</span>${age(s.ingest.wsjt_age_s)}</span>`
+        : ``));
 }
 
 function policyBadge(pol) {
@@ -1133,6 +1161,14 @@ function rosWire() {
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", rosFitColumnsSoon);
   }
+  // Native <details> only toggles on the summary. Dismiss on any click
+  // outside the menu (checkboxes inside stay usable).
+  document.addEventListener("click", (e) => {
+    const menu = document.querySelector("details.ros-cols-menu");
+    if (!menu || !menu.open) return;
+    if (menu.contains(e.target)) return;
+    menu.open = false;
+  });
 }
 
 /** URL query context for docs screenshots, e.g. /?needed=1&bands=144&maxAge=60 */

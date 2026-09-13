@@ -25,7 +25,7 @@ import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-from wims.core.bands import band_label
+from wims.core.bands import band_label, rf_band, rf_hz
 from wims.agent_ui import AgentStatusModel, AgentStatusWindow
 from wims.log import GROUP, PORT
 from wims.log.check import run_checks
@@ -43,6 +43,7 @@ _ADIF_FIELD = re.compile(
     r"<([A-Za-z0-9_]+):(\d+)(?::[^>]*)?>([^<]*)", re.I,
 )
 _ADIF_EOH = re.compile(r"<eoh>", re.I)
+_WSJT_ID_PREFIX = re.compile(r"^(?:WSJT-X|JTDX)\s*[-–—]\s*", re.I)
 # N1MM TCP Log whitelist (Sending Log Data). Extra tags (EOH, STATION_CALLSIGN)
 # make its parser miss CALL → blank Call in the contest log.
 _N1MM_LOG_TAGS = (
@@ -83,7 +84,9 @@ def adif_band(adif: str) -> str | None:
         }
         label = aliases.get(key)
         if label:
-            return label
+            # WSJT-X BAND on a transverter is the IF (10m/15m). Map to RF
+            # the same way band_label/rf_band do (WIMS_TRANSVERTER=0 disables).
+            return rf_band(label)
         # Unknown BAND tag — fall through to FREQ.
     m = _ADIF_FREQ.search(adif or "")
     if m:
@@ -93,6 +96,30 @@ def adif_band(adif: str) -> str | None:
             return None
         return band_label(int(mhz * 1_000_000))
     return None
+
+
+def rewrite_adif_rf(adif: str) -> str:
+    """Lift IF FREQ/BAND to RF before N1MM TCP Log (28 MHz → 432, 10m → 70cm)."""
+    text = adif or ""
+    m = _ADIF_FREQ.search(text)
+    if m:
+        try:
+            mhz = float(m.group(2).strip())
+        except ValueError:
+            mhz = 0.0
+        if mhz > 0:
+            hz = rf_hz(int(mhz * 1_000_000))
+            s = f" {hz / 1e6:.6f}".strip()
+            repl = f"<FREQ:{len(s)}>{s}"
+            text = text[: m.start()] + repl + text[m.end():]
+    lab = adif_band(text)
+    if lab:
+        token = _n1mm_band_token(lab)
+        mb = _ADIF_BAND.search(text)
+        if mb:
+            repl = f"<BAND:{len(token)}>{token}"
+            text = text[: mb.start()] + repl + text[mb.end():]
+    return text
 
 
 def _qt_datetime_to_adif(dt: dict | None) -> tuple[str, str]:
@@ -157,28 +184,52 @@ def parse_adif_fields(adif: str) -> dict[str, str]:
     return out
 
 
-# JTDX TCP :52001 was written for WSJT/JTDX ADIF: lowercase tags, no
-# header/EOH, record starts at <call: . Uppercase <CALL: left Call blank
-# in the N1MM log (WIMS 1.0.12). Extra tags (PFX/OPERATOR/SRX) stay out.
+# JTDX TCP :52001: lowercase tags, no header/EOH, <call: first (after the
+# leading space wrap_adif puts in N). OPERATOR is the WSJT-X rig-name for now.
 _N1MM_WIRE_TAGS = (
     "call", "gridsquare", "mode", "rst_sent", "rst_rcvd",
     "qso_date", "time_on", "band", "freq", "tx_pwr", "name", "comment",
+    "operator",
 )
 
 
-def rebuild_n1mm_adif(adif: str) -> str:
+def operator_from_instance_id(instance_id: str | None) -> str | None:
+    """Rig-name for N1MM OPERATOR. Drop the redundant ``WSJT-X - `` prefix."""
+    s = (instance_id or "").strip()
+    if not s:
+        return None
+    s = _WSJT_ID_PREFIX.sub("", s).strip()
+    return s or None
+
+
+def rebuild_n1mm_adif(adif: str, *, operator: str | None = None) -> str:
     """One JTDX-style QSO record: lowercase tags, <call: first, no EOH."""
     f = parse_adif_fields(adif)
     call = (f.get("CALL") or "").strip().split()[0].upper()
     if call:
         f["CALL"] = call
+    freq = (f.get("FREQ") or "").strip()
+    if freq:
+        try:
+            mhz = float(freq)
+            hz = rf_hz(int(mhz * 1_000_000))
+            if hz > 0:
+                f["FREQ"] = f"{hz / 1e6:.6f}"
+        except ValueError:
+            pass
     band = f.get("BAND") or ""
     if band:
-        lab = adif_band(f"<BAND:{len(band)}>{band}") or band
+        lab = adif_band(
+            f"<BAND:{len(band)}>{band}"
+            + (f"<FREQ:{len(f.get('FREQ') or '')}>{f.get('FREQ')}" if f.get("FREQ") else "")
+        ) or band
         f["BAND"] = _n1mm_band_token(lab)
     grid = (f.get("GRIDSQUARE") or "").strip().upper()
     if grid:
         f["GRIDSQUARE"] = grid
+    op = (operator or "").strip()
+    if op:
+        f["OPERATOR"] = op
     parts: list[str] = []
     for tag in _N1MM_WIRE_TAGS:
         val = (f.get(tag.upper()) or "").strip()
@@ -245,13 +296,15 @@ def ensure_adif_datetime(adif: str, dt: dict | None = None) -> str:
     return text + "".join(extra) + " <eor>"
 
 
-def wrap_adif(adif: str) -> bytes:
+def wrap_adif(adif: str, *, operator: str | None = None) -> bytes:
     """N1MM Secondary-UDP / JTDX-TCP ingest envelope (Sending Log Data).
 
     ``<command:3>Log <parameters:N>`` + ADIF + EOR. Raw ADIF alone is often ignored.
+    ``operator`` is the WSJT-X rig-name (UDP id) until seats identify by call.
     """
     text = ensure_adif_datetime((adif or "").strip())
-    text = rebuild_n1mm_adif(text)
+    text = rewrite_adif_rf(text)
+    text = rebuild_n1mm_adif(text, operator=operator)
     if "<eor>" not in text.lower():
         text += " <eor>"
     raw = text.encode("ascii", "replace")
@@ -335,16 +388,25 @@ class N1mmTcpClient:
             self.close()
 
     def try_connect(self) -> bool:
-        """Probe that N1MM :52001 accepts. First Log may use this socket."""
+        """Probe that N1MM :52001 accepts. Do **not** hold the socket.
+
+        An idle hold wedges N1MM LoggingTCP (single accept/read). Later
+        sendall() times out, UDP :2333 reports OK but does not insert, and
+        Operate/N1MM look like logging has 'stopped'.
+        """
+        sock = None
         try:
-            self._ensure()
+            sock = socket.create_connection((self.host, self.port), timeout=2.0)
             self.last_error = None
+            self._reachable = True
             return True
         except OSError as e:
-            self.close()
             self.last_error = str(e)
             self._reachable = False
             return False
+        finally:
+            if sock is not None:
+                _graceful_close(sock)
 
     def reconnect(self) -> bool:
         """Drop any half-open socket. Next send() opens a fresh one."""
@@ -355,13 +417,13 @@ class N1mmTcpClient:
     def _ensure(self) -> socket.socket:
         if self._sock is not None:
             return self._sock
-        sock = socket.create_connection((self.host, self.port), timeout=1.0)
+        sock = socket.create_connection((self.host, self.port), timeout=3.0)
         try:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         except (OSError, AttributeError):
             pass
         try:
-            sock.settimeout(1.0)
+            sock.settimeout(3.0)
         except (OSError, AttributeError):
             pass
         self._sock = sock
@@ -430,9 +492,8 @@ def qso_to_adif(msg: M.QSOLogged) -> str:
     if msg.tx_power and str(msg.tx_power).strip():
         p = str(msg.tx_power).strip()
         parts.append(f"<TX_PWR:{len(p)}>{p}")
-    op = (msg.operator_call or "").strip()
-    if op:
-        parts.append(f"<OPERATOR:{len(op)}>{op}")
+    # OPERATOR on the wire is the rig-name, injected in wrap_adif — not WSJT-X
+    # Settings operator (that becomes a callsign later).
     return " ".join(parts) + " <eor>"
 
 
@@ -535,6 +596,10 @@ class LogState:
         self.n_drop = 0
         self.n_wait = 0
         self.n_logged = 0
+        self._log_keys: set[tuple] = set()
+        self.last_wsjt_mono: float = 0.0
+        self.log_rejoins: int = 0
+        self.log_rebinds: int = 0
         self.n_unconfirmed = 0
         self.last_fwd: str | None = None
         self.last_delivery: str | None = None
@@ -570,6 +635,8 @@ class LogState:
                 "n_drop": self.n_drop,
                 "n_wait": self.n_wait,
                 "n_logged": self.n_logged,
+                "log_rejoins": self.log_rejoins,
+                "log_rebinds": self.log_rebinds,
                 "n_unconfirmed": self.n_unconfirmed,
                 "n_pending": sum(1 for p in self._pending if not p.get("confirmed")),
                 "broadcast": (
@@ -992,6 +1059,145 @@ def _pump_pending(
         )
 
 
+def apply_logged_qso(
+    state: LogState,
+    *,
+    instance: str,
+    call: str,
+    band: str | None,
+    adif: str,
+    src: str,
+    dry_run: bool,
+    host: str,
+    udp_port: int,
+    tcp_port: int,
+) -> bool:
+    """Filter + deliver one Logged QSO. True if forwarded (or WAIT/DROP logged)."""
+    call_u = (call or "").strip().upper()
+    if not call_u:
+        _log_line(
+            f"{time.strftime('%H:%M:%S')}  SKIP {instance} no CALL in record  from {src}"
+        )
+        return False
+    qband = band or "?"
+    pin = state.snapshot()["live_band"]
+    if not pin:
+        with state._lock:
+            state.n_wait += 1
+        _log_line(
+            f"{time.strftime('%H:%M:%S')}  WAIT {instance} {call_u} "
+            f"band={qband} (no N1MM band yet)  from {src}"
+        )
+        return False
+    if qband != pin:
+        with state._lock:
+            state.n_drop += 1
+        _log_line(
+            f"{time.strftime('%H:%M:%S')}  DROP {instance} {call_u} "
+            f"band={qband} (want {pin})  from {src}"
+        )
+        return False
+    key = (instance, call_u, qband)
+    with state._lock:
+        if key in state._log_keys:
+            return False
+        state._log_keys.add(key)
+    payload = wrap_adif(adif or "", operator=operator_from_instance_id(instance))
+    with state._lock:
+        state.n_fwd += 1
+        state.last_fwd = (
+            f"{time.strftime('%H:%M:%S')} {call_u} {qband} ({len(payload)} B)"
+        )
+        n_fwd, n_drop = state.n_fwd, state.n_drop
+        tcp_client = state.tcp_client
+    _log_line(
+        f"{time.strftime('%H:%M:%S')}  FWD  {instance} {call_u} {qband}  "
+        f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)  via {src}"
+    )
+    try:
+        i = payload.lower().find(b"<call:")
+        chunk = payload[i:i + 200] if i >= 0 else payload[:200]
+        _log_line("          ADIF " + chunk.decode("ascii", "replace").strip())
+    except Exception:
+        pass
+    if dry_run:
+        return True
+    ok, how = deliver_to_n1mm(
+        payload, host=host, udp_port=udp_port, tcp_port=tcp_port,
+        tcp_client=tcp_client,
+    )
+    with state._lock:
+        state.last_delivery = how
+        if not ok:
+            state.last_error = how
+    _log_line(
+        f"{time.strftime('%H:%M:%S')}  SEND {'OK' if ok else 'FAIL'} via {how}"
+    )
+    state.track_pending(
+        call=call_u, band=qband, payload=payload,
+        instance=instance, now=time.time(),
+    )
+    return True
+
+
+def _pull_site_logged(
+    state: LogState,
+    args: argparse.Namespace,
+    host: str,
+    udp_port: int,
+    tcp_port: int,
+    since: float,
+) -> float:
+    """Backup: QSOs the site server heard on 2237 even if this seat's join is deaf."""
+    base = (state.snapshot().get("site_url") or "").rstrip("/")
+    if not base:
+        return since
+    import json
+    import urllib.error
+    import urllib.request
+    url = f"{base}/api/logged-qsos?since={since:.3f}"
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=1.0) as r:
+            body = json.loads(r.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, json.JSONDecodeError, ValueError):
+        return since
+    newest = since
+    for q in body.get("qsos") or []:
+        try:
+            ts = float(q.get("ts") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ts > newest:
+            newest = ts
+        apply_logged_qso(
+            state,
+            instance=str(q.get("instance") or "?"),
+            call=str(q.get("call") or ""),
+            band=q.get("band"),
+            adif=str(q.get("adif") or ""),
+            src="site-relay",
+            dry_run=bool(args.dry_run),
+            host=host, udp_port=udp_port, tcp_port=tcp_port,
+        )
+    return newest
+
+
+def _site_logged_pull_loop(
+    state: LogState,
+    args: argparse.Namespace,
+    stop: threading.Event,
+    host: str,
+    udp_port: int,
+    tcp_port: int,
+) -> None:
+    since = time.time() - 5.0
+    while not stop.wait(2.0):
+        since = _pull_site_logged(
+            state, args, host, udp_port, tcp_port, since,
+        )
+
+
 def _radio_loop(state: LogState, stop: threading.Event) -> None:
     try:
         sock, where, warn = _open_radio_socket(
@@ -1018,7 +1224,23 @@ def _radio_loop(state: LogState, stop: threading.Event) -> None:
         except OSError as e:
             with state._lock:
                 state.last_error = f"Broadcast recv: {e}"
-            break
+            _log_line(f"log-agent: Broadcast recv failed ({e}); rebinding")
+            try:
+                sock.close()
+            except OSError:
+                pass
+            try:
+                sock, where, warn = _open_radio_socket(
+                    state.radio_port,
+                    state.radio_group,
+                    iface=getattr(state, "radio_iface", None) or "0.0.0.0",
+                )
+                _log_line(f"log-agent: Broadcast listen on {where}")
+            except OSError as e2:
+                _log_line(f"log-agent: Broadcast rebind failed: {e2}")
+                if stop.wait(2.0):
+                    break
+            continue
         text = data.decode("utf-8", "replace")
         with state._lock:
             state.last_radio_at = time.time()
@@ -1099,15 +1321,63 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
     _log_line("          Enable N1MM Configurer > WSJT/JTDX Setup > JTDX/Others TCP "
               f"(:{tcp_port}) - keep that TCP session open; UDP :{udp_port} is fallback only.")
 
-    seen: set[tuple] = set()
+    if not getattr(state, "_pull_started", False):
+        state._pull_started = True
+        threading.Thread(
+            target=_site_logged_pull_loop,
+            args=(state, args, stop, host, udp_port, tcp_port),
+            daemon=True, name="seat-log-pull",
+        ).start()
+        _log_line("log-agent: site Logged-QSO relay on (backup if multicast goes deaf)")
     sock.settimeout(0.5)
+    last_rejoin = 0.0
+    last_tcp_probe = 0.0
+    last_rebind = 0.0
+    iface = getattr(args, "iface", None) or "0.0.0.0"
     try:
         while not stop.is_set():
             try:
                 data, addr = sock.recvfrom(65535)
             except socket.timeout:
-                if not tcp_client.alive:
-                    tcp_client.try_connect()
+                now_m = time.monotonic()
+                if args.group and (now_m - last_rejoin) >= 30.0:
+                    try:
+                        from wims.udp.sink import rejoin_multicast
+                        rejoin_multicast(sock, args.group, iface)
+                        with state._lock:
+                            state.log_rejoins += 1
+                    except OSError:
+                        pass
+                    last_rejoin = now_m
+                silent = (
+                    state.last_wsjt_mono > 0.0
+                    and (now_m - state.last_wsjt_mono) >= 25.0
+                    and (now_m - last_rebind) >= 20.0
+                )
+                if silent and args.group:
+                    _log_line(
+                        "log-agent: no WSJT UDP for "
+                        f"{now_m - state.last_wsjt_mono:.0f}s — rebinding {args.group}:{args.port}"
+                    )
+                    try:
+                        ns = open_socket(iface, args.port, args.group)
+                        ns.settimeout(0.5)
+                        old, sock = sock, ns
+                        try:
+                            old.close()
+                        except OSError:
+                            pass
+                        with state._lock:
+                            state.log_rebinds += 1
+                        last_rebind = now_m
+                        last_rejoin = now_m
+                    except OSError as e:
+                        _log_line(f"log-agent: rebind failed: {e}")
+                        last_rebind = now_m
+                if not tcp_client.alive and (now_m - last_tcp_probe) >= 15.0:
+                    last_tcp_probe = now_m
+                    if tcp_client.try_connect():
+                        _log_line(f"log-agent: N1MM TCP {host}:{tcp_port} connected")
                 _pump_pending(
                     state, tcp_client,
                     host=host, udp_port=udp_port, tcp_port=tcp_port,
@@ -1117,77 +1387,39 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             except OSError as e:
                 with state._lock:
                     state.last_error = str(e)
-                break
+                _log_line(f"log-agent: recv failed ({e}); rebinding")
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+                try:
+                    sock = open_socket(iface, args.port, args.group)
+                    sock.settimeout(0.5)
+                    with state._lock:
+                        state.log_rebinds += 1
+                except OSError as e2:
+                    _log_line(f"log-agent: rebind failed: {e2}")
+                    if stop.wait(2.0):
+                        break
+                continue
             msg = M.parse(data)
             if msg is None:
                 continue
+            state.last_wsjt_mono = time.monotonic()
             rec = qso_record(msg)
             if rec is None:
                 continue
             adif, call, qband = rec
-            if not call:
-                # A record with no CALL is useless to N1MM (blank log row)
-                # and hints at a parse problem — surface it, don't forward.
-                _log_line(
-                    f"{time.strftime('%H:%M:%S')}  SKIP {msg.id} type={msg.type} "
-                    f"no CALL in record  from {addr[0]}"
-                )
-                continue
-
-            pin = state.snapshot()["live_band"]
-            if not pin:
-                with state._lock:
-                    state.n_wait += 1
-                _log_line(
-                    f"{time.strftime('%H:%M:%S')}  WAIT {msg.id} {call} "
-                    f"band={qband} (no N1MM band yet)  from {addr[0]}"
-                )
-                continue
-            if qband != pin:
-                with state._lock:
-                    state.n_drop += 1
-                _log_line(
-                    f"{time.strftime('%H:%M:%S')}  DROP {msg.id} {call} "
-                    f"band={qband} (want {pin})  from {addr[0]}"
-                )
-                continue
-            key = (msg.id, call.upper(), qband)
-            if key in seen:
-                continue
-            seen.add(key)
-            payload = wrap_adif(adif or "")
-            with state._lock:
-                state.n_fwd += 1
-                state.last_fwd = (
-                    f"{time.strftime('%H:%M:%S')} {call} {qband} ({len(payload)} B)"
-                )
-                n_fwd, n_drop = state.n_fwd, state.n_drop
-            _log_line(
-                f"{time.strftime('%H:%M:%S')}  FWD  {msg.id} {call} {qband}  "
-                f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)"
+            apply_logged_qso(
+                state,
+                instance=msg.id or "?",
+                call=call or "",
+                band=qband,
+                adif=adif or "",
+                src=addr[0],
+                dry_run=bool(args.dry_run),
+                host=host, udp_port=udp_port, tcp_port=tcp_port,
             )
-            try:
-                i = payload.lower().find(b"<call:")
-                chunk = payload[i:i + 200] if i >= 0 else payload[:200]
-                _log_line("          ADIF " + chunk.decode("ascii", "replace").strip())
-            except Exception:
-                pass
-            if not args.dry_run:
-                ok, how = deliver_to_n1mm(
-                    payload, host=host, udp_port=udp_port, tcp_port=tcp_port,
-                    tcp_client=tcp_client,
-                )
-                with state._lock:
-                    state.last_delivery = how
-                    if not ok:
-                        state.last_error = how
-                _log_line(
-                    f"{time.strftime('%H:%M:%S')}  SEND {'OK' if ok else 'FAIL'} via {how}"
-                )
-                state.track_pending(
-                    call=call, band=qband, payload=payload,
-                    instance=msg.id or "", now=time.time(),
-                )
             _pump_pending(
                 state, tcp_client,
                 host=host, udp_port=udp_port, tcp_port=tcp_port,

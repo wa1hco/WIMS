@@ -80,6 +80,13 @@ STATIC = Path(__file__).resolve().parent / "static"
 # After Work, Status may still show RX / Enable Tx off for a beat. Keep the
 # dashboard claim live so Halt still finds it.
 _CLAIM_ARM_GRACE_S = 8.0
+# Do not Replay on the first Heartbeat. WSJT-X Status arrives on its own
+# within a cycle; Replay also dumps the entire Band Activity window into
+# Operate as if those were live decodes.
+_STATUS_PROBE_GRACE_S = 45.0
+# After we do send Replay (quiet radio, still no Status), ignore Decode
+# datagrams from that instance — they are historical Band Activity.
+_REPLAY_DECODE_HOLD_S = 2.0
 
 
 def _normalize_dashboard_id(raw) -> str | None:
@@ -121,6 +128,8 @@ class LiveFleet:
         self._tx_claims: dict[str, dict] = {}
         # Last Replay probe (elicit Status/dial) per instance — Heartbeat has no freq.
         self._status_probe_ts: dict[str, float] = {}
+        # instance_id → ignore Decode until this `now` (Replay Band Activity dump).
+        self._ignore_decode_until: dict[str, float] = {}
         # (instance, message, df) → last ingest time. Replay dumps Band Activity
         # in a burst; skip roster/log clones inside one FT8 period.
         self._recent_decode_keys: dict[tuple, float] = {}
@@ -134,10 +143,16 @@ class LiveFleet:
         self._condition = condition
         self.wsjt_pkts = 0
         self.n1mm_pkts = 0
+        # Recent WSJT Logged QSO (type 5/12) for seat log-agents whose
+        # multicast join went deaf. Polled via GET /api/logged-qsos.
+        self._logged_qsos: deque = deque(maxlen=80)
         # Ingest liveness (traffic-independent): updated every select cycle.
         self.ingest_heartbeat_mono: float = 0.0
+        self.ingest_last_wsjt_mono: float = 0.0  # 0 = never heard WSJT UDP
         self.ingest_errors: int = 0
         self.ingest_restarts: int = 0
+        self.ingest_mcast_rejoins: int = 0
+        self.ingest_socket_rebinds: int = 0
         self._ingest_generation: int = 0
         self._ingest_thread: threading.Thread | None = None
         self._ingest_watchdog_stop = threading.Event()
@@ -835,6 +850,7 @@ class LiveFleet:
         need_replay: tuple[str, list[tuple[str, int]]] | None = None
         with self._lock:
             self.wsjt_pkts += 1
+            self.ingest_last_wsjt_mono = time.monotonic()
             mid = getattr(msg, "id", None) or "?"
             # Per-host band before Status — QSY only if *this* host changed band.
             old_band_here = None
@@ -843,6 +859,25 @@ class LiveFleet:
                 if n_prev is not None:
                     old_band_here = (n_prev.band_by_host or {}).get(src_ip)
             self._tracker.observe(msg, now, src_ip=src_ip, src_port=src_port)
+            if isinstance(msg, (M.QSOLogged, M.LoggedADIF)):
+                try:
+                    from wims.log.app import qso_record
+                    rec = qso_record(msg)
+                except Exception:
+                    rec = None
+                if rec is not None:
+                    adif, call, qband = rec
+                    if call:
+                        node = self._tracker.nodes.get(mid)
+                        if (not qband or qband == "?") and node and node.band:
+                            qband = node.band
+                        self._logged_qsos.append({
+                            "ts": now,
+                            "instance": mid,
+                            "call": call,
+                            "band": qband,
+                            "adif": adif,
+                        })
             # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
             # Status), not only after the first Decode — quiet bands still get a frame.
             self._maps.setdefault(mid, ActivityMap(mid))
@@ -898,8 +933,13 @@ class LiveFleet:
                         band = node.band
                 own = self._own_station_calls()
                 self._roster.drop_own_station(own)
+                # Replay dump / startup: no Status yet, or we just asked for Replay.
+                # Those datagrams are historical Band Activity, not a live period.
+                hold = self._ignore_decode_until.get(mid, 0.0)
+                if now < hold or node is None or node.last_status is None:
+                    pass
                 # Other radio on this band heard our TX — not a DX decode.
-                if not is_own_tx_decode(msg, own):
+                elif not is_own_tx_decode(msg, own):
                     # Replay (Status probe) resends the whole Band Activity window
                     # in one burst. Same (id, text, df) inside ~8s is not a new
                     # period — don't fill the operate log / roster with clones.
@@ -927,25 +967,30 @@ class LiveFleet:
                             "band": band,
                         })
             elif isinstance(msg, M.Heartbeat) and self._tx is not None:
-                # Heartbeat is periodic but has no frequency. Status (dial → band)
-                # is event-driven and may never arrive on a quiet radio. Replay
-                # over UDP asks WSJT-X to emit Status *and* dump Band Activity.
-                # Probe only until the first Status — a radio with dial_hz=0
-                # (no CAT) still sends Status; replaying it every 30s floods the
-                # operate console and hides other bands.
+                # Heartbeat has no frequency. Status usually follows within a
+                # cycle. Replay also dumps Band Activity (every CQ in the window)
+                # so wait before asking — a site-server restart must not spew.
                 node = self._tracker.nodes.get(mid)
                 if node is not None and node.last_status is None:
-                    dests = self._tx_dests_for(mid)
-                    last = self._status_probe_ts.get(mid)
-                    if dests and (last is None or (now - last) >= 30.0):
-                        self._status_probe_ts[mid] = now
-                        need_replay = (mid, dests)
+                    first = float(node.first_seen or now)
+                    if (now - first) >= _STATUS_PROBE_GRACE_S:
+                        dests = self._tx_dests_for(mid)
+                        last = self._status_probe_ts.get(mid)
+                        if dests and (last is None or (now - last) >= 30.0):
+                            self._status_probe_ts[mid] = now
+                            self._ignore_decode_until[mid] = now + _REPLAY_DECODE_HOLD_S
+                            need_replay = (mid, dests)
         if need_replay is not None:
             mid, dests = need_replay
             try:
                 self._tx.replay(mid, dests=dests)
             except OSError:
                 pass
+
+    def logged_qsos_since(self, since: float) -> list[dict]:
+        """WSJT Logged QSO after ``since`` (unix ts) for seat log-agent relay."""
+        with self._lock:
+            return [dict(q) for q in self._logged_qsos if float(q.get("ts") or 0) > since]
 
     def observe_n1mm(self, xml_text, now, src_ip):
         with self._lock:
@@ -991,6 +1036,10 @@ class LiveFleet:
                               share_policies=self._share_policies)
             # Lab/Status visibility only — not an operator action prompt.
             hb = self.ingest_heartbeat_mono
+            last_wsjt = self.ingest_last_wsjt_mono
+            wsjt_age = (
+                round(time.monotonic() - last_wsjt, 2) if last_wsjt > 0.0 else None
+            )
             d["ingest"] = {
                 "alive": (
                     self._ingest_thread is not None
@@ -1003,6 +1052,11 @@ class LiveFleet:
                 "heartbeat_age_s": (
                     round(time.monotonic() - hb, 2) if hb > 0.0 else None
                 ),
+                "wsjt_age_s": wsjt_age,
+                "rejoins": self.ingest_mcast_rejoins,
+                "rebinds": self.ingest_socket_rebinds,
+                # Heard WSJT before, then nothing — Operate will empty; not "quiet band".
+                "stale": bool(last_wsjt > 0.0 and wsjt_age is not None and wsjt_age > 15.0),
             }
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
             d["interlock"] = interlock_to_dict(
@@ -1200,6 +1254,51 @@ def start_ingest(
     return th
 
 
+def _rejoin_socks(socks: list, group: str | None, host: str) -> int:
+    """Refresh IGMP on each socket. Returns how many sockets were attempted."""
+    if not group:
+        return 0
+    from wims.udp.sink import rejoin_multicast
+    n = 0
+    for s in list(socks):
+        if s is None:
+            continue
+        try:
+            rejoin_multicast(s, group, host)
+            n += 1
+        except OSError:
+            continue
+    return n
+
+
+def _rebind_wsjt_socks(old_socks: list, host: str, group: str) -> tuple[list, list]:
+    """Open new multicast sockets (fresh IGMP join), keep old until swapped.
+
+    Returns (new_socks, old_socks_to_close). Failed ports keep the old socket.
+    """
+    from wims.udp.sink import open_socket
+    new: list = []
+    to_close: list = []
+    for s in list(old_socks):
+        if s is None:
+            new.append(None)
+            continue
+        try:
+            port = s.getsockname()[1]
+        except OSError:
+            new.append(s)
+            continue
+        try:
+            ns = open_socket(host, port, group)
+        except OSError as e:
+            print(f"ingest: rebind :{port} failed ({e})", file=sys.stderr, flush=True)
+            new.append(s)
+            continue
+        new.append(ns)
+        to_close.append(s)
+    return new, to_close
+
+
 def start_ingest_watchdog(
     live: LiveFleet,
     wsjt_socks: list,
@@ -1208,31 +1307,115 @@ def start_ingest_watchdog(
     *,
     stall_s: float = 8.0,
     period_s: float = 2.0,
+    rejoin_s: float = 30.0,
+    traffic_stall_s: float = 20.0,
+    rebind_s: float = 15.0,
+    group: str | None = None,
+    host: str = "0.0.0.0",
+    n1mm_group: str | None = None,
 ) -> threading.Thread:
-    """Restart ingest if its loop heartbeat stalls (thread dead or wedged).
+    """Keep ingest alive *and* keep multicast membership alive.
 
-    Does **not** key off rx packet counters — quiet bands are normal.
+    Thread heartbeat: restart the loop if it dies/wedges (quiet bands are
+    normal — this does not key off packet counters).
+
+    IGMP: re-join ``group`` on a timer so a snooping switch without a querier
+    cannot prune ``224.0.0.73`` while the HTTP server still looks healthy.
+
+    Traffic stall: if we *had* WSJT UDP and then none arrives, rejoin immediately
+    and rebind sockets if that does not restore it. Never-heard-WSJT (radios
+    not up yet) is not a stall.
     """
 
     def _watch() -> None:
+        last_rejoin = 0.0
+        last_rebind = 0.0
+        logged_stall = False
+        n1mm_holder = [s_n1mm]
+
+        def do_rejoin(*, announce: bool = False) -> None:
+            nonlocal last_rejoin
+            n = _rejoin_socks(wsjt_socks, group, host)
+            if n1mm_group:
+                _rejoin_socks(n1mm_holder, n1mm_group, host)
+            last_rejoin = time.monotonic()
+            live.ingest_mcast_rejoins += 1
+            if announce:
+                print(
+                    f"ingest: refreshed IGMP join on {n} socket(s) "
+                    f"(rejoin #{live.ingest_mcast_rejoins})",
+                    file=sys.stderr, flush=True,
+                )
+
         while not live._ingest_watchdog_stop.wait(period_s):
-            age = time.monotonic() - (live.ingest_heartbeat_mono or 0.0)
+            now = time.monotonic()
+            age = now - (live.ingest_heartbeat_mono or 0.0)
             th = live._ingest_thread
             dead = th is not None and not th.is_alive()
             stalled = live.ingest_heartbeat_mono > 0.0 and age > stall_s
-            if not (dead or stalled):
-                continue
-            live.ingest_restarts += 1
-            why = "thread dead" if dead else f"heartbeat stalled {age:.1f}s"
-            print(
-                f"ingest: {why} — restarting ingest (restart #{live.ingest_restarts})",
-                file=sys.stderr,
-                flush=True,
-            )
-            try:
-                start_ingest(live, wsjt_socks, s_n1mm, gt_bridge)
-            except Exception as e:  # noqa: BLE001
-                print(f"ingest: restart failed: {e!r}", file=sys.stderr, flush=True)
+            if dead or stalled:
+                live.ingest_restarts += 1
+                why = "thread dead" if dead else f"heartbeat stalled {age:.1f}s"
+                print(
+                    f"ingest: {why} — restarting ingest (restart #{live.ingest_restarts})",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                try:
+                    start_ingest(live, wsjt_socks, n1mm_holder[0], gt_bridge)
+                except Exception as e:  # noqa: BLE001
+                    print(f"ingest: restart failed: {e!r}", file=sys.stderr, flush=True)
+
+            last_wsjt = live.ingest_last_wsjt_mono
+            silent_s = (now - last_wsjt) if last_wsjt > 0.0 else None
+            silent = silent_s is not None and silent_s >= traffic_stall_s
+            if silent and not logged_stall:
+                print(
+                    f"ingest: no WSJT UDP for {silent_s:.0f}s — "
+                    "multicast membership may have dropped; refreshing join",
+                    file=sys.stderr, flush=True,
+                )
+                logged_stall = True
+            elif not silent and logged_stall:
+                print("ingest: WSJT multicast restored", file=sys.stderr, flush=True)
+                logged_stall = False
+
+            if group:
+                if silent and (now - last_rejoin) >= min(rejoin_s, 8.0):
+                    try:
+                        do_rejoin(announce=True)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"ingest: rejoin failed: {e!r}", file=sys.stderr, flush=True)
+                elif (now - last_rejoin) >= rejoin_s:
+                    try:
+                        do_rejoin(announce=False)
+                    except Exception as e:  # noqa: BLE001
+                        print(f"ingest: rejoin failed: {e!r}", file=sys.stderr, flush=True)
+
+                # Rebind only after we had traffic, rejoined, and still silent.
+                if (silent
+                        and last_rejoin > last_wsjt
+                        and (now - last_rejoin) >= rebind_s
+                        and (now - last_rebind) >= rebind_s):
+                    live.ingest_socket_rebinds += 1
+                    print(
+                        f"ingest: still silent after rejoin — rebinding UDP sockets "
+                        f"(rebind #{live.ingest_socket_rebinds})",
+                        file=sys.stderr, flush=True,
+                    )
+                    try:
+                        new, old = _rebind_wsjt_socks(wsjt_socks, host, group)
+                        wsjt_socks[:] = new
+                        start_ingest(live, wsjt_socks, n1mm_holder[0], gt_bridge)
+                        last_rebind = time.monotonic()
+                        last_rejoin = last_rebind
+                        for s in old:
+                            try:
+                                s.close()
+                            except OSError:
+                                pass
+                    except Exception as e:  # noqa: BLE001
+                        print(f"ingest: rebind failed: {e!r}", file=sys.stderr, flush=True)
 
     w = threading.Thread(target=_watch, name="wims-ingest-watchdog", daemon=True)
     w.start()
@@ -1310,6 +1493,18 @@ def make_handler(live: LiveFleet, refresh: float):
                     "qso_count": ns.get("qso_count"),
                     "scan_dirs": live.seed_scan_dirs(),
                 })
+            elif path == "/api/logged-qsos":
+                since = 0.0
+                q = ""
+                if "?" in self.path:
+                    q = self.path.split("?", 1)[1]
+                for part in q.split("&"):
+                    if part.startswith("since="):
+                        try:
+                            since = float(part.split("=", 1)[1])
+                        except ValueError:
+                            since = 0.0
+                self._send_json(200, {"qsos": live.logged_qsos_since(since)})
             elif path == "/api/agents":
                 self._send_json(200, {"agents": live.list_agents()})
             elif path == "/api/gt-bridge":
@@ -1726,6 +1921,7 @@ def main() -> None:
     if not s_wsjt_list:
         ap.error("no WSJT-X UDP ports could be bound — check --ports / --iface")
     s_n1mm = None
+    n1mm_mcast: str | None = None
     if args.n1mm_port:
         # N1MM External Broadcast XML is usually unicast/directed to host:12060, but
         # multi-host fleets can multicast it (e.g. 224.0.0.73:12060 — same group as
@@ -1733,6 +1929,7 @@ def main() -> None:
         # --iface 127.0.0.1 only receives loopback multicasts, not LAN traffic from a VM.
         try:
             n1mm_group = (args.n1mm_group or "").strip() or None
+            n1mm_mcast = n1mm_group
             if n1mm_group:
                 # Prefer real LAN IP for IGMP when --iface is all-zeros.
                 n1mm_iface = args.iface
@@ -1782,7 +1979,10 @@ def main() -> None:
                      f"(is another process using that port?)")
 
     start_ingest(live, s_wsjt_list, s_n1mm, gt_bridge)
-    start_ingest_watchdog(live, s_wsjt_list, s_n1mm, gt_bridge)
+    start_ingest_watchdog(
+        live, s_wsjt_list, s_n1mm, gt_bridge,
+        group=args.group, host=mcast_iface, n1mm_group=n1mm_mcast,
+    )
 
     httpd = _QuietThreadingHTTPServer(
         ("0.0.0.0", args.http_port), make_handler(live, args.refresh)

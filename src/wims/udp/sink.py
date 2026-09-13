@@ -81,17 +81,75 @@ def peek_wsjtx(data: bytes) -> dict | None:
     return info
 
 
+def _join_iface_ips(host: str) -> list[str]:
+    """Iface addresses for IP_ADD_MEMBERSHIP, primary first.
+
+    Join every LAN IP (plus 0.0.0.0). A single-NIC join is why DHCP/link
+    flap or the 'wrong' primary silently drops WSJT-X multicast.
+    """
+    ips: list[str] = []
+    if host and host not in ("0.0.0.0", "::", ""):
+        ips.append(host)
+    try:
+        from wims.discovery.presence import _primary_lan_ip, list_lan_ipv4s
+        primary = _primary_lan_ip(host or "0.0.0.0")
+        if primary and primary not in ips:
+            ips.append(primary)
+        for ip in list_lan_ipv4s():
+            if ip not in ips:
+                ips.append(ip)
+    except Exception:
+        pass
+    if "0.0.0.0" not in ips:
+        ips.append("0.0.0.0")
+    return ips or ["0.0.0.0"]
+
+
 def _join_iface_ip(host: str) -> str:
     """Interface address for IP_ADD_MEMBERSHIP. ``0.0.0.0`` is not a valid join
     iface on Linux — pick the primary contest LAN IP so VMs on the same /24 are heard.
     """
-    if host and host not in ("0.0.0.0", "::", ""):
-        return host
-    try:
-        from wims.discovery.presence import _primary_lan_ip
-        return _primary_lan_ip("0.0.0.0")
-    except Exception:
-        return "0.0.0.0"
+    return _join_iface_ips(host)[0]
+
+
+def _mreq(group: str, if_addr: str) -> bytes:
+    return struct.pack("4s4s", socket.inet_aton(group), socket.inet_aton(if_addr))
+
+
+def join_multicast(sock: socket.socket, group: str, host: str = "0.0.0.0") -> list[str]:
+    """Join ``group`` on every usable iface. Returns ifaces that succeeded."""
+    joined: list[str] = []
+    for if_addr in _join_iface_ips(host):
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                            _mreq(group, if_addr))
+            joined.append(if_addr)
+        except OSError:
+            continue
+    return joined
+
+
+def rejoin_multicast(sock: socket.socket, group: str, host: str = "0.0.0.0") -> list[str]:
+    """Refresh IGMP membership: DROP then ADD on each iface.
+
+    Unsolicited re-join is what a switch with IGMP snooping (no querier)
+    needs after it pruned the group. ADD-only fails with 'already a member'.
+    """
+    joined: list[str] = []
+    drop = getattr(socket, "IP_DROP_MEMBERSHIP", None)
+    for if_addr in _join_iface_ips(host):
+        mreq = _mreq(group, if_addr)
+        if drop is not None:
+            try:
+                sock.setsockopt(socket.IPPROTO_IP, drop, mreq)
+            except OSError:
+                pass
+        try:
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+            joined.append(if_addr)
+        except OSError:
+            continue
+    return joined
 
 
 def open_socket(host: str, port: int, multicast: str | None) -> socket.socket:
@@ -101,9 +159,10 @@ def open_socket(host: str, port: int, multicast: str | None) -> socket.socket:
     # On Windows a multicast member binds the group address (or "") to receive it.
     sock.bind(("" if multicast else bind_host, port))
     if multicast:
-        join_if = _join_iface_ip(host)
-        mreq = struct.pack("4s4s", socket.inet_aton(multicast), socket.inet_aton(join_if))
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        joined = join_multicast(sock, multicast, host)
+        if not joined:
+            sock.close()
+            raise OSError(f"IP_ADD_MEMBERSHIP {multicast} failed on all interfaces")
     return sock
 
 
