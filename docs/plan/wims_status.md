@@ -81,7 +81,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.12`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.12).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.13`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.13).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -206,6 +206,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-13** — **Version `1.0.13`**. N1MM JTDX TCP Log wants lowercase
+  `<call:` (JTDX/WSJT style). 1.0.12’s `<CALL:` left Call blank; wire
+  format is now `<call:5>… <eor>` with no EOH/extra tags.
 - **2026-09-13** — **Version `1.0.12`**. N1MM TCP Log rebuilds CALL-first
   ADIF (WSJT `<eoh>`/`<call:6>K1ABC ` left Call blank). Operate Work
   unicasts to MessageClient only (no multicast sendto / WinError 22).

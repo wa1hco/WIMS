@@ -157,12 +157,17 @@ def parse_adif_fields(adif: str) -> dict[str, str]:
     return out
 
 
-def rebuild_n1mm_adif(adif: str) -> str:
-    """N1MM TCP Log wants one QSO record: uppercase tags, CALL first, no EOH.
+# JTDX TCP :52001 was written for WSJT/JTDX ADIF: lowercase tags, no
+# header/EOH, record starts at <call: . Uppercase <CALL: left Call blank
+# in the N1MM log (WIMS 1.0.12). Extra tags (PFX/OPERATOR/SRX) stay out.
+_N1MM_WIRE_TAGS = (
+    "call", "gridsquare", "mode", "rst_sent", "rst_rcvd",
+    "qso_date", "time_on", "band", "freq", "tx_pwr", "name", "comment",
+)
 
-    WSJT-X LoggedADIF is ``<adif_ver>…<eoh><call:6>K1ABC ``. That blob makes
-    N1MM insert a row with a blank Call even though WIMS logged the call.
-    """
+
+def rebuild_n1mm_adif(adif: str) -> str:
+    """One JTDX-style QSO record: lowercase tags, <call: first, no EOH."""
     f = parse_adif_fields(adif)
     call = (f.get("CALL") or "").strip().split()[0].upper()
     if call:
@@ -174,29 +179,13 @@ def rebuild_n1mm_adif(adif: str) -> str:
     grid = (f.get("GRIDSQUARE") or "").strip().upper()
     if grid:
         f["GRIDSQUARE"] = grid
-        # VHF contest exchange is the grid; some N1MM builds ignore GRIDSQUARE
-        # for Exchange1 unless SRX is also set.
-        f.setdefault("SRX", grid)
-    order = (
-        "CALL", "GRIDSQUARE", "SRX", "MODE", "FREQ", "BAND", "QSO_DATE",
-        "TIME_ON", "RST_SENT", "RST_RCVD", "NAME", "COMMENT", "TX_PWR",
-        "OPERATOR", "CQZ", "ITUZ", "PFX", "QTH", "STATE",
-    )
     parts: list[str] = []
-    seen: set[str] = set()
-    for tag in order:
-        val = (f.get(tag) or "").strip()
-        if not val or tag not in _N1MM_LOG_TAGS:
+    for tag in _N1MM_WIRE_TAGS:
+        val = (f.get(tag.upper()) or "").strip()
+        if not val:
             continue
         parts.append(f"<{tag}:{len(val)}>{val}")
-        seen.add(tag)
-    for tag, val in f.items():
-        if tag in seen or tag not in _N1MM_LOG_TAGS or tag == "EOR":
-            continue
-        s = (val or "").strip()
-        if s:
-            parts.append(f"<{tag}:{len(s)}>{s}")
-    return " ".join(parts) + " <EOR>"
+    return " ".join(parts) + " <eor>"
 
 
 def normalize_adif_call(adif: str) -> str:
@@ -263,12 +252,11 @@ def wrap_adif(adif: str) -> bytes:
     """
     text = ensure_adif_datetime((adif or "").strip())
     text = rebuild_n1mm_adif(text)
-    text = enrich_n1mm_adif(text)
     if "<eor>" not in text.lower():
-        text += " <EOR>"
+        text += " <eor>"
     raw = text.encode("ascii", "replace")
-    # Length is ADIF only. Newline after EOR so N1MM's TCP reader is not left
-    # waiting (JTDX terminates the same way). Do not put the newline in N.
+    # Length is ADIF only. Space after '>' is in the N1MM example; do not
+    # include it in N. Newline after EOR is not in N (JTDX same).
     header = f"<command:3>Log <parameters:{len(raw)}>"
     return header.encode("ascii") + raw + b"\n"
 
@@ -1173,7 +1161,7 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
                 f"{len(payload)} B  ({n_fwd} fwd / {n_drop} drop)"
             )
             try:
-                i = payload.find(b"<CALL:")
+                i = payload.lower().find(b"<call:")
                 chunk = payload[i:i + 200] if i >= 0 else payload[:200]
                 _log_line("          ADIF " + chunk.decode("ascii", "replace").strip())
             except Exception:

@@ -80,15 +80,11 @@ class AdifWrapTests(unittest.TestCase):
     def test_n1mm_log_envelope(self):
         payload = wrap_adif("<CALL:4>K1AB<BAND:2>2m <eor>")
         self.assertTrue(payload.startswith(b"<command:3>Log <parameters:"))
-        self.assertIn(b"<CALL:4>K1AB", payload)
-        self.assertIn(b"<QSO_DATE:", payload)
-        self.assertIn(b"<TIME_ON:", payload)
+        self.assertIn(b"<call:4>K1AB", payload)
+        self.assertIn(b"<qso_date:", payload)
+        self.assertIn(b"<time_on:", payload)
         self.assertTrue(payload.endswith(b"\n"))
-        # TCP Log skips N1MM Entry lookup — we send PFX/CQZ/ITUZ ourselves.
-        self.assertIn(b"<PFX:", payload)
-        self.assertIn(b"<CQZ:", payload)
-        self.assertIn(b"<ITUZ:", payload)
-        self.assertIn(b"<CALL:4>K1AB", payload)
+        self.assertNotIn(b"<CALL:", payload)
 
     def test_normalize_wsjt_call_trailing_space(self):
         from wims.log.app import normalize_adif_call, wrap_adif
@@ -97,7 +93,7 @@ class AdifWrapTests(unittest.TestCase):
         self.assertIn("<CALL:5>K1ABC", out)
         self.assertNotIn("<call:6>", out.lower())
         payload = wrap_adif(adif)
-        self.assertIn(b"<CALL:5>K1ABC", payload)
+        self.assertIn(b"<call:5>K1ABC", payload)
 
     def test_rebuild_strips_eoh_and_puts_call_first(self):
         from wims.log.app import rebuild_n1mm_adif, wrap_adif
@@ -108,14 +104,14 @@ class AdifWrapTests(unittest.TestCase):
             "<qso_date:8>20260913 <time_on:6>180000 <eor>"
         )
         out = rebuild_n1mm_adif(wsjt)
-        self.assertTrue(out.startswith("<CALL:5>N8LRG"))
+        self.assertTrue(out.startswith("<call:5>N8LRG"))
         self.assertNotIn("adif_ver", out.lower())
-        self.assertNotIn("eoh", out.lower())
-        self.assertNotIn("STATION_CALLSIGN", out.upper())
-        self.assertIn("<BAND:2>2M", out)
+        self.assertNotIn("<eoh", out.lower())
+        self.assertNotIn("station_callsign", out.lower())
+        self.assertIn("<band:2>2M", out)
         payload = wrap_adif(wsjt)
-        self.assertIn(b"<CALL:5>N8LRG", payload)
-        # Envelope length is the ADIF body only.
+        self.assertIn(b"<call:5>N8LRG", payload)
+        self.assertNotIn(b"<CALL:", payload)
         self.assertTrue(payload.startswith(b"<command:3>Log <parameters:"))
 
     def test_enrich_does_not_overwrite_existing_cqz(self):
