@@ -33,6 +33,17 @@ const age = (a) => a == null ? "-" : (a < 90 ? a.toFixed(0)+"s" : (a/60).toFixed
 const mhz = (hz) => hz ? (hz/1e6).toFixed(6) : "-";
 const esc = (s) => (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const sgn = (n) => (n>=0?'+':'')+n;
+// Meter bands: 6m → 6M (M = meters). cm unchanged. Not instance ids (ROY-6m).
+function fmtBand(b) {
+  if (b == null || b === "" || b === "-" || b === "—") return b == null ? "" : b;
+  const s = String(b);
+  if (/^\d+(\.\d+)?m$/i.test(s)) return s.slice(0, -1) + "M";
+  if (/^\d+(\.\d+)?cm$/i.test(s)) return s.replace(/cm$/i, "cm");
+  return s;
+}
+function fmtBands(list, sep) {
+  return (list || []).map(fmtBand).filter(Boolean).join(sep == null ? ", " : sep);
+}
 
 function renderHeader(s) {
   if ($("rx")) $("rx").textContent = `rx ${s.rx.wsjtx} WSJT-X / ${s.rx.n1mm} N1MM`;
@@ -100,7 +111,7 @@ function renderBandInventory(s) {
       return `${l.id || "?"}${h}${mc}`;
     }).join(", ") || "—";
     tr.innerHTML =
-      `<td><b>${esc(b.band)}</b></td>` +
+      `<td><b>${esc(fmtBand(b.band))}</b></td>` +
       `<td>${policyBadge(b.share_policy)}</td>` +
       `<td class="num">${liveWsjt.length}</td>` +
       `<td style="white-space:normal;max-width:280px">${esc(ids)}</td>` +
@@ -283,7 +294,7 @@ function renderInstances(s) {
       ? ' <span class="warn" title="Two PCs use the same WSJT-X name — set unique --rig-name on each">⚠ rename</span>'
       : "";
     tr.innerHTML =
-      `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(n.band||"-")}</td>` +
+      `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(fmtBand(n.band||"-"))}</td>` +
       `<td style="white-space:normal;max-width:260px">${n1mmLoggerCell(n.n1mm_logger)}</td>` +
       `<td>${policyBadge(n.share_policy)}</td>` +
       `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
@@ -331,13 +342,13 @@ function renderLoggers(s) {
     const fresh = l.last_seen_age != null && l.last_seen_age < 60;
     const seen = l.last_seen_age == null ? "-" : age(l.last_seen_age) + " ago";
     const lastq = l.last_qso_age == null ? "—"
-      : `${l.last_call||""} ${l.last_band||""} (${age(l.last_qso_age)} ago)`;
+      : `${l.last_call||""} ${fmtBand(l.last_band||"")} (${age(l.last_qso_age)} ago)`;
     const alias = (l.aliases && l.aliases.length)
       ? ` <span class="meta">aka ${esc(l.aliases.join(", "))}</span>` : "";
     const bands = (l.bands && l.bands.length)
-      ? l.bands.join(", ")
-      : ((l.bands_seen && l.bands_seen.length) ? l.bands_seen.join(", ")
-        : (l.last_band || "—"));
+      ? fmtBands(l.bands)
+      : ((l.bands_seen && l.bands_seen.length) ? fmtBands(l.bands_seen)
+        : (fmtBand(l.last_band) || "—"));
     const role = l.role === "digital_logger"
       ? `<span class="ALIVE">digital</span>`
       : `<span class="STALE" title="No WSJT-X bound to this N1MM — SSB/CW only or reader not set">no WSJT</span>`;
@@ -347,7 +358,7 @@ function renderLoggers(s) {
       wsjtCell = `<span class="meta">— none</span>`;
     } else {
       wsjtCell = wsjtList.map(w => {
-        const b = w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "";
+        const b = w.band ? ` <span class="meta">(${esc(fmtBand(w.band))})</span>` : "";
         const h = w.host ? ` @${esc(w.host)}` : "";
         const st = w.health === "ALIVE" ? "ALIVE" : (w.health || "");
         return `<span class="${st}">${esc(w.id || "?")}</span>${b}${h}`;
@@ -376,7 +387,7 @@ function renderLoggers(s) {
       wrap.style.display = "block";
       ub.innerHTML = unbound.map(w =>
         `<span class="warn">${esc(w.id || "?")}</span>` +
-        (w.band ? ` <span class="meta">(${esc(w.band)})</span>` : "") +
+        (w.band ? ` <span class="meta">(${esc(fmtBand(w.band))})</span>` : "") +
         (w.host ? ` @${esc(w.host)}` : "")
       ).join(" · ");
     }
@@ -443,7 +454,7 @@ function dlogDraw() {
       tr.innerHTML =
         `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td>` +
         `<td title="WSJT-X --rig-name / UDP id">${esc(e.instance || "—")}</td>` +
-        `<td>${esc(e.band || "—")}</td>` +
+        `<td>${esc(fmtBand(e.band || "—"))}</td>` +
         `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
         `<td>${esc(e.message)}</td>`;
     } else {
@@ -474,7 +485,7 @@ function renderSync(n) {
     const label = {active:"active", idle:"quiet · N1MM has no heartbeat",
                    none:"none heard yet (broadcast not enabled?)"}[n.status];
     const feed = n.feed_age == null ? "none seen" : `${age(n.feed_age)} ago`;
-    const lq = n.last_qso ? `${n.last_qso.call} ${n.last_qso.band} (${age(n.last_qso.age)} ago)` : "—";
+    const lq = n.last_qso ? `${n.last_qso.call} ${fmtBand(n.last_qso.band)} (${age(n.last_qso.age)} ago)` : "—";
     const seed = n.seed ? ` ✓ seeded from ${esc(n.seed.source)}` : "";
     const rsTxt = formatResync(n.last_resync);
     const resync = rsTxt
@@ -765,7 +776,7 @@ function renderInterlock(il) {
                  : g.transmitting.length ? '<span class="state-TX">TX</span>'
                  : '<span class="state-RX">idle</span>';
     tr.innerHTML =
-      `<td>${g.group}</td><td>${g.instances.join(", ")}</td>` +
+      `<td>${esc(fmtBand(g.group))}</td><td>${g.instances.join(", ")}</td>` +
       `<td class="state-TX">${g.transmitting.join(", ")||"—"}</td><td>${status}</td>`;
     body.appendChild(tr);
   }
@@ -778,7 +789,7 @@ function renderInterlock(il) {
 const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
-  {key:"band",          label:"Band",    cls:"",          cell:c=>c.band||"-"},
+  {key:"band",          label:"Band",    cls:"",          cell:c=>fmtBand(c.band||"-")},
   {key:"instance",      label:"Source",  cls:"",          cell:rosSource},
   {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
   {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
@@ -1062,7 +1073,7 @@ function rosSyncBandChecks(bands) {
       rosDraw();
     });
     lab.appendChild(cb);
-    lab.appendChild(document.createTextNode(b));
+    lab.appendChild(document.createTextNode(fmtBand(b)));
     wrap.appendChild(lab);
   }
 }
@@ -1309,7 +1320,7 @@ function txFlash(j, url) {
       if (!j.halted.length) {
         m.textContent = j.detail || "nothing to halt from this console";
       } else {
-        const bands = (j.bands || []).filter(Boolean).join("+");
+        const bands = fmtBands((j.bands || []).filter(Boolean), "+");
         m.textContent = bands ? `halted ${bands}` : `halted ${j.halted.length}`;
       }
     } else {
@@ -1446,9 +1457,10 @@ function renderTxBar(tx) {
   if (halt) {
     halt.disabled = false;           // always available; no-op if this console started none
     const bands = myTxBands(_txState);
-    halt.textContent = bands.length ? ("◼ Halt " + bands.join("+")) : "◼ Halt TX";
+    const shown = fmtBands(bands, "+");
+    halt.textContent = bands.length ? ("◼ Halt " + shown) : "◼ Halt TX";
     halt.title = bands.length
-      ? ("Stop this console’s Work on " + bands.join(" + ")
+      ? ("Stop this console’s Work on " + fmtBands(bands, " + ")
          + ". Other operators are not halted. Two bands → both stop.")
       : "Stop QSOs this console started. Does not halt other operators or local WSJT-X CQ.";
   }

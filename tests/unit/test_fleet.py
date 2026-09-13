@@ -177,6 +177,49 @@ def test_n1mm_radioinfo_presence_without_qso():
     assert n.qso_count == 1 and n.last_qso == 160.0 and n.last_seen == 160.0
 
 
+def test_n1mm_6m_logger_does_not_inherit_other_qso_bands():
+    """Networked contactinfo for 2m/70cm must not paint those onto a 6m station."""
+    t = FleetTracker()
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>MGEF-6M-FT8-1</StationName>"
+        "<RadioNr>1</RadioNr><ActiveRadioNr>1</ActiveRadioNr>"
+        "<Freq>5031300</Freq><mycall>W2SZ</mycall></RadioInfo>",
+        now=1.0, src_ip="192.168.10.50")
+    t.observe_n1mm_xml(
+        "<contactinfo><app>N1MM</app><StationName>MGEF-6M-FT8-1</StationName>"
+        "<call>K1TWO</call><band>144</band></contactinfo>",
+        now=2.0, src_ip="192.168.10.50")
+    t.observe_n1mm_xml(
+        "<contactinfo><app>N1MM</app><StationName>MGEF-6M-FT8-1</StationName>"
+        "<call>K1UHF</call><band>432</band></contactinfo>",
+        now=3.0, src_ip="192.168.10.50")
+    lg = t.loggers["MGEF-6M-FT8-1"]
+    assert lg.last_band == "6m"
+    assert lg.bands_seen == {"6m"}
+    d = fleet_to_dict(t, now=4.0)
+    bands = next(x["bands"] for x in d["loggers"] if x["id"] == "MGEF-6M-FT8-1")
+    assert bands == ["6m"]
+    assert "70cm" not in bands and "2m" not in bands
+
+
+def test_n1mm_inactive_radioinfo_not_a_band():
+    """SO2R Radio 2 on 70cm must not add 70cm to a 6m logger."""
+    t = FleetTracker()
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>MGEF-6M</StationName>"
+        "<RadioNr>1</RadioNr><ActiveRadioNr>1</ActiveRadioNr>"
+        "<Freq>5031300</Freq></RadioInfo>",
+        now=1.0, src_ip="192.168.10.50")
+    t.observe_n1mm_xml(
+        "<RadioInfo><app>N1MM</app><StationName>MGEF-6M</StationName>"
+        "<RadioNr>2</RadioNr><ActiveRadioNr>1</ActiveRadioNr>"
+        "<Freq>43217400</Freq></RadioInfo>",
+        now=1.1, src_ip="192.168.10.50")
+    lg = t.loggers["MGEF-6M"]
+    assert lg.last_band == "6m"
+    assert "70cm" not in lg.bands_seen
+
+
 def test_n1mm_radioinfo_vhf_is_not_uhf():
     """Overview used 100 Hz units and painted 6m as 70cm / 2m as 23cm."""
     t = FleetTracker()

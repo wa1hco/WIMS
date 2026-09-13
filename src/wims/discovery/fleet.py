@@ -40,7 +40,9 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from wims.core.bands import band_label, band_label_mhz  # noqa: E402
-from wims.log.radioinfo import n1mm_freq_units_to_hz  # noqa: E402
+from wims.log.radioinfo import (  # noqa: E402
+    band_from_radioinfo_xml, radioinfo_ignore_reason,
+)
 from wims.udp import messages as M  # noqa: E402
 
 PULSE = 15  # WSJT-X heartbeat period (s); health thresholds are multiples of it.
@@ -347,23 +349,22 @@ class FleetTracker:
             node.last_qso = now
             node.qso_count += 1
             node.last_call = f.get("call") or None
-            try:
-                node.note_band(band_label_mhz(float(f.get("band"))))
-            except (TypeError, ValueError):
-                pass
+            # QSO <band> is the contact, not this PC's radio. Networked N1MM
+            # rebroadcasts every band; do not paint 2m/70cm onto a 6m logger.
+            # Seed last_band only when RadioInfo has not spoken (bind-by-band).
+            if not node.last_band:
+                try:
+                    qband = band_label_mhz(float(f.get("band")))
+                except (TypeError, ValueError):
+                    qband = None
+                if qband and qband != "?":
+                    node.last_band = qband
         elif tag == "radioinfo":
-            # N1MM RadioInfo Freq/TXFreq is tens of Hz (10 Hz units).
-            # Docs: 6m 5012345 → 50.12345 MHz; 2m 14417400 → 144.174 MHz.
-            # Treating that as 100 Hz units maps 6m→70cm and 2m→23cm.
-            for key in ("freq", "txfreq"):
-                raw = f.get(key)
-                if not raw:
-                    continue
-                hz = n1mm_freq_units_to_hz(raw)
-                if not hz:
-                    continue
-                node.note_band(band_label(hz))
-                break
+            # Active radio only. Inactive SO2R/SO2V VFOs still beacon (2m/70cm
+            # on a 6m seat). Freq is 10 Hz units (5031300 → 50.313 MHz).
+            band, meta = band_from_radioinfo_xml(xml_text)
+            if band and not radioinfo_ignore_reason(meta):
+                node.note_band(band)
         # Collapse StationName / NetBIOS / bare-IP rows for this host.
         self.consolidate_loggers()
 

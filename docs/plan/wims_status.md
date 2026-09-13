@@ -206,6 +206,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-13** — **N1MM page Bands** is this station’s radio + WSJT, not
+  every networked QSO band (6m logger no longer shows 2m/70cm). Inactive
+  SO2R RadioInfo is ignored. Dashboard meter labels are **6M / 2M**.
 - **2026-09-13** — **Operate Halt TX is this-console only.** Work records a
   dashboard id; Halt stops live claims from that browser (two bands → both),
   not other operators and not a global stop-all. Button label lists the bands.

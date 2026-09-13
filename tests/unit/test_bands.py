@@ -19,8 +19,25 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from wims.core.bands import (  # noqa: E402
-    band_label, band_label_mhz, n1mm_raw_to_hz, rf_band, rf_hz,
+    band_label, band_label_mhz, format_band, n1mm_raw_to_hz, rf_band, rf_hz,
 )
+
+
+class FormatBandTests(unittest.TestCase):
+    def test_meters_capital_m(self):
+        self.assertEqual(format_band("6m"), "6M")
+        self.assertEqual(format_band("2m"), "2M")
+        self.assertEqual(format_band("1.25m"), "1.25M")
+        self.assertEqual(format_band("20m"), "20M")
+        self.assertEqual(format_band("6M"), "6M")
+
+    def test_cm_unchanged(self):
+        self.assertEqual(format_band("70cm"), "70cm")
+        self.assertEqual(format_band("3cm"), "3cm")
+
+    def test_not_instance_ids(self):
+        self.assertEqual(format_band("ROY-6m"), "ROY-6m")
+        self.assertEqual(format_band("?"), "?")
 
 
 class BandLabelTests(unittest.TestCase):

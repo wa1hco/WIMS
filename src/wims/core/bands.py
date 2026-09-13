@@ -36,6 +36,7 @@ MGEF-10-UP at 10368.090 MHz) pass through. Disable IF mapping with
 from __future__ import annotations
 
 import os
+import re
 
 # (lower edge Hz, label); pick the largest lower-bound <= freq.
 _BANDS = [
@@ -141,6 +142,25 @@ def n1mm_raw_to_hz(raw: str | int | float) -> int | None:
 def band_sort_key(label: str) -> int:
     """Frequency-order index for a band label ("6m" < "2m" < "70cm"); unknown last."""
     return BAND_ORDER.index(label) if label in BAND_ORDER else len(BAND_ORDER)
+
+
+# Display: meter suffix is M (6M, 2M). cm stays cm. Internal keys stay "6m".
+_FMT_METERS = re.compile(r"^(\d+(?:\.\d+)?)m$", re.IGNORECASE)
+_FMT_CM = re.compile(r"^(\d+(?:\.\d+)?)cm$", re.IGNORECASE)
+
+
+def format_band(label: str) -> str:
+    """Operator-facing band: 6m→6M, 2m→2M, 1.25m→1.25M. 70cm unchanged."""
+    s = (label or "").strip()
+    if not s:
+        return s
+    m = _FMT_METERS.fullmatch(s)
+    if m:
+        return m.group(1) + "M"
+    m = _FMT_CM.fullmatch(s)
+    if m:
+        return m.group(1) + "cm"
+    return s
 
 
 def band_label(freq_hz: float, *, apply_if: bool = True) -> str:
