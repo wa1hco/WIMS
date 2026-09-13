@@ -81,7 +81,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.7`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.7).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.11`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.11).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -206,6 +206,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-13** — **Version `1.0.11`**. Install no longer rewrites tracked
+  `Start-WimsServer.cmd` (that dirty file blocked `git pull` / Update). Pin
+  stays in gitignored `python-path.txt`; launchers already call `_resolve-python.cmd`.
 - **2026-09-13** — **N1MM page Bands** is this station’s radio + WSJT, not
   every networked QSO band (6m logger no longer shows 2m/70cm). Inactive
   SO2R RadioInfo is ignored. Dashboard meter labels are **6M / 2M**.

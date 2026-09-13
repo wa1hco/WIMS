@@ -31,8 +31,8 @@ This design defines **release packages** for Windows (primary) and Linux (second
 |------|--------|
 | Runtime | stdlib Python ≥3.10; `dependencies = []` in `pyproject.toml` |
 | UI | Browser console (static files under `src/wims/server/static/`); optional Tk launcher |
-| Windows install | `scripts/windows/Install-Wims.cmd` → `Install-Wims.ps1`: finds/installs **official CPython** (skips LibreOffice / Store stub / other embeds), optional Git clone, firewall TCP 8787, writes `python-path.txt`, regenerates `Start-WimsServer.cmd` to consume that pin via `_resolve-python.cmd`, smoke `import wims.server.app` → `import ok` |
-| Python pin consume | All `.cmd` launchers (including `Start-WimsServer.cmd`) call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python`. A pin that is a directory or vendor embed is ignored. |
+| Windows install | `scripts/windows/Install-Wims.cmd` → `Install-Wims.ps1`: finds/installs **official CPython** (skips LibreOffice / Store stub / other embeds), optional Git clone, firewall TCP 8787, writes gitignored `python-path.txt` (does **not** rewrite tracked `Start-WimsServer.cmd`), smoke `import wims.server.app` → `import ok` |
+| Python pin consume | All `.cmd` launchers (including `Start-WimsServer.cmd`) call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python`. A pin that is a directory or vendor embed is ignored. Install must not rewrite the tracked `.cmd`. |
 | Windows update | `Update-Wims.ps1`: `git pull --ff-only origin/main` when `.git` exists. Startup (`check_for_update`) also queries **GitHub Releases**; ZIP / no-git trees get the banner and open the release URL. Tag `v*` publishes; push to `main` does not. |
 | Local seat configs (gitignored) | `scripts/windows/seat-common.cmd`, `seat-local.cmd`, `radio-flex50.cmd`, `radio-ic9700-144.cmd`, `python-path.txt` |
 | Linux | `apt install git python3 python3-tk`; run from tree; `scripts/install-wims-desktop.sh` |
@@ -323,7 +323,7 @@ wims-<ver>-windows-x86_64/
 
 | Concern | Behavior |
 |---------|----------|
-| Python | Ship overlay runtime under `runtime\python\`. Install writes absolute path to `scripts\windows\python-path.txt`. `_resolve-python.cmd` prefers that pin; also search `..\..\runtime\python\python.exe` relative to `scripts\windows` before system Python. `Install-Wims.ps1` regenerates `Start-WimsServer.cmd` with the pinned exe (existing behavior). Other launchers keep calling `_resolve-python.cmd` — they are **not** all rewritten. |
+| Python | Ship overlay runtime under `runtime\python\`. Install writes absolute path to `scripts\windows\python-path.txt`. `_resolve-python.cmd` prefers that pin; also search `..\..\runtime\python\python.exe` relative to `scripts\windows` before system Python. `Install-Wims.ps1` does **not** rewrite tracked `Start-WimsServer.cmd`. |
 | Tkinter | Part of bundled runtime; smoke includes `import tkinter`. |
 | Static assets | Inside `src\wims\server\static\`. |
 | Firewall 8787 | Try; warn + continue if non-admin. |
@@ -439,7 +439,7 @@ No wire-protocol or HTTP API changes for packaging.
 
 | Interface | Change |
 |-----------|--------|
-| `Install-Wims.ps1` | Prefer `runtime\python\python.exe`; write `python-path.txt`; regenerate `Start-WimsServer.cmd`; **auto LAN→Private**; 8787 best-effort; optional prompt for full firewall helper (never silent); smoke = `import wims.server.app` + `import tkinter` |
+| `Install-Wims.ps1` | Prefer `runtime\python\python.exe`; write `python-path.txt`; do **not** rewrite tracked `Start-WimsServer.cmd`; **auto LAN→Private**; 8787 best-effort; optional prompt for full firewall helper (never silent); smoke = `import wims.server.app` + `import tkinter` |
 | `_resolve-python.cmd` | After reading `python-path.txt`, if missing/stale try `%~dp0..\..\runtime\python\python.exe`, then existing fallbacks |
 | `Update-Wims.ps1` | If `.git` present: keep git ff-only. If absent: print zip-update instructions and exit non-zero for “pull”, or delegate to FromZip when invoked with a zip path |
 | `Update-Wims-FromZip.cmd/.ps1` | New; preserve set + WIMS-only stop + re-pin runtime |
@@ -716,8 +716,8 @@ Operator answers **2026-09-07** (final for this design):
 10. **Tag scheme allows `vX.Y.Z`, `vX.Y.Z-rcN`, `vX.Y.Z-tester`; `__version__` holds numeric base only; first public tag `v1.0.0`.**  
     Matches status plan without breaking pyproject ↔ `__version__` equality.
 
-11. **Python pin contract = `python-path.txt` + `_resolve-python.cmd` (+ Install-generated `Start-WimsServer.cmd`).**  
-    Not “rewrite every `.cmd`.”
+11. **Python pin contract = `python-path.txt` + `_resolve-python.cmd`.**
+    Do not rewrite tracked `.cmd` files.
 
 12. **Windows `-setup.exe` thin Inno/SFX wrapper is in-scope for v1 (PR 9 after PR 5); Authenticode planned (lab self-signed → real cert). Zip remains the payload source of truth.**
 
@@ -770,7 +770,7 @@ Ordered, independently reviewable PRs. Each should leave `main` green.
 - **Title:** `windows: prefer runtime\\python via python-path.txt and _resolve-python`
 - **Files/components:** `Install-Wims.ps1`, `Install-Wims.cmd`, `_resolve-python.cmd`, `scripts/windows/README.md`
 - **Dependencies:** none (bundle directory optional; works once spike runtime exists on USB)
-- **Description:** Search order: valid `python-path.txt` → `runtime\python\python.exe` → system → online. Write pin file; regenerate `Start-WimsServer.cmd` only (existing). Smoke = standard command. **Keep auto LAN→Private**; TCP 8787 best-effort; optional prompt for full contest firewall helper — **never silent** full profile.
+- **Description:** Search order: valid `python-path.txt` → `runtime\python\python.exe` → system → online. Write pin file; do **not** rewrite tracked `Start-WimsServer.cmd`. Smoke = standard command. **Keep auto LAN→Private**; TCP 8787 best-effort; optional prompt for full contest firewall helper — **never silent** full profile.
 
 ### PR 3 — Update path for non-git (zip) installs
 
