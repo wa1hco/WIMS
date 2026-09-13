@@ -24,7 +24,16 @@ _MHZ_PIN = {
     222: "1.25m",
     432: "70cm",
     902: "33cm",
+    1240: "23cm",
     1296: "23cm",
+    2300: "13cm",
+    2304: "13cm",
+    3300: "9cm",
+    3456: "9cm",
+    5650: "6cm",
+    5760: "6cm",
+    10000: "3cm",
+    10368: "3cm",
 }
 
 VALID_PINS = frozenset(_MHZ_PIN.values())
@@ -164,7 +173,8 @@ def run_checks(
     elif live_band not in VALID_PINS:
         rep.items.append(CheckItem(
             "band", "warn",
-            f"N1MM band {live_band!r} is unusual (expected 6m/2m/1.25m/70cm/33cm/23cm).",
+            f"N1MM band {live_band!r} is unusual "
+            f"(expected 6m/2m/1.25m/70cm/33cm/23cm/13cm/9cm/6cm/3cm).",
         ))
     else:
         rep.items.append(CheckItem(

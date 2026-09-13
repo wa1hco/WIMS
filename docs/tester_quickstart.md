@@ -193,7 +193,8 @@ Stops future pain if you add a second PC later.
 1. **Accept UDP** still ON.  
 2. Manual double-click in WSJT-X Band Activity works (proves radio).  
 3. Fresh CQ still on Band Activity → **click the roster line** in WIMS.  
-4. WSJT-X fills DX / Enable Tx; **Halt TX** in WIMS stops.
+4. WSJT-X fills DX / Enable Tx; **Halt TX** in WIMS stops this console’s Work
+   (not other operators; two bands from this console → both stop).
 
 If click works in WIMS UI but WSJT-X ignores DX: firewall allow **wsjtx.exe** inbound UDP (not only port 2237 — control uses an ephemeral port). Details: [tester_runbook.md](tester_runbook.md) §6.
 

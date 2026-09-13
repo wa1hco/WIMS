@@ -44,7 +44,8 @@ python -m wims solo            # or: python -m wims.solo
   (`FLEET_WSJT_PORTS`); `Start-WimsServer.cmd` auto-picks LAN iface. Solo uses
   `python -m wims.solo` (same port). Lab escape: `--ports 2237,2238,…`.
 - **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
-  **Halt TX** always on. Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
+  **Halt TX** stops this console’s Work only (two bands from the same console → both).
+  Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
   (read-only), `--enable-cq-freetext` (experimental, off). **Call CQ** is WSJT-X UI only (§2.12).
 - **Log seed:** scans N1MM contest `.s3db` file(s) for **multiple contest instances**.
   Startup order: **`--seed-db` (that file only + remember)** → **last Setup pick**
@@ -205,6 +206,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-09-13** — **Operate Halt TX is this-console only.** Work records a
+  dashboard id; Halt stops live claims from that browser (two bands → both),
+  not other operators and not a global stop-all. Button label lists the bands.
+  Tests in `test_server_tx`.
 - **2026-09-12** — **Version `1.0.10`**. Seat **Update WIMS** relaunch now drops
   `launcher.lock` before spawn (`pythonw` was exiting with no window). Status
   refresh no longer restores "Update available" over "Updating…". N1MM

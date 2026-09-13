@@ -74,6 +74,20 @@ def test_dupe_from_log_flagged_not_needed():
     assert [s.candidate.call for s, _ in rows][0] == "N1NEW"  # needed ranks above worked dupe
 
 
+def test_fixed_station_other_grid_is_dupe():
+    """N1MM dupes non-rovers on call+band; a wrong/different grid is still worked."""
+    log = LogStore(":memory:")
+    log.upsert(LoggedQso(id="q1", call="WB1GQR", band="2m", grid="EM96", mode="FT8",
+                         points=1, is_mult=True, contest="VHF", timestamp="", operator="",
+                         rover_location=None, source="test"))
+    rb = RosterBuilder(log=log)
+    rb.observe_decode(_decode("SIM-2M", "CQ WB1GQR FN42"), "2m", now=10.0)
+    rows, not_needed = rb.ranked(now=11.0)
+    assert len(rows) == 1
+    assert rows[0][0].candidate.is_dupe is True
+    assert not_needed == 1
+
+
 def test_stale_entries_age_out():
     rb = RosterBuilder(log=None, ttl=60.0)
     rb.observe_decode(_decode("SIM-6M", "CQ K1ABC FN42"), "6m", now=10.0)
@@ -122,6 +136,35 @@ def test_nongrid_report_does_not_split_row():
     assert e.decode.message.endswith("RR73")    # latest decode retained
     assert rb.entry_for("SIM-2M|N2MKT|FN13") is not None
     assert rb.entry_for("SIM-2M|N2MKT|") is None
+
+
+def test_own_station_tx_is_not_a_roster_row():
+    """Second radio hearing our CQ / our reply must not appear as DX."""
+    rb = RosterBuilder(log=None)
+    own = ["W2SZ"]
+    rb.observe_decode(_decode("6M-WAMC", "CQ W2SZ FN32"), "6m", now=10.0, own_calls=own)
+    rb.observe_decode(_decode("6M-WAMC", "K1ABC W2SZ FN32"), "6m", now=10.0, own_calls=own)
+    rb.observe_decode(_decode("6M-WAMC", "CQ K1ABC FN42"), "6m", now=10.0, own_calls=own)
+    rb.observe_decode(_decode("6M-WAMC", "W2SZ K1ABC FN42"), "6m", now=10.0, own_calls=own)
+    rows, _ = rb.ranked(now=11.0)
+    calls = [s.candidate.call for s, _ in rows]
+    assert "W2SZ" not in calls
+    assert calls == ["K1ABC"]
+
+
+def test_own_station_matches_base_call():
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("6M-A", "CQ W2SZ/R FN32"), "6m", now=10.0, own_calls=["W2SZ"])
+    rows, _ = rb.ranked(now=11.0)
+    assert rows == []
+
+
+def test_drop_own_station_clears_already_retained():
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("6M-A", "CQ W2SZ FN32"), "6m", now=10.0)
+    assert rb.entry_for("6M-A|W2SZ|FN32") is not None
+    assert rb.drop_own_station(["W2SZ"]) == 1
+    assert rb.entry_for("6M-A|W2SZ|FN32") is None
 
 
 def test_grid_after_nongrid_promotes_single_row():

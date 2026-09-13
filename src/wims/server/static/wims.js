@@ -91,11 +91,8 @@ function renderBandInventory(s) {
   for (const b of bands) {
     const tr = document.createElement("tr");
     if ((b.wsjt_tx || []).length) tr.className = "tx";
-    const ids = (b.wsjt || []).map(w => {
-      const nl = w.n1mm_logger;
-      if (nl && nl.id) return `${w.id}→${nl.id}`;
-      return w.id;
-    }).filter(Boolean).join(", ") || "—";
+    const liveWsjt = (b.wsjt || []).filter(w => (w.health || "") !== "DEAD");
+    const ids = liveWsjt.map(w => w.id).filter(Boolean).join(", ") || "—";
     const tx = (b.wsjt_tx || []).length ? esc((b.wsjt_tx || []).join(", ")) : "—";
     const logs = (b.loggers || []).map(l => {
       const mc = l.mycall ? ` (${l.mycall})` : "";
@@ -105,7 +102,7 @@ function renderBandInventory(s) {
     tr.innerHTML =
       `<td><b>${esc(b.band)}</b></td>` +
       `<td>${policyBadge(b.share_policy)}</td>` +
-      `<td class="num">${b.wsjt_count ?? (b.wsjt || []).length}</td>` +
+      `<td class="num">${liveWsjt.length}</td>` +
       `<td style="white-space:normal;max-width:280px">${esc(ids)}</td>` +
       `<td class="${(b.wsjt_tx || []).length ? "state-TX" : ""}">${tx}</td>` +
       `<td class="num">${b.logger_count ?? (b.loggers || []).length}</td>` +
@@ -803,6 +800,33 @@ let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 const ROS_BANDS_KEY = "wims.ops.bands";
 const ROS_COLS_KEY = "wims.ops.cols";
+const DASH_ID_KEY = "wims.ops.dashboardId";
+
+function dashboardId() {
+  try {
+    let id = localStorage.getItem(DASH_ID_KEY);
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID())
+        || ("d-" + Math.random().toString(16).slice(2) + Date.now().toString(16));
+      localStorage.setItem(DASH_ID_KEY, id);
+    }
+    return id;
+  } catch (_) {
+    if (!window._wimsDashId) {
+      window._wimsDashId = "d-mem-" + Math.random().toString(16).slice(2);
+    }
+    return window._wimsDashId;
+  }
+}
+
+function myTxClaims(tx) {
+  const id = dashboardId();
+  return ((tx && tx.claims) || []).filter(c => c.dashboard_id === id);
+}
+
+function myTxBands(tx) {
+  return [...new Set(myTxClaims(tx).map(c => c.band).filter(Boolean))].sort();
+}
 const ROS_AGE_KEY = "wims.ops.maxAgeSec";
 const ROS_AGE_DEFAULT = 120; // match GridTracker-ish “last ~2 minutes” feel
 let _rosColsBuilt = false;
@@ -1282,7 +1306,12 @@ function txFlash(j, url) {
       m.textContent = `→ Work ${j.call || "?"} on ${j.instance || "?"}${via}${dest}`
         + (j.detail ? ` · ${j.detail}` : "");
     } else if (Array.isArray(j.halted)) {
-      m.textContent = `halted ${j.halted.length}`;
+      if (!j.halted.length) {
+        m.textContent = j.detail || "nothing to halt from this console";
+      } else {
+        const bands = (j.bands || []).filter(Boolean).join("+");
+        m.textContent = bands ? `halted ${bands}` : `halted ${j.halted.length}`;
+      }
     } else {
       m.textContent = "ok";
     }
@@ -1293,8 +1322,11 @@ function txFlash(j, url) {
       tx_disabled: "Server is --no-tx (read-only)",
       unknown_row: "Row gone — wait for a new decode",
       group_busy: "Another radio holds TX — Halt first",
+      other_dashboard: "Started from another console",
     }[err];
-    m.textContent = `Work failed: ${j.detail || hint || err}`;
+    const isHalt = url && String(url).indexOf("/halt") >= 0;
+    m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")
+      + (j.detail || hint || err);
   }
 }
 
@@ -1302,7 +1334,8 @@ function txWire() {
   if (_txWired) return;
   _txWired = true;
   const halt = $("tx-halt");
-  if (halt) halt.addEventListener("click", () => txPost("/api/tx/halt", {}));
+  if (halt) halt.addEventListener("click", () =>
+    txPost("/api/tx/halt", {dashboard_id: dashboardId()}));
   // Click a roster *line* → Work (GT2-style). No Work button column.
   // Az DX button → point rotator only (does not TX).
   const body = $("ros-body");
@@ -1317,7 +1350,9 @@ function txWire() {
     if (!(_txState && _txState.can_tx)) return;
     if (e.target.closest("a,button,input,select,label")) return;
     const tr = e.target.closest("tr[data-row]");
-    if (tr && tr.dataset.row) txPost("/api/tx/work", {row_id: tr.dataset.row});
+    if (tr && tr.dataset.row) {
+      txPost("/api/tx/work", {row_id: tr.dataset.row, dashboard_id: dashboardId()});
+    }
   });
 }
 
@@ -1408,7 +1443,15 @@ function renderTxBar(tx) {
         "click Az DX° to point a rotator when mapped.";
     }
   }
-  if (halt) halt.disabled = false;           // panic stop always available
+  if (halt) {
+    halt.disabled = false;           // always available; no-op if this console started none
+    const bands = myTxBands(_txState);
+    halt.textContent = bands.length ? ("◼ Halt " + bands.join("+")) : "◼ Halt TX";
+    halt.title = bands.length
+      ? ("Stop this console’s Work on " + bands.join(" + ")
+         + ". Other operators are not halted. Two bands → both stop.")
+      : "Stop QSOs this console started. Does not halt other operators or local WSJT-X CQ.";
+  }
 }
 
 // -- dispatch + connect ----------------------------------------------------- //

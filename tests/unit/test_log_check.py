@@ -24,6 +24,7 @@ from wims.log.app import (
     adif_band,
     deliver_to_n1mm,
     ensure_adif_datetime,
+    rewrite_adif_rf,
     wrap_adif,
 )
 from wims.log.radioinfo import (
@@ -57,6 +58,21 @@ class AdifWrapTests(unittest.TestCase):
     def test_band_from_freq_when_no_band(self):
         adif = "<CALL:4>K1AB<FREQ:8>14.074000<MODE:3>FT8 <eor>"
         self.assertEqual(adif_band(adif), "20m")
+
+    def test_10m_if_adif_is_70cm(self):
+        adif = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
+        self.assertEqual(adif_band(adif), "70cm")
+
+    def test_15m_if_adif_is_125m(self):
+        adif = "<CALL:4>K1AB<BAND:3>15m<FREQ:9>21.174000<MODE:3>FT8 <eor>"
+        self.assertEqual(adif_band(adif), "1.25m")
+
+    def test_rewrite_28mhz_adif_to_432(self):
+        adif = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
+        out = rewrite_adif_rf(adif)
+        self.assertIn("432.174000", out)
+        self.assertIn("70CM", out.upper())
+        self.assertEqual(adif_band(out), "70cm")
 
     def test_n1mm_log_envelope(self):
         payload = wrap_adif("<CALL:4>K1AB<BAND:2>2m <eor>")
@@ -250,6 +266,51 @@ class RadioInfoTests(unittest.TestCase):
         band, meta = band_from_radioinfo_xml(xml)
         self.assertIsNone(band)
         self.assertEqual(meta, {})
+
+    def test_10ghz_network_status_khz(self):
+        xml = """<?xml version="1.0"?>
+        <RadioInfo>
+          <RadioNr>1</RadioNr>
+          <Freq>10368090</Freq>
+          <TXFreq>10368090</TXFreq>
+          <Mode>USB</Mode>
+          <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>MGEF-10-UP</StationName>
+        </RadioInfo>
+        """
+        band, meta = band_from_radioinfo_xml(xml)
+        self.assertEqual(band, "3cm")
+        self.assertEqual(meta["freq_hz"], 10_368_090_000)
+
+    def test_432_if_28mhz(self):
+        xml = """<?xml version="1.0"?>
+        <RadioInfo>
+          <RadioNr>1</RadioNr>
+          <Freq>2817400</Freq>
+          <TXFreq>2817400</TXFreq>
+          <Mode>USB</Mode>
+          <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>MGEF-432</StationName>
+        </RadioInfo>
+        """
+        band, meta = band_from_radioinfo_xml(xml)
+        self.assertEqual(band, "70cm")
+        self.assertEqual(meta["freq_hz"], 432_174_000)
+
+    def test_222_if_21mhz(self):
+        xml = """<?xml version="1.0"?>
+        <RadioInfo>
+          <RadioNr>1</RadioNr>
+          <Freq>2117400</Freq>
+          <TXFreq>2117400</TXFreq>
+          <Mode>USB</Mode>
+          <ActiveRadioNr>1</ActiveRadioNr>
+          <StationName>MGEF-222</StationName>
+        </RadioInfo>
+        """
+        band, meta = band_from_radioinfo_xml(xml)
+        self.assertEqual(band, "1.25m")
+        self.assertEqual(meta["freq_hz"], 222_174_000)
 
 
 class WsjtUdpReaderIniTests(unittest.TestCase):

@@ -156,10 +156,69 @@ def test_arbiter_releases_on_tx_to_rx_edge():
 
 
 def test_halt_always_available():
-    live, tx, _row_id = _fleet_with_cq_decode()
-    r = live.halt()
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    r = live.halt(dashboard_id="dash-a")
     assert r["ok"] and MID in r["halted"]
     assert any(s[0] == "halt" for s in tx.sent)
+
+
+def test_halt_without_dashboard_is_not_global():
+    """Operate Halt must not stop every live WSJT-X."""
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    r = live.halt()
+    assert r["ok"] and r["halted"] == []
+    assert not any(s[0] == "halt" for s in tx.sent)
+
+
+def test_halt_does_not_stop_other_dashboard():
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    tx.sent.clear()
+    r = live.halt(dashboard_id="dash-b")
+    assert r["ok"] and r["halted"] == []
+    assert tx.sent == []
+    r2 = live.halt(dashboard_id="dash-a")
+    assert r2["ok"] and MID in r2["halted"]
+
+
+def test_halt_same_dashboard_two_bands_stops_both():
+    """One console Worked 20m and 6m — Halt stops both, not a third idle radio."""
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    mid20, mid6, mid2 = "RIG-20M", "RIG-6M", "RIG-2M"
+    live.observe_wsjtx(M.parse(E.build_status(mid20, 14_074_000, mode="FT8",
+                       de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.1", 50001)
+    live.observe_wsjtx(M.parse(E.build_decode(mid20, time_ms=1000, snr=-8,
+                       delta_time=0.2, delta_frequency=1500, message="CQ K1ABC FN31")),
+                       now, "127.0.0.1", 50001)
+    live.observe_wsjtx(M.parse(E.build_status(mid6, 50_313_000, mode="FT8",
+                       de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.2", 50002)
+    live.observe_wsjtx(M.parse(E.build_decode(mid6, time_ms=1000, snr=-5,
+                       delta_time=0.2, delta_frequency=1200, message="CQ K1SIX FN42")),
+                       now, "127.0.0.2", 50002)
+    live.observe_wsjtx(M.parse(E.build_status(mid2, 144_174_000, mode="FT8",
+                       de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.3", 50003)
+    live.work_station(f"{mid20}|K1ABC|FN31", dashboard_id="dash-a")
+    live.work_station(f"{mid6}|K1SIX|FN42", dashboard_id="dash-a")
+    tx.sent.clear()
+    r = live.halt(dashboard_id="dash-a")
+    halted = set(r["halted"])
+    assert halted == {mid20, mid6}
+    assert set(r["bands"]) == {"20m", "6m"}
+    assert mid2 not in halted
+    assert {s[1] for s in tx.sent if s[0] == "halt"} == {mid20, mid6}
+
+
+def test_halt_explicit_instance_refuses_other_dashboard():
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    tx.sent.clear()
+    r = live.halt(MID, dashboard_id="dash-b")
+    assert r["ok"] is False and r["error"] == "other_dashboard"
+    assert tx.sent == []
 
 
 def test_work_unknown_row():

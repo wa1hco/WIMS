@@ -336,6 +336,41 @@ def test_calling_us_false_for_rr73_and_no_split_row():
     assert n2[0]["to_call"] == "W2SZ"
 
 
+def test_second_radio_does_not_show_own_station_decodes():
+    """Two 6m instances: WAMC hearing 3o3's W2SZ TX must not list us as DX."""
+    live = LiveFleet()
+    live.observe_wsjtx(M.parse(E.build_status(
+        "WSJT-X - 6M-3o3", 50_313_000, mode="FT8", de_call="W2SZ", de_grid="FN32")),
+                       now=1.0, src_ip="192.168.10.69")
+    live.observe_wsjtx(M.parse(E.build_status(
+        "WSJT-X - 6M-WAMC", 50_313_000, mode="FT8", de_call="W2SZ", de_grid="FN32")),
+                       now=1.0, src_ip="192.168.10.84")
+    # Other radio copies of our CQ / our reply to K1ABC.
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=20, delta_time=0.1, delta_frequency=800,
+        message="CQ W2SZ FN32")), now=1.2, src_ip="192.168.10.84")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=18, delta_time=0.1, delta_frequency=800,
+        message="K1ABC W2SZ FN32")), now=1.3, src_ip="192.168.10.84")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=-8, delta_time=0.1, delta_frequency=1500,
+        message="CQ K1ABC FN42")), now=1.4, src_ip="192.168.10.84")
+    live.observe_wsjtx(M.parse(E.build_decode(
+        "WSJT-X - 6M-WAMC", time_ms=0, snr=-6, delta_time=0.1, delta_frequency=1500,
+        message="W2SZ K1ABC FN42")), now=1.5, src_ip="192.168.10.84")
+    snap = live.snapshot(2.0)
+    calls = [c["call"] for c in snap["roster"]["candidates"]]
+    assert "W2SZ" not in calls
+    assert calls == ["K1ABC"]
+    msgs = [d["message"] for d in (snap.get("decodes") or [])]
+    assert "CQ W2SZ FN32" not in msgs
+    assert "K1ABC W2SZ FN32" not in msgs
+    assert "CQ K1ABC FN42" in msgs
+    assert "W2SZ K1ABC FN42" in msgs
+    wamc = next(a for a in snap["activity"] if a["instance"] == "WSJT-X - 6M-WAMC")
+    assert wamc["count"] == 2  # K1ABC CQ + K1ABC calling us; not our two TX copies
+
+
 def test_roster_live_bands_from_heartbeat_not_decodes():
     """Operate band checks: quiet WSJT-X still offers its band (Status/Heartbeat)."""
     live = LiveFleet()
@@ -476,7 +511,10 @@ def test_livefleet_contactreplace_updates_log():
                       "<band>50</band><gridsquare>FN31</gridsquare></contactreplace>",
                       now=2.1, src_ip="192.168.10.22")
     assert live._log.count() == 1
-    assert live._log.is_dupe("K1ABC", "6m", "FN42") is False
+    row = live._log.con.execute("SELECT grid FROM qsos WHERE id='e1'").fetchone()
+    assert row["grid"] == "FN31"
+    # Non-rover: call+band is the dupe key — both grids are dupe after the edit.
+    assert live._log.is_dupe("K1ABC", "6m", "FN42") is True
     assert live._log.is_dupe("K1ABC", "6m", "FN31") is True
 
 

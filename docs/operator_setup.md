@@ -58,6 +58,9 @@ No `pip` packages for runtime.
 
 Do **not** use per-band ports 2238–2243 for the current fleet. Every digi instance shares
 `224.0.0.73:2237`. Band comes from the radio dial (Status), not from the UDP port.
+**222** (21 MHz radio) and **432** (28 MHz transverter IF) are mapped to RF in WIMS.
+N1MM Network Status **Band 10000 / Freq 10368090.00** is **10 GHz** (kHz), host
+**MGEF-10-UP** — not 432.
 
 **Also required**
 

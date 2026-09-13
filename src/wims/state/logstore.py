@@ -25,8 +25,10 @@ add, `<contactreplace>` edit, `<contactdelete>` delete); an operator **resync**
 is `reconcile()` over a fresh DB read. WIMS only ever writes this database, never
 N1MM's.
 
-VHF dupe/mult model: a QSO is a dupe of an earlier one with the same
-`(call, band, grid)` — so a rover in a *new* grid is not a dupe. A multiplier is a
+VHF dupe/mult model (N1MM / ARRL VHF): a **fixed** station is a dupe on
+`(call, band)` — grid does not reopen the QSO (wrong logged grid, or they
+send a different square). A **rover** (`/R` in the call) may be worked again
+in a new grid, so the key is `(call, band, grid)`. A multiplier is a
 `grid x band` worked for the first time. N1MM's `is_mult` flag rides along to
 calibrate/confirm.
 """
@@ -116,22 +118,26 @@ class LogStore:
         return self.con.execute("SELECT COUNT(*) FROM qsos").fetchone()[0]
 
     def is_dupe(self, call: str, band: str, grid: str | None) -> bool:
-        """Already worked this call on this band (same grid, for rovers)?
+        """Already worked this call on this band (N1MM ARRL VHF rule)?
 
-        With a known grid the match is `(call, band, grid)` so a rover in a new
-        grid is *not* a dupe. Without a grid it falls back to `(call, band)`.
+        Fixed station: `(call, band)` — a different grid is still a dupe.
+        Rover (`/R`): `(call, band, grid)` so a new grid is a fresh QSO.
+        No grid (RR73 etc.): `(call, band)` for everyone.
         """
-        call = call.upper()
-        if grid:
+        call = (call or "").upper()
+        if not call:
+            return False
+        rover = "/R" in call
+        if rover and grid:
             row = self.con.execute(
                 "SELECT 1 FROM qsos WHERE call=? AND band=? AND grid=? LIMIT 1",
                 (call, band, grid.upper()),
             ).fetchone()
-        else:
-            row = self.con.execute(
-                "SELECT 1 FROM qsos WHERE call=? AND band=? LIMIT 1",
-                (call, band),
-            ).fetchone()
+            return row is not None
+        row = self.con.execute(
+            "SELECT 1 FROM qsos WHERE call=? AND band=? LIMIT 1",
+            (call, band),
+        ).fetchone()
         return row is not None
 
     def is_new_mult(self, grid: str | None, band: str) -> bool:

@@ -24,7 +24,7 @@ frequency (any band). No fleet, no separate server.
    check of your WSJT-X + N1MM setup (starts nothing).
 4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
    `http://localhost:8787/`. **Click a roster line** to Work (no Arm/Enable TX);
-   **Halt TX** always available. Console tabs: Operate · Overview · WSJT-X · N1MM · Setup.  
+   **Halt TX** stops this console’s Work. Console tabs: Operate · Overview · WSJT-X · N1MM · Setup.  
    Full settings: [docs/operator_setup.md](../../docs/operator_setup.md).
 
 | File | What it does |

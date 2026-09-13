@@ -336,6 +336,12 @@ model below (WSJT-X owns digital TX; N1MM owns the log; WIMS owns fleet UDP + ar
 UDP** (plane A). N1MM RadioInfo (plane B) is for logger presence / SSB seats. CAT through
 middleware must keep WSJT-X Status accurate; N1MM poll lag is secondary for FT8 S&P.
 
+**N1MM units + transverters** ([decision 2026-09-12](../decisions/2026-09-12-transverter-if-and-n1mm-khz.md)):
+RadioInfo `<Freq>` is **10 Hz units**; Network Status / DXLOG `Freq` is **kHz**
+(10 GHz calling **10368090.00** → 10368.090 MHz, Band **10000**). WIMS accepts both.
+**222** may report **21 MHz** IF; **432** may report **28 MHz** IF — mapped to RF.
+Microwave RF (MGEF-10-UP) is not run through the 28 MHz IF map.
+
 ### 3.3 Preferred Icom USB seat: wfview
 
 For Icom radios that present dual Silicon Labs COM ports over USB (e.g. **IC-9700**, IC-7300,

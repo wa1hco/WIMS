@@ -19,7 +19,8 @@
 """Live call roster — retain recent decodes, score & rank them (plan §3.5 / §2.2).
 
 GridTracker-style: rows are **stations heard** (every decode with a callsign, CQ or
-mid-exchange), keyed by `(instance, call, grid)`, aged out after `ttl`. On demand each
+mid-exchange, except our own TX heard on another radio), keyed by
+`(instance, call, grid)`, aged out after `ttl`. On demand each
 row is resolved against the N1MM log copy (dupe / new-mult) and scored by the pure
 decision engine (`scoring.py`) so the operator keeps the explained priority **and** can
 filter by "needed" (not yet worked). The console decides what to show; this layer ships
@@ -35,9 +36,21 @@ Time is injected (`now`) for replayability.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from wims.engine import scoring as S
+from wims.engine.geo import base_call as _base_call
+
+
+def is_own_tx_decode(decode, own_calls: Iterable[str] | None) -> bool:
+    """True when the transmitting station is us (other radio hearing our TX)."""
+    dx = _base_call(getattr(decode, "dx_call", None))
+    if not dx:
+        return False
+    owns = {_base_call(c) for c in (own_calls or ()) if c}
+    owns.discard("")
+    return bool(owns) and dx in owns
 
 
 @dataclass
@@ -58,11 +71,17 @@ class RosterBuilder:
         self._entries: dict[tuple[str, str, str], _Entry] = {}
 
     def observe_decode(self, decode, band: str, now: float,
-                       *, dial_hz: int = 0, de_grid: str | None = None) -> None:
+                       *, dial_hz: int = 0, de_grid: str | None = None,
+                       own_calls: Iterable[str] | None = None) -> None:
         """Retain a decoded station as a roster row. Every decode carrying a callsign
         is kept (CQ or mid-exchange) so the console can show all activity and filter by
-        need; a decode with no resolvable call is dropped."""
+        need; a decode with no resolvable call is dropped.
+
+        Own-station TX (the other radio on this band hearing us) is not a DX row.
+        """
         if not decode.dx_call:
+            return
+        if is_own_tx_decode(decode, own_calls):
             return
         inst = decode.id or "?"
         call = (decode.dx_call or "").upper()
@@ -85,6 +104,17 @@ class RosterBuilder:
             decode=decode, band=band, last_seen=now,
             dial_hz=dial_hz, de_grid=de_grid, grid=keep_grid,
         )
+
+    def drop_own_station(self, own_calls: Iterable[str] | None) -> int:
+        """Remove retained rows whose DX call is our station. Returns how many dropped."""
+        owns = {_base_call(c) for c in (own_calls or ()) if c}
+        owns.discard("")
+        if not owns:
+            return 0
+        dead = [k for k in self._entries if _base_call(k[1]) in owns]
+        for k in dead:
+            del self._entries[k]
+        return len(dead)
 
     def _prune(self, now: float) -> None:
         dead = [k for k, e in self._entries.items() if now - e.last_seen > self.ttl]

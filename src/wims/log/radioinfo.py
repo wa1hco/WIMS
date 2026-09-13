@@ -13,11 +13,15 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 
-from wims.core.bands import band_label
+from wims.core.bands import band_label, n1mm_raw_to_hz
 
 
 def n1mm_freq_units_to_hz(raw: str | int | float) -> int | None:
-    """Convert N1MM RadioInfo frequency units (10 Hz) to Hz."""
+    """Convert N1MM RadioInfo frequency units (10 Hz) to Hz.
+
+    Microwave Network Status / DXLOG values are kHz (10368090 → 10 GHz).
+    Prefer ``n1mm_raw_to_hz`` when the unit is not known.
+    """
     try:
         n = int(float(str(raw).strip()))
     except (TypeError, ValueError):
@@ -54,7 +58,7 @@ def band_from_radioinfo_xml(text: str) -> tuple[str | None, dict]:
     radio_nr = child("RadioNr")
     active = child("ActiveRadioNr")
     raw = child("TXFreq") or child("Freq")
-    hz = n1mm_freq_units_to_hz(raw) if raw else None
+    hz = n1mm_raw_to_hz(raw) if raw else None
     meta = {
         "freq_hz": hz,
         "raw_freq": raw,

@@ -84,10 +84,11 @@ One **site server** per contest LAN. Top nav:
 
 ![Site console — Operate](manual/images/site-operate.png)
 
-*Operate — call roster. Click a line to Work (answer); Halt TX always available. Call CQ in WSJT-X.*
+*Operate — call roster. Click a line to Work (answer); Halt TX stops QSOs this console started. Call CQ in WSJT-X.*
 
 - Needs: WSJT multicast + N1MM contest log (seed and/or live Contacts via agent).  
 - **Work** = answer that station. **CQ / run** = WSJT-X UI only.
+- **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 
 ### Overview · WSJT-X · N1MM
 

@@ -64,7 +64,8 @@ from wims.udp.gt_bridge import (  # noqa: E402
 from wims.integrations.rotator import RotatorRegistry  # noqa: E402
 from wims.udp.activity import ActivityMap  # noqa: E402
 from wims.engine import scoring as S  # noqa: E402
-from wims.engine.roster import RosterBuilder  # noqa: E402
+from wims.engine.roster import RosterBuilder, is_own_tx_decode  # noqa: E402
+from wims.engine.geo import base_call as _base_call  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
 from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
@@ -74,6 +75,19 @@ from wims.server.state import (  # noqa: E402
     rotators_to_dict)
 
 STATIC = Path(__file__).resolve().parent / "static"
+
+# After Work, Status may still show RX / Enable Tx off for a beat. Keep the
+# dashboard claim live so Halt still finds it.
+_CLAIM_ARM_GRACE_S = 8.0
+
+
+def _normalize_dashboard_id(raw) -> str | None:
+    """Browser console id (localStorage UUID). Empty / junk → None."""
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    out = "".join(ch for ch in s if ch.isalnum() or ch in "-_")
+    return out[:64] or None
 
 
 class LiveFleet:
@@ -102,6 +116,8 @@ class LiveFleet:
         self._arbiter = TxArbiter(group_of=self.group_of)
         self._tx_prev: dict[str, bool] = {}        # per-instance last transmitting (edge)
         self._last_tx_action: dict | None = None   # last work/halt for the UI
+        # instance_id -> {dashboard_id, band, call, ts} for Halt scoping.
+        self._tx_claims: dict[str, dict] = {}
         # Last Replay probe (elicit Status/dial) per instance — Heartbeat has no freq.
         self._status_probe_ts: dict[str, float] = {}
         # Live log copy (in-memory) feeds dupe/new-mult into the roster; kept current
@@ -556,7 +572,7 @@ class LiveFleet:
             dests.append((str(self._tx.dest[0]), int(self._tx.dest[1])))
         return dests
 
-    def work_station(self, row_id: str) -> dict:
+    def work_station(self, row_id: str, dashboard_id: str | None = None) -> dict:
         """Answer the station in roster row `row_id` — send Reply to its instance.
 
         Human initiation is the roster click (GridTracker2-style); no separate arm
@@ -619,6 +635,8 @@ class LiveFleet:
             # Hold Tx Freq (in WSJT-X) for Reply to Enable Tx (replyToCQ rules).
             auto_tx = M.reply_auto_tx_eligible(msg_text)
             dests = self._tx_dests_for(inst)
+            dash = _normalize_dashboard_id(dashboard_id)
+            claim_band = cur_band or row_band or "?"
             age_hint = ""
             # Warn if decode may be older than WSJT-X keeps (Reply needs a live match).
             try:
@@ -662,38 +680,101 @@ class LiveFleet:
             self._last_tx_action = {
                 "action": "work", "instance": inst, "call": call,
                 "message": msg_text, "dests": dests, "sent": sent_parts,
-                "ts": time.time(),
+                "dashboard_id": dash, "ts": time.time(),
             }
+            if dash:
+                self._tx_claims[inst] = {
+                    "dashboard_id": dash, "band": claim_band,
+                    "call": call, "ts": time.time(),
+                }
         return {
             "ok": True, "sent": "+".join(sent_parts), "instance": inst,
             "call": call, "message": msg_text, "dest": dests[0] if dests else None,
             "dests": dests, "auto_tx_eligible": auto_tx,
+            "dashboard_id": dash,
             "detail": (
                 f"Work {call} on id={inst!r} via {'+'.join(sent_parts)} → [{dest_s}]."
                 + mid_hint + age_hint
             ),
         }
 
-    def halt(self, instance: str | None = None) -> dict:
-        """Stop transmitting — the panic button. Halts one instance or every live
-        one, and releases the arbiter so the group frees immediately."""
+    def _claim_is_live(self, inst: str, claim: dict, now: float) -> bool:
+        """True if Halt should still stop this Work (caller holds ``_lock``)."""
+        node = self._tracker.nodes.get(inst)
+        if node is not None and (node.transmitting or node.tx_enabled):
+            return True
+        if self._arbiter.is_granted(inst):
+            return True
+        try:
+            age = now - float(claim.get("ts") or 0)
+        except (TypeError, ValueError):
+            age = 0.0
+        return age <= _CLAIM_ARM_GRACE_S
+
+    def halt(self, instance: str | None = None, dashboard_id: str | None = None) -> dict:
+        """Stop TX started from this Operate console.
+
+        Operate Halt is **dashboard-scoped**: only instances this browser Worked
+        that are still live (Enable Tx, transmitting, arbiter grant, or just
+        Worked). Same console on two bands → both stop. Other operators' Work
+        and local WSJT-X CQ are not halted. There is no global stop-all.
+
+        ``instance`` still targets that one id (API/tests) unless another
+        dashboard owns the claim.
+        """
         if self._tx is None:
             return {"ok": False, "error": "tx_disabled"}
+        dash = _normalize_dashboard_id(dashboard_id)
+        inst = (instance or "").strip() or None
+        now = time.time()
         with self._lock:
-            targets = [instance] if instance else [n.id for n in self._tracker.nodes.values()]
-            dest_map = {inst: self._tx_dests_for(inst) for inst in targets}
+            if inst:
+                claim = self._tx_claims.get(inst)
+                if dash and claim and claim.get("dashboard_id") != dash:
+                    return {
+                        "ok": False, "error": "other_dashboard",
+                        "detail": "That instance was started from another console.",
+                    }
+                targets = [inst]
+            elif dash:
+                targets = [
+                    mid for mid, c in self._tx_claims.items()
+                    if c.get("dashboard_id") == dash
+                    and self._claim_is_live(mid, c, now)
+                ]
+            else:
+                return {
+                    "ok": True, "halted": [], "bands": [],
+                    "detail": "Halt needs this console’s id (no global stop).",
+                }
+            dest_map = {t: self._tx_dests_for(t) for t in targets}
+            band_of: dict[str, str] = {}
+            for t in targets:
+                c = self._tx_claims.get(t) or {}
+                n = self._tracker.nodes.get(t)
+                band_of[t] = c.get("band") or (n.band if n and n.band else "?")
         halted = []
-        for inst in targets:
+        for t in targets:
             try:
-                self._tx.halt(inst, dests=dest_map.get(inst))
-                halted.append(inst)
+                self._tx.halt(t, dests=dest_map.get(t))
+                halted.append(t)
             except OSError:
                 pass
+        bands = sorted({band_of.get(t) or "?" for t in halted})
         with self._lock:
-            for inst in halted:
-                self._arbiter.release(inst)
-            self._last_tx_action = {"action": "halt", "instances": halted, "ts": time.time()}
-        return {"ok": True, "halted": halted}
+            for t in halted:
+                self._arbiter.release(t)
+                self._tx_claims.pop(t, None)
+            self._last_tx_action = {
+                "action": "halt", "instances": halted, "bands": bands,
+                "dashboard_id": dash, "ts": time.time(),
+            }
+        detail = (
+            f"Halted {', '.join(bands)} started from this console."
+            if halted else
+            "No TX started from this console to halt."
+        )
+        return {"ok": True, "halted": halted, "bands": bands, "detail": detail}
 
     def call_cq(self, *, mycall: str | None = None, grid: str | None = None) -> dict:
         """Call CQ. WSJT-X's UDP API has **no native Call CQ** — only Reply to an
@@ -716,6 +797,19 @@ class LiveFleet:
             val = (n.band if self._grouping == "band" else n.host) if n else None
             return val or "?"
         return instance_id
+
+    def _own_station_calls(self) -> set[str]:
+        """Our call(s): every live WSJT-X de_call plus N1MM mycall."""
+        calls: set[str] = set()
+        for n in self._tracker.nodes.values():
+            c = _base_call(getattr(n, "de_call", None))
+            if c:
+                calls.add(c)
+        for lg in self._tracker.loggers.values():
+            c = _base_call(getattr(lg, "mycall", None))
+            if c:
+                calls.add(c)
+        return calls
 
     def observe_wsjtx(self, msg, now, src_ip, src_port=None):
         need_replay: tuple[str, list[tuple[str, int]]] | None = None
@@ -740,6 +834,11 @@ class LiveFleet:
                 if self._tx_prev.get(mid, False) and not msg.transmitting:
                     self._arbiter.release(mid)
                 self._tx_prev[mid] = bool(msg.transmitting)
+                if (not msg.transmitting
+                        and not bool(getattr(msg, "tx_enabled", False))):
+                    claim = self._tx_claims.get(mid)
+                    if claim and (now - float(claim.get("ts") or 0)) > _CLAIM_ARM_GRACE_S:
+                        self._tx_claims.pop(mid, None)
                 node = self._tracker.nodes.get(mid)
                 new_band = node.band if node else None
                 # Fill in rows that were heard before the first Status (band was "?").
@@ -767,6 +866,7 @@ class LiveFleet:
                     print(f"roster: QSY {mid!r} from {src_ip} "
                           f"{old_band_here}→{new_band} "
                           f"dropped {n_drop} other-band row(s)", flush=True)
+                self._roster.drop_own_station(self._own_station_calls())
             elif isinstance(msg, M.Decode):
                 node = self._tracker.nodes.get(mid)
                 # Prefer this host's last known band when the same id is shared.
@@ -776,17 +876,22 @@ class LiveFleet:
                         band = node.band_by_host[src_ip]
                     elif node.band:
                         band = node.band
-                self._roster.observe_decode(
-                    msg, band, now,
-                    dial_hz=(node.dial_hz if node else 0),
-                    de_grid=(node.de_grid if node else None))
-                self._maps[mid].add(msg)
-                self._decodes.append({
-                    "ts": now, "instance": mid, "snr": msg.snr,
-                    "df": msg.delta_frequency, "message": msg.message or "",
-                    "is_cq": msg.is_cq,
-                    "band": band,
-                })
+                own = self._own_station_calls()
+                self._roster.drop_own_station(own)
+                # Other radio on this band heard our TX — not a DX decode.
+                if not is_own_tx_decode(msg, own):
+                    self._roster.observe_decode(
+                        msg, band, now,
+                        dial_hz=(node.dial_hz if node else 0),
+                        de_grid=(node.de_grid if node else None),
+                        own_calls=own)
+                    self._maps[mid].add(msg)
+                    self._decodes.append({
+                        "ts": now, "instance": mid, "snr": msg.snr,
+                        "df": msg.delta_frequency, "message": msg.message or "",
+                        "is_cq": msg.is_cq,
+                        "band": band,
+                    })
             elif isinstance(msg, M.Heartbeat) and self._tx is not None:
                 # Heartbeat is periodic but has no frequency. Status (dial → band)
                 # is event-driven and may never arrive on a quiet radio. Replay
@@ -810,6 +915,7 @@ class LiveFleet:
             self.n1mm_pkts += 1
             self._last_n1mm = now
             self._tracker.observe_n1mm_xml(xml_text, now, src_ip=src_ip)
+            self._roster.drop_own_station(self._own_station_calls())
             # Live log maintenance: N1MM Contacts broadcasts cover add / edit / delete.
             # Edit = contactdelete + contactreplace (same ID). Delete alone removes the
             # row so roster needed/dupe flips back without waiting for DXLOG resync.
@@ -841,6 +947,7 @@ class LiveFleet:
             # Drop instances that stopped sending (killed WSJT-X / moved host).
             for mid in self._tracker.prune(now):
                 self._maps.pop(mid, None)
+                self._tx_claims.pop(mid, None)
             self._tracker.prune_loggers(now)
             d = fleet_to_dict(self._tracker, now,
                               wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts,
@@ -892,7 +999,17 @@ class LiveFleet:
                 controller_dest=(self._tx.dest if self._tx else None),
                 holders=self._arbiter.holders(),
                 enable_cq=self._enable_cq,
-                last_action=self._last_tx_action)
+                last_action=self._last_tx_action,
+                claims=[
+                    {
+                        "instance": mid,
+                        "dashboard_id": c.get("dashboard_id"),
+                        "band": c.get("band") or "?",
+                        "call": c.get("call") or "",
+                        "ts": c.get("ts"),
+                    }
+                    for mid, c in sorted(self._tx_claims.items())
+                ])
             d["rotators"] = rotators_to_dict(self._rotators, now)
             d["rotator_last_action"] = self._last_rot_action
             d["gt_bridge"] = (
@@ -1236,7 +1353,8 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(400, {"ok": False, "error": "need row_id"})
                     return
                 try:
-                    result = live.work_station(row_id)
+                    result = live.work_station(
+                        row_id, dashboard_id=body.get("dashboard_id"))
                     code = (200 if result.get("ok")
                             else 409 if result.get("error") == "group_busy"
                             else 400)
@@ -1244,9 +1362,11 @@ def make_handler(live: LiveFleet, refresh: float):
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/tx/halt":
-                # Panic stop — always available on Operate.
+                # Stop QSOs this Operate console started (not a global halt).
                 try:
-                    result = live.halt(body.get("instance"))
+                    result = live.halt(
+                        body.get("instance"),
+                        dashboard_id=body.get("dashboard_id"))
                     self._send_json(200 if result.get("ok") else 400, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})

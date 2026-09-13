@@ -69,7 +69,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 
 | Page | URL | You use it for |
 |------|-----|----------------|
-| **Operate** | `/` | Ranked call roster; **click a row = Work**; **Halt TX** |
+| **Operate** | `/` | Ranked call roster; **click a row = Work**; **Halt TX** (this console’s Work only) |
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity |
 | **N1MM** | `/n1mm` | Contest log pick/resync, logger sync / network |

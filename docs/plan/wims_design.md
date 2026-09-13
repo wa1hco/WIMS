@@ -160,8 +160,9 @@ the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networki
 |------|------------------------------|--------------|
 | **50** | **N1MM-50** (typically trailer / central) | **1–N** FT8 instances: trailer beam PCs **and/or remote** (e.g. **TV station PC + radio**). Remote hosts do **not** run a second N1MM for 50 — they only emit plane A multicast; **N1MM-50’s agent Log** is sole digi logger. |
 | **144** | **N1MM-144** | **Up to two** hosts: separate **radio + PC** for FT8 and for MSK144 (or EME); both use **the same** N1MM-144 (agent Log). |
-| **222** | **N1MM-222** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as the period requires (not always digital). |
-| **432** | **N1MM-432** | **One seat PC** (e.g. Roy): **SSB and/or FT8** as equipped. |
+| **222** | **N1MM-222** | **One seat PC** (e.g. Roy / **MGEF-222**): radio CAT is **21 MHz**; WIMS maps that IF to 222. SSB and/or FT8 as the period requires. |
+| **432** | **N1MM-432** | **One seat PC** (e.g. Roy / **MGEF-432**): **transverter** + radio CAT **28 MHz**; WIMS maps that IF to 432. SSB and/or FT8 as equipped. |
+| **10 GHz** | **N1MM-10G** (**MGEF-10-UP**) | Network Status **Band 10000**, **Freq 10368090.00** (kHz) = **10368.090 MHz**. N1MM already has RF; WIMS must label **3cm**, not 13cm. |
 
 → **4 N1MMs** (one per band), all networked into one contest log (plane C). WSJT-X count is
 **variable** (remote 50, optional second 144 PC, 222/432 idle of FT8 during SSB runs). Shorthand
@@ -441,7 +442,10 @@ SSB/CW or hand off to a 2nd op.
   other band / skip; never auto-applied. WIMS never auto-sends free text unattended.
 - **Per-instance halt-now** (UDP Halt Tx) — stops S&P QSOs WIMS started **and** can interrupt a
   local run (fail-safe / SSB-CW priority / panic). Does not “disable CQ mode” in WSJT-X settings.
-- **Global stop-all-TX (panic).**
+- **Operate Halt TX — this console’s Work only.** Each Operate browser has a dashboard id.
+  Halt stops live QSOs **this console started** (Enable Tx / transmitting / just Worked).
+  Other operators’ Work and local WSJT-X CQ are not halted. If the same console started
+  two bands, Halt stops **both**. There is **no** global stop-all-TX.
 - **Mode / strategy override per instance** — advisory run-vs-S&P **recommendation** and give-up
   signals (§3.5); does **not** flip WSJT-X into CQ (that remains seat UI, §2.12).
 - **Manual rotator point** — enter az (or grid → bearing), stop, park; el for EME if fitted.
@@ -576,7 +580,7 @@ scoring as the "wanted" engine.
 | # | Feature | Contest form | Src | Prio |
 |---|---------|--------------|-----|------|
 | G1 | **Single-click to work** a station → Reply via arbiter + control claim | S&P + **tailend** — echo retained decode (CQ/QRZ/73/…); GT2 pattern (§2.12) | both | **H** |
-| G2 | Per-instance halt, global panic-stop | safety; Halt works for S&P and observed run | W | H |
+| G2 | Per-console halt of WIMS-started TX | Halt this dashboard’s Work; two bands → both; not other operators | W | H |
 | G3 | Right-click context menu / multiple roster windows | Phase-2 | G | L |
 | G4 | **Closing free text / QSY on final 73** | operator option to send e.g. `QSY 432` via Free Text when completing a contact; **operator assesses C7 evidence then chooses** accept / other band / skip — never auto-applied; §2.8 / §2.9 | W | **H** |
 | G5 | **Click-to-point rotator from roster Az DX** | command K3NG (Yaesu protocol) to bearing-to-DX; show **Az ant** + **Az DX**; Az ant font changes while rotating; §2.10 | W | **H** |
@@ -924,7 +928,8 @@ UI rules:
   call-roster **line** (or its Work control) → WIMS sends Reply — same mental model as
   **GridTracker2** (select station → work). No automated/unattended TX: nothing transmits until
   that click. Gates that remain: `--no-tx` read-only, control claim (§4.5), arbiter ≤1 per group
-  (§3.4), readiness fail-soft. **`halt` is always available** (panic stop). State block: `enabled` /
+  (§3.4), readiness fail-soft. **`halt` is always available** (this console’s Work only; not
+  a global stop). State block: `enabled` /
   `can_tx` (wired controller) — no `armed` flag.
 - **§3.5** — “run vs S&P” is an **advisory recommendation** (conditions open → suggest seat run;
   thin → suggest WIMS S&P/tailend), not an actuator. Give-up still applies to **WIMS-started**

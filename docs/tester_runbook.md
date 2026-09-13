@@ -124,7 +124,8 @@ If manual double‑click works but roster click does not, the problem is almost 
    - Success: `→ Work CALL on INSTANCE → host:port, …` plus a short note.
    - Failure: plain-language reason (unknown row, group busy, `--no-tx`, etc.).
 4. In **WSJT-X**, DX Call/Grid should fill and Enable Tx engage (same as a double‑click).
-5. **Halt TX** = panic stop (always available).
+5. **Halt TX** = stop QSOs **this console** started (always available). Other
+   operators’ Work is not halted. Two bands from this console → both stop.
 
 ### 6c. Multi-host (WIMS on Linux, WSJT-X in a Windows VM)
 

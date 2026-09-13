@@ -124,13 +124,25 @@ def test_dupe_and_rover_and_mult():
     store.upsert(_qso("K1ABC", "6m", "FN42", mult=True))
     # Same call/band/grid -> dupe.
     assert store.is_dupe("K1ABC", "6m", "FN42") is True
-    # Rover: same call/band, NEW grid -> not a dupe, and a new mult.
-    assert store.is_dupe("K1ABC", "6m", "FN31") is False
+    # Fixed station: different grid on the same band is still a dupe (N1MM).
+    assert store.is_dupe("K1ABC", "6m", "FN31") is True
     assert store.is_new_mult("FN31", "6m") is True
     # Grid already worked on this band -> not a new mult.
     assert store.is_new_mult("FN42", "6m") is False
     # Same grid, different band -> still a new mult there.
     assert store.is_new_mult("FN42", "2m") is True
+    # Rover /R in a new grid is not a dupe.
+    store.upsert(_qso("K1ROV/R", "6m", "FN42"))
+    assert store.is_dupe("K1ROV/R", "6m", "FN42") is True
+    assert store.is_dupe("K1ROV/R", "6m", "FN31") is False
+
+
+def test_fixed_station_wrong_logged_grid_is_still_dupe():
+    """WB1GQR logged 2m as EM96, now CQing FN42 — N1MM says dupe, WIMS must too."""
+    store = LogStore(":memory:")
+    store.upsert(_qso("WB1GQR", "2m", "EM96"))
+    assert store.is_dupe("WB1GQR", "2m", "FN42") is True
+    assert store.is_dupe("WB1GQR", "6m", "FN42") is False
 
 
 def test_reconcile_resync():
