@@ -228,10 +228,18 @@ class GridTrackerBridge:
 
         sent: list[tuple[str, int]] = []
         last_err: OSError | None = None
+        from wims.udp.controller import v4_unicast_dest
         for d in dests:
             try:
-                self._tx.sendto(data, d)
-                sent.append(d)
+                host, port = d[0], d[1]
+            except (TypeError, ValueError, IndexError):
+                continue
+            d4 = v4_unicast_dest(host, port)
+            if d4 is None:
+                continue
+            try:
+                self._tx.sendto(data, d4)
+                sent.append(d4)
             except OSError as e:
                 last_err = e
         if not sent:

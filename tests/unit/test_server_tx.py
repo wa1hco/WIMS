@@ -163,6 +163,54 @@ def test_halt_always_available():
     assert any(s[0] == "halt" for s in tx.sent)
 
 
+def test_halt_after_rx_wait_still_stops_this_console():
+    """Work is often clicked in RX; first FT8 TX is ~15s later.
+
+    An 8s claim drop made Halt a no-op while the radio still went on to TX.
+    """
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    t0 = time.time()
+    live.observe_wsjtx(
+        M.parse(E.build_status(MID, 14074000, transmitting=False, tx_enabled=False)),
+        t0 + 20.0, "127.0.0.1", CTRL_PORT)
+    tx.sent.clear()
+    r = live.halt(dashboard_id="dash-a")
+    assert r["ok"] and MID in r["halted"]
+    assert any(s[0] == "halt" for s in tx.sent)
+
+
+def test_halt_claim_refreshed_while_transmitting():
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    t0 = time.time()
+    live.observe_wsjtx(
+        M.parse(E.build_status(MID, 14074000, transmitting=True, tx_enabled=False)),
+        t0 + 15.0, "127.0.0.1", CTRL_PORT)
+    live.observe_wsjtx(
+        M.parse(E.build_status(MID, 14074000, transmitting=False, tx_enabled=False)),
+        t0 + 20.0, "127.0.0.1", CTRL_PORT)
+    live.observe_wsjtx(
+        M.parse(E.build_status(MID, 14074000, transmitting=False, tx_enabled=False)),
+        t0 + 50.0, "127.0.0.1", CTRL_PORT)
+    tx.sent.clear()
+    r = live.halt(dashboard_id="dash-a")
+    assert r["ok"] and MID in r["halted"]
+
+
+def test_halt_claim_expires_after_long_quiet():
+    live, tx, row_id = _fleet_with_cq_decode()
+    live.work_station(row_id, dashboard_id="dash-a")
+    t0 = time.time()
+    live.observe_wsjtx(
+        M.parse(E.build_status(MID, 14074000, transmitting=False, tx_enabled=False)),
+        t0 + 50.0, "127.0.0.1", CTRL_PORT)
+    tx.sent.clear()
+    r = live.halt(dashboard_id="dash-a")
+    assert r["ok"] and r["halted"] == []
+    assert tx.sent == []
+
+
 def test_halt_without_dashboard_is_not_global():
     """Operate Halt must not stop every live WSJT-X."""
     live, tx, row_id = _fleet_with_cq_decode()
@@ -219,6 +267,41 @@ def test_halt_explicit_instance_refuses_other_dashboard():
     r = live.halt(MID, dashboard_id="dash-b")
     assert r["ok"] is False and r["error"] == "other_dashboard"
     assert tx.sent == []
+
+
+def test_work_coerces_mapped_v6_control_addr():
+    """IPv4-mapped IPv6 recvfrom source must become a dotted IPv4 dest."""
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, mode="FT8")),
+                       now, "::ffff:192.168.10.5%12", 54321)
+    live.observe_wsjtx(M.parse(E.build_decode(
+        MID, time_ms=1000, snr=-8, delta_time=0.2, delta_frequency=1500,
+        message="CQ K1ABC FN31")), now, "::ffff:192.168.10.5%12", 54321)
+    row_id = live.snapshot(now)["roster"]["candidates"][0]["id"]
+    r = live.work_station(row_id)
+    assert r["ok"]
+    assert tx.last_dests == [("192.168.10.5", 54321)]
+
+
+def test_work_send_failed_is_not_raw_oserror():
+    class _BoomTx(_FakeTx):
+        def reply(self, inst, decode, *, modifiers=0, dests=None):
+            raise OSError(22, "Invalid argument")
+
+    tx = _BoomTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, mode="FT8",
+                       de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.1", CTRL_PORT)
+    live.observe_wsjtx(M.parse(E.build_decode(MID, time_ms=1000, snr=-8, delta_time=0.2,
+                       delta_frequency=1500, message="CQ K1ABC FN31")),
+                       now, "127.0.0.1", CTRL_PORT)
+    row_id = live.snapshot(now)["roster"]["candidates"][0]["id"]
+    r = live.work_station(row_id)
+    assert r["ok"] is False and r["error"] == "send_failed"
+    assert "Invalid argument" in (r.get("detail") or "")
 
 
 def test_work_refuses_multicast_control_addr():

@@ -78,8 +78,10 @@ from wims.server.state import (  # noqa: E402
 STATIC = Path(__file__).resolve().parent / "static"
 
 # After Work, Status may still show RX / Enable Tx off for a beat. Keep the
-# dashboard claim live so Halt still finds it.
-_CLAIM_ARM_GRACE_S = 8.0
+# dashboard claim live so Halt still finds it. FT8 TX is ~15s after a Work
+# clicked in RX; 8s dropped the claim and Halt became a no-op. Also seen
+# live: transmitting=True with tx_enabled=False (2M-Trailer).
+_CLAIM_ARM_GRACE_S = 45.0
 # Do not Replay on the first Heartbeat. WSJT-X Status arrives on its own
 # within a cycle; Replay also dumps the entire Band Activity window into
 # Operate as if those were live decodes.
@@ -687,14 +689,14 @@ class LiveFleet:
                     generate_messages=True, schema=schema, dests=dests,
                 )
                 sent_parts.append("configure")
-        except (OSError, struct.error, TypeError, ValueError) as e:
+        except Exception as e:
             with self._lock:
                 self._arbiter.release(inst)
             win = getattr(e, "winerror", None) or getattr(e, "errno", None)
             print(f"TX Work FAIL {inst} {call} dests={dests}: {e}", flush=True)
             return {
                 "ok": False,
-                "error": f"send_failed: {e}",
+                "error": "send_failed",
                 "detail": (
                     f"UDP Work {call} → {dests} failed"
                     + (f" (err {win})" if win is not None else "")
@@ -772,10 +774,11 @@ class LiveFleet:
                     }
                 targets = [inst]
             elif dash:
+                # Halt everything this console Worked, even if Status is still
+                # RX / Enable Tx off (first FT8 TX is a period later).
                 targets = [
                     mid for mid, c in self._tx_claims.items()
                     if c.get("dashboard_id") == dash
-                    and self._claim_is_live(mid, c, now)
                 ]
             else:
                 return {
@@ -790,11 +793,17 @@ class LiveFleet:
                 band_of[t] = c.get("band") or (n.band if n and n.band else "?")
         halted = []
         for t in targets:
+            dests = dest_map.get(t) or []
+            if not dests:
+                print(f"TX Halt SKIP {t} no control port", flush=True)
+                continue
             try:
-                self._tx.halt(t, dests=dest_map.get(t))
+                self._tx.halt(t, dests=dests)
                 halted.append(t)
-            except OSError:
-                pass
+                dest_s = ", ".join(f"{h}:{p}" for h, p in dests) or "?"
+                print(f"TX Halt ok {t!r} → [{dest_s}]", flush=True)
+            except OSError as e:
+                print(f"TX Halt FAIL {t} dests={dests}: {e}", flush=True)
         bands = sorted({band_of.get(t) or "?" for t in halted})
         with self._lock:
             for t in halted:
@@ -848,6 +857,14 @@ class LiveFleet:
 
     def observe_wsjtx(self, msg, now, src_ip, src_port=None):
         need_replay: tuple[str, list[tuple[str, int]]] | None = None
+        if src_ip:
+            d4 = v4_unicast_dest(src_ip, src_port or 1)
+            if d4 is None:
+                src_ip, src_port = None, None
+            else:
+                src_ip = d4[0]
+                if src_port:
+                    src_port = d4[1]
         with self._lock:
             self.wsjt_pkts += 1
             self.ingest_last_wsjt_mono = time.monotonic()
@@ -889,10 +906,11 @@ class LiveFleet:
                 if self._tx_prev.get(mid, False) and not msg.transmitting:
                     self._arbiter.release(mid)
                 self._tx_prev[mid] = bool(msg.transmitting)
-                if (not msg.transmitting
-                        and not bool(getattr(msg, "tx_enabled", False))):
-                    claim = self._tx_claims.get(mid)
-                    if claim and (now - float(claim.get("ts") or 0)) > _CLAIM_ARM_GRACE_S:
+                claim = self._tx_claims.get(mid)
+                if claim:
+                    if msg.transmitting or bool(getattr(msg, "tx_enabled", False)):
+                        claim["ts"] = now
+                    elif (now - float(claim.get("ts") or 0)) > _CLAIM_ARM_GRACE_S:
                         self._tx_claims.pop(mid, None)
                 node = self._tracker.nodes.get(mid)
                 new_band = node.band if node else None
@@ -1211,7 +1229,13 @@ def ingest_loop(
                     msg = M.parse(data)
                     if msg is not None:
                         # addr[1] is MessageClient's ephemeral control port — required for Reply.
-                        live.observe_wsjtx(msg, now, addr[0], addr[1])
+                        # Coerce IPv4-mapped IPv6 here so Replay/Work never sendto() IPv6
+                        # on the AF_INET socket (Windows errno 22).
+                        d4 = v4_unicast_dest(addr[0], addr[1])
+                        if d4 is not None:
+                            live.observe_wsjtx(msg, now, d4[0], d4[1])
+                        else:
+                            live.observe_wsjtx(msg, now, None, None)
                     # Forward raw bytes even if parse failed (GT may still want them).
                     if gt_bridge is not None and data:
                         gt_bridge.forward_wsjt(data, now=now)
@@ -1592,7 +1616,11 @@ def make_handler(live: LiveFleet, refresh: float):
                             else 400)
                     self._send_json(code, result)
                 except Exception as e:
-                    self._send_json(500, {"ok": False, "error": str(e)})
+                    print(f"TX Work EXC {e!r}", flush=True)
+                    self._send_json(500, {
+                        "ok": False, "error": "send_failed",
+                        "detail": f"Work failed: {e}",
+                    })
             elif path == "/api/tx/halt":
                 # Stop QSOs this Operate console started (not a global halt).
                 try:

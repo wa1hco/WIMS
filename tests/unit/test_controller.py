@@ -77,9 +77,13 @@ def test_reply_coerces_float_snr():
 
 def test_v4_unicast_dest_strips_mapped_v6_and_drops_mcast():
     assert v4_unicast_dest("::ffff:192.168.10.5", 54321) == ("192.168.10.5", 54321)
+    assert v4_unicast_dest("::ffff:192.168.10.5%12", 54321) == ("192.168.10.5", 54321)
+    assert v4_unicast_dest("fe80::1", 54321) is None
+    assert v4_unicast_dest("fe80::1%eth0", 54321) is None
     assert v4_unicast_dest("224.0.0.73", 2237) is None
     assert v4_unicast_dest("0.0.0.0", 2237) is None
     assert v4_unicast_dest("127.0.0.1", 2237) == ("127.0.0.1", 2237)
+    assert v4_unicast_dest("::ffff:c0a8:0a05", 54321) == ("192.168.10.5", 54321)
 
 
 def test_send_skips_multicast_without_mcast_sock():
@@ -89,6 +93,37 @@ def test_send_skips_multicast_without_mcast_sock():
     c = TxController(fs, ("224.0.0.73", 2237))  # no mcast_sock
     c.reply("SIM-6M", d, dests=[("192.168.1.50", 54321), ("224.0.0.73", 2237)])
     assert [s[1] for s in fs.sent] == [("192.168.1.50", 54321)]
+
+
+def test_send_empty_dests_does_not_fall_back_to_multicast():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
+    try:
+        c.reply("SIM-6M", d, dests=[])
+        raise AssertionError("empty dests must not send")
+    except OSError as e:
+        assert "no valid UDP dest" in str(e)
+    assert fs.sent == []
+
+
+def test_send_skips_ipv6_multicast():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
+    c.reply("SIM-6M", d, dests=[("ff02::1", 2237), ("192.168.1.50", 54321)])
+    assert [s[1] for s in fs.sent] == [("192.168.1.50", 54321)]
+
+
+def test_send_coerces_mapped_v6_with_zone():
+    d = M.parse(E.build_decode("SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+                               delta_frequency=1500, message="CQ K1ABC FN42"))
+    fs = _FakeSock()
+    c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
+    c.reply("SIM-6M", d, dests=[("::ffff:192.168.10.5%12", 54321)])
+    assert [s[1] for s in fs.sent] == [("192.168.10.5", 54321)]
 
 
 def test_halt_sends_halt_tx():

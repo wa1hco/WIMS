@@ -1367,6 +1367,7 @@ function txFlash(j, url) {
   } else {
     m.className = "meta warn";
     const err = j.error || "failed";
+    const errKey = String(err).startsWith("send_failed") ? "send_failed" : err;
     const hint = {
       tx_disabled: "Server is --no-tx (read-only)",
       unknown_row: "Row gone — wait for a new decode",
@@ -1374,7 +1375,7 @@ function txFlash(j, url) {
       other_dashboard: "Started from another console",
       no_control_port: "No UDP control port for that WSJT-X yet",
       send_failed: "UDP send failed (Windows 22 = bad dest; wait for Status)",
-    }[err];
+    }[errKey];
     const isHalt = url && String(url).indexOf("/halt") >= 0;
     m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")
       + (j.detail || hint || err);

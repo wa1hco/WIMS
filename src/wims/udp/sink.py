@@ -89,7 +89,13 @@ def _join_iface_ips(host: str) -> list[str]:
     """
     ips: list[str] = []
     if host and host not in ("0.0.0.0", "::", ""):
-        ips.append(host)
+        try:
+            import ipaddress
+            ip = ipaddress.ip_address(host.split("%", 1)[0])
+            if ip.version == 4 and not ip.is_unspecified:
+                ips.append(str(ip))
+        except ValueError:
+            pass
     try:
         from wims.discovery.presence import _primary_lan_ip, list_lan_ipv4s
         primary = _primary_lan_ip(host or "0.0.0.0")
@@ -138,7 +144,11 @@ def rejoin_multicast(sock: socket.socket, group: str, host: str = "0.0.0.0") -> 
     joined: list[str] = []
     drop = getattr(socket, "IP_DROP_MEMBERSHIP", None)
     for if_addr in _join_iface_ips(host):
-        mreq = _mreq(group, if_addr)
+        try:
+            mreq = _mreq(group, if_addr)
+        except OSError:
+            # inet_aton EINVAL (22) if if_addr is IPv6 / junk.
+            continue
         if drop is not None:
             try:
                 sock.setsockopt(socket.IPPROTO_IP, drop, mreq)

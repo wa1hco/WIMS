@@ -43,16 +43,47 @@ from wims.udp import messages as M
 
 def _is_multicast(host: str) -> bool:
     try:
-        return ipaddress.ip_address(host).is_multicast
+        ip = ipaddress.ip_address(str(host or "").split("%", 1)[0])
     except ValueError:
         return False
+    if ip.version == 6:
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is None:
+            return False
+        ip = mapped
+    return ip.version == 4 and ip.is_multicast
+
+
+def _v4_mcast_dest(host, port) -> tuple[str, int] | None:
+    """IPv4 multicast dest for the AF_INET mcast socket (else skip)."""
+    try:
+        port_i = int(port)
+    except (TypeError, ValueError):
+        return None
+    if port_i <= 0 or port_i > 65535:
+        return None
+    h = str(host or "").strip()
+    if "%" in h:
+        h = h.split("%", 1)[0]
+    try:
+        ip = ipaddress.ip_address(h)
+    except ValueError:
+        return None
+    if ip.version == 6:
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is None:
+            return None
+        ip = mapped
+    if ip.version != 4 or not ip.is_multicast:
+        return None
+    return (str(ip), port_i)
 
 
 def v4_unicast_dest(host, port) -> tuple[str, int] | None:
     """Reply/Halt dest that an AF_INET socket can sendto (else Windows err 22).
 
-    Strips IPv4-mapped IPv6 (``::ffff:192.168.x.x``). Drops multicast,
-    unspecified, and IPv6 — those yield WSAEINVAL / errno 22 on sendto.
+    Accepts IPv4, IPv4-mapped IPv6 (``::ffff:192.168.x.x``), and ``%zone``
+    suffixes. Drops real IPv6, multicast, and unspecified.
     """
     try:
         port_i = int(port)
@@ -61,12 +92,17 @@ def v4_unicast_dest(host, port) -> tuple[str, int] | None:
     if port_i <= 0 or port_i > 65535:
         return None
     h = str(host or "").strip()
-    if h.lower().startswith("::ffff:"):
-        h = h[7:]
+    if "%" in h:
+        h = h.split("%", 1)[0]
     try:
         ip = ipaddress.ip_address(h)
     except ValueError:
         return None
+    if ip.version == 6:
+        mapped = getattr(ip, "ipv4_mapped", None)
+        if mapped is None:
+            return None
+        ip = mapped
     if ip.version != 4:
         return None
     if ip.is_unspecified or ip.is_multicast:
@@ -90,11 +126,17 @@ def open_send_socket(iface: str = "0.0.0.0", ttl: int = 3) -> socket.socket:
     return s
 
 
-def open_unicast_socket() -> socket.socket:
-    """A bare UDP socket for sending to a plain (unicast/loopback) WSJT-X listener —
-    no multicast options. Used when WSJT-X's 'UDP Server' is an ordinary address such
-    as 127.0.0.1 (the common single-PC / solo case) rather than a multicast group."""
-    return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def open_unicast_socket(iface: str = "0.0.0.0") -> socket.socket:
+    """AF_INET UDP socket for MessageClient unicast. Bind to ``iface`` when it is
+    a real LAN IPv4 so dual-stack / extra NICs cannot pick an IPv6 path."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    if iface and iface not in ("0.0.0.0", "::"):
+        try:
+            ipaddress.IPv4Address(iface)
+            s.bind((iface, 0))
+        except (OSError, ValueError):
+            pass
+    return s
 
 
 class TxController:
@@ -137,11 +179,19 @@ class TxController:
             self.sock.close()
         except OSError:
             pass
-        self.sock = open_unicast_socket()
+        self.sock = open_unicast_socket(self._iface)
 
     def _send_all(self, raw: bytes, dests: list[tuple[str, int]] | None) -> list[tuple[str, int]]:
-        """Send to each destination; return those that did not raise."""
-        targets = list(dests) if dests else [self.dest]
+        """Send to each destination; return those that did not raise.
+
+        ``dests is None`` (legacy Reply/Halt with no override) uses ``self.dest``.
+        An explicit empty list means "nowhere" — never fall back to the multicast
+        group (that sendto is Windows errno 22 / 10022 on some stacks).
+        """
+        if dests is None:
+            targets = [self.dest]
+        else:
+            targets = list(dests)
         seen: set[tuple[str, int]] = set()
         ordered: list[tuple[str, int]] = []
         for d in targets:
@@ -149,17 +199,10 @@ class TxController:
                 host, port = d[0], d[1]
             except (TypeError, ValueError, IndexError):
                 continue
-            if _is_multicast(str(host or "")):
-                # Never sendto multicast on the unicast socket (WinError 22/10022).
+            key = _v4_mcast_dest(host, port)
+            if key is not None:
                 if self.mcast_sock is None:
                     continue
-                try:
-                    port_i = int(port)
-                except (TypeError, ValueError):
-                    continue
-                if port_i <= 0 or port_i > 65535:
-                    continue
-                key = (str(host), port_i)
             else:
                 key = v4_unicast_dest(host, port)
                 if key is None:
@@ -174,21 +217,27 @@ class TxController:
             try:
                 self._sock_for(d[0]).sendto(raw, d)
                 ok.append(d)
+                continue
             except OSError as e:
                 last_err = e
-                # WinError 10022 / errno 22: stale UDP socket or bad multicast IF.
-                if not refreshed:
-                    refreshed = True
+            # WinError 10022 / errno 22 / 10038: stale UDP socket or bad multicast IF.
+            if not refreshed:
+                refreshed = True
+                try:
                     self._refresh_socks()
-                    try:
-                        self._sock_for(d[0]).sendto(raw, d)
-                        ok.append(d)
-                        last_err = None
-                    except OSError as e2:
-                        last_err = e2
-        if not ok and last_err is not None:
-            raise last_err
+                    self._sock_for(d[0]).sendto(raw, d)
+                    ok.append(d)
+                    last_err = None
+                    continue
+                except OSError as e2:
+                    last_err = e2
+                except Exception:
+                    pass
         if not ok:
+            if last_err is not None:
+                raise OSError(
+                    f"UDP send failed to {ordered}: {last_err}"
+                ) from last_err
             raise OSError("no valid UDP dest for Work/Halt (missing control port)")
         return ok
 
@@ -243,7 +292,7 @@ class TxController:
     def for_group(group: str, port: int, iface: str = "0.0.0.0", ttl: int = 3) -> "TxController":
         """Default dest = multicast group; also keeps a unicast socket for per-host Reply."""
         return TxController(
-            open_unicast_socket(),
+            open_unicast_socket(iface),
             (group, port),
             mcast_sock=open_send_socket(iface, ttl),
             iface=iface, ttl=ttl,
