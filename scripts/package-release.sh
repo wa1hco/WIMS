@@ -95,11 +95,18 @@ WIMS ${DISPLAY} — quick install
 
 Windows (contest seat):
   1. Extract this folder to C:\\WIMS
-  2. Double-click scripts\\windows\\Install-Wims.cmd (allow UAC)
-  3. Start Desktop "WIMS"
+  2. If Windows blocks scripts (unsigned / downloaded zip):
+       - Prefer Install-Wims.cmd (not bare .ps1)
+       - SmartScreen: More info -> Run anyway (if you trust wa1hco/WIMS)
+       - Properties -> Unblock on the zip or .cmd/.ps1 files
+       - Or: powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1
+  3. Double-click scripts\\windows\\Install-Wims.cmd (allow UAC)
+  4. Start Desktop "WIMS"
 
   Bundled private Python runtime (offline) ships in a later release
   build. Until then Install uses/finds system Python >= 3.10.
+
+  Full unblock notes: README.md (Windows section) and INSTALL.md.
 
 Linux (personal laptop):
   1. Unpack the linux tar.gz

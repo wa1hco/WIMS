@@ -26,7 +26,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from wims.agent.report import build_report, format_report_text  # noqa: E402
+from unittest import mock
+
+from wims.agent.report import (  # noqa: E402
+    build_report,
+    format_report_text,
+    probe_keyline_interface,
+    probe_windows_firewall,
+)
 from wims.agent.export import export_report  # noqa: E402
 from wims.server.app import LiveFleet  # noqa: E402
 from wims.server.state import agents_to_dict  # noqa: E402
@@ -40,11 +47,14 @@ def test_build_report_shape():
     assert r["ts"] == 1000.0
     assert "host" in r and "hostname" in r["host"]
     assert "wsjtx" in r and "n1mm" in r and "apps" in r
+    assert "firewall" in r and "keyline" in r
     assert r["summary"]["severity"] in ("ok", "warn", "error")
     assert isinstance(r["summary"]["message"], str)
     text = format_report_text(r)
     assert "WIMS agent" in text
     assert "WSJT-X" in text
+    assert "Windows Firewall" in text
+    assert "Keyline (FTDI)" in text
 
 
 def test_build_report_with_synthetic_ini(monkeypatch=None):
@@ -339,15 +349,128 @@ def test_process_match_n1mmlogger_net_via_tasklist_mock():
         os.name = real_name  # type: ignore[misc]
 
 
+def test_firewall_probe_skipped_on_linux():
+    import sys
+    if sys.platform.startswith("win"):
+        return  # exercise the Windows path in CI/VMs separately
+    fw = probe_windows_firewall()
+    assert fw.get("applicable") is False
+    assert fw.get("severity") == "info"
+
+
+def test_firewall_probe_windows_missing_rules():
+    from wims.agent import report as R
+
+    def fake_run(argv, **kwargs):
+        cmd = " ".join(str(a) for a in argv).lower()
+        if "show" in cmd and "allprofiles" in cmd:
+            return 0, "Private Profile Settings:\nState                                 ON\n"
+        if "show" in cmd and "rule" in cmd and "name=all" in cmd:
+            return 1, ""  # no WIMS program rules
+        if "show" in cmd and "rule" in cmd:
+            return 1, "No rules match with the specified criteria.\n"
+        return 1, "unexpected"
+
+    with mock.patch.object(R, "sys") as fake_sys:
+        fake_sys.platform = "win32"
+        with mock.patch.object(R, "_run_capture", side_effect=fake_run):
+            fw = R.probe_windows_firewall()
+    assert fw["applicable"] is True
+    assert fw["severity"] == "warn"
+    assert fw["missing"]
+    assert any("Set-ContestAppFirewall" in i["message"] for i in fw["issues"])
+
+
+def test_keyline_probe_linux_no_device():
+    from wims.agent import report as R
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        by_id = root / "by-id"
+        by_id.mkdir()
+        dev = root / "dev"
+        dev.mkdir()
+
+        def fake_run(argv, **kwargs):
+            if argv[:1] == ["lsmod"]:
+                return 0, "module\nusbserial\n"
+            if argv[:1] == ["lsusb"]:
+                return 0, ""
+            return 1, ""
+
+        real_path = R.Path
+
+        def path_factory(arg, *a, **k):
+            s = str(arg)
+            if s == "/dev/serial/by-id":
+                return by_id
+            if s == "/dev":
+                return dev
+            return real_path(arg, *a, **k)
+
+        with mock.patch.object(R, "Path", side_effect=path_factory):
+            with mock.patch.object(R, "_run_capture", side_effect=fake_run):
+                with mock.patch.object(R.sys, "platform", "linux"):
+                    kl = R.probe_keyline_interface()
+    assert kl["severity"] == "info"
+    assert "No FTDI Keyline" in kl["message"]
+    assert kl["devices"] == []
+
+
+def test_keyline_probe_linux_detects_by_id():
+    from wims.agent import report as R
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        by_id = root / "by-id"
+        by_id.mkdir()
+        dev = root / "dev"
+        dev.mkdir()
+        link = by_id / "usb-FTDI_WA1HCO_FT230X_Keyline_KL0001-if00-port0"
+        try:
+            link.symlink_to("/dev/ttyUSB9")
+        except OSError:
+            link.write_text("ttyUSB9", encoding="utf-8")
+
+        def fake_run(argv, **kwargs):
+            if argv[:1] == ["lsmod"]:
+                return 0, "ftdi_sio 123 0\nusbserial 1 1 ftdi_sio\n"
+            return 1, ""
+
+        real_path = R.Path
+
+        def path_factory(arg, *a, **k):
+            s = str(arg)
+            if s == "/dev/serial/by-id":
+                return by_id
+            if s == "/dev":
+                return dev
+            return real_path(arg, *a, **k)
+
+        with mock.patch.object(R, "Path", side_effect=path_factory):
+            with mock.patch.object(R, "_run_capture", side_effect=fake_run):
+                with mock.patch.object(R.sys, "platform", "linux"):
+                    kl = R.probe_keyline_interface()
+    assert any(d.get("keyline") for d in kl["devices"])
+    assert kl["severity"] == "ok"
+    assert "Keyline" in kl["message"]
+
+
 def main():
+    import tempfile
     test_build_report_shape()
     test_build_report_with_synthetic_ini()
+    test_firewall_probe_skipped_on_linux()
+    test_firewall_probe_windows_missing_rules()
+    test_keyline_probe_linux_no_device()
+    test_keyline_probe_linux_detects_by_id()
     test_livefleet_accept_agent_and_snapshot()
     test_agents_to_dict_stale()
     test_export_report_no_url()
     test_process_match_n1mmlogger_net_via_tasklist_mock()
     # No pytest: drive the tmp_path test with a real TemporaryDirectory.
-    import tempfile
     with tempfile.TemporaryDirectory() as td:
         test_n1mm_probe_finds_userdir_databases(Path(td))
     print("test_agent_report: OK")

@@ -440,7 +440,414 @@ def _wsjtx_section(*, fleet: bool = True, solo: bool = False) -> dict:
     }
 
 
-def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
+# Contest LAN firewall rules from scripts/windows/Set-ContestAppFirewall.ps1
+_WIMS_FW_RULES = (
+    "WIMS contest - console TCP 8787",
+    "WIMS contest - agent TCP 8790",
+    "WIMS contest - presence UDP 8788",
+    "WIMS contest - N1MM UDP 12060",
+    "WIMS contest - N1MM TCP 12070",
+    "WIMS contest - N1MM UDP 12070",
+)
+
+
+def _run_capture(argv: list[str], *, timeout: float = 8) -> tuple[int, str]:
+    """Run a command; return (exit_code, combined stdout+stderr text)."""
+    creation = 0
+    if sys.platform.startswith("win"):
+        creation = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        p = subprocess.run(
+            argv,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            creationflags=creation,
+        )
+        out = (p.stdout or "") + (p.stderr or "")
+        return int(p.returncode or 0), out
+    except (OSError, subprocess.SubprocessError) as e:
+        return 1, str(e)
+
+
+def probe_windows_firewall() -> dict:
+    """Audit Private-profile contest firewall rules (Windows only)."""
+    if not sys.platform.startswith("win"):
+        return {
+            "applicable": False,
+            "severity": "info",
+            "message": "Windows Firewall audit skipped (not Windows)",
+            "rules": [],
+            "missing": [],
+            "issues": [],
+        }
+
+    issues: list[dict] = []
+    rules: list[dict] = []
+    missing: list[str] = []
+
+    # Profile state (firewall on/off per profile).
+    rc, prof_out = _run_capture(
+        ["netsh", "advfirewall", "show", "allprofiles"], timeout=10,
+    )
+    profiles: dict[str, str] = {}
+    if rc == 0 and prof_out:
+        current = None
+        for line in prof_out.splitlines():
+            s = line.strip()
+            low = s.lower()
+            if "profile settings" in low:
+                # e.g. "Private Profile Settings:"
+                current = s.split("Profile", 1)[0].strip() or s
+            elif low.startswith("state") and current:
+                # "State                                 ON"
+                parts = s.split()
+                profiles[current] = parts[-1] if parts else "?"
+    private_state = ""
+    for k, v in profiles.items():
+        if "private" in k.lower():
+            private_state = v
+            break
+    if private_state and private_state.upper() not in ("ON", "ENABLE", "ENABLED"):
+        issues.append({
+            "severity": "warn",
+            "message": (
+                f"Windows Firewall Private profile is {private_state!r} — "
+                "contest rules will not apply; turn Private firewall ON "
+                "(do not disable; use Set-ContestAppFirewall.ps1)."
+            ),
+        })
+
+    # Named WIMS contest rules.
+    for name in _WIMS_FW_RULES:
+        rc, out = _run_capture(
+            ["netsh", "advfirewall", "firewall", "show", "rule", f"name={name}"],
+            timeout=6,
+        )
+        text = out or ""
+        present = rc == 0 and "no rules match" not in text.lower() and "Enabled" in text
+        enabled = False
+        if present:
+            for line in text.splitlines():
+                if line.strip().lower().startswith("enabled"):
+                    enabled = "yes" in line.lower()
+                    break
+        entry = {"name": name, "present": present, "enabled": enabled}
+        rules.append(entry)
+        if not present:
+            missing.append(name)
+        elif not enabled:
+            issues.append({
+                "severity": "warn",
+                "message": f"Firewall rule present but disabled: {name}",
+            })
+
+    # Soft check: any WIMS contest WSJT-X / N1MM Logger *program* rule (paths vary).
+    # Avoid `show rule name=all` (huge); filter names via findstr.
+    rc, hit_out = _run_capture(
+        [
+            "cmd", "/c",
+            "netsh advfirewall firewall show rule name=all dir=in "
+            "| findstr /i /c:\"Rule Name:                            WIMS contest\"",
+        ],
+        timeout=25,
+    )
+    wims_prog = 0
+    if rc == 0 and hit_out:
+        for line in hit_out.splitlines():
+            name = line.split(":", 1)[-1].strip() if ":" in line else line.strip()
+            if "WSJT-X" in name or "N1MM Logger" in name or "N1MM Rotor" in name:
+                wims_prog += 1
+    if wims_prog == 0:
+        issues.append({
+            "severity": "warn",
+            "message": (
+                "No WIMS contest WSJT-X/N1MM program firewall rules — "
+                "UDP control may be blocked. Run scripts/windows/"
+                "Set-ContestAppFirewall.ps1 (elevated)."
+            ),
+        })
+
+    if missing:
+        issues.append({
+            "severity": "warn",
+            "message": (
+                f"Missing {len(missing)} WIMS contest firewall rule(s) "
+                f"(e.g. {missing[0]}). Run Set-ContestAppFirewall.ps1."
+            ),
+        })
+
+    sev = "ok"
+    for iss in issues:
+        if iss["severity"] == "error":
+            sev = "error"
+            break
+        if iss["severity"] == "warn":
+            sev = "warn"
+    if sev == "ok":
+        msg = (
+            f"Windows Firewall: {len(rules) - len(missing)}/"
+            f"{len(rules)} core WIMS rules present"
+            + (f"; Private={private_state}" if private_state else "")
+        )
+    else:
+        msg = issues[0]["message"]
+
+    return {
+        "applicable": True,
+        "severity": sev,
+        "message": msg,
+        "private_state": private_state or None,
+        "profiles": profiles,
+        "rules": rules,
+        "missing": missing,
+        "program_rules_enabled": wims_prog,
+        "issues": issues,
+    }
+
+
+def probe_keyline_interface() -> dict:
+    """Detect FTDI Keyline interface + driver (Windows VCP / Linux ftdi_sio)."""
+    devices: list[dict] = []
+    issues: list[dict] = []
+    driver_ok: bool | None = None
+
+    if sys.platform.startswith("win"):
+        # FTDI VCP services commonly used by FT230X Keyline boards.
+        driver_services = []
+        for svc in ("FTSER2K", "FTDIBUS", "ftser2k", "ftdibus"):
+            rc, out = _run_capture(["sc", "query", svc], timeout=4)
+            if rc == 0 and "SERVICE_NAME" in (out or "").upper():
+                running = "RUNNING" in (out or "").upper()
+                driver_services.append({"name": svc, "running": running})
+        driver_ok = bool(driver_services)
+        if not driver_ok:
+            issues.append({
+                "severity": "warn",
+                "message": (
+                    "FTDI VCP driver service not found (FTSER2K/FTDIBUS) — "
+                    "install FTDI CDM/VCP drivers for the Keyline FT230X."
+                ),
+            })
+
+        # PnP entities: VID_0403 (FTDI) and Keyline identity strings.
+        ps = (
+            "Get-CimInstance Win32_PnPEntity | "
+            "Where-Object { $_.DeviceID -match 'VID_0403' "
+            "-or $_.Name -match 'FTDI|Keyline|FT230|WA1HCO' } | "
+            "Select-Object Name, DeviceID, Status | "
+            "ConvertTo-Json -Compress"
+        )
+        rc, out = _run_capture(
+            [
+                "powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                "-Command", ps,
+            ],
+            timeout=15,
+        )
+        raw = (out or "").strip()
+        rows: list = []
+        if rc == 0 and raw and raw not in ("", "null"):
+            try:
+                import json
+                data = json.loads(raw)
+                rows = data if isinstance(data, list) else [data]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("Name") or "")
+            did = str(row.get("DeviceID") or "")
+            status = str(row.get("Status") or "")
+            is_ftdi = "VID_0403" in did.upper() or "FTDI" in name.upper()
+            is_keyline = (
+                "KEYLINE" in name.upper()
+                or "WA1HCO" in name.upper()
+                or "KEYLINE" in did.upper()
+                or "WA1HCO" in did.upper()
+            )
+            devices.append({
+                "name": name,
+                "device_id": did,
+                "status": status,
+                "ftdi": is_ftdi,
+                "keyline": is_keyline,
+                "port": None,
+            })
+            if status and status.upper() not in ("OK", "UNKNOWN"):
+                issues.append({
+                    "severity": "warn",
+                    "message": f"FTDI/Keyline device status {status}: {name or did}",
+                })
+
+        # Map SERIALCOMM COM ports (best-effort names).
+        rc, out = _run_capture(
+            [
+                "reg", "query",
+                r"HKLM\HARDWARE\DEVICEMAP\SERIALCOMM",
+            ],
+            timeout=5,
+        )
+        com_ports: list[str] = []
+        if rc == 0 and out:
+            for line in out.splitlines():
+                parts = line.strip().split()
+                if parts and parts[-1].upper().startswith("COM"):
+                    com_ports.append(parts[-1])
+        # Attach COM list as synthetic rows when we have ports but no PnP match.
+        if com_ports and not devices:
+            for com in com_ports:
+                devices.append({
+                    "name": com,
+                    "device_id": "",
+                    "status": "?",
+                    "ftdi": False,
+                    "keyline": False,
+                    "port": com,
+                })
+        elif com_ports:
+            # Annotate first device with ports list in message only.
+            for d in devices:
+                if d.get("port") is None and d.get("ftdi"):
+                    d["port"] = ",".join(com_ports[:4])
+                    break
+
+    else:
+        # Linux: ftdi_sio + /dev/serial/by-id Keyline identity + latency_timer.
+        by_id = Path("/dev/serial/by-id")
+        if by_id.is_dir():
+            for p in sorted(by_id.iterdir()):
+                name = p.name
+                low = name.lower()
+                is_ftdi = "ftdi" in low or "0403" in low
+                is_keyline = "keyline" in low or "wa1hco" in low
+                if not (is_ftdi or is_keyline):
+                    continue
+                target = ""
+                try:
+                    target = str(p.resolve())
+                except OSError:
+                    target = str(p)
+                lat = None
+                # ttyUSBn → /sys/class/tty/ttyUSBn/device/latency_timer
+                base = Path(target).name  # ttyUSB0
+                lat_path = Path(f"/sys/class/tty/{base}/device/latency_timer")
+                if lat_path.is_file():
+                    try:
+                        lat = int(lat_path.read_text(encoding="utf-8").strip())
+                    except (OSError, ValueError):
+                        lat = None
+                devices.append({
+                    "name": name,
+                    "device_id": target,
+                    "status": "ok",
+                    "ftdi": is_ftdi or is_keyline,
+                    "keyline": is_keyline,
+                    "port": target,
+                    "latency_timer_ms": lat,
+                })
+                if is_keyline and lat is not None and lat > 1:
+                    issues.append({
+                        "severity": "warn",
+                        "message": (
+                            f"Keyline {base} latency_timer={lat} ms "
+                            "(prefer 1 ms for CTS inhibit; "
+                            f"echo 1 | sudo tee /sys/class/tty/{base}/device/latency_timer)"
+                        ),
+                    })
+
+        for p in sorted(Path("/dev").glob("keyline-*")):
+            if any(d.get("port") == str(p) or d.get("name") == p.name for d in devices):
+                continue
+            devices.append({
+                "name": p.name,
+                "device_id": str(p),
+                "status": "ok",
+                "ftdi": True,
+                "keyline": True,
+                "port": str(p),
+                "latency_timer_ms": None,
+            })
+
+        # Driver module present?
+        rc, out = _run_capture(["lsmod"], timeout=4)
+        if rc == 0:
+            driver_ok = "ftdi_sio" in (out or "")
+            if not driver_ok and any(d.get("ftdi") for d in devices):
+                issues.append({
+                    "severity": "warn",
+                    "message": "FTDI device node present but ftdi_sio module not loaded",
+                })
+            elif not driver_ok:
+                # Only note when an FTDI USB device is plugged (lsusb).
+                rc2, usb = _run_capture(["lsusb", "-d", "0403:"], timeout=4)
+                if rc2 == 0 and "0403:" in (usb or ""):
+                    driver_ok = False
+                    issues.append({
+                        "severity": "warn",
+                        "message": (
+                            "FTDI USB device present (lsusb 0403:) but ftdi_sio "
+                            "not loaded — check drivers / blacklist"
+                        ),
+                    })
+                    for line in (usb or "").splitlines():
+                        devices.append({
+                            "name": line.strip(),
+                            "device_id": "usb",
+                            "status": "no-driver",
+                            "ftdi": True,
+                            "keyline": "keyline" in line.lower() or "wa1hco" in line.lower(),
+                            "port": None,
+                        })
+                else:
+                    driver_ok = None  # no FTDI hardware — N/A
+        else:
+            driver_ok = None
+
+    keylines = [d for d in devices if d.get("keyline")]
+    ftdis = [d for d in devices if d.get("ftdi")]
+    if keylines:
+        ports = ", ".join(
+            str(d.get("port") or d.get("name") or "?") for d in keylines[:4]
+        )
+        sev, msg = "ok", f"Keyline interface detected ({ports})"
+    elif ftdis:
+        sev, msg = "info", (
+            f"FTDI serial present ({len(ftdis)}) but not Keyline-identified "
+            "(program EEPROM: manufacturer FTDI WA1HCO, product FT230X Keyline)"
+        )
+    else:
+        sev, msg = "info", "No FTDI Keyline interface detected on this PC"
+
+    # Device/driver problems elevate the section (and summary via issues).
+    for want in ("error", "warn"):
+        hit = next((i for i in issues if i.get("severity") == want), None)
+        if hit:
+            sev, msg = want, hit["message"]
+            break
+    if driver_ok is False and sev == "info" and not devices:
+        # Driver missing only matters once a Keyline is expected; keep info unless
+        # we already raised a warn from the service/module checks above.
+        pass
+
+    return {
+        "severity": sev,
+        "message": msg,
+        "driver_ok": driver_ok,
+        "devices": devices,
+        "issues": issues,
+    }
+
+
+def _summary(
+    wsjtx: dict,
+    n1mm: dict,
+    apps: dict,
+    *,
+    firewall: dict | None = None,
+    keyline: dict | None = None,
+) -> dict:
     """One plain-language headline for the operator and the dashboard.
 
     Prefer issues on **running** WSJT-X instances. Idle ``--rig-name`` profiles
@@ -467,6 +874,12 @@ def _summary(wsjtx: dict, n1mm: dict, apps: dict) -> dict:
     for iss in n1mm.get("issues") or []:
         if iss["severity"] in ("error", "warn"):
             msgs.append((iss["severity"], f"N1MM: {iss['message']}"))
+    for iss in (firewall or {}).get("issues") or []:
+        if iss["severity"] in ("error", "warn"):
+            msgs.append((iss["severity"], f"Firewall: {iss['message']}"))
+    for iss in (keyline or {}).get("issues") or []:
+        if iss["severity"] in ("error", "warn"):
+            msgs.append((iss["severity"], f"Keyline: {iss['message']}"))
 
     if apps.get("wsjtx_running") is False and (wsjtx.get("configs") or wsjtx.get("ini_paths")):
         msgs.append(("warn", "WSJT-X does not appear to be running on this PC"))
@@ -606,7 +1019,9 @@ def build_report(
                 "(N1MM is not running; not an N1MM seat)."
             ),
         }]
-    summary = _summary(wsjtx, n1mm, apps)
+    firewall = probe_windows_firewall()
+    keyline = probe_keyline_interface()
+    summary = _summary(wsjtx, n1mm, apps, firewall=firewall, keyline=keyline)
     rotators = _rotators_from_env()
 
     return {
@@ -624,6 +1039,8 @@ def build_report(
         "wsjtx": wsjtx,
         "n1mm": n1mm,
         "apps": apps,
+        "firewall": firewall,
+        "keyline": keyline,
         "rotators": rotators,
         "summary": summary,
         "mode": "solo" if solo else ("fleet" if fleet else "lab"),
@@ -879,6 +1296,61 @@ def format_report_text(report: dict, *, skip_wsjtx: bool = False) -> str:
     else:
         # Linux leftover Documents/N1MM trees, or nothing at all — one line only.
         lines.append("N1MM: not on this PC")
+
+    lines.append("")
+    fw = report.get("firewall") or {}
+    lines.append("Windows Firewall")
+    lines.append("-" * 48)
+    if not fw.get("applicable"):
+        lines.append("  (skipped — not Windows)")
+    else:
+        tag = {"ok": "OK", "warn": "WARN", "error": "ERROR", "info": "info"}.get(
+            fw.get("severity"), "?"
+        )
+        lines.append(f"  [{tag}] {fw.get('message') or '-'}")
+        if fw.get("private_state"):
+            lines.append(f"  Private profile: {fw.get('private_state')}")
+        missing = fw.get("missing") or []
+        if missing:
+            lines.append(f"  missing rules ({len(missing)}):")
+            for name in missing[:8]:
+                lines.append(f"    - {name}")
+        for iss in fw.get("issues") or []:
+            if iss.get("message") == fw.get("message"):
+                continue
+            t = {"error": "!!", "warn": " ~", "info": "  "}.get(iss.get("severity"), "  ")
+            lines.append(f"  {t} [{iss.get('severity')}] {iss.get('message')}")
+
+    lines.append("")
+    kl = report.get("keyline") or {}
+    lines.append("Keyline (FTDI)")
+    lines.append("-" * 48)
+    tag = {"ok": "OK", "warn": "WARN", "error": "ERROR", "info": "info"}.get(
+        kl.get("severity"), "?"
+    )
+    lines.append(f"  [{tag}] {kl.get('message') or '-'}")
+    # Driver line: always call out missing; "OK" only when hardware/devices seen
+    # (Linux often has ftdi_sio loaded with no FTDI plugged — not useful noise).
+    if kl.get("driver_ok") is False:
+        lines.append("  FTDI driver: missing / not loaded")
+    elif kl.get("driver_ok") is True and (kl.get("devices") or []):
+        lines.append("  FTDI driver: OK")
+    for d in (kl.get("devices") or [])[:8]:
+        kind = "Keyline" if d.get("keyline") else ("FTDI" if d.get("ftdi") else "serial")
+        port = d.get("port") or ""
+        lat = d.get("latency_timer_ms")
+        lat_s = f" latency={lat}ms" if lat is not None else ""
+        lines.append(
+            f"  - {kind}: {(d.get('name') or '?')[:60]}"
+            + (f" → {port}" if port and port != d.get("name") else "")
+            + lat_s
+            + (f" [{d.get('status')}]" if d.get("status") and d.get("status") != "ok" else "")
+        )
+    for iss in kl.get("issues") or []:
+        if iss.get("message") == kl.get("message"):
+            continue
+        t = {"error": "!!", "warn": " ~", "info": "  "}.get(iss.get("severity"), "  ")
+        lines.append(f"  {t} [{iss.get('severity')}] {iss.get('message')}")
 
     lines.append("")
     # Footer only when there is something to fix — keyed off summary, not a

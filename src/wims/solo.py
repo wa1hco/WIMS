@@ -40,13 +40,13 @@ import argparse
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from wims.server import app as server  # noqa: E402
+from wims.launcher.app import open_wims_url  # noqa: E402
 
 
 def main() -> None:
@@ -108,7 +108,7 @@ def main() -> None:
     if not args.no_open:
         url = f"http://localhost:{args.http_port}/"
         # Give the server a moment to bind before launching the browser.
-        threading.Thread(target=lambda: (time.sleep(1.5), webbrowser.open(url)),
+        threading.Thread(target=lambda: (time.sleep(1.5), open_wims_url(url)),
                          daemon=True).start()
 
     sys.argv = ["wims.server.app"] + argv

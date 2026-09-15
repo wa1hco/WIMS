@@ -32,7 +32,26 @@ Design: [docs/plan/wims_release_packages.md](docs/plan/wims_release_packages.md)
 | [`scripts/windows/Install-Wims.cmd`](scripts/windows/Install-Wims.cmd) | Double-click; allow **UAC** (recommended) |
 | [`install.ps1`](install.ps1) | Repo-root wrapper (map144-style); same logic |
 
-No `Set-ExecutionPolicy` needed for the `.cmd` path.
+Prefer the **`.cmd`** path. It starts PowerShell with `-ExecutionPolicy Bypass` for that run only. You do **not** need to change machine policy, and scripts are **not** Authenticode-signed yet.
+
+#### Windows blocks unsigned scripts / downloads
+
+GitHub Release ZIPs and browser downloads often carry a Mark of the Web. Windows may block `.ps1` / warn on first run.
+
+1. **Prefer** double-click **`Install-Wims.cmd`** (not `install.ps1` alone).
+2. If **SmartScreen** says “Windows protected your PC”: click **More info** → **Run anyway** (only if you trust [wa1hco/WIMS](https://github.com/wa1hco/WIMS)).
+3. If Explorer / PowerShell says the file is **blocked** or “not digitally signed”:
+   - In Explorer: right-click the **zip** (before extract) or `Install-Wims.cmd` / `install.ps1` → **Properties** → check **Unblock** → **OK**.
+   - Or in PowerShell from `C:\WIMS`:
+     ```powershell
+     Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1
+     ```
+4. To run the root wrapper when policy still blocks `.ps1`:
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+   ```
+
+Do **not** set a permanent `Set-ExecutionPolicy Unrestricted` unless you already manage that on the PC.
 
 | If missing, install adds | How |
 |--------------------------|-----|
@@ -49,17 +68,19 @@ separately if this PC is a radio seat.
 | Method | Steps |
 |--------|--------|
 | **USB / network share** (offline-friendly) | Copy a full `WIMS` folder to e.g. `C:\WIMS` |
-| **GitHub ZIP** | Download [repo ZIP](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip), extract to e.g. `C:\WIMS` |
+| **GitHub Release ZIP** | [Releases](https://github.com/wa1hco/WIMS/releases) → `wims-*-windows-x86_64.zip` → extract to `C:\WIMS` |
+| **GitHub ZIP of `main`** | [main.zip](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip), extract to e.g. `C:\WIMS` |
 | **Git already installed** | `git clone https://github.com/wa1hco/WIMS.git C:\WIMS` |
 
 You only need the folder that contains `src\wims\` and `scripts\windows\`.
 
 #### 2. Run the installer (installs missing prereqs)
 
-1. Open Explorer → `C:\WIMS\scripts\windows\` (or your path).
-2. Double-click **`Install-Wims.cmd`**.
-3. Click **Yes** on the UAC prompt (needed for machine-wide Python and firewall).
-4. Wait until it reports success. Log: `scripts\windows\install-log.txt`.  
+1. If the tree came from a browser download, **Unblock** first (section above).
+2. Open Explorer → `C:\WIMS\scripts\windows\` (or your path).
+3. Double-click **`Install-Wims.cmd`**.
+4. Click **Yes** on the UAC prompt (needed for machine-wide Python and firewall).
+5. Wait until it reports success. Log: `scripts\windows\install-log.txt`.  
    On failure: re-run Install, or see [scripts/windows/README.md](scripts/windows/README.md)
    (“If you still see Python not found”).
 

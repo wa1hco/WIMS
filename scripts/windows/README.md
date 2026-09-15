@@ -161,7 +161,21 @@ Steps (seat / fleet VM):
 
 Site server PC (not seats): Desktop **WIMS** → **Site server** (N1MM PC, or no WSJT-X-only
 seat). Scripts still have **`Start-WimsServer.cmd`** — it is not put on the Desktop.
-The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself.
+The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run only** — you do **not** run `Set-ExecutionPolicy` yourself. Scripts are **not** Authenticode-signed yet.
+
+### Windows blocked the script / SmartScreen
+
+Release ZIPs from a browser often set Mark of the Web. Symptoms: SmartScreen (“Windows protected your PC”), or PowerShell “cannot be loaded because running scripts is disabled” / “not digitally signed”.
+
+1. Use **`Install-Wims.cmd`**, not a bare double-click of `.ps1`.
+2. SmartScreen → **More info** → **Run anyway** (only if you trust [wa1hco/WIMS](https://github.com/wa1hco/WIMS)).
+3. Unblock downloaded files:
+   - Explorer → right-click file → **Properties** → **Unblock** → **OK**
+   - Or: `Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1`
+4. Forced one-shot run:  
+   `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`
+
+Do not set permanent `Set-ExecutionPolicy Unrestricted` just for WIMS. See also the main [README.md](../../README.md) Windows section.
 
 ### Offline / USB tree
 

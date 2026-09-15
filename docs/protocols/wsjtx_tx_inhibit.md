@@ -185,6 +185,10 @@ WIMS Key agent should resolve assignment targets by **instance id → live host:
 from InhibitStatus, then send type-18 there. Survives WIMS server outage for *actuation*
 once the target list (or last list) is known.
 
+**Cadence (wsjtx-inhibit):** type 17 on hold/port changes **and every 15 s**
+(`NetworkMessage::pulse`) while TX Inhibit is enabled — not change-only. Still
+inventory/telemetry; KEY holds remain unicast to `host:22372`.
+
 ---
 
 ## 6. What WIMS must implement

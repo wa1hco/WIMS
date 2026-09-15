@@ -35,15 +35,24 @@ Start: Desktop **WIMS**, or `PYTHONPATH=src python3 -m wims solo`.
 ## Windows
 
 1. Extract the Windows zip to **`C:\WIMS`** (or use a git clone).
-2. Double-click **`scripts\windows\Install-Wims.cmd`** (UAC), or from PowerShell: `.\install.ps1`.
-3. Start Desktop **WIMS**.
+2. Clear download blocks if Windows complains (scripts are not Authenticode-signed yet):
+   - Prefer **`scripts\windows\Install-Wims.cmd`** (uses `-ExecutionPolicy Bypass` for that run).
+   - SmartScreen: **More info** → **Run anyway** if you trust this GitHub project.
+   - Explorer → file **Properties** → **Unblock**, or:
+     ```powershell
+     Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1
+     powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
+     ```
+3. Double-click **`Install-Wims.cmd`** (UAC), or run the Bypass line above.
+4. Start Desktop **WIMS**.
 
 Install adds/finds Python ≥ 3.10, **Git** (clone + in-app GitHub update check; skipped for Release ZIP trees with no `.git`), firewall TCP **8787**, Desktop shortcut.  
 It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
 **Bundled private Python** (offline embed + Tk) is specified in the design and lands with the Windows runtime packaging PRs. Until then, Install uses system Python.
 
-Full Windows notes: [scripts/windows/README.md](scripts/windows/README.md).
+Full Windows notes: [scripts/windows/README.md](scripts/windows/README.md).  
+Same unblock / SmartScreen steps are also in the main [README.md](README.md) Windows section.
 
 ## Cut a Release (maintainers)
 
