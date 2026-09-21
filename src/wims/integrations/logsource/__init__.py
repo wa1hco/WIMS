@@ -1,5 +1,3 @@
-#!/usr/bin/env bash
-
 # WIMS — WSJT-X Instance Management System
 # Copyright (C) 2026 Jeff Millar, WA1HCO
 #
@@ -18,10 +16,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Home H0 Operate (Linux/macOS). Docs: docs/home_h0_h1.md
-# WSJT-X: UDP Server 224.0.0.73:2237, Accept UDP requests ON.
-set -eu
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="$ROOT/src"
-PY="${PYTHON:-python3}"
-exec "$PY" -m wims.solo "$@"
+"""Pluggable log backends for Operate / LogStore (design §3.6).
+
+Engine code depends on ``LoggedQso`` + ``LogSource``, not on N1MM or ADIF details.
+See ``docs/plan/wims_log_source_survey.md``.
+"""
+
+from wims.integrations.logsource.base import (
+    LogEvent,
+    LogSource,
+    LogSourceCandidate,
+)
+from wims.integrations.logsource.n1mm_source import N1mmLogSource
+
+__all__ = [
+    "LogEvent",
+    "LogSource",
+    "LogSourceCandidate",
+    "N1mmLogSource",
+]

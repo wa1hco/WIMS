@@ -3,6 +3,9 @@
 **Audience:** contest seat operators and the person wiring the fleet.  
 **Goal:** one place that says **exactly** what to set so WIMS can see digi, log, and KEY.
 
+**Home only (no fleet):** stages **H0 Operate** / **H1 Inhibit** — see [home_h0_h1.md](home_h0_h1.md).  
+Operate UDP modes: **Local** (same PC as WSJT-X, loopback) vs **Network** (LAN multicast) — same doc.
+
 Related: [User-manual.md](User-manual.md) · [plan/wims_networking.md](plan/wims_networking.md) ·  
 [decisions/2026-08-29-n1mm-live-band.md](decisions/2026-08-29-n1mm-live-band.md) ·  
 [hardware/keyline_interface/eeprom/README.md](../hardware/keyline_interface/eeprom/README.md)
@@ -54,7 +57,7 @@ No `pip` packages for runtime.
 | **UDP Server** | `224.0.0.73` |
 | **UDP Server port** | **`2237`** (all bands — see [decision 2026-09-05](decisions/2026-09-05-plane-a-single-port-2237.md)) |
 | **Accept UDP requests** | ✅ ON (needed for Operate **Work** / Halt) |
-| **Outgoing interface** | Contest **LAN** NIC (wired Ethernet; not blank if the roster stays empty) |
+| **Outgoing interface** | **Network / fleet:** contest **LAN** NIC. **Local Operate (same PC):** loopback / this PC is enough — see [home_h0_h1.md](home_h0_h1.md) Operate modes |
 
 Do **not** use per-band ports 2238–2243 for the current fleet. Every digi instance shares
 `224.0.0.73:2237`. Band comes from the radio dial (Status), not from the UDP port.

@@ -18,8 +18,9 @@ REM
 REM You should have received a copy of the GNU General Public License
 REM along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-REM Home H0 Operate (single-PC): server on this machine alongside local WSJT-X + N1MM.
-REM In WSJT-X: Settings -> Reporting -> UDP Server 224.0.0.73 : 2237, Accept UDP requests ON.
+REM Home H1 Inhibit: KEY → localhost digi gate (no site server, no RadioInfo band).
+REM Needs patched WSJT-X TxInhibit on UDP 22372. Set WIMS_KEY_DEVICE to COM port
+REM (or sim:up for lab). See docs\home_h0_h1.md.
 
 setlocal EnableExtensions
 cd /d "%~dp0"
@@ -37,12 +38,20 @@ if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EX
   exit /b 1
 )
 
+if "%WIMS_KEY_TARGETS%"=="" set "WIMS_KEY_TARGETS=127.0.0.1:22372"
+
 echo.
-echo  WIMS home Operate (H0): %ROOT%
-echo  Console:   http://localhost:8787/
+echo  WIMS home Inhibit (H1): %ROOT%
+echo  Targets: %WIMS_KEY_TARGETS%
+if defined WIMS_KEY_DEVICE (
+  echo  Device:  %WIMS_KEY_DEVICE%
+) else (
+  echo  Device:  ^(not set — set WIMS_KEY_DEVICE=COMx or use launcher KEY combobox^)
+)
+echo  Docs:    docs\home_h0_h1.md
 echo.
 
-"%PYTHON_EXE%" -m wims.solo %*
+"%PYTHON_EXE%" -m wims.seat --key --targets "%WIMS_KEY_TARGETS%" %*
 set ERR=%ERRORLEVEL%
 if not %ERR%==0 ( echo Exit %ERR% & pause )
 exit /b %ERR%

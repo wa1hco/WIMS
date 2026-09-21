@@ -69,7 +69,7 @@ from wims.engine.roster import RosterBuilder, is_own_tx_decode  # noqa: E402
 from wims.engine.geo import base_call as _base_call  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
 from wims.state import last_log as last_log_pref  # noqa: E402
-from wims.integrations.n1mm.qso import LoggedQso, id_from_contactdelete  # noqa: E402
+from wims.integrations.logsource import N1mmLogSource  # noqa: E402
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
     decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict,
@@ -139,6 +139,8 @@ class LiveFleet:
         # from N1MM <contactinfo>. Empty at start => every grid reads as a new mult,
         # flipping to dupe/worked as QSOs are logged (plan §3.6).
         self._log = LogStore(":memory:")
+        # Primary log backend (N1MM today; other LogSource kinds later).
+        self._log_source = N1mmLogSource()
         self._roster = RosterBuilder(log=self._log)
         self._maps: dict[str, ActivityMap] = {}    # per-instance decode-activity map
         self._decodes: deque = deque(maxlen=300)   # rolling fleet-wide decode log
@@ -241,8 +243,14 @@ class LiveFleet:
         remember, so a casual DX log chosen once is not overwritten by June VHF.
         """
         from wims.integrations.n1mm import logdb
-        qsos = logdb.read_dxlog(db_path, contest_nr=contest_nr,
-                                contest_name=contest_name)
+        self._log_source = N1mmLogSource(
+            db_path=db_path,
+            contest_nr=contest_nr,
+            contest_name=contest_name,
+            seed_db_dir=self._seed_db_dir,
+            seed_db_hint=self._seed_db_hint or db_path,
+        )
+        qsos = list(self._log_source.seed())
         contests = logdb.list_contests(db_path)
         active = None
         for c in contests:
@@ -409,7 +417,6 @@ class LiveFleet:
         Does **not** drive N1MM peer "Resync" — if multi-op seats disagree,
         resync N1MM peers first so the file is authoritative, then call this.
         """
-        from wims.integrations.n1mm import logdb
         now = time.time() if now is None else now
         with self._lock:
             active = dict(self._active_contest) if self._active_contest else {}
@@ -437,14 +444,13 @@ class LiveFleet:
             nr = int(contest_nr) if contest_nr is not None else None
         except (TypeError, ValueError):
             nr = None
-        try:
-            qsos = logdb.read_dxlog(
-                db_path,
-                contest_nr=nr,
-                contest_name=contest_name if nr is None else None,
-            )
-        except Exception as e:
-            return {"ok": False, "error": str(e), "db_path": db_path}
+        self._log_source.configure(
+            db_path=db_path, contest_nr=nr, contest_name=contest_name,
+        )
+        qsos = list(self._log_source.resync())
+        err = self._log_source.status().get("error")
+        if err and not qsos:
+            return {"ok": False, "error": err, "db_path": db_path}
 
         with self._lock:
             summary = self._log.reconcile(qsos)
@@ -1016,19 +1022,17 @@ class LiveFleet:
             self._last_n1mm = now
             self._tracker.observe_n1mm_xml(xml_text, now, src_ip=src_ip)
             self._roster.drop_own_station(self._own_station_calls())
-            # Live log maintenance: N1MM Contacts broadcasts cover add / edit / delete.
+            # Live log maintenance via LogSource (N1MM Contacts Broadcast).
             # Edit = contactdelete + contactreplace (same ID). Delete alone removes the
             # row so roster needed/dupe flips back without waiting for DXLOG resync.
             try:
-                low = xml_text.lower()
-                if "<contactdelete" in low:
-                    qid = id_from_contactdelete(xml_text)
-                    if qid:
-                        self._log.delete(qid)
-                elif "<contactinfo" in low or "<contactreplace" in low:
-                    q = LoggedQso.from_contactinfo(xml_text)
-                    if not q.id:
-                        return
+                ev = self._log_source.parse_live(xml_text)
+                if ev is None:
+                    return
+                if ev.op == "delete" and ev.id:
+                    self._log.delete(ev.id)
+                elif ev.op in ("add", "replace") and ev.qso is not None:
+                    q = ev.qso
                     # If operator selected a contest, ignore live QSOs from other logs
                     # (same multi-contest .s3db problem over the wire).
                     active = self._active_contest

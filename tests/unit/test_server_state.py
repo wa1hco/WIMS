@@ -758,6 +758,10 @@ def test_livefleet_seeds_log_from_s3db(tmp_path=None):
 def test_auto_seed_picks_one_contest_not_all():
     import os, sqlite3, tempfile
     fd, db = tempfile.mkstemp(suffix=".s3db"); os.close(fd)
+    # Isolate from host ~/.config/wims/last_log.json (remembered DX log).
+    pref = db + ".last_log.json"
+    prev = os.environ.get("WIMS_LAST_LOG")
+    os.environ["WIMS_LAST_LOG"] = pref
     con = sqlite3.connect(db)
     con.executescript("""
         CREATE TABLE ContestInstance (
@@ -791,7 +795,15 @@ def test_auto_seed_picks_one_contest_not_all():
         assert s2["n1mm_sync"]["qso_count"] == 1
         assert s2["n1mm_sync"]["active_contest"]["contest_name"] == "OLD"
     finally:
-        os.unlink(db)
+        if prev is None:
+            os.environ.pop("WIMS_LAST_LOG", None)
+        else:
+            os.environ["WIMS_LAST_LOG"] = prev
+        for p in (db, pref):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 def test_resync_log_reconciles_from_file():
@@ -799,6 +811,9 @@ def test_resync_log_reconciles_from_file():
     import os, sqlite3, tempfile
 
     fd, db = tempfile.mkstemp(suffix=".s3db"); os.close(fd)
+    pref = db + ".last_log.json"
+    prev = os.environ.get("WIMS_LAST_LOG")
+    os.environ["WIMS_LAST_LOG"] = pref
     con = sqlite3.connect(db)
     con.executescript("""
         CREATE TABLE ContestInstance (
@@ -847,7 +862,15 @@ def test_resync_log_reconciles_from_file():
         assert ns["last_resync"]["age"] == 1.0
     finally:
         con.close()
-        os.unlink(db)
+        if prev is None:
+            os.environ.pop("WIMS_LAST_LOG", None)
+        else:
+            os.environ["WIMS_LAST_LOG"] = prev
+        for p in (db, pref):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 def test_resync_log_requires_active_contest():

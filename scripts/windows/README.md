@@ -8,29 +8,35 @@
 | **Radio seat** (N1MM + WSJT-X) | N1MM / WSJT-X / optional GridTracker; **browser** to the server. WIMS install optional |
 | **Operator laptop** | Browser only → `http://<server-ip>:8787/` |
 
-## Solo tester (everything on one PC) — start here if you're trying WIMS out
+## Home tester (H0 Operate / H1 Inhibit) — start here on one PC
 
-**What you install (roles):** [docs/tester_roles.md](../../docs/tester_roles.md)  
-**Full tracks (no apps → WSJT only → N1MM+WSJT → multi-PC):**  
-[docs/tester_quickstart.md](../../docs/tester_quickstart.md)
+**Checklist:** [docs/home_h0_h1.md](../../docs/home_h0_h1.md)  
+**Roles / tracks:** [docs/tester_roles.md](../../docs/tester_roles.md) · [docs/tester_quickstart.md](../../docs/tester_quickstart.md)
 
-For **one operator on one PC** running N1MM + WSJT-X + WIMS together, on a single FT8
-frequency (any band). No fleet, no separate server.
+No fleet site server required. Radio CAT handoff is **not** part of H0/H1.
 
-1. **`Install-Wims.cmd`** — installs prerequisites (once; may prompt for UAC).
-2. In WSJT-X: **Settings → Reporting → UDP Server `224.0.0.73`, port `2237`**
-   (all bands), tick **"Accept UDP requests"**. Unique `--rig-name` if multi-instance.
-3. **`Check-WimsSetup.cmd`** — double-click to see a plain-language **[OK] / [! ] / [XX]**
-   check of your WSJT-X + N1MM setup (starts nothing).
-4. **`Start-Wims-Solo.cmd`** — runs the same check, then starts WIMS and opens
-   `http://localhost:8787/`. **Click a roster line** to Work (no Arm/Enable TX);
-   **Halt TX** stops this console’s Work. Console tabs: Operate · Overview · WSJT-X · N1MM · Setup.  
-   Full settings: [docs/operator_setup.md](../../docs/operator_setup.md).
+### H0 — Operate (minimum: filter + Work)
+
+**One radio, one WSJT-X, Operate page.** Filter/rank decodes and click-to-Work.
+
+1. **`Install-Wims.cmd`** — once (may prompt for UAC).
+2. WSJT-X: **UDP Server `224.0.0.73` port `2237`**, **Accept UDP requests** ON.
+3. **`Start-Wims-Solo.cmd`** — `http://localhost:8787/` → **Operate**.
+4. Use needed/age/band filters; **click a row to Work**. Optional N1MM log for needed vs dupe.
+
+Setup check anytime: **`Check-WimsSetup.cmd`**.
+
+### H1 — Inhibit (KEY → digi hold)
+
+1. Patched WSJT-X with TxInhibit on **UDP 22372**.
+2. Set **`WIMS_KEY_DEVICE`** to your Keyline COM port (or use launcher KEY combobox).
+3. **`Start-Wims-Inhibit-Home.cmd`** — holds `127.0.0.1:22372` (no N1MM RadioInfo needed).
 
 | File | What it does |
 |------|----------------|
-| **`Check-WimsSetup.cmd`** | Plain-language single-PC setup check (`wims.agent --solo`). Reports what's wrong and the exact WSJT-X/N1MM fix. Starts nothing. |
-| **`Start-Wims-Solo.cmd`** | Solo console: setup check, then the WIMS server on this PC (`python -m wims.solo`, localhost, no fleet presence). |
+| **`Check-WimsSetup.cmd`** | Single-PC setup check (`wims.agent --solo`). Starts nothing. |
+| **`Start-Wims-Solo.cmd`** | **H0 Operate:** `python -m wims.solo` (localhost, no fleet presence). |
+| **`Start-Wims-Inhibit-Home.cmd`** | **H1 Inhibit:** `wims.seat --key --targets 127.0.0.1:22372`. |
 
 To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster row turns to
 *dupe*; delete it → back to *needed*.
@@ -87,7 +93,7 @@ When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` a
 | **`_resolve-wsjtx.cmd`** | Pick `wsjtx.exe`: override if it exists, else `C:\WSJT\wsjtx`, else `wsjtx-inhibit`. |
 | **`Start-WSJTX-50.cmd`** / **`Start-WSJTX-144.cmd`** | Band-specific WSJT-X only (tired-op safe). |
 | **`Install-WSJTX-RigNameShortcuts.cmd`** | Repoints Desktop / Start Menu `wsjtx` icons at `Start-WSJTX.cmd` (no bare launch). |
-| **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** | Solo tester path (see section above). |
+| **`Check-WimsSetup.cmd`** / **`Start-Wims-Solo.cmd`** / **`Start-Wims-Inhibit-Home.cmd`** | Home H0/H1 (see section above). |
 | **`Set-SeatAfterClone.cmd`** | After cloning a Win10 seat: write common + radio config, hostname, Startup, **Private LAN**. |
 | **`Set-ContestLanPrivate.cmd`** | UAC: set Ethernet to **Private**. N1MM allow-rules only match Private; Public blocks TCP 12070 send/receive. |
 | **`Set-ContestAppFirewall.cmd`** | UAC: inbound **Private** allow for N1MM, WSJT-X (`wsjtx.exe` UDP any port), GridTracker, WIMS 8787/8788/8790. Firewall stays on. |

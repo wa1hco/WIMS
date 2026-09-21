@@ -16,22 +16,24 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""WIMS solo launcher — the whole stack on one PC (`python -m wims.solo`).
+"""WIMS solo launcher — Operate on one PC (`python -m wims.solo`).
 
-For a single operator watching one FT8 frequency (any band, HF included) with
-N1MM + WSJT-X on the same machine. It runs the WIMS server with single-PC defaults:
+Operate UDP modes (see ``docs/home_h0_h1.md``):
 
-  * ingest + TX over the WSJT-X multicast group on loopback (127.0.0.1) — set WSJT-X
-    'UDP Server' to 224.0.0.73:2237 with "Accept UDP requests" ON,
+  * **Local** (default) — same PC as WSJT-X; ``--iface 127.0.0.1``. WSJT-X uses
+    multicast ``224.0.0.73:2237`` with Accept UDP ON (loopback), or unicast
+    ``127.0.0.1`` plus WIMS ``--tx-host 127.0.0.1``.
+  * **Network** — pass ``--iface <lan-ipv4>`` so this process joins LAN multicast;
+    each WSJT-X must set Outgoing interface to the contest LAN NIC.
+
+Defaults for Local:
+
   * no fleet presence plane (one PC, no site-server election),
-  * seed dupe/needed from your ordinary N1MM log (auto-found), so editing the log
-    flips the roster between needed and dupe,
+  * seed dupe/needed from your ordinary N1MM log (auto-found),
   * open the Operate console in your browser.
 
-This is a thin wrapper: it assembles the equivalent `wims.server.app` arguments and
-calls its `main()`, so there is exactly one server implementation. If your WSJT-X
-sends UDP to a plain address (e.g. 127.0.0.1) rather than the multicast group, add
-`--tx-host 127.0.0.1`.
+This is a thin wrapper: it assembles the equivalent ``wims.server.app`` arguments and
+calls its ``main()``, so there is exactly one server implementation.
 """
 
 from __future__ import annotations

@@ -46,7 +46,8 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertIn("server", primary)
         self.assertIn("n1mm_seat", primary)  # merged log+key seat intent
         self.assertIn("wsjt_check", primary)
-        self.assertNotIn("solo", primary)  # lab only
+        self.assertNotIn("solo", primary)  # home H0 (advanced)
+        self.assertNotIn("inhibit_home", primary)  # home H1 (advanced)
         self.assertNotIn("log", primary)   # escape hatch (advanced)
         self.assertNotIn("key", primary)   # escape hatch (advanced)
 
@@ -56,15 +57,27 @@ class RoleCatalogTests(unittest.TestCase):
         assert server is not None
         self.assertTrue(server.recommended)
 
-    def test_solo_is_advanced_lab_only(self):
+    def test_solo_is_advanced_home_operate(self):
         solo = role_by_id("solo")
         self.assertIsNotNone(solo)
         assert solo is not None
         self.assertTrue(solo.advanced)
         self.assertFalse(solo.recommended)
+        self.assertIn("Operate", solo.title)
         argv = solo.build_argv(port=2238)
         self.assertIn("wims.solo", argv)
         self.assertEqual(argv[argv.index("--port") + 1], "2238")
+
+    def test_inhibit_home_argv(self):
+        inh = role_by_id("inhibit_home")
+        self.assertIsNotNone(inh)
+        assert inh is not None
+        self.assertTrue(inh.advanced)
+        argv = inh.build_argv()
+        self.assertIn("wims.seat", argv)
+        self.assertIn("--key", argv)
+        self.assertIn("--targets", argv)
+        self.assertEqual(argv[argv.index("--targets") + 1], "127.0.0.1:22372")
 
     def test_log_agent_argv(self):
         log = role_by_id("log")

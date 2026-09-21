@@ -6,7 +6,7 @@
 """Role catalog for the desktop launcher (pure data + argv builders).
 
 Contest-first catalog: docs/decisions/2026-08-29-contest-pc-roles.md
-Solo is lab-only (advanced), not a primary contest bring-up path.
+Solo / home Operate is advanced here (not W2SZ bring-up); see docs/home_h0_h1.md.
 """
 
 from __future__ import annotations
@@ -83,6 +83,17 @@ def _log_agent_argv(*, band: str | None = None, gui: bool = True) -> list[str]:
 def _key_agent_argv(*, gui: bool = True) -> list[str]:
     # Escape: Key-only seat process.
     argv = ["-m", "wims.seat", "--key"]
+    if not gui:
+        argv.append("--no-gui")
+    return argv
+
+
+def _inhibit_home_argv(*, gui: bool = True) -> list[str]:
+    # Home H1: explicit localhost gate — no RadioInfo / live-band required.
+    argv = [
+        "-m", "wims.seat", "--key",
+        "--targets", "127.0.0.1:22372",
+    ]
     if not gui:
         argv.append("--no-gui")
     return argv
@@ -204,19 +215,39 @@ ROLES: tuple[Role, ...] = (
     ),
     Role(
         id="solo",
-        title="Solo console (lab)",
-        summary="Single-PC home/lab path. Not used for W2SZ contest bring-up.",
+        title="Operate (home / H0)",
+        summary="Single-PC Operate: roster + Work. No fleet site server. "
+                "See docs/home_h0_h1.md.",
         tooltip=(
-            "Low priority while driving the contest fleet.\n\n"
-            "Starts server + browser with single-PC defaults. Prefer Site server + "
-            "agents on the real multi-PC layout.\n\n"
-            "CLI: python -m wims solo"
+            "Home stage H0 — standalone Operate window.\n\n"
+            "Starts local WIMS + browser (plane A on this PC). "
+            "Not the W2SZ multi-PC bring-up path (use Site server + agents).\n\n"
+            "CLI: python -m wims solo\n"
+            "Windows: Start-Wims-Solo.cmd"
         ),
-        button="Start Solo",
+        button="Start Operate (home)",
         recommended=False,
         advanced=True,
         long_running=True,
         build_argv=lambda port=DEFAULT_SOLO_PORT, **_: _solo_argv(port=port),
+    ),
+    Role(
+        id="inhibit_home",
+        title="Inhibit (home / H1)",
+        summary="KEY → localhost digi hold (127.0.0.1:22372). No site server. "
+                "See docs/home_h0_h1.md.",
+        tooltip=(
+            "Home stage H1 — standalone Inhibit.\n\n"
+            "Runs: wims.seat --key --targets 127.0.0.1:22372\n"
+            "Set KEY device in the launcher (SSB/CW KEY) or WIMS_KEY_DEVICE.\n"
+            "Needs patched WSJT-X inhibit gate on 22372.\n\n"
+            "Windows: Start-Wims-Inhibit-Home.cmd"
+        ),
+        button="Start Inhibit (home)",
+        recommended=False,
+        advanced=True,
+        long_running=True,
+        build_argv=lambda gui=True, **_: _inhibit_home_argv(gui=gui),
     ),
 )
 

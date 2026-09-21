@@ -2371,13 +2371,13 @@ class LauncherApp:
             # Live band from N1MM RadioInfo — do not pass a launcher pin.
             kwargs.pop("band", None)
             os.environ.pop("WIMS_BAND", None)
-        if role.id in ("log", "key", "n1mm_seat"):
+        if role.id in ("log", "key", "n1mm_seat", "inhibit_home"):
             kwargs.setdefault("gui", False)
         try:
             py_argv = role.build_argv(**kwargs)
         except TypeError:
             py_argv = role.build_argv()
-        if role.id in ("log", "key", "n1mm_seat") and "--no-gui" not in py_argv:
+        if role.id in ("log", "key", "n1mm_seat", "inhibit_home") and "--no-gui" not in py_argv:
             py_argv = list(py_argv) + ["--no-gui"]
         cmd = _python_cmd() + py_argv
         self._append_log(f"$ {' '.join(cmd)}")
@@ -2392,7 +2392,7 @@ class LauncherApp:
         # Never show a python.exe console on Windows. N1MM agent is --no-gui;
         # status rows live in this launcher. Other roles log to Details.
         popen_kw.update(windows_hidden_popen_kwargs())
-        if role.id in ("log", "key", "n1mm_seat"):
+        if role.id in ("log", "key", "n1mm_seat", "inhibit_home"):
             self._append_log(
                 f"{role.title} runs in this window (Broadcast / Log / KEY from seat options)."
             )
@@ -2410,7 +2410,13 @@ class LauncherApp:
             self.root.after(400, lambda p=pid: hide_console_windows_for_pids([p]))
         threading.Thread(target=self._reader, args=(role.id, proc), daemon=True).start()
 
-        if role.id in ("key", "n1mm_seat") and ("--key" in py_argv):
+        if role.id == "inhibit_home":
+            dev = (os.environ.get("WIMS_KEY_DEVICE") or "").strip()
+            self._append_log(
+                f"Home Inhibit: device={dev or '(none)'} → "
+                f"127.0.0.1:22372 (docs/home_h0_h1.md).",
+            )
+        elif role.id in ("key", "n1mm_seat") and ("--key" in py_argv):
             dev = (os.environ.get("WIMS_KEY_DEVICE") or "").strip()
             self._append_log(
                 f"Key device={dev or '(none)'} — targets from discovery "
