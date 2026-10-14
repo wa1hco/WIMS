@@ -43,7 +43,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -247,6 +247,59 @@ def _report_pre_html(text: str) -> str:
     return "\n".join(out)
 
 
+def _if_seat_panel(rep: dict | None) -> str:
+    """Seat-local editor for the same if_seats.json the site Setup page writes.
+
+    The log agent on this PC reads that file for RadioInfo and ADIF. A Flex
+    seat leaves it empty.
+    """
+    from wims.core.if_seats import configured_ids, default_path, reports_if
+    saved = configured_ids()
+    names: list[str] = []
+    wx = (rep or {}).get("wsjtx") or {}
+    for c in wx.get("configs") or []:
+        if not c.get("running"):
+            continue
+        name = (c.get("name") or "").strip()
+        if not name or name in ("(active/default)",):
+            continue
+        names.append(name)
+    seen: list[str] = []
+    for n in list(saved) + names:
+        if n and n not in seen:
+            seen.append(n)
+    rows: list[str] = []
+    for n in seen:
+        on = reports_if(n)
+        val = "0" if on else "1"
+        label = "clear IF" if on else "mark as IF"
+        mark = "IF" if on else "RF"
+        rows.append(
+            f'<form method="post" action="/if-seat" style="margin:4px 0">'
+            f'<input type="hidden" name="id" value="{html.escape(n, quote=True)}">'
+            f'<input type="hidden" name="reports_if" value="{val}">'
+            f'<button type="submit">{html.escape(label)}</button> '
+            f'{html.escape(n)} <span class="meta">({mark})</span></form>'
+        )
+    listed = "".join(rows) if rows else (
+        '<p class="meta">No rig-name saved yet. Add one only if this radio '
+        'reports 21 MHz for 222 or 28 MHz for 432.</p>'
+    )
+    path = html.escape(str(default_path()))
+    return (
+        '<h2 class="sec">IF-reporting radios</h2>'
+        '<p class="meta">Default is off: 28.074 MHz stays 10m '
+        '(Flex / SmartSDR report RF). Mark this PC only when the radio '
+        'reports the IF. Same file as the site console Setup page when both '
+        f'run here. <code>{path}</code></p>'
+        f'<div class="panel">{listed}'
+        '<form method="post" action="/if-seat" style="margin-top:8px">'
+        '<input name="id" placeholder="rig-name or N1MM station" required> '
+        '<input type="hidden" name="reports_if" value="1">'
+        '<button type="submit">Mark as IF</button></form></div>'
+    )
+
+
 def _page_html(state: AgentState) -> bytes:
     rep = state.get_report() or {}
     exp = state.get_export()
@@ -361,6 +414,7 @@ def _page_html(state: AgentState) -> bytes:
   </div>
   <h2 class="sec">WSJT-X</h2>
   {wsjt_table}
+  {_if_seat_panel(rep)}
   <pre class="report">{report_html}</pre>
   <p class="meta">This is the seat agent, not the site server. Open the site console via the
   links above (discovered on the LAN) — no IP to remember.</p>
@@ -405,10 +459,11 @@ def make_handler(state: AgentState):
 
         def do_POST(self):
             path = urlparse(self.path).path
-            # drain body
             n = int(self.headers.get("Content-Length") or 0)
-            if n:
-                self.rfile.read(n)
+            raw = self.rfile.read(n) if n else b""
+            if path == "/if-seat":
+                self._do_if_seat(raw)
+                return
             if path == "/refresh":
                 state.refresh()
                 self.send_response(303)
@@ -435,6 +490,32 @@ def make_handler(state: AgentState):
                 self._do_export()
             else:
                 self._send(404, "text/plain", b"not found")
+
+        def _do_if_seat(self, raw: bytes):
+            from wims.core.if_seats import set_reports_if
+            ctype = (self.headers.get("Content-Type") or "").lower()
+            iid = ""
+            enabled = True
+            if "application/json" in ctype:
+                try:
+                    body = json.loads(raw.decode("utf-8") or "{}")
+                except json.JSONDecodeError:
+                    self._send(400, "text/plain", b"invalid JSON")
+                    return
+                iid = str(body.get("id") or "").strip()
+                enabled = bool(body.get("reports_if"))
+            else:
+                q = parse_qs(raw.decode("utf-8", "replace"))
+                iid = (q.get("id") or [""])[0].strip()
+                flag = (q.get("reports_if") or ["1"])[0].strip().lower()
+                enabled = flag not in ("0", "off", "false", "no", "")
+            if not iid:
+                self._send(400, "text/plain", b"need id")
+                return
+            set_reports_if(iid, enabled)
+            self.send_response(303)
+            self.send_header("Location", "/")
+            self.end_headers()
 
         def _do_export(self):
             if not state.server_url:

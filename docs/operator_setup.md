@@ -61,7 +61,17 @@ No `pip` packages for runtime.
 
 Do **not** use per-band ports 2238–2243 for the current fleet. Every digi instance shares
 `224.0.0.73:2237`. Band comes from the radio dial (Status), not from the UDP port.
-**222** (21 MHz radio) and **432** (28 MHz transverter IF) are mapped to RF in WIMS.
+
+**The dial is RF unless you say otherwise.** Flex / SmartSDR (including an XVTR
+slice) and a normal Icom already report RF, so **28.074 MHz stays 10m** and
+**21 MHz stays 15m**. Only a seat whose radio reports the IF needs a mark:
+Roy’s **222** (21 MHz radio → 222) and **432** (28 MHz radio + transverter → 432).
+On the site console open **Setup** and check that WSJT-X rig-name and, if
+RadioInfo is also the IF, that N1MM station name. The same checkbox is on the
+seat agent page (`http://127.0.0.1:8790/`) for the PC that runs the log agent.
+Nothing to type on a command line. File:
+`~/.config/wims/if_seats.json` (Windows `%APPDATA%\wims\if_seats.json`).
+
 N1MM Network Status **Band 10000 / Freq 10368090.00** is **10 GHz** (kHz), host
 **MGEF-10-UP** — not 432.
 

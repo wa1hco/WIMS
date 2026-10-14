@@ -27,10 +27,15 @@ N1MM Network Status / DXLOG ``Freq`` is **kHz** (10 GHz calling = 10368090.00 �
 accepts both.
 
 Roy 222 / 432 seats may report the radio IF, not RF: 222 is a 21 MHz radio, 432
-is a 28 MHz radio behind a transverter. ``rf_hz`` maps those IFs to 222 / 432.
-Frequencies already on VHF/UHF/microwave (N1MM transverter offset on, as on
-MGEF-10-UP at 10368.090 MHz) pass through. Disable IF mapping with
-``WIMS_TRANSVERTER=0``.
+is a 28 MHz radio behind a transverter. ``rf_hz`` maps those IFs to 222 / 432
+**only for ids listed in** ``if_seats.json`` (see ``wims.core.if_seats``).
+Flex / SmartSDR and any other seat that already reports RF is unchanged —
+28.074 MHz stays 10m. Frequencies already on VHF/UHF/microwave (N1MM
+transverter offset on, as on MGEF-10-UP at 10368.090 MHz) pass through.
+
+``WIMS_TRANSVERTER`` is an optional global override (not required): ``1`` /
+``on`` forces mapping for every seat; ``0`` / ``off`` forces it off even for
+listed ids. Unset uses the per-instance file (default off).
 """
 
 from __future__ import annotations
@@ -81,18 +86,55 @@ _IF_BAND = {
 }
 
 
-def transverter_enabled() -> bool:
-    v = (os.environ.get("WIMS_TRANSVERTER") or "1").strip().lower()
-    return v not in ("0", "off", "false", "no")
+def transverter_override() -> str | None:
+    """Global ``WIMS_TRANSVERTER`` switch: ``"on"``, ``"off"``, or None (unset).
+
+    Unset means per-instance ``if_seats.json`` (default: do not map). Any
+    explicit value other than off/false/no/0 forces mapping on, matching the
+    old "set the variable to keep the legacy behavior" override.
+    """
+    raw = os.environ.get("WIMS_TRANSVERTER")
+    if raw is None:
+        return None
+    v = raw.strip().lower()
+    if not v:
+        return None
+    if v in ("0", "off", "false", "no"):
+        return "off"
+    return "on"
 
 
-def rf_hz(freq_hz: float) -> int:
-    """Map radio IF Hz to RF Hz; already-RF values are unchanged."""
+def if_mapping_enabled(instance: str | None = None) -> bool:
+    """True when this dial should be treated as IF, not RF.
+
+    No instance and no env override → False (28 MHz stays 10m).
+    """
+    mode = transverter_override()
+    if mode == "off":
+        return False
+    if mode == "on":
+        return True
+    if not (instance or "").strip():
+        return False
+    from wims.core.if_seats import reports_if
+    return reports_if(instance)
+
+
+def transverter_enabled(instance: str | None = None) -> bool:
+    """Backward-compatible name for :func:`if_mapping_enabled`."""
+    return if_mapping_enabled(instance)
+
+
+def rf_hz(freq_hz: float, *, instance: str | None = None) -> int:
+    """Map radio IF Hz to RF Hz when this seat reports IF.
+
+    Already-RF values are unchanged. Unlisted seats are unchanged.
+    """
     try:
         hz = int(freq_hz)
     except (TypeError, ValueError):
         return 0
-    if hz <= 0 or not transverter_enabled():
+    if hz <= 0 or not if_mapping_enabled(instance):
         return hz
     for lo, hi, offset in _IF_RANGES:
         if lo <= hz < hi:
@@ -100,10 +142,10 @@ def rf_hz(freq_hz: float) -> int:
     return hz
 
 
-def rf_band(label: str) -> str:
-    """Map IF band labels (10m / 15m) to RF; other labels pass through."""
+def rf_band(label: str, *, instance: str | None = None) -> str:
+    """Map IF band labels (10m / 15m) to RF when this seat reports IF."""
     key = (label or "").strip().lower()
-    if not key or not transverter_enabled():
+    if not key or not if_mapping_enabled(instance):
         return label
     return _IF_BAND.get(key, label)
 
@@ -117,12 +159,14 @@ def in_ham_band(freq_hz: float) -> bool:
     return any(lo <= hz < hi for lo, hi in _HAM_WINDOWS)
 
 
-def n1mm_raw_to_hz(raw: str | int | float) -> int | None:
+def n1mm_raw_to_hz(raw: str | int | float, *,
+                   instance: str | None = None) -> int | None:
     """N1MM frequency to Hz.
 
     RadioInfo ``<Freq>`` is 10 Hz units (14417400 → 144.174 MHz). Network Status
     / DXLOG ``Freq`` is kHz (10368090.00 → 10368.090 MHz on 10 GHz). Try 10 Hz
-    units first; if that is not in a ham band, try kHz. Then apply IF→RF.
+    units first; if that is not in a ham band, try kHz. Then apply IF→RF when
+    ``instance`` (StationName / rig-name) is configured as reporting IF.
     """
     try:
         n = int(float(str(raw).strip()))
@@ -132,11 +176,12 @@ def n1mm_raw_to_hz(raw: str | int | float) -> int | None:
         return None
     ten_hz = n * 10
     if in_ham_band(ten_hz):
-        return rf_hz(ten_hz)
+        return rf_hz(ten_hz, instance=instance)
     khz = n * 1_000
-    if in_ham_band(khz) or in_ham_band(rf_hz(khz)):
-        return rf_hz(khz)
-    return rf_hz(ten_hz)
+    mapped = rf_hz(khz, instance=instance)
+    if in_ham_band(khz) or in_ham_band(mapped):
+        return mapped
+    return rf_hz(ten_hz, instance=instance)
 
 
 def band_sort_key(label: str) -> int:
@@ -163,13 +208,16 @@ def format_band(label: str) -> str:
     return s
 
 
-def band_label(freq_hz: float, *, apply_if: bool = True) -> str:
-    """Label a dial frequency in Hz. IF mapping is on for radio/WSJT dials.
+def band_label(freq_hz: float, *, apply_if: bool = True,
+               instance: str | None = None) -> str:
+    """Label a dial frequency in Hz.
 
-    N1MM's Band *column* is a band number (21 = 15m, 10000 = 10 GHz), not an IF
-    dial — use ``band_label_mhz`` so Field Day 15m/10m is not mapped to 222/432.
+    IF mapping runs only when ``apply_if`` and this ``instance`` reports IF
+    (or ``WIMS_TRANSVERTER`` forces it on). N1MM's Band *column* is a band
+    number (21 = 15m, 10000 = 10 GHz), not an IF dial — use
+    ``band_label_mhz`` so Field Day 15m/10m is not mapped to 222/432.
     """
-    hz = rf_hz(freq_hz) if apply_if else int(freq_hz or 0)
+    hz = rf_hz(freq_hz, instance=instance) if apply_if else int(freq_hz or 0)
     label = "?"
     for low, name in _BANDS:
         if hz >= low:

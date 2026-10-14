@@ -54,6 +54,14 @@ It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 Full Windows notes: [scripts/windows/README.md](scripts/windows/README.md).  
 Same unblock / SmartScreen steps are also in the main [README.md](README.md) Windows section.
 
+## Dial frequency (10 m vs 432)
+
+WIMS treats the WSJT-X / N1MM dial as **RF** unless that rig-name is marked.
+A Flex 10 m radio at 28.074 MHz shows as **10m**. Roy’s 222 (21 MHz IF) and
+432 (28 MHz IF) are marked on the console **Setup** page (or the seat agent
+page on that PC). The list is `if_seats.json` under `~/.config/wims/` or
+`%APPDATA%\wims\`. You do not set an environment variable for this.
+
 ## Cut a Release (maintainers)
 
 Pushing `main` does **not** publish a GitHub Release. Tag when other PCs should see **Update available** (launcher, site server, and N1MM agent check Releases at startup — git is not required).

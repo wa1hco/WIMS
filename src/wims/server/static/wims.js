@@ -734,8 +734,98 @@ function wireContestToolbar() {
 }
 wireContestToolbar();
 
+/** Setup: mark rig-names / N1MM stations that report IF, not RF. */
+let _ifSeatsHtml = "";
+function escAttr(s) {
+  return esc(s).replace(/"/g, "&quot;");
+}
+function postIfSeat(id, reportsIf) {
+  fetch("/api/if-seats", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: id, reports_if: !!reportsIf}),
+  }).catch(() => {});
+}
+function wireIfSeatsOnce() {
+  const box = $("if-seats");
+  if (!box || box.dataset.wired) return;
+  box.dataset.wired = "1";
+  box.addEventListener("change", (ev) => {
+    const el = ev.target;
+    if (!el || !el.dataset || !el.dataset.ifId) return;
+    postIfSeat(el.dataset.ifId, el.checked);
+  });
+  box.addEventListener("submit", (ev) => {
+    const form = ev.target;
+    if (!form || form.id !== "if-seat-add") return;
+    ev.preventDefault();
+    const field = form.querySelector('input[name="id"]');
+    const id = (field && field.value || "").trim();
+    if (!id) return;
+    postIfSeat(id, true);
+    form.reset();
+    _ifSeatsHtml = "";
+  });
+}
+function renderIfSeats(s) {
+  const box = $("if-seats");
+  // renderSync calls this with a null snapshot before the full state arrives.
+  // Ignore that pass so the checkbox list is not wiped every tick.
+  if (!box || !s) return;
+  wireIfSeatsOnce();
+  const pathEl = $("if-seats-path");
+  const info = (s && s.if_seats) || {instances: [], path: "", override: null};
+  if (pathEl && info.path) pathEl.textContent = info.path;
+  const configured = new Set((info.instances || []).map(x => String(x)));
+  const rows = [];
+  const seen = new Set();
+  function addRow(id, where, checked) {
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    rows.push(
+      `<label style="display:flex;gap:8px;align-items:baseline;margin:2px 0">` +
+      `<input type="checkbox" data-if-id="${escAttr(id)}"${checked ? " checked" : ""}>` +
+      `<span><b>${esc(id)}</b> <span class="k">${esc(where)}</span></span></label>`
+    );
+  }
+  for (const n of (s && s.instances) || []) {
+    addRow(n.id, "WSJT-X on the wire" + (n.band ? " · " + n.band : ""),
+           !!n.if_configured);
+  }
+  for (const lg of (s && s.loggers) || []) {
+    addRow(lg.id, "N1MM station" + (lg.last_band ? " · " + lg.last_band : ""),
+           !!lg.if_configured);
+  }
+  for (const id of info.instances || []) {
+    addRow(id, "saved, not heard right now", true);
+  }
+  let note = "";
+  if (info.override === "on") {
+    note = `<p class="hint">WIMS_TRANSVERTER is forcing IF mapping <b>on for every seat</b>. Unset it to use this list.</p>`;
+  } else if (info.override === "off") {
+    note = `<p class="hint">WIMS_TRANSVERTER=0 is forcing IF mapping <b>off</b>. Unset it to use this list.</p>`;
+  }
+  const list = rows.length
+    ? rows.join("")
+    : `<span class="k">No WSJT-X or N1MM ids heard yet. Add a rig-name below if you already know it.</span>`;
+  const html =
+    note + list +
+    `<form id="if-seat-add" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">` +
+    `<input name="id" placeholder="rig-name or N1MM station" style="font:inherit;padding:4px 6px">` +
+    `<button type="submit" style="font:inherit;padding:4px 10px">Mark as IF</button>` +
+    `</form>` +
+    (configured.size
+      ? `<p class="hint" style="margin-top:6px">Saved: ${[...configured].map(esc).join(", ")}</p>`
+      : `<p class="hint" style="margin-top:6px">None saved — 21 MHz and 28 MHz dials stay 15m and 10m.</p>`);
+  if (html !== _ifSeatsHtml) {
+    _ifSeatsHtml = html;
+    box.innerHTML = html;
+  }
+}
+
 /** Setup-only live hints (no-op on other pages). */
 function renderSetupExtras(n1mm, s) {
+  renderIfSeats(s);
   const hint = $("seed-dir-hint");
   if (hint && n1mm && n1mm.scan_dirs && n1mm.scan_dirs.length) {
     hint.textContent = n1mm.scan_dirs.join(" · ");

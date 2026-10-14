@@ -57,20 +57,26 @@ def band_from_radioinfo_xml(text: str) -> tuple[str | None, dict]:
 
     radio_nr = child("RadioNr")
     active = child("ActiveRadioNr")
+    station = child("StationName")
+    netbios = child("NetBiosName")
+    # Same key as if_seats.json: N1MM station, else the Windows hostname.
+    seat = station or netbios
     raw = child("TXFreq") or child("Freq")
-    hz = n1mm_raw_to_hz(raw) if raw else None
+    hz = n1mm_raw_to_hz(raw, instance=seat) if raw else None
     meta = {
         "freq_hz": hz,
         "raw_freq": raw,
         "mode": child("Mode"),
         "radio_nr": radio_nr,
         "active_radio_nr": active,
-        "station": child("StationName"),
-        "netbios": child("NetBiosName"),
+        "station": station,
+        "netbios": netbios,
     }
     if hz is None:
         return None, meta
-    return band_label(hz), meta
+    # hz is already IF-mapped when this station is listed. apply_if is still
+    # safe: 432/222 are outside the IF windows, so they are not offset twice.
+    return band_label(hz, instance=seat), meta
 
 
 def radioinfo_ignore_reason(

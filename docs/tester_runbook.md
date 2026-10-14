@@ -84,6 +84,11 @@ With WSJT-X decoding, the **Call roster** fills with the stations you're hearing
 newest activity and best opportunities near the top. This is the read-only view — nothing
 transmits. If the roster stays empty after a couple of FT8 cycles, see **Troubleshooting**.
 
+The band label follows the radio dial. **28 MHz is 10m** and **21 MHz is 15m**
+unless that instance is marked on **Setup** as reporting IF (a 222 radio at
+21 MHz, or a 432 transverter at 28 MHz). A Flex that already shows RF needs
+no mark.
+
 ## 5. Verify the "needed vs dupe" logic
 
 This is the core thing to test — WIMS reads *your* N1MM log to decide who you still need:

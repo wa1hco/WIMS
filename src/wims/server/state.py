@@ -56,6 +56,8 @@ def _instance(n, now: float, *, share_policy: str | None = None) -> dict:
     band = n.band
     pol = normalize_share_policy(
         share_policy if share_policy is not None else DEFAULT_SHARE_POLICY)
+    from wims.core.bands import if_mapping_enabled
+    from wims.core.if_seats import reports_if
     return {
         "id": n.id,
         "host": n.host,
@@ -79,6 +81,10 @@ def _instance(n, now: float, *, share_policy: str | None = None) -> dict:
         "version": n.version,
         # §2.14 — band-sharing mode for this instance's band
         "share_policy": pol,
+        # if_configured: listed in if_seats.json. reports_if: mapping is on
+        # (file, or WIMS_TRANSVERTER forcing every seat).
+        "if_configured": reports_if(n.id),
+        "reports_if": if_mapping_enabled(n.id),
         # Inhibit status placeholder until KEY/gate report into the server (§2.13)
         "inhibit": None if pol == "coordinated" else {
             "state": "unknown",
@@ -89,7 +95,8 @@ def _instance(n, now: float, *, share_policy: str | None = None) -> dict:
 
 
 def _logger(lg, now: float) -> dict:
-    from wims.core.bands import band_sort_key
+    from wims.core.bands import band_sort_key, if_mapping_enabled
+    from wims.core.if_seats import reports_if
 
     aliases = sorted(getattr(lg, "aliases", None) or [])
     bands_seen = sorted(getattr(lg, "bands_seen", None) or set(), key=band_sort_key)
@@ -98,6 +105,8 @@ def _logger(lg, now: float) -> dict:
     return {
         "id": lg.id,
         "kind": lg.kind,
+        "if_configured": reports_if(lg.id),
+        "reports_if": if_mapping_enabled(lg.id),
         "host": lg.host,
         "hosts": sorted(getattr(lg, "hosts", None) or []),
         "aliases": aliases,  # NetBIOS / merged prior ids (one PC, one logger)

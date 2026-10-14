@@ -69,7 +69,7 @@ _CONFIRM_WAIT_S = 1.5
 _CONFIRM_MAX_TRIES = 3
 
 
-def adif_band(adif: str) -> str | None:
+def adif_band(adif: str, *, instance: str | None = None) -> str | None:
     m = _ADIF_BAND.search(adif or "")
     if m:
         key = m.group(2).strip().lower()
@@ -84,9 +84,9 @@ def adif_band(adif: str) -> str | None:
         }
         label = aliases.get(key)
         if label:
-            # WSJT-X BAND on a transverter is the IF (10m/15m). Map to RF
-            # the same way band_label/rf_band do (WIMS_TRANSVERTER=0 disables).
-            return rf_band(label)
+            # 10m/15m is IF only for a seat listed in if_seats.json. A Flex
+            # 10m QSO stays 10m.
+            return rf_band(label, instance=instance)
         # Unknown BAND tag — fall through to FREQ.
     m = _ADIF_FREQ.search(adif or "")
     if m:
@@ -94,12 +94,15 @@ def adif_band(adif: str) -> str | None:
             mhz = float(m.group(2).strip())
         except ValueError:
             return None
-        return band_label(int(mhz * 1_000_000))
+        return band_label(int(mhz * 1_000_000), instance=instance)
     return None
 
 
-def rewrite_adif_rf(adif: str) -> str:
-    """Lift IF FREQ/BAND to RF before N1MM TCP Log (28 MHz → 432, 10m → 70cm)."""
+def rewrite_adif_rf(adif: str, *, instance: str | None = None) -> str:
+    """Lift IF FREQ/BAND to RF before N1MM TCP Log when this seat reports IF.
+
+    Unlisted seats are left on the dial they sent (28.074 MHz stays 10m).
+    """
     text = adif or ""
     m = _ADIF_FREQ.search(text)
     if m:
@@ -108,11 +111,11 @@ def rewrite_adif_rf(adif: str) -> str:
         except ValueError:
             mhz = 0.0
         if mhz > 0:
-            hz = rf_hz(int(mhz * 1_000_000))
+            hz = rf_hz(int(mhz * 1_000_000), instance=instance)
             s = f" {hz / 1e6:.6f}".strip()
             repl = f"<FREQ:{len(s)}>{s}"
             text = text[: m.start()] + repl + text[m.end():]
-    lab = adif_band(text)
+    lab = adif_band(text, instance=instance)
     if lab:
         token = _n1mm_band_token(lab)
         mb = _ADIF_BAND.search(text)
@@ -202,8 +205,10 @@ def operator_from_instance_id(instance_id: str | None) -> str | None:
     return s or None
 
 
-def rebuild_n1mm_adif(adif: str, *, operator: str | None = None) -> str:
+def rebuild_n1mm_adif(adif: str, *, operator: str | None = None,
+                      instance: str | None = None) -> str:
     """One JTDX-style QSO record: lowercase tags, <call: first, no EOH."""
+    seat = instance or operator
     f = parse_adif_fields(adif)
     call = (f.get("CALL") or "").strip().split()[0].upper()
     if call:
@@ -212,7 +217,7 @@ def rebuild_n1mm_adif(adif: str, *, operator: str | None = None) -> str:
     if freq:
         try:
             mhz = float(freq)
-            hz = rf_hz(int(mhz * 1_000_000))
+            hz = rf_hz(int(mhz * 1_000_000), instance=seat)
             if hz > 0:
                 f["FREQ"] = f"{hz / 1e6:.6f}"
         except ValueError:
@@ -221,7 +226,8 @@ def rebuild_n1mm_adif(adif: str, *, operator: str | None = None) -> str:
     if band:
         lab = adif_band(
             f"<BAND:{len(band)}>{band}"
-            + (f"<FREQ:{len(f.get('FREQ') or '')}>{f.get('FREQ')}" if f.get("FREQ") else "")
+            + (f"<FREQ:{len(f.get('FREQ') or '')}>{f.get('FREQ')}" if f.get("FREQ") else ""),
+            instance=seat,
         ) or band
         f["BAND"] = _n1mm_band_token(lab)
     grid = (f.get("GRIDSQUARE") or "").strip().upper()
@@ -296,15 +302,19 @@ def ensure_adif_datetime(adif: str, dt: dict | None = None) -> str:
     return text + "".join(extra) + " <eor>"
 
 
-def wrap_adif(adif: str, *, operator: str | None = None) -> bytes:
+def wrap_adif(adif: str, *, operator: str | None = None,
+              instance: str | None = None) -> bytes:
     """N1MM Secondary-UDP / JTDX-TCP ingest envelope (Sending Log Data).
 
     ``<command:3>Log <parameters:N>`` + ADIF + EOR. Raw ADIF alone is often ignored.
     ``operator`` is the WSJT-X rig-name (UDP id) until seats identify by call.
+    ``instance`` selects IF→RF mapping (``if_seats.json``); it falls back to
+    ``operator`` when the caller only has the rig-name.
     """
+    seat = instance or operator
     text = ensure_adif_datetime((adif or "").strip())
-    text = rewrite_adif_rf(text)
-    text = rebuild_n1mm_adif(text, operator=operator)
+    text = rewrite_adif_rf(text, instance=seat)
+    text = rebuild_n1mm_adif(text, operator=operator, instance=seat)
     if "<eor>" not in text.lower():
         text += " <eor>"
     raw = text.encode("ascii", "replace")
@@ -446,20 +456,24 @@ def qso_record(msg: M.WsjtxMessage) -> tuple[str, str | None, str | None] | None
     carries a trailing space before the next field, and an unequal call
     used to defeat the forward-loop dedup (one QSO -> two N1MM inserts).
     """
+    instance = getattr(msg, "id", None)
     if isinstance(msg, M.LoggedADIF) and msg.adif:
         adif = normalize_adif_call(ensure_adif_datetime(msg.adif))
         m = _ADIF_CALL.search(adif)
         call = (m.group(2).strip() if m else "") or None
-        return adif, call, adif_band(adif)
+        return adif, call, adif_band(adif, instance=instance)
     if isinstance(msg, M.QSOLogged):
         call = (msg.dx_call or "").strip() or None
-        return qso_to_adif(msg), call, band_label(msg.tx_frequency or 0)
+        return qso_to_adif(msg), call, band_label(
+            msg.tx_frequency or 0, instance=instance)
     return None
 
 
 def qso_to_adif(msg: M.QSOLogged) -> str:
-    mhz = (msg.tx_frequency or 0) / 1e6
-    band = _n1mm_band_token(band_label(msg.tx_frequency or 0))
+    instance = msg.id
+    hz = rf_hz(msg.tx_frequency or 0, instance=instance)
+    mhz = hz / 1e6
+    band = _n1mm_band_token(band_label(msg.tx_frequency or 0, instance=instance))
     qdate, qtime = _qt_datetime_to_adif(msg.datetime_off or msg.datetime_on)
     call = (msg.dx_call or "").strip()
     grid = (msg.dx_grid or "").strip()
@@ -1102,7 +1116,11 @@ def apply_logged_qso(
         if key in state._log_keys:
             return False
         state._log_keys.add(key)
-    payload = wrap_adif(adif or "", operator=operator_from_instance_id(instance))
+    payload = wrap_adif(
+        adif or "",
+        operator=operator_from_instance_id(instance),
+        instance=instance,
+    )
     with state._lock:
         state.n_fwd += 1
         state.last_fwd = (

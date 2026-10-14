@@ -40,7 +40,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from wims.core.bands import band_label as band_of  # noqa: E402
+from wims.core.bands import band_label as band_of, rf_hz  # noqa: E402
 from wims.udp import messages as M  # noqa: E402
 from wims.udp.sink import open_socket  # noqa: E402
 
@@ -99,21 +99,23 @@ class Monitor:
             print(f"  * {mid} closed")
 
     def _print_baseline(self, mid: str, s: M.Status) -> None:
-        band = band_of(s.dial_frequency)
+        band = band_of(s.dial_frequency, instance=mid)
+        rf = rf_hz(s.dial_frequency, instance=mid)
         state = "TX" if s.transmitting else ("DEC" if s.decoding else "RX")
         mode = f"{s.mode}{('/' + s.sub_mode) if s.sub_mode else ''}"
         dx = f"  DX={s.dx_call} {s.dx_grid or ''}".rstrip() if s.dx_call else ""
         txen = " TxEn" if s.tx_enabled else ""
-        print(f"  [{mid:<10}] {band:<5} {s.dial_frequency / 1e6:.6f} MHz  "
+        print(f"  [{mid:<10}] {band:<5} {rf / 1e6:.6f} MHz  "
               f"mode={mode}  {state}{txen}{dx}")
 
     def _print_status_change(self, mid: str, s: M.Status, changed: dict) -> None:
-        band = band_of(s.dial_frequency)
+        band = band_of(s.dial_frequency, instance=mid)
+        rf = rf_hz(s.dial_frequency, instance=mid)
         state = "TX" if s.transmitting else ("DEC" if s.decoding else "RX ")
         tx = " TxEn" if s.tx_enabled else ""
         bits = []
         if "dial_frequency" in changed:
-            bits.append(f"{s.dial_frequency / 1e6:.6f} ({band})")
+            bits.append(f"{rf / 1e6:.6f} ({band})")
         if "mode" in changed or "sub_mode" in changed:
             bits.append(f"mode={s.mode}{('/' + s.sub_mode) if s.sub_mode else ''}")
         if "transmitting" in changed or "tx_enabled" in changed or "decoding" in changed:

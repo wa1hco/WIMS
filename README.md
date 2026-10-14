@@ -151,6 +151,9 @@ scripts\windows\Start-WimsServer.cmd
 - **Zero TX overlap** per resource group; **SSB/CW priority** with preventive gate + 10 ms mute
   (design §3.4.1).
 - **Setup assist** — connectivity checks, fleet discovery, plain-language readiness.
+- **Dial is RF by default.** 28.074 MHz stays 10m (Flex / SmartSDR already
+  report RF). Mark a seat on **Setup** only when its radio reports IF
+  (Roy 222 at 21 MHz, Roy 432 at 28 MHz). No environment variable.
 
 ## Architecture at a glance
 

@@ -278,6 +278,60 @@ def test_n1mm_merges_bare_ip_key_with_stationname():
     assert t.loggers["W10VM-144"].mycall == "WA1HCO"
 
 
+def test_wsjt_and_n1mm_28mhz_stay_10m_unless_seat_reports_if():
+    """Flex 10m dial is RF. Only a listed IF seat (Roy 432 / 222) is offset."""
+    import os
+    import tempfile
+    from wims.core.if_seats import set_reports_if
+    old = os.environ.get("WIMS_IF_SEATS_FILE")
+    old_xv = os.environ.get("WIMS_TRANSVERTER")
+    os.environ.pop("WIMS_TRANSVERTER", None)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["WIMS_IF_SEATS_FILE"] = str(Path(d) / "if_seats.json")
+            t = FleetTracker()
+            t.observe(M.parse(E.build_status("FLEX-10M", 28_074_000, mode="FT8")),
+                      now=1.0, src_ip="127.0.0.1")
+            t.observe(M.parse(E.build_status("ROY-432", 28_174_000, mode="FT8")),
+                      now=1.0, src_ip="127.0.0.2")
+            assert t.nodes["FLEX-10M"].band == "10m"
+            assert t.nodes["FLEX-10M"].dial_hz == 28_074_000
+            assert t.nodes["ROY-432"].band == "10m"
+            xml = ("<RadioInfo><app>N1MM</app><StationName>MGEF-432</StationName>"
+                   "<RadioNr>1</RadioNr><ActiveRadioNr>1</ActiveRadioNr>"
+                   "<Freq>2817400</Freq></RadioInfo>")
+            t.observe_n1mm_xml(xml, now=1.0, src_ip="127.0.0.3")
+            assert t.loggers["MGEF-432"].last_band == "10m"
+            set_reports_if("ROY-432", True)
+            set_reports_if("MGEF-222", True)
+            t.observe(M.parse(E.build_status("ROY-432", 28_174_000, mode="FT8")),
+                      now=2.0, src_ip="127.0.0.2")
+            t.observe(M.parse(E.build_status("WSJT-X - MGEF-222", 21_174_000, mode="FT8")),
+                      now=2.0, src_ip="127.0.0.4")
+            t.observe(M.parse(E.build_status("FLEX-10M", 28_074_000, mode="FT8")),
+                      now=2.0, src_ip="127.0.0.1")
+            assert t.nodes["ROY-432"].band == "70cm"
+            assert t.nodes["ROY-432"].dial_hz == 432_174_000
+            assert t.nodes["WSJT-X - MGEF-222"].band == "1.25m"
+            assert t.nodes["WSJT-X - MGEF-222"].dial_hz == 222_174_000
+            assert t.nodes["FLEX-10M"].band == "10m"
+            t.observe_n1mm_xml(xml, now=3.0, src_ip="127.0.0.3")
+            # N1MM station was not marked; WSJT rig-name ROY-432 does not imply it.
+            assert t.loggers["MGEF-432"].last_band == "10m"
+            set_reports_if("MGEF-432", True)
+            t.observe_n1mm_xml(xml, now=4.0, src_ip="127.0.0.3")
+            assert t.loggers["MGEF-432"].last_band == "70cm"
+    finally:
+        if old is None:
+            os.environ.pop("WIMS_IF_SEATS_FILE", None)
+        else:
+            os.environ["WIMS_IF_SEATS_FILE"] = old
+        if old_xv is None:
+            os.environ.pop("WIMS_TRANSVERTER", None)
+        else:
+            os.environ["WIMS_TRANSVERTER"] = old_xv
+
+
 def test_id_collision_detected():
     t = FleetTracker()
     # Same id "WSJT-X" from two different hosts = unresolvable instances.

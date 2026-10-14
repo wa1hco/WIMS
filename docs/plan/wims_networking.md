@@ -339,8 +339,11 @@ middleware must keep WSJT-X Status accurate; N1MM poll lag is secondary for FT8 
 **N1MM units + transverters** ([decision 2026-09-12](../decisions/2026-09-12-transverter-if-and-n1mm-khz.md)):
 RadioInfo `<Freq>` is **10 Hz units**; Network Status / DXLOG `Freq` is **kHz**
 (10 GHz calling **10368090.00** → 10368.090 MHz, Band **10000**). WIMS accepts both.
-**222** may report **21 MHz** IF; **432** may report **28 MHz** IF — mapped to RF.
-Microwave RF (MGEF-10-UP) is not run through the 28 MHz IF map.
+**222** may report **21 MHz** IF; **432** may report **28 MHz** IF. WIMS adds
+the LO offset **only when that rig-name or N1MM station is marked** on Setup
+(`if_seats.json`). A Flex / SmartSDR dial is already RF — 28.074 MHz stays
+10m. Microwave RF (MGEF-10-UP) is not run through the 28 MHz IF map.
+[Decision 2026-10-14](../decisions/2026-10-14-if-reporting-seats.md).
 
 ### 3.3 Preferred Icom USB seat: wfview
 

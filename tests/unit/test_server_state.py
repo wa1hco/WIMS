@@ -891,6 +891,53 @@ def test_n1mm_sync_includes_last_resync():
     assert none["last_resync"] is None
 
 
+def test_if_seat_roundtrip_on_snapshot():
+    import os
+    import tempfile
+    old = os.environ.get("WIMS_IF_SEATS_FILE")
+    old_xv = os.environ.get("WIMS_TRANSVERTER")
+    os.environ.pop("WIMS_TRANSVERTER", None)
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            os.environ["WIMS_IF_SEATS_FILE"] = str(Path(d) / "if_seats.json")
+            live = LiveFleet()
+            live.observe_wsjtx(
+                M.parse(E.build_status("FLEX-10M", 28_074_000, mode="FT8")),
+                now=1.0, src_ip="127.0.0.1")
+            s = live.snapshot(now=1.0)
+            inst = {i["id"]: i for i in s["instances"]}
+            assert inst["FLEX-10M"]["band"] == "10m"
+            assert inst["FLEX-10M"]["if_configured"] is False
+            assert inst["FLEX-10M"]["reports_if"] is False
+            assert s["if_seats"]["instances"] == []
+            assert s["if_seats"]["override"] is None
+            r = live.set_if_seat("FLEX-10M", True)
+            assert r["ok"] and "FLEX-10M" in r["instances"]
+            live.observe_wsjtx(
+                M.parse(E.build_status("FLEX-10M", 28_074_000, mode="FT8")),
+                now=2.0, src_ip="127.0.0.1")
+            s = live.snapshot(now=2.0)
+            inst = {i["id"]: i for i in s["instances"]}
+            assert inst["FLEX-10M"]["band"] == "70cm"
+            assert inst["FLEX-10M"]["dial_hz"] == 432_074_000
+            assert inst["FLEX-10M"]["if_configured"] is True
+            assert inst["FLEX-10M"]["reports_if"] is True
+            assert s["if_seats"]["instances"] == ["FLEX-10M"]
+            cleared = live.set_if_seat("FLEX-10M", False)
+            assert cleared["ok"] and cleared["instances"] == []
+            bad = live.set_if_seat("  ", True)
+            assert not bad["ok"]
+    finally:
+        if old is None:
+            os.environ.pop("WIMS_IF_SEATS_FILE", None)
+        else:
+            os.environ["WIMS_IF_SEATS_FILE"] = old
+        if old_xv is None:
+            os.environ.pop("WIMS_TRANSVERTER", None)
+        else:
+            os.environ["WIMS_TRANSVERTER"] = old_xv
+
+
 def test_json_serializable():
     import json
     t = FleetTracker()

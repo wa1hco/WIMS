@@ -393,7 +393,10 @@ Voice memory = N1MM RadioInfo **only while** `handoff.state==VOICE`.
 RadioInfo during DIGITAL must **not** update voice memory.
 
 Transverter: 222 CAT 21 MHz + 201 MHz LO; 432 CAT 28 MHz + 404 MHz.
-Store CAT Hz + RF Hz. Apply CAT Hz.
+Store CAT Hz + RF Hz. Apply CAT Hz. WIMS adds that offset only for ids
+marked IF-reporting
+([decision 2026-10-14](../decisions/2026-10-14-if-reporting-seats.md));
+a Flex XVTR dial is already RF.
 
 KEY sense must **not** wait on CAT sockets. `{host}-cat` is
 level-triggered (`hang_s=0`). Default CAT TTL **1500 ms**, keepalive

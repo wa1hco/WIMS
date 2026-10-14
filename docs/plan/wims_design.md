@@ -160,8 +160,8 @@ the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networki
 |------|------------------------------|--------------|
 | **50** | **N1MM-50** (typically trailer / central) | **1–N** FT8 instances: trailer beam PCs **and/or remote** (e.g. **TV station PC + radio**). Remote hosts do **not** run a second N1MM for 50 — they only emit plane A multicast; **N1MM-50’s agent Log** is sole digi logger. |
 | **144** | **N1MM-144** | **Up to two** hosts: separate **radio + PC** for FT8 and for MSK144 (or EME); both use **the same** N1MM-144 (agent Log). |
-| **222** | **N1MM-222** | **One seat PC** (e.g. Roy / **MGEF-222**): radio CAT is **21 MHz**; WIMS maps that IF to 222. SSB and/or FT8 as the period requires. |
-| **432** | **N1MM-432** | **One seat PC** (e.g. Roy / **MGEF-432**): **transverter** + radio CAT **28 MHz**; WIMS maps that IF to 432. SSB and/or FT8 as equipped. |
+| **222** | **N1MM-222** | **One seat PC** (e.g. Roy / **MGEF-222**): radio CAT is **21 MHz**. WIMS maps that IF to 222 **only after the rig-name / N1MM station is marked** as reporting IF ([decision 2026-10-14](../decisions/2026-10-14-if-reporting-seats.md)). SSB and/or FT8 as the period requires. |
+| **432** | **N1MM-432** | **One seat PC** (e.g. Roy / **MGEF-432**): **transverter** + radio CAT **28 MHz**. Same opt-in IF map to 432. A Flex / SmartSDR XVTR slice already reports RF — 28.074 MHz stays **10m** unless that instance is marked. |
 | **10 GHz** | **N1MM-10G** (**MGEF-10-UP**) | Network Status **Band 10000**, **Freq 10368090.00** (kHz) = **10368.090 MHz**. N1MM already has RF; WIMS must label **3cm**, not 13cm. |
 
 → **4 N1MMs** (one per band), all networked into one contest log (plane C). WSJT-X count is
@@ -179,7 +179,11 @@ the preferred **Icom + wfview** seat stack: **[wims_networking.md](wims_networki
   **WSJT-X multicast works natively**. **Current fleet:** one plane A port
   (`224.0.0.73:2237`) for all bands
   ([decision 2026-09-05](../decisions/2026-09-05-plane-a-single-port-2237.md)); band identity from
-  dial / RadioInfo + unique `--rig-name`. WIMS joins **2237**; each band’s N1MM agent Log filters
+  dial / RadioInfo + unique `--rig-name`. **Dial is RF unless that id is listed
+  in `if_seats.json`** (Setup page): 28 MHz is 10m on a Flex, and 222/432 only
+  for seats that still report IF
+  ([decision 2026-10-14](../decisions/2026-10-14-if-reporting-seats.md)).
+  WIMS joins **2237**; each band’s N1MM agent Log filters
   by live band. Per-site unicast relay is a **fallback**, not required. *Watch:* managed switches
   with **IGMP snooping** + no querier can prune multicast — verify on plain/unmanaged L2 it floods
   fine. Internet is **1–2 Starlinks**, separate Starlink WiFi for other devices — **out of the
@@ -1333,6 +1337,13 @@ rig); prompt for what we can't (antenna geometry, intended limits).
   - CAT is **seat-local**, not a WIMS plane: WIMS never opens the radio COM port or speaks CI-V /
     Hamlib to the rig. It only drives WSJT-X over UDP (Reply / Halt). See
     **[wims_networking.md](wims_networking.md) §3.2**.
+  - **Frequency the radio reports** — **RF (default)** or **IF**. Flex / SmartSDR
+    XVTR and Icom seats with the transverter offset already on report RF;
+    WIMS must not add 404 MHz to a real 28.074 MHz (10 m) dial. Roy 222
+    (21 MHz CAT) and Roy 432 (28 MHz CAT + transverter) report IF; mark those
+    `--rig-name` / N1MM station ids on Setup (`if_seats.json`). Offsets when
+    marked: +201 MHz → 222, +404 MHz → 432.
+    [Decision 2026-10-14](../decisions/2026-10-14-if-reporting-seats.md).
   - **Preferred Icom USB seat:** **wfview** owns USB COM; WSJT-X = Hamlib NET
     `127.0.0.1:4533` (RigCtld **must** be enabled); N1MM = TCP to wfview for frequency only —
     never N1MM **Load WSJT/JTDX** / DX Lab Suite Commander proxy on managed seats. Full recipe:

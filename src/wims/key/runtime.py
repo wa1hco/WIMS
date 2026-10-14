@@ -255,7 +255,7 @@ class KeyRuntime:
             host = addr[0]
             msg = M.parse(data)
             if isinstance(msg, M.Status):
-                b = band_label(msg.dial_frequency or 0)
+                b = band_label(msg.dial_frequency or 0, instance=msg.id or "")
                 self.table.on_status(msg.id or "", b, host, time.monotonic())
             elif isinstance(msg, M.InhibitStatus):
                 self.table.on_inhibit_status(

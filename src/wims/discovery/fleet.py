@@ -39,7 +39,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from wims.core.bands import band_label, band_label_mhz  # noqa: E402
+from wims.core.bands import band_label, band_label_mhz, rf_hz  # noqa: E402
 from wims.log.radioinfo import (  # noqa: E402
     band_from_radioinfo_xml, radioinfo_ignore_reason,
 )
@@ -399,8 +399,10 @@ class FleetTracker:
                 n.version = msg.version
         elif isinstance(msg, M.Status):
             n.last_status = now
-            n.dial_hz = msg.dial_frequency
-            bl = band_label(msg.dial_frequency)
+            # Store RF Hz so the MHz column matches the band. Unlisted seats
+            # (Flex XVTR, real 10m) keep the dial they sent.
+            n.dial_hz = rf_hz(msg.dial_frequency or 0, instance=mid)
+            bl = band_label(msg.dial_frequency or 0, instance=mid)
             n.band = bl
             if src_ip:
                 n.band_by_host[src_ip] = bl

@@ -3,12 +3,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Band labels, N1MM kHz vs 10 Hz units, and 222/432 IF transverters."""
+"""Band labels, N1MM kHz vs 10 Hz units, and opt-in 222/432 IF seats."""
 
 from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -19,8 +20,30 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from wims.core.bands import (  # noqa: E402
-    band_label, band_label_mhz, format_band, n1mm_raw_to_hz, rf_band, rf_hz,
+    band_label, band_label_mhz, format_band, if_mapping_enabled, n1mm_raw_to_hz,
+    rf_band, rf_hz,
 )
+from wims.core.if_seats import reports_if, set_reports_if  # noqa: E402
+
+
+class _IsolatedIfFile(unittest.TestCase):
+    """Point if_seats.json at an empty temp file and clear WIMS_TRANSVERTER."""
+
+    def setUp(self):
+        self._patch = mock.patch.dict(os.environ, {}, clear=False)
+        self._patch.start()
+        os.environ.pop("WIMS_TRANSVERTER", None)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._if_path = Path(self._tmp.name) / "if_seats.json"
+        os.environ["WIMS_IF_SEATS_FILE"] = str(self._if_path)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        self._patch.stop()
+
+    def mark_if(self, *ids: str) -> None:
+        for i in ids:
+            set_reports_if(i, True, self._if_path)
 
 
 class FormatBandTests(unittest.TestCase):
@@ -67,30 +90,65 @@ class BandLabelTests(unittest.TestCase):
         self.assertEqual(band_label(5_760_100_000), "6cm")
 
 
-class TransverterIfTests(unittest.TestCase):
-    def test_222_21mhz_if(self):
-        self.assertEqual(rf_hz(21_174_000), 222_174_000)
-        self.assertEqual(band_label(21_174_000), "1.25m")
-        self.assertEqual(rf_band("15m"), "1.25m")
+class TransverterIfTests(_IsolatedIfFile):
+    def test_default_28mhz_is_10m(self):
+        # Flex / SmartSDR XVTR reports RF. 28.074 MHz is 10m until a seat opts in.
+        self.assertFalse(if_mapping_enabled(None))
+        self.assertFalse(if_mapping_enabled("FLEX-10M"))
+        self.assertEqual(rf_hz(28_074_000), 28_074_000)
+        self.assertEqual(band_label(28_074_000), "10m")
+        self.assertEqual(band_label(28_074_000, instance="FLEX-10M"), "10m")
+        self.assertEqual(rf_band("10m"), "10m")
+        self.assertEqual(rf_band("10m", instance="FLEX-10M"), "10m")
+        self.assertEqual(n1mm_raw_to_hz("2807400"), 28_074_000)
+        self.assertEqual(band_label(n1mm_raw_to_hz("2807400")), "10m")
+        self.assertEqual(band_label(21_174_000, instance="FLEX-10M"), "15m")
 
-    def test_432_28mhz_if(self):
-        self.assertEqual(rf_hz(28_174_000), 432_174_000)
-        self.assertEqual(band_label(28_174_000), "70cm")
-        self.assertEqual(rf_band("10m"), "70cm")
+    def test_configured_if_seat_maps_432_and_222(self):
+        self.mark_if("ROY-432", "MGEF-222")
+        self.assertTrue(reports_if("ROY-432"))
+        self.assertTrue(reports_if("WSJT-X - ROY-432"))
+        self.assertEqual(rf_hz(28_174_000, instance="ROY-432"), 432_174_000)
+        self.assertEqual(band_label(28_174_000, instance="ROY-432"), "70cm")
+        self.assertEqual(band_label(28_074_000, instance="WSJT-X - ROY-432"), "70cm")
+        self.assertEqual(rf_band("10m", instance="ROY-432"), "70cm")
+        self.assertEqual(n1mm_raw_to_hz("2817400", instance="ROY-432"), 432_174_000)
+        self.assertEqual(rf_hz(21_174_000, instance="MGEF-222"), 222_174_000)
+        self.assertEqual(band_label(21_174_000, instance="MGEF-222"), "1.25m")
+        self.assertEqual(rf_band("15m", instance="MGEF-222"), "1.25m")
+        self.assertEqual(n1mm_raw_to_hz("2117400", instance="MGEF-222"), 222_174_000)
+        # A second instance on the same server is not mapped.
+        self.assertEqual(band_label(28_074_000, instance="FLEX-10M"), "10m")
+        self.assertEqual(rf_band("15m", instance="FLEX-10M"), "15m")
 
     def test_already_rf_not_double_offset(self):
-        self.assertEqual(rf_hz(222_174_000), 222_174_000)
-        self.assertEqual(rf_hz(432_174_000), 432_174_000)
-        self.assertEqual(rf_hz(10_368_090_000), 10_368_090_000)
+        self.mark_if("ROY-432", "ROY-222")
+        self.assertEqual(rf_hz(222_174_000, instance="ROY-222"), 222_174_000)
+        self.assertEqual(rf_hz(432_174_000, instance="ROY-432"), 432_174_000)
+        self.assertEqual(rf_hz(10_368_090_000, instance="ROY-432"), 10_368_090_000)
 
-    def test_disable_env(self):
+    def test_env_on_forces_every_seat(self):
+        with mock.patch.dict(os.environ, {"WIMS_TRANSVERTER": "1"}):
+            self.assertEqual(rf_hz(28_174_000), 432_174_000)
+            self.assertEqual(band_label(28_174_000), "70cm")
+            self.assertEqual(rf_band("15m"), "1.25m")
+            self.assertEqual(n1mm_raw_to_hz("2117400"), 222_174_000)
+
+    def test_env_off_blocks_configured_seat(self):
+        self.mark_if("ROY-432")
         with mock.patch.dict(os.environ, {"WIMS_TRANSVERTER": "0"}):
-            self.assertEqual(rf_hz(28_174_000), 28_174_000)
-            self.assertEqual(band_label(28_174_000), "10m")
-            self.assertEqual(rf_band("15m"), "15m")
+            self.assertEqual(rf_hz(28_174_000, instance="ROY-432"), 28_174_000)
+            self.assertEqual(band_label(28_174_000, instance="ROY-432"), "10m")
+            self.assertEqual(rf_band("15m", instance="ROY-432"), "15m")
+
+    def test_clear_if_seat(self):
+        self.mark_if("ROY-432")
+        set_reports_if("WSJT-X - ROY-432", False, self._if_path)
+        self.assertFalse(reports_if("ROY-432"))
+        self.assertEqual(band_label(28_174_000, instance="ROY-432"), "10m")
 
 
-class N1mmUnitsTests(unittest.TestCase):
+class N1mmUnitsTests(_IsolatedIfFile):
     def test_radioinfo_10hz_units(self):
         self.assertEqual(n1mm_raw_to_hz("5031300"), 50_313_000)
         self.assertEqual(n1mm_raw_to_hz("14417400"), 144_174_000)
@@ -107,9 +165,15 @@ class N1mmUnitsTests(unittest.TestCase):
         self.assertEqual(n1mm_raw_to_hz("1036809000"), 10_368_090_000)
         self.assertEqual(band_label(n1mm_raw_to_hz("1036809000")), "3cm")
 
-    def test_if_radioinfo_10hz_units(self):
-        self.assertEqual(n1mm_raw_to_hz("2117400"), 222_174_000)
-        self.assertEqual(n1mm_raw_to_hz("2817400"), 432_174_000)
+    def test_if_radioinfo_10hz_units_only_when_configured(self):
+        self.assertEqual(n1mm_raw_to_hz("2117400"), 21_174_000)
+        self.assertEqual(n1mm_raw_to_hz("2817400"), 28_174_000)
+        self.assertEqual(band_label(n1mm_raw_to_hz("2817400")), "10m")
+        self.mark_if("MGEF-432", "MGEF-222")
+        self.assertEqual(
+            n1mm_raw_to_hz("2117400", instance="MGEF-222"), 222_174_000)
+        self.assertEqual(
+            n1mm_raw_to_hz("2817400", instance="MGEF-432"), 432_174_000)
 
 
 if __name__ == "__main__":

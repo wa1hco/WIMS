@@ -141,6 +141,9 @@ Fix anything marked **`[XX]`** before continuing.
 ### B4. Decode
 
 Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
+A 10 m or 15 m dial stays **10m / 15m**. WIMS does not turn 28 MHz into 70 cm
+unless you mark that rig-name on **Setup** (only for a radio that reports IF,
+such as a 28 MHz transverter).
 
 **Pass:**
 

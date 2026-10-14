@@ -205,6 +205,26 @@ class LiveFleet:
             applied = dict(self._share_policies)
         return {"ok": True, "band": b, "share_policy": pol, "policies": applied}
 
+    def set_if_seat(self, instance_id: str, reports_if: bool) -> dict:
+        """Mark one rig-name / N1MM station as reporting IF (or clear it).
+
+        Persists ``if_seats.json`` on this PC. Unlisted seats stay RF
+        (28.074 MHz → 10m). ``WIMS_TRANSVERTER`` still overrides at read time.
+        """
+        from wims.core.if_seats import default_path, set_reports_if
+        iid = (instance_id or "").strip()
+        if not iid:
+            return {"ok": False, "error": "need_id",
+                    "detail": "rig-name or N1MM station required"}
+        ids = set_reports_if(iid, bool(reports_if))
+        return {
+            "ok": True,
+            "id": iid,
+            "reports_if": bool(reports_if),
+            "instances": ids,
+            "path": str(default_path()),
+        }
+
     def share_policies(self) -> dict[str, str]:
         with self._lock:
             return dict(self._share_policies)
@@ -1127,6 +1147,13 @@ class LiveFleet:
             d["rotator_last_action"] = self._last_rot_action
             d["gt_bridge"] = (
                 self._gt_bridge.status_dict() if self._gt_bridge is not None else None)
+            from wims.core.bands import transverter_override
+            from wims.core.if_seats import configured_ids, default_path
+            d["if_seats"] = {
+                "instances": configured_ids(),
+                "path": str(default_path()),
+                "override": transverter_override(),
+            }
             return d
 
     def point_rotator(self, *, rotator_id: str | None = None,
@@ -1663,6 +1690,25 @@ def make_handler(live: LiveFleet, refresh: float):
                         body.get("band") or "", body.get("policy") or "")
                     code = 200 if result.get("ok") else 400
                     self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/if-seats":
+                iid = (body.get("id") or body.get("instance") or "").strip()
+                if not iid or "reports_if" not in body:
+                    self._send_json(400, {
+                        "ok": False,
+                        "error": "need id and reports_if",
+                    })
+                    return
+                flag = body.get("reports_if")
+                if isinstance(flag, str):
+                    enabled = flag.strip().lower() not in (
+                        "0", "off", "false", "no", "")
+                else:
+                    enabled = bool(flag)
+                try:
+                    result = live.set_if_seat(iid, enabled)
+                    self._send_json(200 if result.get("ok") else 400, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             else:

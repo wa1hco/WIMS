@@ -58,24 +58,51 @@ class AdifWrapTests(unittest.TestCase):
         adif = "<CALL:4>K1AB<FREQ:8>14.074000<MODE:3>FT8 <eor>"
         self.assertEqual(adif_band(adif), "20m")
 
-    def test_10m_if_adif_is_70cm(self):
+    def test_10m_adif_stays_10m_by_default(self):
         adif = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
-        self.assertEqual(adif_band(adif), "70cm")
+        self.assertEqual(adif_band(adif), "10m")
+        self.assertEqual(adif_band(adif, instance="FLEX-10M"), "10m")
 
-    def test_15m_if_adif_is_125m(self):
+    def test_15m_adif_stays_15m_by_default(self):
         adif = "<CALL:4>K1AB<BAND:3>15m<FREQ:9>21.174000<MODE:3>FT8 <eor>"
-        self.assertEqual(adif_band(adif), "1.25m")
+        self.assertEqual(adif_band(adif), "15m")
 
-    def test_rewrite_28mhz_adif_to_432(self):
-        from wims.log import app as logapp
-        fn = getattr(logapp, "rewrite_adif_rf", None)
-        if fn is None:
-            self.skipTest("rewrite_adif_rf not in this tree")
-        adif = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
-        out = fn(adif)
-        self.assertIn("432.174000", out)
-        self.assertIn("70CM", out.upper())
-        self.assertEqual(adif_band(out), "70cm")
+    def test_configured_if_adif_maps_to_rf(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from wims.core.if_seats import set_reports_if
+        from wims.log.app import rewrite_adif_rf
+        adif10 = "<CALL:4>K1AB<BAND:3>10m<FREQ:9>28.174000<MODE:3>FT8 <eor>"
+        adif15 = "<CALL:4>K1AB<BAND:3>15m<FREQ:9>21.174000<MODE:3>FT8 <eor>"
+        old = os.environ.get("WIMS_IF_SEATS_FILE")
+        old_xv = os.environ.get("WIMS_TRANSVERTER")
+        os.environ.pop("WIMS_TRANSVERTER", None)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                path = str(Path(d) / "if_seats.json")
+                os.environ["WIMS_IF_SEATS_FILE"] = path
+                set_reports_if("ROY-432", True)
+                set_reports_if("ROY-222", True)
+                self.assertEqual(adif_band(adif10, instance="ROY-432"), "70cm")
+                self.assertEqual(adif_band(adif15, instance="WSJT-X - ROY-222"), "1.25m")
+                out = rewrite_adif_rf(adif10, instance="ROY-432")
+                self.assertIn("432.174000", out)
+                self.assertIn("70CM", out.upper())
+                self.assertEqual(adif_band(out, instance="ROY-432"), "70cm")
+                plain = rewrite_adif_rf(adif10, instance="FLEX-10M")
+                self.assertIn("28.174000", plain)
+                self.assertNotIn("432", plain)
+                self.assertEqual(adif_band(plain, instance="FLEX-10M"), "10m")
+        finally:
+            if old is None:
+                os.environ.pop("WIMS_IF_SEATS_FILE", None)
+            else:
+                os.environ["WIMS_IF_SEATS_FILE"] = old
+            if old_xv is None:
+                os.environ.pop("WIMS_TRANSVERTER", None)
+            else:
+                os.environ["WIMS_TRANSVERTER"] = old_xv
 
     def test_n1mm_log_envelope(self):
         payload = wrap_adif("<CALL:4>K1AB<BAND:2>2m <eor>")
@@ -355,7 +382,11 @@ class RadioInfoTests(unittest.TestCase):
         self.assertEqual(band, "3cm")
         self.assertEqual(meta["freq_hz"], 10_368_090_000)
 
-    def test_432_if_28mhz(self):
+    def test_432_28mhz_stays_10m_until_station_is_marked(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from wims.core.if_seats import set_reports_if
         xml = """<?xml version="1.0"?>
         <RadioInfo>
           <RadioNr>1</RadioNr>
@@ -366,11 +397,34 @@ class RadioInfoTests(unittest.TestCase):
           <StationName>MGEF-432</StationName>
         </RadioInfo>
         """
-        band, meta = band_from_radioinfo_xml(xml)
-        self.assertEqual(band, "70cm")
-        self.assertEqual(meta["freq_hz"], 432_174_000)
+        old = os.environ.get("WIMS_IF_SEATS_FILE")
+        old_xv = os.environ.get("WIMS_TRANSVERTER")
+        os.environ.pop("WIMS_TRANSVERTER", None)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ["WIMS_IF_SEATS_FILE"] = str(Path(d) / "if_seats.json")
+                band, meta = band_from_radioinfo_xml(xml)
+                self.assertEqual(band, "10m")
+                self.assertEqual(meta["freq_hz"], 28_174_000)
+                set_reports_if("MGEF-432", True)
+                band, meta = band_from_radioinfo_xml(xml)
+                self.assertEqual(band, "70cm")
+                self.assertEqual(meta["freq_hz"], 432_174_000)
+        finally:
+            if old is None:
+                os.environ.pop("WIMS_IF_SEATS_FILE", None)
+            else:
+                os.environ["WIMS_IF_SEATS_FILE"] = old
+            if old_xv is None:
+                os.environ.pop("WIMS_TRANSVERTER", None)
+            else:
+                os.environ["WIMS_TRANSVERTER"] = old_xv
 
-    def test_222_if_21mhz(self):
+    def test_222_21mhz_maps_when_station_is_marked(self):
+        import os
+        import tempfile
+        from pathlib import Path
+        from wims.core.if_seats import set_reports_if
         xml = """<?xml version="1.0"?>
         <RadioInfo>
           <RadioNr>1</RadioNr>
@@ -381,9 +435,27 @@ class RadioInfoTests(unittest.TestCase):
           <StationName>MGEF-222</StationName>
         </RadioInfo>
         """
-        band, meta = band_from_radioinfo_xml(xml)
-        self.assertEqual(band, "1.25m")
-        self.assertEqual(meta["freq_hz"], 222_174_000)
+        old = os.environ.get("WIMS_IF_SEATS_FILE")
+        old_xv = os.environ.get("WIMS_TRANSVERTER")
+        os.environ.pop("WIMS_TRANSVERTER", None)
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                os.environ["WIMS_IF_SEATS_FILE"] = str(Path(d) / "if_seats.json")
+                band, _meta = band_from_radioinfo_xml(xml)
+                self.assertEqual(band, "15m")
+                set_reports_if("MGEF-222", True)
+                band, meta = band_from_radioinfo_xml(xml)
+                self.assertEqual(band, "1.25m")
+                self.assertEqual(meta["freq_hz"], 222_174_000)
+        finally:
+            if old is None:
+                os.environ.pop("WIMS_IF_SEATS_FILE", None)
+            else:
+                os.environ["WIMS_IF_SEATS_FILE"] = old
+            if old_xv is None:
+                os.environ.pop("WIMS_TRANSVERTER", None)
+            else:
+                os.environ["WIMS_TRANSVERTER"] = old_xv
 
 
 class WsjtUdpReaderIniTests(unittest.TestCase):

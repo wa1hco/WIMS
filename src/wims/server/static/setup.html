@@ -77,6 +77,20 @@
   </ul>
   <div id="setup-net-live" class="syncrow"><span class="k">waiting for live discovery…</span></div>
 
+  <h2>IF-reporting seats</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Most radios report <b>RF</b> (Flex / SmartSDR XVTR, Icom with the transverter
+    offset on). WIMS labels that dial as heard: <b>28.074 MHz stays 10m</b>.
+    Check a seat only when its radio reports the <b>IF</b> — Roy 222 is a
+    21 MHz radio (→ 222) and Roy 432 is a 28 MHz radio plus transverter (→ 432).
+    The key is the WSJT-X <code>--rig-name</code> / UDP id, and the N1MM
+    station name when RadioInfo is the IF. Saved on this PC
+    (<code id="if-seats-path">if_seats.json</code>). Each other host has its own
+    file; the seat agent page can mark that PC’s radios the same way.
+    Nothing to set for a normal HF or VHF dial.
+  </p>
+  <div id="if-seats"><span class="k">waiting…</span></div>
+
   <h2>Host app configs (WSJT-X / N1MM) — from seat agents</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
     Each station runs a <b>local-first</b> agent that reads WSJT-X.ini / N1MM folders and

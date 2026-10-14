@@ -73,7 +73,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity |
 | **N1MM** | `/n1mm` | Contest log pick/resync, logger sync / network |
-| **Setup** | `/setup` | Install diagnostics (networking, seat configs) |
+| **Setup** | `/setup` | Install diagnostics, and which rig-names report IF (default: dial is RF, so 28 MHz stays 10m) |
 
 **TX model:** no global Arm. Human initiation = **roster click**. **Call CQ** stays in WSJT-X.
 
@@ -82,7 +82,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | Mode | Entry | What you see |
 |------|--------|----------------|
 | Setup check | `Check-WimsSetup.cmd` or `python -m wims.agent --solo` | `[OK]` / `[! ]` / `[XX]` for WSJT-X (+ N1MM probe) |
-| Continuous | Launcher **WSJT-X** / `Start-WimsAgent-Continuous.cmd` | **http://127.0.0.1:8790/** + Overview **Agents** |
+| Continuous | Launcher **WSJT-X** / `Start-WimsAgent-Continuous.cmd` | **http://127.0.0.1:8790/** + Overview **Agents**. That page can mark this PC’s radio as IF-reporting (21 MHz → 222, 28 MHz → 432). Leave it alone for Flex / real HF. |
 
 ### N1MM agent / KEY / inhibit
 

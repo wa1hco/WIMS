@@ -206,6 +206,12 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-14** — **IF→RF mapping is off unless the seat is listed.**
+  `if_seats.json` (Setup checkbox, or the seat agent page on that PC) names
+  rig-names / N1MM stations that report IF (Roy 222 at 21 MHz, Roy 432 at
+  28 MHz). A Flex 10 m dial at 28.074 MHz stays 10m. `WIMS_TRANSVERTER` is
+  only an override. WSJT-X Status and N1MM RadioInfo / ADIF both honor the
+  list. Decision: [2026-10-14](../decisions/2026-10-14-if-reporting-seats.md).
 - **2026-09-13** — **Version `1.0.16`**. Operate Halt stays live after Work
   in RX (claim 45s, refresh while TX). UDP Work/Halt dests are IPv4-only
   (mapped `::ffff:` / `%zone` coerced; no multicast fallback) so Windows

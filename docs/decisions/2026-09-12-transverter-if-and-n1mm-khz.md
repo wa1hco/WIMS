@@ -1,6 +1,9 @@
 # Decision: 222/432 IF radios + N1MM kHz / microwave bands
 
-**Status:** adopted 2026-09-12  
+**Status:** adopted 2026-09-12. **IF default superseded 2026-10-14** —
+mapping is off unless the seat is listed
+([if-reporting seats](2026-10-14-if-reporting-seats.md)).
+kHz vs 10 Hz units and microwave band labels below are unchanged.  
 **Context:** ARRL VHF fleet. N1MM Network Status on this LAN shows **Band 10000**,
 **Freq 10368090.00** for **MGEF-10-UP** (10 GHz / 3cm at 10368.090 MHz). That is
 N1MM’s native kHz Freq + MHz Band, not a misread of 432. Separately, **MGEF-432**
@@ -22,11 +25,12 @@ Status / DXLOG Freq** is kHz. WIMS must accept both (`n1mm_raw_to_hz`).
 
 1. **Microwave bands** in `band_label`: 13cm / 9cm / 6cm / 3cm / 1.2cm so
    `band_label_mhz(10000)` is **3cm**, not 13cm (old last bucket).
-2. **IF → RF** (default on; `WIMS_TRANSVERTER=0` disables):
-   - 21.000–24.000 MHz → +201 MHz (**222**)
-   - 28.000–29.700 MHz → +404 MHz (**432**)
-   Already-RF dial (222 / 432 / 10368) is unchanged. 10 GHz on MGEF-10-UP is RF
-   in N1MM, so it is not mapped through the 28 MHz IF window.
+2. **IF → RF** for seats that report IF (21 MHz → 222, 28 MHz → 432).
+   As of 2026-10-14 this is **off unless that rig-name / N1MM station is
+   listed** — see the later decision. `WIMS_TRANSVERTER=1` still forces the
+   old global mapping; `=0` forces it off. Already-RF dial (222 / 432 /
+   10368) is unchanged. 10 GHz on MGEF-10-UP is RF in N1MM, so it is not
+   mapped through the 28 MHz IF window.
 3. Log ADIF with IF FREQ/BAND is rewritten to RF before N1MM ingest.
 
 ## Not this
