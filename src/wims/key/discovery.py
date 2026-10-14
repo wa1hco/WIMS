@@ -6,10 +6,12 @@
 """Same-band inhibit target discovery — pure table, no I/O.
 
 Correlate plane-A Status (band from dial frequency) with InhibitStatus type 17
-(inhibit UDP port). Addressing is host from the UDP source address + inhibit_port.
+(Supported). Type-18 addressing is host + UDP source port of the type-17
+datagram (MessageClient ephemeral control port). ``inhibit_port`` on DigiTarget
+stores that control port.
 
 Policy for the Key path: ``targets_for_band(live_band)`` — only instances whose
-Status band matches and that have announced an inhibit port.
+Status band matches and that have a live supported type-17 advertisement.
 """
 
 from __future__ import annotations
@@ -71,20 +73,29 @@ class InhibitTargetTable:
         host: str,
         now: float,
         *,
+        supported: bool = True,
         inhibited: bool = False,
         source_station: str = "",
     ) -> None:
+        """Record type-17 telemetry.
+
+        ``inhibit_port`` is the MessageClient UDP source port (type-18 dest).
+        ``supported=False`` withdraws the advertisement (clears the port).
+        """
         if not instance_id or not host:
+            return
+        row = self._rows.setdefault(instance_id, _Row())
+        row.host = host
+        row.inhibit_at = now
+        row.inhibited = bool(inhibited)
+        row.source_station = source_station or ""
+        if not supported:
+            row.inhibit_port = None
             return
         port = int(inhibit_port)
         if port <= 0 or port > 65535:
             return
-        row = self._rows.setdefault(instance_id, _Row())
-        row.host = host
         row.inhibit_port = port
-        row.inhibit_at = now
-        row.inhibited = bool(inhibited)
-        row.source_station = source_station or ""
 
     def _alive(self, row: _Row, now: float) -> bool:
         times = [t for t in (row.status_at, row.inhibit_at) if t >= 0.0]
@@ -93,7 +104,7 @@ class InhibitTargetTable:
         return (now - max(times)) <= self.stale_s
 
     def targets_for_band(self, band: str | None, now: float) -> list[DigiTarget]:
-        """Resolved inhibit destinations on ``band`` (require Status band + type-17 port)."""
+        """Resolved type-18 destinations on ``band`` (Status band + supported type-17)."""
         if not band:
             return []
         out: list[DigiTarget] = []

@@ -321,8 +321,13 @@ function renderInstances(s) {
     const collide = n.id_collision
       ? ' <span class="warn" title="Two PCs use the same WSJT-X name — set unique --rig-name on each">⚠ rename</span>'
       : "";
+    const txMark = (n.tx_capable === false)
+      ? ' <span class="badge" title="seat-profile: decode-only (H2)">decode</span>'
+      : (n.rf_path === "trx"
+          ? ' <span class="badge armed" title="seat-profile: TX-capable">TX</span>'
+          : "");
     tr.innerHTML =
-      `<td>${esc(n.id)}${collide}</td><td>${hostCell}</td><td>${esc(fmtBand(n.band||"-"))}</td>` +
+      `<td>${esc(n.id)}${collide}${txMark}</td><td>${hostCell}</td><td>${esc(fmtBand(n.band||"-"))}</td>` +
       `<td style="white-space:normal;max-width:260px">${n1mmLoggerCell(n.n1mm_logger)}</td>` +
       `<td>${policyBadge(n.share_policy)}</td>` +
       `<td>${esc(n.mode||"-")}</td><td class="num">${mhz(n.dial_hz)}</td>` +
@@ -857,6 +862,146 @@ function renderSetupExtras(n1mm, s) {
       ? parts.join("")
       : `<span class="k">No WSJT-X hosts seen yet — start instances with LAN multicast (see checklist).</span>`;
   }
+  renderSeatMarks(s);
+}
+
+// -- H2 seat-profile marks (Setup) ------------------------------------------ //
+
+let _seatMarksWired = false;
+let _seatMarkDraft = {}; // id -> true|false (tx_capable)
+
+function renderSeatMarks(s) {
+  const box = $("seat-marks");
+  if (!box || !s) return;
+  const pathEl = $("seat-path");
+  const classEl = $("seat-class");
+  const checksEl = $("seat-checks");
+  const sp = s.seat_profile || {};
+  if (pathEl) {
+    pathEl.textContent = sp.path
+      ? ((sp.exists ? "file: " : "will create: ") + sp.path)
+      : "";
+  }
+  if (classEl && document.activeElement !== classEl) {
+    classEl.value = sp.station_class || "";
+  }
+  const live = (s.instances || []).filter(n => (n.health || "") !== "DEAD");
+  const marked = {};
+  for (const m of (sp.instances || [])) {
+    if (m && m.id) marked[m.id] = m;
+  }
+  // Seed draft from live + profile once per id (keep operator edits).
+  for (const n of live) {
+    if (_seatMarkDraft[n.id] === undefined) {
+      _seatMarkDraft[n.id] = (n.tx_capable !== false);
+    }
+  }
+  if (!live.length) {
+    box.className = "empty";
+    box.textContent = "No live WSJT-X yet — start instances, then mark them.";
+  } else {
+    box.className = "";
+    box.innerHTML = live.map(n => {
+      const tx = !!_seatMarkDraft[n.id];
+      const name = esc(n.id);
+      const band = esc(fmtBand(n.band || "?"));
+      return `<div class="syncrow" style="justify-content:flex-start;gap:14px;margin:4px 0">` +
+        `<span style="min-width:10em"><b>${name}</b> <span class="meta">${band}</span></span>` +
+        `<label><input type="radio" name="seat-tx-${esc(n.id)}" value="1"` +
+        `${tx ? " checked" : ""} data-seat-id="${esc(n.id)}"> TX-capable</label>` +
+        `<label><input type="radio" name="seat-tx-${esc(n.id)}" value="0"` +
+        `${tx ? "" : " checked"} data-seat-id="${esc(n.id)}"> decode-only</label>` +
+        `</div>`;
+    }).join("");
+    box.querySelectorAll("input[type=radio][data-seat-id]").forEach(inp => {
+      inp.onchange = () => {
+        _seatMarkDraft[inp.dataset.seatId] = inp.value === "1";
+      };
+    });
+  }
+  if (checksEl) {
+    const checks = sp.checks || [];
+    if (!checks.length) {
+      checksEl.innerHTML = `<span class="k">No profile checks yet.</span>`;
+    } else {
+      checksEl.innerHTML = checks.map(c => {
+        const sev = (c.severity || "info").toLowerCase();
+        const cls = sev === "error" ? "DEAD" : (sev === "warn" ? "warn" : "meta");
+        return `<span class="${cls}">[${esc(sev)}] ${esc(c.detail || c.code || "")}</span>`;
+      }).join(" ");
+    }
+  }
+  if (!_seatMarksWired) {
+    _seatMarksWired = true;
+    const saveBtn = $("seat-save");
+    const reloadBtn = $("seat-reload");
+    if (saveBtn) {
+      saveBtn.onclick = async () => {
+        const instances = Object.keys(_seatMarkDraft).sort().map(id => ({
+          id,
+          tx_capable: !!_seatMarkDraft[id],
+          rf_path: _seatMarkDraft[id] ? "trx" : "sdr_rx",
+        }));
+        const body = {
+          station_class: ($("seat-class") && $("seat-class").value) || "",
+          instances,
+          clear_missing: true,
+        };
+        try {
+          const r = await fetch("/api/seat-profile", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+          });
+          const j = await r.json().catch(() => ({}));
+          if (!j.ok) {
+            alert("Save failed: " + (j.detail || j.error || r.status));
+            return;
+          }
+          // Refresh draft from saved marks.
+          _seatMarkDraft = {};
+          for (const m of (j.instances || [])) {
+            _seatMarkDraft[m.id] = !!m.tx_capable;
+          }
+          if (checksEl) {
+            const checks = j.checks || [];
+            checksEl.innerHTML = checks.map(c => {
+              const sev = (c.severity || "info").toLowerCase();
+              const cls = sev === "error" ? "DEAD" : (sev === "warn" ? "warn" : "meta");
+              return `<span class="${cls}">[${esc(sev)}] ${esc(c.detail || "")}</span>`;
+            }).join(" ") || `<span class="meta">Saved.</span>`;
+          }
+          if (pathEl) pathEl.textContent = "saved: " + (j.path || "");
+        } catch (e) {
+          alert("Save failed: " + e);
+        }
+      };
+    }
+    if (reloadBtn) {
+      reloadBtn.onclick = async () => {
+        try {
+          const r = await fetch("/api/seat-profile", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({reload: true}),
+          });
+          const j = await r.json().catch(() => ({}));
+          _seatMarkDraft = {};
+          for (const m of (j.instances || [])) {
+            _seatMarkDraft[m.id] = !!m.tx_capable;
+          }
+          if (classEl) classEl.value = j.station_class || "";
+          // Next SSE tick will re-render; force from GET-shaped payload.
+          renderSeatMarks({
+            instances: (s && s.instances) || [],
+            seat_profile: j,
+          });
+        } catch (e) {
+          alert("Reload failed: " + e);
+        }
+      };
+    }
+  }
 }
 
 // -- operating page --------------------------------------------------------- //
@@ -989,8 +1134,11 @@ function rosSourceLabel(raw) {
 function rosSource(c) {
   const raw = c.instance || "";
   const short = rosSourceLabel(raw);
-  if (!raw || short === raw) return esc(short);
-  return `<span title="${esc(raw)}">${esc(short)}</span>`;
+  const mark = (c.tx_capable === false)
+    ? ' <span class="badge" title="decode-only">decode</span>'
+    : "";
+  if (!raw || short === raw) return esc(short) + mark;
+  return `<span title="${esc(raw)}">${esc(short)}</span>${mark}`;
 }
 function rosAzDx(c) {
   // Clickable when a rotator is mapped — point antenna to this Az DX.
@@ -1393,7 +1541,7 @@ function rosDraw() {
   const oldFit = table && table.querySelector("colgroup.ros-fit");
   if (oldFit) oldFit.remove();
   if (table) table.style.tableLayout = "auto";
-  const canWork = !!( _txState && _txState.can_tx );
+  const canWorkBase = !!( _txState && _txState.can_tx );
   for (const c of rows) {
     const tr = document.createElement("tr");
     // Highlight priority: calling-us (red) > armed (green) > mult (soft green) > dupe dim.
@@ -1402,14 +1550,18 @@ function rosDraw() {
     else if (c.is_armed) classes.push("armed");
     else if (c.is_new_mult) classes.push("mult");
     if (!c.is_needed) classes.push("dupe");
-    if (canWork) classes.push("workable");
+    const rowCanWork = canWorkBase && (c.tx_capable !== false);
+    if (rowCanWork) classes.push("workable");
+    if (c.tx_capable === false) classes.push("decode-only");
     tr.className = classes.join(" ");
     if (c.id) tr.dataset.row = c.id;
-    if (canWork) {
+    if (rowCanWork) {
       let tip = "Click to work " + (c.call || "") + " via " + (c.instance || "?");
       if (c.is_calling_us) tip = "Calling us — " + tip;
       else if (c.is_armed) tip = "Enable Tx set for this DX — " + tip;
       tr.title = tip;
+    } else if (c.tx_capable === false) {
+      tr.title = (c.instance || "instance") + " is decode-only — Work denied (H2 mark)";
     }
     tr.innerHTML = vis.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
@@ -1465,6 +1617,7 @@ function txFlash(j, url) {
       other_dashboard: "Started from another console",
       no_control_port: "No UDP control port for that WSJT-X yet",
       send_failed: "UDP send failed (Windows 22 = bad dest; wait for Status)",
+      decode_only: "That instance is decode-only (H2 mark) — Work the TX instance",
     }[errKey];
     const isHalt = url && String(url).indexOf("/halt") >= 0;
     m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")
@@ -1492,6 +1645,7 @@ function txWire() {
     if (!(_txState && _txState.can_tx)) return;
     if (e.target.closest("a,button,input,select,label")) return;
     const tr = e.target.closest("tr[data-row]");
+    if (tr && tr.classList.contains("decode-only")) return;
     if (tr && tr.dataset.row) {
       txPost("/api/tx/work", {row_id: tr.dataset.row, dashboard_id: dashboardId()});
     }

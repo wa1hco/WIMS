@@ -1,0 +1,17 @@
+{
+  "station_class": "shared_trx_dual_rx",
+  "wsjt_instances": [
+    {
+      "id": "HOME-FT8",
+      "rf_path": "trx",
+      "tx_capable": true,
+      "modes": ["FT8"]
+    },
+    {
+      "id": "HOME-SUB",
+      "rf_path": "sdr_rx",
+      "tx_capable": false,
+      "modes": ["FT8"]
+    }
+  ]
+}

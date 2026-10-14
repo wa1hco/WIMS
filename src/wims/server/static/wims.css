@@ -87,6 +87,9 @@ tr.calling-us td.score { color:#a40e26; }
 /* Enable Tx armed for this DX (not necessarily keying yet) */
 tr.armed { background:#e3f5e8; box-shadow: inset 3px 0 0 #1a7f37; }
 tr.armed td.score { color:var(--alive); }
+/* H2 decode-only source: visible, not clickable for Work */
+tr.decode-only { opacity: 0.72; cursor: default; }
+tr.decode-only.workable { cursor: default; }
 .badge { display:inline-block; padding:0 6px; border-radius:8px; font-size:11px;
          margin-left:5px; background:#ddf4ff; color:var(--accent); }
 .badge.rover { background:#fff1e5; color:var(--quiet); }

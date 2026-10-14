@@ -70,6 +70,9 @@ from wims.engine.geo import base_call as _base_call  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
 from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.logsource import N1mmLogSource  # noqa: E402
+from wims.config.seat_profile import (  # noqa: E402
+    default_seat_profile_path, load_seat_profile, save_seat_profile_marks,
+)
 from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
     decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict,
@@ -183,6 +186,57 @@ class LiveFleet:
         # Per-band share policy (§2.14): band label → coordinated|interlock.
         # Default (missing key) is coordinated — no automatic KEY inhibit.
         self._share_policies: dict[str, str] = {}
+        # Home H2 / shared-trx: TX-capable vs decode-only marks (seat-profile.json).
+        self._seat_profile_path = default_seat_profile_path()
+        self._seat_profile = load_seat_profile(self._seat_profile_path)
+
+    def set_seat_profile_path(self, path: Path | str | None) -> None:
+        """Tests / CLI: use an alternate seat-profile.json path."""
+        p = default_seat_profile_path() if path is None else Path(path)
+        self._seat_profile_path = p
+        self._seat_profile = load_seat_profile(p)
+
+    def reload_seat_profile(self) -> dict:
+        """Re-read seat-profile.json from disk."""
+        self._seat_profile = load_seat_profile(self._seat_profile_path)
+        with self._lock:
+            live_ids = sorted(self._tracker.nodes)
+        return {
+            "ok": True,
+            **self._seat_profile.to_public_dict(live_ids=live_ids),
+        }
+
+    def seat_profile_public(self) -> dict:
+        with self._lock:
+            live_ids = sorted(self._tracker.nodes)
+        return self._seat_profile.to_public_dict(live_ids=live_ids)
+
+    def save_seat_profile_marks(self, body: dict) -> dict:
+        """Merge Setup marks into seat-profile.json (H2)."""
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "invalid_body",
+                    "detail": "JSON object required."}
+        station_class = body.get("station_class", None)
+        if station_class is not None:
+            station_class = str(station_class).strip()
+        instances = body.get("instances")
+        if instances is not None and not isinstance(instances, list):
+            return {"ok": False, "error": "bad_instances",
+                    "detail": "instances must be a list of {id, tx_capable, …}."}
+        clear_missing = bool(body.get("clear_missing", False))
+        try:
+            profile = save_seat_profile_marks(
+                path=self._seat_profile_path,
+                station_class=station_class,
+                instances=instances,
+                clear_missing=clear_missing,
+            )
+        except OSError as e:
+            return {"ok": False, "error": "save_failed", "detail": str(e)}
+        self._seat_profile = profile
+        with self._lock:
+            live_ids = sorted(self._tracker.nodes)
+        return {"ok": True, **profile.to_public_dict(live_ids=live_ids)}
 
     def set_share_policy(self, band: str, policy: str) -> dict:
         """Set band sharing mode (design §2.14). Returns result dict for API."""
@@ -641,6 +695,15 @@ class LiveFleet:
                         "detail": "Row aged out or unknown — wait for a fresh decode, then Work again."}
             decode = entry.decode
             inst = getattr(decode, "id", None) or "?"
+            if not self._seat_profile.tx_capable(inst):
+                return {
+                    "ok": False, "error": "decode_only",
+                    "instance": inst,
+                    "detail": (
+                        f"{inst!r} is marked decode-only in seat-profile.json. "
+                        "Work the TX-capable instance, or change the mark on Setup."
+                    ),
+                }
             node = self._tracker.nodes.get(inst)
             # Safety: never Reply a decode from another band/dial — WSJT-X would Enable
             # Tx on the *current* VFO and call the station on the wrong RF.
@@ -1154,6 +1217,18 @@ class LiveFleet:
                 "path": str(default_path()),
                 "override": transverter_override(),
             }
+            # H2: attach TX-capable / decode-only marks from seat-profile.json.
+            marked_ids = sorted(self._tracker.nodes)
+            prof = self._seat_profile
+            for inst in d.get("instances") or []:
+                iid = inst.get("id") or ""
+                inst["tx_capable"] = prof.tx_capable(iid)
+                inst["rf_path"] = prof.rf_path(iid)
+            roster = d.get("roster") or {}
+            for cand in roster.get("candidates") or []:
+                iid = cand.get("instance") or ""
+                cand["tx_capable"] = prof.tx_capable(iid)
+            d["seat_profile"] = prof.to_public_dict(live_ids=marked_ids)
             return d
 
     def point_rotator(self, *, rotator_id: str | None = None,
@@ -1569,6 +1644,9 @@ def make_handler(live: LiveFleet, refresh: float):
                                           "detail": "start server with --gt-forward HOST:PORT"})
                 else:
                     self._send_json(200, {"ok": True, "enabled": True, **b.status_dict()})
+            elif path == "/api/seat-profile":
+                # Home H2: TX-capable vs decode-only marks (seat-profile.json).
+                self._send_json(200, {"ok": True, **live.seat_profile_public()})
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
             else:
@@ -1681,6 +1759,17 @@ def make_handler(live: LiveFleet, refresh: float):
                 try:
                     result = live.stop_rotator(body.get("rotator_id") or body.get("id"))
                     self._send_json(200, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/seat-profile":
+                # Setup toggles → merge marks into seat-profile.json.
+                try:
+                    if body.get("reload"):
+                        result = live.reload_seat_profile()
+                    else:
+                        result = live.save_seat_profile_marks(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/band/policy":
@@ -1843,6 +1932,10 @@ def main() -> None:
                     help="set band share policy to interlock (SSB/CW KEY priority inhibit) "
                          "for BAND (e.g. 6m, 2m, 70cm). Repeatable. Default for all other "
                          "bands is coordinated (manual handoff, info only) — design §2.14.")
+    ap.add_argument("--seat-profile", default=None, metavar="PATH",
+                    help="seat-profile.json path (H2 TX-capable marks; default: "
+                         "%%LOCALAPPDATA%%\\WIMS\\seat-profile.json or "
+                         "~/.local/share/wims/seat-profile.json)")
     args = ap.parse_args()
 
     # Validate network args up front: a malformed address otherwise only blows up
@@ -1907,6 +2000,10 @@ def main() -> None:
     live = LiveFleet(grouping=args.group_by, condition=args.condition,
                      tx_controller=tx_controller,
                      enable_cq_freetext=args.enable_cq_freetext)
+    if args.seat_profile:
+        live.set_seat_profile_path(args.seat_profile)
+    else:
+        live.reload_seat_profile()
     live.configure_log_discovery(databases_dir=args.seed_db_dir,
                                  db_path=args.seed_db)
     # Lab rotators: --sim-rotator id[:az][:inst1,inst2]
@@ -2074,6 +2171,12 @@ def main() -> None:
         print(f"WIMS server  http://localhost:{args.http_port}/")
     for line in seed_lines:
         print(line)
+    sp = live.seat_profile_public()
+    if sp.get("exists"):
+        print(f"  Seat profile: {sp.get('path')}")
+        for chk in sp.get("checks") or []:
+            sev = (chk.get("severity") or "info").upper()
+            print(f"  seat profile [{sev}] {chk.get('detail')}")
     if gt_bridge is not None:
         print(f"  GridTracker bridge → {gt_bridge.gt_dest[0]}:{gt_bridge.gt_dest[1]}  "
               f"(reverse :{gt_bridge.bind_port}; "

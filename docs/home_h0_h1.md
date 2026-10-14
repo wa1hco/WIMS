@@ -27,7 +27,8 @@ Nothing else is required for this minimum.
 | **H0 min** | **Operate**: filter + Work | No |
 | **H0 + log** | Same + N1MM `.s3db` seed | No |
 | **H1** | Standalone **Inhibit** (KEY → digi hold) | No |
-| H2+ | Dual-RX layout, mute, CAT | Later |
+| **H2** | Dual-RX marks (TX vs decode-only) | No — see [`home_h2.md`](home_h2.md) |
+| H3+ | Mute, CAT | Later |
 
 ---
 
@@ -103,13 +104,24 @@ Footswitch (or KEY sense) holds **local** digi TX. No Operate required. No site 
 
 ### What you need
 
-- **Patched WSJT-X** with TxInhibit (type 18), prefer port **22372**
+- **Patched WSJT-X** with TxInhibit (type **18**) — inhibit-3.2-rc1 or later
 - Keyline (or serial CTS) KEY sense — or lab `sim:up` / `sim:down`
 - WIMS on the same PC as the digi instance you will hold
 
+### Type-18 destination (inhibit-3.2-rc1)
+
+Type 18 goes to the **MessageClient UDP source port** (same ephemeral port as
+Reply/Halt). Type 17 announces **Supported** and counters only; it does not
+carry a listen port.
+
+Home scripts still default to `--targets 127.0.0.1:22372` for older gates.
+That override is **stale for inhibit-3.2-rc1** until H1 home is retargeted to
+discovery (or an explicit control-port override). Fleet KEY discovery already
+uses the type-17 datagram source port.
+
 ### Start Inhibit (home recipe)
 
-Uses **explicit localhost target** so you do **not** need N1MM RadioInfo / live band.
+Uses **explicit localhost target** on the current home scripts (older fixed gate).
 
 | OS | Action |
 |----|--------|
@@ -122,7 +134,11 @@ Uses **explicit localhost target** so you do **not** need N1MM RadioInfo / live 
 set WIMS_KEY_DEVICE=COM3          # Windows example
 export WIMS_KEY_DEVICE=/dev/ttyUSB0
 
+# Older fixed gate (current home script default):
 python -m wims.seat --key --targets 127.0.0.1:22372
+
+# inhibit-3.2-rc1: prefer discovery once home H1 is retargeted
+# (omit --targets; needs live band from Status / RadioInfo)
 ```
 
 Optional GUI seat window: omit `--no-gui` (scripts keep the small seat UI by default).
@@ -141,7 +157,6 @@ For WIMS home docs, prefer **`Start-Wims-Inhibit-Home`** so one install covers H
 ### Not required for H1
 
 - Operate / Solo  
-- N1MM Broadcast (targets are overridden)  
 - CAT / mute  
 
 ---
@@ -156,12 +171,13 @@ Typical home desk:
 
 ---
 
-## Dual RX note (still H0/H1)
+## Dual RX note → H2
 
 You may run a second WSJT-X on SUB or SDR for decode only.  
 H0 shows both if they share plane A.  
-H1 should target the **TX-capable** gate (`127.0.0.1:22372` for that instance).  
-Marking TX-capable vs decode-only in config is **H2**.
+H1 should hold only the **TX-capable** instance (MessageClient control port on
+inhibit-3.2-rc1).  
+Mark TX-capable vs decode-only on Setup (or `seat-profile.json`) — see [`home_h2.md`](home_h2.md).
 
 ---
 
@@ -171,8 +187,9 @@ Marking TX-capable vs decode-only in config is **H2**.
 |---------|--------|
 | Empty roster | UDP `224.0.0.73:2237`; Solo running; firewall |
 | Work does nothing | Accept UDP ON; correct instance |
-| KEY never holds | Patched gate; port 22372; `--targets`; KEY device / CTS |
-| Want fleet multi-PC KEY | Use launcher **SSB/CW KEY** + discovery — not this home override |
+| `ingest: datagram error` / type 17 truncate | WIMS must parse Supported-first type 17 (inhibit-3.2-rc1) |
+| KEY never holds | Patched WSJT; type-18 control port (not stale 22372 on 3.2-rc1); KEY / CTS |
+| Want fleet multi-PC KEY | Use launcher **SSB/CW KEY** + discovery — not the home 22372 override |
 
 Full fleet setup: [`operator_setup.md`](operator_setup.md).  
 Windows script index: [`scripts/windows/README.md`](../scripts/windows/README.md).

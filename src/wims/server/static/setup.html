@@ -104,6 +104,31 @@ python src/wims/integrations/wsjtx_config.py --all</pre>
   <div id="setup-agents" class="syncrow"><span class="k">waiting for agent reports…</span></div>
   <div id="setup-cfg-audit" class="empty">No agent config detail yet.</div>
 
+  <h2>Home dual RX (H2) — TX-capable mark</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    One transceiver with two WSJT-X instances (MAIN + SUB, or TRX + SDR): mark
+    <b>exactly one</b> as TX-capable. Decode-only instances stay in Operate but
+    Work is denied. Inhibit home should target the TX-capable gate only.
+    See <code>docs/home_h2.md</code>.
+  </p>
+  <div class="syncrow" style="gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
+    <label style="font-size:13px">
+      Station class
+      <select id="seat-class" style="margin-left:6px">
+        <option value="">(unset — fleet / single digi)</option>
+        <option value="shared_trx_dual_rx">shared_trx_dual_rx (same radio SUB)</option>
+        <option value="shared_trx_second_rx">shared_trx_second_rx (separate SDR)</option>
+        <option value="dual_radio">dual_radio</option>
+        <option value="single_radio">single_radio</option>
+      </select>
+    </label>
+    <button type="button" id="seat-save">Save marks</button>
+    <button type="button" id="seat-reload">Reload file</button>
+    <span class="meta" id="seat-path"></span>
+  </div>
+  <div id="seat-marks" class="empty">No live WSJT-X yet — start instances, then mark them.</div>
+  <div id="seat-checks" class="syncrow" style="margin-top:8px"></div>
+
   <h2>Other networked PCs</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
     N1MM is one per band; WSJT-X may be on other PCs/sites (e.g. TV-station 50, dual 144 FT8/MSK).

@@ -243,16 +243,24 @@ class LoggedADIF(WsjtxMessage):
 class InhibitStatus(WsjtxMessage):
     """NetworkMessage::InhibitStatus (type 17) — digi seat inhibit telemetry.
 
-    No band field on the wire today; correlate with Status dial_frequency by id.
+    Wire (inhibit-3.2-rc1 / NetworkMessage.hpp): Supported, Inhibited,
+    Source station, counters, optional t_rx_ns / t_pin_ns. No inhibit listen
+    port on the wire — type 18 goes to the MessageClient UDP source port.
+
+    ``inhibit_port`` stays on the dataclass as 0 for older callers; discovery
+    fills the real control port from the datagram source address.
     """
 
-    inhibit_port: int = 0
+    supported: bool = False
     inhibited: bool = False
     source_station: str | None = None
     hold_rx: int = 0
     release_rx: int = 0
     expiries: int = 0
     invalid: int = 0
+    t_rx_ns: int = 0
+    t_pin_ns: int = 0
+    inhibit_port: int = 0  # not on wire; kept for older call sites
 
 
 @dataclass
@@ -570,15 +578,22 @@ def parse(data: bytes) -> WsjtxMessage | None:
         return LoggedADIF(schema, mtype, mid, adif=r.utf8())
 
     if mtype == INHIBIT_STATUS:
-        return InhibitStatus(
-            schema, mtype, mid,
-            inhibit_port=r.u16(),
-            inhibited=r.boolean(),
-            source_station=r.utf8(),
-            hold_rx=r.u32(),
-            release_rx=r.u32(),
-            expiries=r.u32(),
-            invalid=r.u32(),
-        )
+        # Matching NetworkMessage.hpp InhibitStatus (Supported bool first).
+        # Optional trailing t_rx_ns / t_pin_ns from f75ae timing; tolerate trim.
+        msg = InhibitStatus(schema, mtype, mid)
+        try:
+            msg.supported = r.boolean()
+            msg.inhibited = r.boolean()
+            msg.source_station = r.utf8()
+            msg.hold_rx = r.u32()
+            msg.release_rx = r.u32()
+            msg.expiries = r.u32()
+            msg.invalid = r.u32()
+            if not r.at_end():
+                msg.t_rx_ns = r.u64()
+                msg.t_pin_ns = r.u64()
+        except ValueError:
+            pass
+        return msg
 
     return UnknownMessage(schema, mtype, mid)

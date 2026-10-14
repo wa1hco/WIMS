@@ -76,6 +76,9 @@ def main() -> None:
                     help="do not open the browser on start")
     ap.add_argument("--no-check", action="store_true",
                     help="skip the WSJT-X / N1MM setup check printed before start")
+    ap.add_argument("--seat-profile", default=None, metavar="PATH",
+                    help="seat-profile.json for H2 TX-capable marks "
+                         "(default platform path; see docs/home_h2.md)")
     args = ap.parse_args()
 
     # Friendly single-PC setup check first, so the tester sees "is my setup OK?"
@@ -103,6 +106,8 @@ def main() -> None:
         argv += ["--no-seed"]
     if args.enable_cq_freetext:
         argv += ["--enable-cq-freetext"]
+    if args.seat_profile:
+        argv += ["--seat-profile", args.seat_profile]
 
     print(f"WIMS solo — single-PC console. In WSJT-X: Settings → Reporting → UDP Server "
           f"224.0.0.73:{args.port}, 'Accept UDP requests' ON.")

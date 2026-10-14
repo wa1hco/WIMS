@@ -263,23 +263,32 @@ def build_logged_adif(mid: str, adif: str, *, schema: int = 2) -> bytes:
 
 def build_inhibit_status(
     mid: str,
-    inhibit_port: int,
     *,
+    supported: bool = True,
     inhibited: bool = False,
-    source_station: str = "",
+    source_station: str | None = "",
     hold_rx: int = 0,
     release_rx: int = 0,
     expiries: int = 0,
     invalid: int = 0,
+    t_rx_ns: int = 0,
+    t_pin_ns: int = 0,
     schema: int = 3,
 ) -> bytes:
-    """InhibitStatus (msg 17): digi seat announce inhibit listen port + counters."""
+    """InhibitStatus (msg 17): capability + counters (+ optional timing).
+
+    Matches inhibit-3.2-rc1 ``NetworkMessage.hpp``: Supported, Inhibited,
+    Source station, four quint32 counters, optional t_rx_ns / t_pin_ns.
+    Type-18 addressing uses the MessageClient UDP source port, not a field here.
+    """
     w = _Writer(schema, INHIBIT_STATUS, mid)
-    w.u16(int(inhibit_port))
+    w.boolean(supported)
     w.boolean(inhibited)
     w.utf8(source_station)
     w.u32(hold_rx)
     w.u32(release_rx)
     w.u32(expiries)
     w.u32(invalid)
+    w.u64(int(t_rx_ns))
+    w.u64(int(t_pin_ns))
     return w.bytes()

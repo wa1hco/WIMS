@@ -170,24 +170,27 @@ merged KEY line.
 
 ## 5. InhibitStatus (type 17) — discovery / telemetry
 
-Outbound on the normal WSJT-X UDP Server path (plane A, typically `224.0.0.73:2237`),
-not on 22372:
+Outbound on the normal WSJT-X UDP Server path (plane A, typically `224.0.0.73:2237`).
+
+Wire shape matches `NetworkMessage.hpp` on inhibit-3.2-rc1 (Supported first; no
+listen-port field):
 
 | Field | Type | Use |
 |-------|------|-----|
 | Id | utf8 | Instance key (`--rig-name`) |
-| Inhibit port | quint16 | Where to send type-18 (22372 or ephemeral) |
+| Supported | bool | DTR/RTS PTT + Accept UDP; false withdraws |
 | Inhibited | bool | Any lease live |
-| Source station | utf8 | Badge (may list holders) |
+| Source station | utf8 | Badge (may be null/empty) |
 | Hold rx / Release rx / Expiries / Invalid | quint32 ×4 | Plumbing triage |
+| t_rx_ns / t_pin_ns | quint64 ×2 | Optional timing (f75ae) |
 
-WIMS Key agent should resolve assignment targets by **instance id → live host:inhibit_port**
-from InhibitStatus, then send type-18 there. Survives WIMS server outage for *actuation*
-once the target list (or last list) is known.
+Type **18** goes to the **MessageClient UDP source port** learned from plane-A
+traffic (same ephemeral port as Reply/Halt). WIMS Key discovery stores that
+source port as the type-18 destination when Supported is true.
 
-**Cadence (wsjtx-inhibit):** type 17 on hold/port changes **and every 15 s**
-(`NetworkMessage::pulse`) while TX Inhibit is enabled — not change-only. Still
-inventory/telemetry; KEY holds remain unicast to `host:22372`.
+**Cadence (wsjtx-inhibit):** type 17 on capability/hold changes and with Heartbeat
+while available; unsupported snapshot withdraws. Soft-expire after three missing
+Heartbeat intervals.
 
 ---
 

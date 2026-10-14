@@ -170,19 +170,41 @@ def test_grid_extractor_excludes_signoffs():
 def test_inhibit_status_roundtrip():
     from wims.udp import encode as E
     raw = E.build_inhibit_status(
-        "ROY-144-A", 22372,
-        inhibited=True, source_station="ROY-SSB",
+        "ROY-144-A",
+        supported=True,
+        inhibited=True,
+        source_station="ROY-SSB",
         hold_rx=3, release_rx=1, expiries=0, invalid=2,
+        t_rx_ns=100, t_pin_ns=200,
     )
     msg = m.parse(raw)
     assert isinstance(msg, m.InhibitStatus)
     assert msg.id == "ROY-144-A"
-    assert msg.inhibit_port == 22372
+    assert msg.supported is True
     assert msg.inhibited is True
     assert msg.source_station == "ROY-SSB"
     assert msg.hold_rx == 3 and msg.release_rx == 1
     assert msg.expiries == 0 and msg.invalid == 2
+    assert msg.t_rx_ns == 100 and msg.t_pin_ns == 200
+    assert msg.inhibit_port == 0  # not on wire
     assert msg.type == m.INHIBIT_STATUS
+
+
+def test_inhibit_status_null_source_parses():
+    """WSJT may stream a null QByteArray for an empty source_station."""
+    from wims.udp import encode as E
+    raw = E.build_inhibit_status(
+        "WSJT-X - IC9700",
+        supported=True,
+        inhibited=False,
+        source_station=None,
+    )
+    msg = m.parse(raw)
+    assert isinstance(msg, m.InhibitStatus)
+    assert msg.supported is True
+    assert msg.inhibited is False
+    assert msg.source_station is None
+    assert len(raw) == 69
 
 
 if __name__ == "__main__":

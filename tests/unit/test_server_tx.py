@@ -56,10 +56,20 @@ class _FakeTx:
 CTRL_PORT = 54321
 
 
-def _fleet_with_cq_decode():
-    """LiveFleet seeded with one instance and one CQ roster row; returns (live, tx, row_id)."""
+def _fleet_with_cq_decode(*, seat_profile=None):
+    """LiveFleet seeded with one instance and one CQ roster row; returns (live, tx, row_id).
+
+    Uses a missing seat-profile path by default so host marks cannot skew unit tests.
+    """
+    import tempfile
+    from pathlib import Path
     tx = _FakeTx()
     live = LiveFleet(tx_controller=tx)
+    if seat_profile is None:
+        # Nonexistent path under a fresh temp dir (no host profile bleed-in).
+        live.set_seat_profile_path(Path(tempfile.mkdtemp()) / "seat-profile.json")
+    else:
+        live.set_seat_profile_path(seat_profile)
     now = time.time()
     live.observe_wsjtx(M.parse(E.build_status(MID, 14074000, mode="FT8",
                        de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.1", CTRL_PORT)
@@ -430,6 +440,27 @@ def test_no_tx_path_is_read_only():
     assert live.halt()["error"] == "tx_disabled"
     assert live.snapshot(time.time())["tx"]["enabled"] is False
     assert live.snapshot(time.time())["tx"]["can_tx"] is False
+
+
+def test_work_denied_when_instance_decode_only():
+    """H2: explicit tx_capable=false blocks Work on that source."""
+    import tempfile
+    from pathlib import Path
+    with tempfile.TemporaryDirectory() as td:
+        profile = Path(td) / "seat-profile.json"
+        profile.write_text(
+            '{"wsjt_instances":[{"id":"%s","tx_capable":false}]}' % MID,
+            encoding="utf-8",
+        )
+        live, tx, row_id = _fleet_with_cq_decode(seat_profile=profile)
+        snap = live.snapshot(time.time())
+        inst = next(i for i in snap["instances"] if i["id"] == MID)
+        assert inst["tx_capable"] is False
+        cand = snap["roster"]["candidates"][0]
+        assert cand["tx_capable"] is False
+        r = live.work_station(row_id)
+        assert r["ok"] is False and r["error"] == "decode_only"
+        assert tx.sent == []
 
 
 if __name__ == "__main__":

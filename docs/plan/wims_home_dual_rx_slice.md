@@ -94,7 +94,7 @@ Home success does **not** require Tailscale or multi-PC.
 
 1. ~~**Write radio-ownership ADR**~~ → `docs/decisions/2026-09-17-shared-trx-radio-ownership.md`  
 2. ~~**H0/H1 packaging**~~ → `docs/home_h0_h1.md`, `Start-Wims-Solo.*`, `Start-Wims-Inhibit-Home.*`, launcher Other tools  
-3. **H2** config: mark TX-capable vs decode-only; dual RX wiring checklist.  
+3. ~~**H2** config: mark TX-capable vs decode-only; dual RX wiring checklist.~~ → `docs/home_h2.md`, Setup marks, `seat-profile.json`  
 4. **H3** mute on KEY (Windows) before CAT.  
 5. **H4** only after ADR + wfview/lab spike.
 

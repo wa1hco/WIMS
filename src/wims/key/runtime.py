@@ -253,16 +253,19 @@ class KeyRuntime:
                 joined_port = None
                 continue
             host = addr[0]
+            src_port = int(addr[1])
             msg = M.parse(data)
             if isinstance(msg, M.Status):
                 b = band_label(msg.dial_frequency or 0, instance=msg.id or "")
                 self.table.on_status(msg.id or "", b, host, time.monotonic())
             elif isinstance(msg, M.InhibitStatus):
+                # Type 18 goes to MessageClient's UDP source port (not a wire field).
                 self.table.on_inhibit_status(
                     msg.id or "",
-                    msg.inhibit_port,
+                    src_port,
                     host,
                     time.monotonic(),
+                    supported=msg.supported,
                     inhibited=msg.inhibited,
                     source_station=msg.source_station or "",
                 )

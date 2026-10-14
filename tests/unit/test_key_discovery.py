@@ -70,6 +70,15 @@ def test_bad_port_ignored():
     assert t.targets_for_band("2m", 0.0) == []
 
 
+def test_unsupported_withdraws_port():
+    t = InhibitTargetTable()
+    t.on_status("A", "2m", "10.0.0.1", 0.0)
+    t.on_inhibit_status("A", 54321, "10.0.0.1", 0.0, supported=True)
+    assert t.targets_for_band("2m", 0.0)
+    t.on_inhibit_status("A", 54321, "10.0.0.1", 1.0, supported=False)
+    assert t.targets_for_band("2m", 1.0) == []
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
