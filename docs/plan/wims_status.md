@@ -136,8 +136,8 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
-| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; **remember last Setup/`--seed-db` log** across restarts (`state/last_log.py`); dupe/mult self-computed. Remaining: `LogSource` backend abstraction; **prior-contest band-history seed for C7** (not this-contest dupes). |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Dupe/mult/points are still hard-coded ARRL VHF. Remaining: contest-rules presets + custom checkboxes ([wims_logs_and_rules.md](wims_logs_and_rules.md) L1–L3), **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
+| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; **remember last Setup/`--seed-db` log** across restarts (`state/last_log.py`); `LogSource` protocol + `N1mmLogSource` exist; dupe/mult self-computed (ARRL VHF). Remaining: WSJT-X ADIF / generic ADIF backends, solo log-access warnings, log audit (L4–L8 in [wims_logs_and_rules.md](wims_logs_and_rules.md)); **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -201,11 +201,35 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   setup test (**done**); **interlock** sensor (SSB/CW CTS) + fast mute actuator (WSJT-X host);
   **rotator** status/control (K3NG); thumbnails; process lifecycle; local readiness; watchdog
   fail-safe. Design: wims_design.md §3.3.1.
+- [ ] **L1 — Contest rules interface (no verdict change).** Extract today’s ARRL VHF
+  dupe/mult/points into `ContestRules` (`arrl-vhf`). `LogStore.is_dupe` / `is_new_mult`
+  delegate to it. Existing scoring tests stay green. Design:
+  [wims_logs_and_rules.md](wims_logs_and_rules.md) §3 / §8.
+- [ ] **L2 — Persist and show the rule.** `contest_rules.json` beside `last_log.json`.
+  Setup preset list + plain-language summary. State key `rules`. Default `arrl-vhf`.
+- [ ] **L3 — Casual, band+mode, and custom checkboxes.** Roster `need_reason` /
+  `mult_reason`. Dupe per band, mode, band+mode, UTC day; grid/state/section mults;
+  VHF band-table or flat points.
+- [ ] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
+  `wsjtx_log.adi`, `--rig-name` data dirs, shared-drive path. Solo setup check and
+  Setup page, plain language. Log copy unchanged.
+- [ ] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Solo with no usable N1MM uses
+  the ADIF union or the one shared file. Poll appends; UDP logged-QSO uses the same id.
+  N1MM path unchanged when it is the saved primary.
+- [ ] **L6 — Log audit CLI.** `python -m wims.logaudit` reads WSJT-X ADIF, N1MM, and
+  generic ADIF. Text + JSON. Read-only. “Consistent” = section 5.3 of the design.
+- [ ] **L7 — Audit extras.** GridTracker path (after a filename spike), LoTW ADIF as
+  confirmation notes, Setup “Check logs” view of the same report.
+- [ ] **L8 — Further log readers.** Log4OM / DXKeeper / CQRLOG as ADIF drop first;
+  native DB only after the survey spike checklist.
 
 ---
 
 ## Build log
 
+- **2026-10-15** — **Design only: solo logs, contest rules, log audit.** Proposal in
+  [wims_logs_and_rules.md](wims_logs_and_rules.md). Milestones L1–L8 above. No runtime
+  change.
 - **2026-10-14** — **IF→RF mapping is off unless the seat is listed.**
   `if_seats.json` (Setup checkbox, or the seat agent page on that PC) names
   rig-names / N1MM stations that report IF (Roy 222 at 21 MHz, Roy 432 at
