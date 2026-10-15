@@ -129,6 +129,47 @@ python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
 scripts/validate.sh   # or: for t in tests/unit/test_*.py; do python3 "$t"; done
 ```
 
+### Run solo from a git checkout
+
+The owner’s checkout is `~/ham/wims` on Windows and Linux. From that directory, with no extra flags:
+
+```bash
+# Linux
+cd ~/ham/wims
+PYTHONPATH=src python3 -m wims solo
+```
+
+```bat
+REM Windows (cmd)
+cd %USERPROFILE%\ham\wims
+set PYTHONPATH=src
+python -m wims solo
+```
+
+Then open [http://localhost:8787/](http://localhost:8787/). Setup → **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds the color checkboxes, a custom rule, station state/county, and a shared log path. There is no contest command-line flag.
+
+WIMS writes the choice itself:
+
+| | |
+|--|--|
+| Linux | `~/.config/wims/contest_rules.json` (custom rules: `custom_rules.json`, shared log: `logs.json`) |
+| Windows | `%APPDATA%\wims\contest_rules.json` (same sibling files) |
+
+None, with no N1MM log, uses WSJT-X Colors against each instance’s `wsjtx_log.adi`. An N1MM log that opens stays the log of record; dropdown None then means ARRL VHF.
+
+Check that the ADIF files agree (read-only; prints a report, changes nothing):
+
+```bash
+# Linux, from ~/ham/wims
+PYTHONPATH=src python3 -m wims.logaudit
+
+# Windows, from %USERPROFILE%\ham\wims
+set PYTHONPATH=src
+python -m wims.logaudit
+```
+
+No arguments discovers local WSJT-X logs (and a GridTracker `.adi` when one is sitting in the GridTracker folder). Add `--adif PATH`, `--n1mm-db PATH`, or `--lotw PATH` to compare those files too. `--json report.json` writes the same report.
+
 ### C. Already installed — just run
 
 ```bash

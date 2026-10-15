@@ -421,6 +421,8 @@ Per instance: a decode on `--rig-name` 6m uses that instance’s ini and that in
 
 Factory defaults in current WSJT-X source (verify on the Colors tab of the installed build before coding — the list has grown): New DXCC and New DXCC on Band start enabled; New Grid, New Grid on Band, New Call, and New Call on Band start disabled. The same list also has rows that are **not** this needed rule: CQ in message, My Call in message, Transmitted message, New Continent, New Continent on Band, New CQ Zone, New CQ Zone on Band, New ITU Zone, New ITU Zone on Band, and LoTW. User guide §6.7 ([Colors](https://wsjtx.github.io/wsjtx/guide-full.html)) is the check. Dragging a row changes priority only. WIMS does not write `WSJT-X.ini`.
 
+Implementation note (2026-10-15): the `DecodeHighlighting` blob is still unread. When `cty.dat` is found, WIMS shows the factory defaults above. When `cty.dat` is not found, New DXCC and New DXCC on Band cannot match, so those two stay off and New Call, New Call on Band, New Grid, and New Grid on Band start on. Setup says so. The operator can edit the six checkboxes under Advanced.
+
 The General tab box “Show DXCC, grid, and worked-before status” (user guide §6.7) turns worked-before coloring on inside WSJT-X. Its ini key is **not** confirmed yet. When the spike finds it and the box is off, Setup says “WSJT-X is not coloring worked-before status (General tab). WIMS is still using the Colors categories below.” WIMS does not refuse the fallback because of that box.
 
 If the operator edits a category in WIMS, save into `wsjtx_override` and stop live-mirroring until they press **Use WSJT-X.ini again**. No enabled category at all: Setup warns “No color category is enabled, so no CQ will show as needed.”

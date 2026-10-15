@@ -1,0 +1,25 @@
+{
+  "id": "arrl-vhf",
+  "title": "ARRL VHF",
+  "license": "GPL-3.0-or-later",
+  "rules_url": "https://www.arrl.org/arrl-vhf-uhf-contests",
+  "rules_version": "",
+  "rules_date": "",
+  "year": 2026,
+  "season": {"start": "", "end": ""},
+  "aliases": ["ARRLVHF", "ARRL-VHF", "ARRLVHFJUN", "ARRLVHFSEP", "ARRLVHFJAN"],
+  "mode_groups": {
+    "PH": ["SSB", "USB", "LSB", "FM", "AM"],
+    "CW": ["CW"],
+    "DIG": ["FT8", "FT4", "MSK144", "JT65", "Q65", "RTTY", "DIGI"]
+  },
+  "excluded_modes": [],
+  "dupe_scope": "band",
+  "rover_grid": true,
+  "dupe_reset": "",
+  "points": "vhf-band",
+  "multipliers": [
+    {"type": "grid", "who": "all", "per": "band"}
+  ],
+  "summary": "Dupes: once per band. A rover in a new grid is a new contact. A new grid on this band is a multiplier."
+}

@@ -865,6 +865,156 @@ function renderSetupExtras(n1mm, s) {
   renderSeatMarks(s);
 }
 
+let _contestWired = false;
+let _contestAdvSig = "";
+
+function renderContestRules(s) {
+  const rules = s && s.rules;
+  if (!rules) return;
+  let line = rules.source_label
+    ? (rules.source_label + " — " + (rules.summary || ""))
+    : (rules.summary || "");
+  if (rules.suggested_note) line += " " + rules.suggested_note;
+  if (rules.n1mm_line) line += " " + rules.n1mm_line;
+  for (const id of ["contest-summary", "ros-rules", "n1mm-rules-line"]) {
+    const el = $(id);
+    if (el) el.textContent = line;
+  }
+  const logs = $("contest-logs");
+  if (logs) {
+    const rows = s.log_access || [];
+    logs.innerHTML = rows.map(r => {
+      const bad = r.status && r.status !== "ok" && r.status !== "missing_file";
+      return `<div${bad ? ' style="color:#8a3b00"' : ""}>${esc(r.message || "")}</div>`;
+    }).join("");
+  }
+  const sel = $("contest-pick");
+  if (sel && document.activeElement !== sel) {
+    const opts = [{id: "", title: "None"}].concat(rules.catalog || []);
+    if (rules.custom_available) opts.push({id: "custom", title: "Custom"});
+    const html = opts.map(o =>
+      `<option value="${esc(o.id)}">${esc(o.title)}</option>`).join("");
+    if (sel.dataset.html !== html) {
+      sel.innerHTML = html;
+      sel.dataset.html = html;
+    }
+    const cur = (rules.choice && rules.choice.contest) || "";
+    if (sel.value !== cur) sel.value = cur;
+  }
+  if (sel && !_contestWired) {
+    _contestWired = true;
+    sel.addEventListener("change", () => {
+      fetch("/api/rules", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({action: "select", contest: sel.value || null}),
+      }).catch(() => {});
+    });
+  }
+  renderContestAdvanced(s);
+}
+
+function renderContestAdvanced(s) {
+  const box = $("contest-advanced-body");
+  if (!box || !s || !s.rules) return;
+  if (box.contains(document.activeElement)) return;
+  const rules = s.rules;
+  const colors = rules.colors || {};
+  const choice = rules.choice || {};
+  const labels = colors.labels || {
+    new_dxcc: "New DXCC", new_dxcc_band: "New DXCC on Band",
+    new_grid: "New Grid", new_grid_band: "New Grid on Band",
+    new_call: "New Call", new_call_band: "New Call on Band",
+  };
+  const cats = colors.categories || {};
+  const sig = JSON.stringify({cats, note: rules.colors_note || "", choice});
+  if (sig === _contestAdvSig && box.dataset.ready === "1") return;
+  _contestAdvSig = sig;
+  const checks = Object.keys(labels).map(k =>
+    `<label style="display:block"><input type="checkbox" data-color="${esc(k)}"${cats[k] ? " checked" : ""}> ${esc(labels[k])}</label>`
+  ).join("");
+  box.innerHTML =
+    `<p>${esc(rules.colors_note || (colors.note || ""))}</p>` +
+    checks +
+    `<label style="display:block"><input type="checkbox" id="color-by-mode"${colors.highlight_by_mode ? " checked" : ""}> Highlight by mode</label>` +
+    `<label style="display:block"><input type="checkbox" id="color-fields"${colors.only_fields_sought ? " checked" : ""}> Only grid fields sought</label>` +
+    `<p><button type="button" id="color-save">Save color checkboxes</button> ` +
+    `<button type="button" id="color-reset">Use WSJT-X.ini again</button></p>` +
+    `<p>Station state <input id="st-state" value="${esc(choice.station_state || "")}" size="6"> ` +
+    `county <input id="st-county" value="${esc(choice.station_county || "")}" size="12"> ` +
+    `<button type="button" id="st-save">Save station</button></p>` +
+    `<p>Shared log file <input id="shared-log" size="42"> ` +
+    `<button type="button" id="shared-save">Use this WSJT-X log</button></p>` +
+    `<p>Custom dupe <select id="custom-scope">` +
+    `<option value="band">once per band</option>` +
+    `<option value="band+group">once per band per mode group</option>` +
+    `<option value="all">once per contest</option></select></p>` +
+    `<label style="display:block"><input type="checkbox" id="custom-county"> Reset a dupe when my county changes</label>` +
+    `<label style="display:block"><input type="checkbox" id="custom-ft8"> Do not count FT8</label>` +
+    `<label style="display:block"><input type="checkbox" id="custom-ft4"> Do not count FT4</label>` +
+    `<label style="display:block"><input type="checkbox" id="custom-rover"> A rover in a new grid is a new contact</label>` +
+    `<p><button type="button" id="custom-save">Save custom rules</button></p>` +
+    `<p>N1MM .udc on this PC <input id="udc-path" size="42"> ` +
+    `<button type="button" id="udc-import">Read it</button></p>` +
+    `<pre id="udc-out" style="white-space:pre-wrap"></pre>` +
+    `<p><button type="button" id="logs-check">Check logs</button></p>` +
+    `<pre id="logs-check-out" style="white-space:pre-wrap;max-height:240px;overflow:auto"></pre>`;
+  box.dataset.ready = "1";
+  const post = (body) => fetch("/api/rules", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  });
+  $("color-save").onclick = () => {
+    const categories = {};
+    box.querySelectorAll("[data-color]").forEach(el => {
+      categories[el.getAttribute("data-color")] = el.checked;
+    });
+    post({
+      action: "colors",
+      categories,
+      highlight_by_mode: $("color-by-mode").checked,
+      only_fields_sought: $("color-fields").checked,
+    }).catch(() => {});
+  };
+  $("color-reset").onclick = () => post({action: "colors_reset"}).catch(() => {});
+  $("st-save").onclick = () => post({
+    action: "station",
+    station_state: $("st-state").value,
+    station_county: $("st-county").value,
+  }).catch(() => {});
+  $("shared-save").onclick = () => post({
+    action: "shared_log",
+    shared_path: $("shared-log").value,
+    use_wsjtx: true,
+  }).catch(() => {});
+  $("custom-save").onclick = () => post({
+    action: "save_custom",
+    dupe_scope: $("custom-scope").value,
+    dupe_reset_county: $("custom-county").checked,
+    ban_ft8: $("custom-ft8").checked,
+    ban_ft4: $("custom-ft4").checked,
+    rover_grid: $("custom-rover").checked,
+  }).catch(() => {});
+  $("udc-import").onclick = () => {
+    post({action: "import_udc", path: $("udc-path").value})
+      .then(r => r.json())
+      .then(j => { $("udc-out").textContent = JSON.stringify(j.udc || j, null, 2); })
+      .catch(() => {});
+  };
+  $("logs-check").onclick = () => {
+    const out = $("logs-check-out");
+    out.textContent = "Checking…";
+    fetch("/api/logs/check", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: "{}",
+    }).then(r => r.json()).then(j => {
+      out.textContent = j.text || JSON.stringify(j);
+    }).catch(() => { out.textContent = "Check failed."; });
+  };
+}
+
 // -- H2 seat-profile marks (Setup) ------------------------------------------ //
 
 let _seatMarksWired = false;
@@ -1560,8 +1710,11 @@ function rosDraw() {
       if (c.is_calling_us) tip = "Calling us — " + tip;
       else if (c.is_armed) tip = "Enable Tx set for this DX — " + tip;
       tr.title = tip;
-    } else if (c.tx_capable === false) {
+    } else     if (c.tx_capable === false) {
       tr.title = (c.instance || "instance") + " is decode-only — Work denied (H2 mark)";
+    }
+    if (c.need_reason) {
+      tr.title = (tr.title ? tr.title + " — " : "") + c.need_reason;
     }
     tr.innerHTML = vis.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");
@@ -1769,6 +1922,7 @@ function render(s) {
   renderSync(s.n1mm_sync);
   renderLoggers(s);
   renderSetupExtras(s.n1mm_sync, s);
+  renderContestRules(s);
 }
 
 // Status panels selected by top nav path: /overview | /wsjt | /n1mm (/status → overview)

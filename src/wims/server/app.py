@@ -144,6 +144,31 @@ class LiveFleet:
         self._log = LogStore(":memory:")
         # Primary log backend (N1MM today; other LogSource kinds later).
         self._log_source = N1mmLogSource()
+        # Rules stay on the ARRL VHF file until main() attaches the operator
+        # choice. LiveFleet() in tests must not read the user's contest file
+        # or scan WSJT-X logs.
+        self._rules_meta = self._log.rules.public(
+            source_label="ARRL VHF",
+            n1mm=False,
+            extra={
+                "choice": {
+                    "contest": None,
+                    "explicit": False,
+                    "suggested": False,
+                    "fallback": "wsjtx-colors",
+                    "station_state": "",
+                    "station_county": "",
+                },
+                "custom_available": False,
+            },
+        )
+        self._log_access_rows: list[dict] = []
+        self._rules_attached = False
+        self._n1mm_authoritative = False
+        self._adif_source = None
+        self._adif_poll_mono = 0.0
+        self._log_access_mono = 0.0
+        self._contest_names: list[str] = []
         self._roster = RosterBuilder(log=self._log)
         self._maps: dict[str, ActivityMap] = {}    # per-instance decode-activity map
         self._decodes: deque = deque(maxlen=300)   # rolling fleet-wide decode log
@@ -363,6 +388,8 @@ class LiveFleet:
             }
             self._active_contest = active
             self._seed_db_hint = db_path
+            self._n1mm_authoritative = True
+            self._adif_source = None
         if remember and active is not None:
             last_log_pref.save({
                 "db_path": db_path,
@@ -433,6 +460,181 @@ class LiveFleet:
                               remember=False, selection="auto")
         return {"ok": True, "seeded": n, "contest": rec, "source": "auto",
                 "contests": contests, "scan_dirs": scan_dirs}
+
+    def seed_wsjtx_adif(self) -> dict:
+        """Solo path: read wsjtx_log.adi when N1MM is not the log of record."""
+        from wims.integrations.logsource.adif_source import WsjtxAdifLogSource
+        from wims.integrations.wsjtx_logs import discover_access, seed_files
+        from wims.rules.choice import load_logs
+        logs = load_logs()
+        if (logs.get("primary") or "auto") == "n1mm":
+            return {"ok": False, "reason": "primary_n1mm"}
+        with self._lock:
+            ids = list(self._tracker.nodes)
+        files = seed_files(ids, logs=logs)
+        access = [a.to_dict() for a in discover_access(ids, logs=logs)]
+        with self._lock:
+            self._log_access_rows = access
+        if not files:
+            return {"ok": False, "reason": "no_adif", "log_access": access}
+        source = WsjtxAdifLogSource(files)
+        qsos = source.seed()
+        names = [q.contest_id for q in qsos if q.contest_id]
+        with self._lock:
+            summary = self._log.reconcile(qsos)
+            self._adif_source = source
+            self._n1mm_authoritative = False
+            self._seed = {"count": summary["total"], "source": "wsjtx_adif"}
+            self._contest_names = names
+        return {"ok": True, "seeded": summary["total"],
+                "files": [str(p) for p in files]}
+
+    def attach_rules(self, *, n1mm_authoritative: bool | None = None) -> dict:
+        """Load the contest dropdown (and Colors fallback). Not called from __init__."""
+        from wims.engine.contest_rules import resolve
+        from wims.integrations.wsjtx_logs import ini_path
+        from wims.rules.choice import load_choice, load_custom, save_choice
+        if n1mm_authoritative is not None:
+            self._n1mm_authoritative = bool(n1mm_authoritative)
+        choice = load_choice()
+        custom = load_custom()
+        names = list(self._contest_names)
+        with self._lock:
+            active = dict(self._active_contest or {})
+        if active.get("contest_name"):
+            names.append(str(active["contest_name"]))
+        resolved = resolve(
+            choice,
+            n1mm=self._n1mm_authoritative,
+            contest_names=names,
+            ini_path=ini_path("WSJT-X"),
+            cty_ok=False,
+            custom_data=custom,
+        )
+        if resolved.suggested and resolved.contest and not choice.get("explicit"):
+            choice = dict(choice)
+            choice["contest"] = resolved.contest
+            choice["suggested"] = True
+            choice["explicit"] = False
+            try:
+                save_choice(choice)
+            except OSError:
+                pass
+        with self._lock:
+            self._log.rules = resolved.rules
+            self._log.station_state = (choice.get("station_state") or "")
+            self._log.station_county = (choice.get("station_county") or "")
+            self._rules_meta = resolved.public
+            self._rules_attached = True
+        return resolved.public
+
+    def refresh_log_access(self) -> list[dict]:
+        from wims.integrations.wsjtx_logs import discover_access
+        from wims.rules.choice import load_logs
+        with self._lock:
+            ids = list(self._tracker.nodes)
+            n1mm = self._n1mm_authoritative
+            empty = self._log.count() == 0
+        try:
+            rows = [a.to_dict() for a in discover_access(ids, logs=load_logs())]
+        except Exception:
+            rows = []
+        readable = any(r.get("status") == "ok" for r in rows)
+        if not readable and not n1mm and empty:
+            rows.append({
+                "instance": "",
+                "path": "",
+                "status": "unreadable",
+                "message": (
+                    "No contest log and no WSJT-X log is readable. "
+                    "Every station will look needed."
+                ),
+                "count": 0,
+            })
+        with self._lock:
+            self._log_access_rows = rows
+            self._log_access_mono = time.monotonic()
+        return rows
+
+    def set_rules(self, body: dict) -> dict:
+        """POST /api/rules. The dropdown applies immediately."""
+        from wims.engine.contest_rules import custom_from_checkboxes, import_udc
+        from wims.rules.choice import (
+            load_choice, load_logs, save_choice, save_custom, save_logs,
+        )
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "invalid_body"}
+        action = str(body.get("action") or "select").strip()
+        choice = load_choice()
+        if action == "select":
+            contest = body.get("contest")
+            if contest in ("", "none", "None"):
+                contest = None
+            choice["contest"] = contest
+            choice["explicit"] = True
+            choice["suggested"] = False
+            save_choice(choice)
+        elif action == "station":
+            if "station_state" in body:
+                choice["station_state"] = str(body.get("station_state") or "").strip()
+            if "station_county" in body:
+                choice["station_county"] = str(body.get("station_county") or "").strip()
+            save_choice(choice)
+        elif action == "colors":
+            choice["wsjtx_override"] = {
+                "categories": body.get("categories") or {},
+                "highlight_by_mode": bool(body.get("highlight_by_mode")),
+                "only_fields_sought": bool(body.get("only_fields_sought")),
+            }
+            save_choice(choice)
+        elif action == "colors_reset":
+            choice["wsjtx_override"] = None
+            save_choice(choice)
+        elif action == "save_custom":
+            save_custom(custom_from_checkboxes(body))
+            choice["contest"] = "custom"
+            choice["explicit"] = True
+            choice["suggested"] = False
+            save_choice(choice)
+        elif action == "import_udc":
+            path = str(body.get("path") or "").strip()
+            try:
+                text = Path(path).read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:
+                return {"ok": False, "error": "unreadable", "detail": str(exc)}
+            return {"ok": True, "udc": import_udc(text)}
+        elif action == "shared_log":
+            logs = load_logs()
+            logs["shared_path"] = str(body.get("shared_path") or "").strip()
+            if body.get("use_wsjtx"):
+                logs["primary"] = "wsjtx"
+            save_logs(logs)
+            if body.get("use_wsjtx"):
+                self._n1mm_authoritative = False
+                self.seed_wsjtx_adif()
+        elif action == "use_wsjtx":
+            logs = load_logs()
+            logs["primary"] = "wsjtx"
+            save_logs(logs)
+            self._n1mm_authoritative = False
+            self.seed_wsjtx_adif()
+        else:
+            return {"ok": False, "error": "unknown_action"}
+        public = self.attach_rules()
+        self.refresh_log_access()
+        return {"ok": True, "rules": public}
+
+    def check_logs(self) -> dict:
+        from wims.logaudit.check import render_text, to_json
+        from wims.logaudit.cli import build_report
+        report = build_report([])
+        code = report.exit_code()
+        return {
+            "ok": code == 0,
+            "exit_code": code,
+            "text": render_text(report),
+            "report": to_json(report),
+        }
 
     def select_contest(self, *, db_path: str, contest_nr: int) -> dict:
         """Operator picked a contest in Setup — reload log copy and remember it."""
@@ -984,6 +1186,7 @@ class LiveFleet:
                             "band": qband,
                             "adif": adif,
                         })
+                    self._fold_logged_udp(msg)
             # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
             # Status), not only after the first Decode — quiet bands still get a frame.
             self._maps.setdefault(mid, ActivityMap(mid))
@@ -1229,7 +1432,79 @@ class LiveFleet:
                 iid = cand.get("instance") or ""
                 cand["tx_capable"] = prof.tx_capable(iid)
             d["seat_profile"] = prof.to_public_dict(live_ids=marked_ids)
+            self._maybe_poll_adif_locked()
+            self._maybe_refresh_access_locked()
+            d["rules"] = self._rules_meta
+            d["log_access"] = list(self._log_access_rows)
             return d
+
+    def _fold_logged_udp(self, msg) -> None:
+        """Same id as the ADIF row, so a QSO logged while WIMS is up is one row."""
+        if self._adif_source is None or self._n1mm_authoritative:
+            return
+        from wims.adif import qt_datetime_to_adif, read_text, to_logged_qso
+        from wims.core.bands import band_label
+        from wims.integrations.wsjtx_logs import adi_path
+        mid = getattr(msg, "id", None) or "WSJT-X"
+        try:
+            real = str(adi_path(mid).resolve())
+        except OSError:
+            real = str(adi_path(mid))
+        try:
+            if isinstance(msg, M.LoggedADIF) and msg.adif:
+                text = msg.adif
+                if "<eor>" not in text.lower():
+                    text = text + "<eor>"
+                for rec in read_text(text):
+                    qso = to_logged_qso(rec, realpath=real, source="live")
+                    if qso is not None:
+                        self._log.upsert(qso)
+                return
+            if isinstance(msg, M.QSOLogged):
+                qdate, qtime = qt_datetime_to_adif(msg.datetime_off or msg.datetime_on)
+                fields = {
+                    "call": msg.dx_call or "",
+                    "gridsquare": msg.dx_grid or "",
+                    "mode": msg.mode or "",
+                    "band": band_label(msg.tx_frequency or 0, instance=mid),
+                    "qso_date": qdate,
+                    "time_on": qtime,
+                }
+                qso = to_logged_qso(fields, realpath=real, source="live")
+                if qso is not None:
+                    self._log.upsert(qso)
+        except Exception:
+            return
+
+    def _maybe_poll_adif_locked(self) -> None:
+        src = self._adif_source
+        if src is None or self._n1mm_authoritative:
+            return
+        now = time.monotonic()
+        if now - self._adif_poll_mono < 1.0:
+            return
+        self._adif_poll_mono = now
+        try:
+            if src.poll_changed():
+                self._log.reconcile(src.seed())
+        except Exception:
+            return
+
+    def _maybe_refresh_access_locked(self) -> None:
+        if not self._rules_attached:
+            return
+        now = time.monotonic()
+        if now - self._log_access_mono < 5.0:
+            return
+        self._log_access_mono = now
+        from wims.integrations.wsjtx_logs import discover_access
+        from wims.rules.choice import load_logs
+        ids = list(self._tracker.nodes)
+        try:
+            rows = [a.to_dict() for a in discover_access(ids, logs=load_logs())]
+        except Exception:
+            return
+        self._log_access_rows = rows
 
     def point_rotator(self, *, rotator_id: str | None = None,
                       instance: str | None = None,
@@ -1688,6 +1963,18 @@ def make_handler(live: LiveFleet, refresh: float):
                     })
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/rules":
+                try:
+                    result = live.set_rules(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/logs/check":
+                try:
+                    self._send_json(200, live.check_logs())
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/log/resync":
                 # Operator safety net: re-read active contest DXLOG → reconcile by ID.
                 try:
@@ -2029,6 +2316,7 @@ def main() -> None:
     # Seed before opening sockets so the first browser load already has the log.
     # Operator-facing lines are printed after the console URL (below).
     seed_lines: list[str] = []
+    n1mm_ok = False
     if not args.no_seed:
         # Order: explicit --seed-db (that file only + remember) → last N1MM-tab pick
         # → auto latest contest. Operator can always change on the N1MM tab.
@@ -2038,6 +2326,7 @@ def main() -> None:
             else:
                 result = live.auto_seed()
             if result.get("ok"):
+                n1mm_ok = True
                 c = result.get("contest") or {}
                 src = result.get("source") or "auto"
                 # label() already includes QSO count (e.g. ARRLVHFJUN · date · N QSOs).
@@ -2070,8 +2359,26 @@ def main() -> None:
                     )
         except Exception as e:
             seed_lines.append(f"  Log: seed skipped ({e})")
+        if not n1mm_ok:
+            try:
+                adi = live.seed_wsjtx_adif()
+                if adi.get("ok"):
+                    seed_lines.append(
+                        f"  Log: WSJT-X ADIF ({adi.get('seeded')} contacts)"
+                    )
+                elif adi.get("reason") == "no_adif":
+                    seed_lines.append(
+                        "  Log: no WSJT-X wsjtx_log.adi yet — stations will look needed"
+                    )
+            except Exception as e:
+                seed_lines.append(f"  Log: WSJT-X ADIF skipped ({e})")
     else:
         live.refresh_contest_catalog()
+    try:
+        live.attach_rules(n1mm_authoritative=n1mm_ok)
+        live.refresh_log_access()
+    except Exception as e:
+        seed_lines.append(f"  Contest rules: {e}")
     # Open the ingest sockets here (not inside the thread) so a bind failure is
     # reported on the main path and the bound addresses are confirmed deterministically.
     try:

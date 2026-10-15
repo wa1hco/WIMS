@@ -1023,8 +1023,16 @@ def build_report(
     keyline = probe_keyline_interface()
     summary = _summary(wsjtx, n1mm, apps, firewall=firewall, keyline=keyline)
     rotators = _rotators_from_env()
+    log_access = None
+    if solo:
+        try:
+            from wims.integrations.wsjtx_logs import discover_access
+            from wims.rules.choice import load_logs
+            log_access = [a.to_dict() for a in discover_access(logs=load_logs())]
+        except Exception:
+            log_access = []
 
-    return {
+    report = {
         "schema": SCHEMA,
         "agent_id": aid,
         "seat_id": sid,
@@ -1045,6 +1053,9 @@ def build_report(
         "summary": summary,
         "mode": "solo" if solo else ("fleet" if fleet else "lab"),
     }
+    if log_access is not None:
+        report["log_access"] = log_access
+    return report
 
 
 def _wsjtx_shown(wx: dict, apps: dict) -> tuple[list[dict], int, bool]:
@@ -1416,7 +1427,7 @@ def _solo_body(report: dict) -> tuple[list[str], int, int]:
     # --- N1MM ----------------------------------------------------------------
     n1 = report.get("n1mm") or {}
     body.append("")
-    body.append("N1MM  (for the needed-vs-dupe roster test)")
+    body.append("N1MM (optional contest log)")
     dbs = n1.get("databases_dirs") or ([n1["databases_dir"]] if n1.get("databases_dir") else [])
     if dbs:
         add(OK, f"Log folder found: {dbs[0]}")
@@ -1427,6 +1438,26 @@ def _solo_body(report: dict) -> tuple[list[str], int, int]:
     else:
         add(WARN, "N1MM not detected here. Fine to just watch decodes; "
                   "run N1MM (with a log) to test needed-vs-dupe.")
+
+    # --- Logs (only when the caller already discovered them) ----------------
+    if "log_access" in report:
+        body.append("")
+        body.append("Logs")
+        rows = report.get("log_access") or []
+        if not rows:
+            add(WARN, "No contest log and no WSJT-X log is readable. "
+                      "Every station will look needed.")
+        for row in rows:
+            status = row.get("status") or ""
+            msg = row.get("message") or ""
+            if not msg:
+                continue
+            if status == "ok":
+                add(OK, msg)
+            elif status == "missing_file":
+                add(WARN, msg)
+            else:
+                add(WARN, msg)
     return body, err, warn
 
 

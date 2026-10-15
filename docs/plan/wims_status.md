@@ -136,8 +136,8 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Dupe/mult/points are still hard-coded ARRL VHF. Remaining: one Contest dropdown (None / NY QSO Party / ARRL VHF), rules files with NYQP first, Advanced hidden; dropdown None uses WSJT-X Colors; N1MM stays authoritative when it is the log ([wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0–§3.5, L1–L3, L9), **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
-| 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; **remember last Setup/`--seed-db` log** across restarts (`state/last_log.py`); `LogSource` protocol + `N1mmLogSource` exist; dupe/mult self-computed (ARRL VHF). Remaining: WSJT-X ADIF / generic ADIF backends, solo log-access warnings, log audit (L4–L9 in [wims_logs_and_rules.md](wims_logs_and_rules.md)); **prior-contest band-history seed for C7** (not this-contest dupes). |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files, Setup dropdown, WSJT-X Colors when solo and Contest is None. N1MM stays authoritative when that log opened. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
+| 3.6 | Logger interface (N1MM) | `[~]` | N1MM seed + live contact UDP + resync, plus `WsjtxAdifLogSource` when that `.s3db` is not the log. Per-instance `wsjtx_log.adi` discovery and Setup warnings. `python -m wims.logaudit` compares ADIF (and an N1MM export / LoTW file when you pass the path). Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -201,44 +201,45 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   setup test (**done**); **interlock** sensor (SSB/CW CTS) + fast mute actuator (WSJT-X host);
   **rotator** status/control (K3NG); thumbnails; process lifecycle; local readiness; watchdog
   fail-safe. Design: wims_design.md §3.3.1.
-- [ ] **L1 — Contest rules interface (no verdict change).** Extract today’s ARRL VHF
-  dupe/mult/points into `ContestRules` (`arrl-vhf`). `LogStore.is_dupe` / `is_new_mult`
-  delegate to it. Existing scoring tests stay green. Design:
-  [wims_logs_and_rules.md](wims_logs_and_rules.md) §3 / §8.
-- [ ] **L2 — One Contest dropdown and a plain summary.** Choice file (schema 3)
-  beside `last_log.json`. Casual Setup shows Contest: None / NY QSO Party /
-  ARRL VHF, plus a line such as “Dupes: once per band per mode group.” Advanced
-  (checkboxes, rules editor, `.udc` import, Colors, GridTracker) stays collapsed.
-  No new CLI flag. Suggest from date or `CONTEST_ID`; do not override an explicit
-  choice. N1MM as the log and dropdown None stays `arrl-vhf`. Solo None stays
-  WSJT-X Colors.
-- [ ] **L3 — Rules files, NY QSO Party first, Colors fallback.** Loader for one
-  JSON file per contest (`rules_url`, mode groups, ban list, `dupe_scope`,
-  `dupe_reset`, points, multipliers). Ship `nyqp.json` from the published v1.1
-  rules (2026-09-25). `per: unverified` does not mark new mults. Generic
-  `excluded_modes` (FT8/FT4 on NYQP; JTTY is a loader example, not a contest).
-  Dropdown None: WSJT-X Colors, ini bools read when they are plain text.
-- [ ] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
-  `wsjtx_log.adi`, `--rig-name` data dirs, shared-drive path. Solo setup check and
-  Setup page, plain language. Log copy unchanged.
-- [ ] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Solo with no usable N1MM uses
-  the ADIF union or the one shared file. Poll appends; UDP logged-QSO uses the same id.
-  N1MM path unchanged when it is the saved primary.
-- [ ] **L6 — Log audit CLI.** `python -m wims.logaudit` reads WSJT-X ADIF, N1MM, and
-  generic ADIF. Text + JSON. Read-only. “Consistent” = section 5.3 of the design.
-- [ ] **L7 — Audit extras.** GridTracker path (after a filename spike), LoTW ADIF as
-  confirmation notes, Setup “Check logs” view of the same report.
-- [ ] **L8 — Further log readers.** Log4OM / DXKeeper / CQRLOG as ADIF drop first;
-  native DB only after the survey spike checklist.
-- [ ] **L9 — GridTracker roster as the optional needed fallback.** Read-only mirror
-  of GT’s new-call / new-grid / new-DXCC / worked-before filters (section 3.7).
-  Spike the settings file first. Unreadable settings ⇒ WSJT-X Colors. No writes
-  to GridTracker.
+- [x] **L1 — Contest rules interface (no verdict change).** `arrl-vhf.json` is the
+  default `LogStore` rule. `is_dupe` / `is_new_mult` delegate to it. Scoring tests
+  stay green.
+- [x] **L2 — One Contest dropdown and a plain summary.** `contest_rules.json`
+  (schema 3) beside `last_log.json`. Setup → Contest. Advanced stays collapsed.
+  No new CLI flag. Alias suggestion does not override an explicit None. N1MM +
+  None stays ARRL VHF. Solo None stays WSJT-X Colors.
+- [x] **L3 — Rules files, NY QSO Party first, Colors fallback.** `nyqp.json` from
+  the published v1.1 rules (2026-09-25). FT8/FT4 banned. County change resets.
+  `per: unverified` does not mark new mults. Colors ini bools are read;
+  `DecodeHighlighting` is not. Without `cty.dat`, the four call/grid categories
+  start on (see the design note in §3.6).
+- [x] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
+  data dirs, shared path, Setup **Logs** lines, solo check **Logs** section.
+- [x] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Used when N1MM did not
+  open. Shared path is the only file when set. UDP type 5/12 uses the same id.
+  N1MM stays the log when it opened.
+- [x] **L6 — Log audit CLI.** `python -m wims.logaudit`. ADIF, optional N1MM
+  `.s3db`, optional LoTW. Text + `--json`. Read-only.
+- [~] **L7 — Audit extras.** GridTracker `*.adi` under the usual app-data folders
+  is included when present (filename still not fixed). LoTW is a note, not a
+  failure. Setup **Check logs** runs the same report. A dead UNC path is not
+  yet on a 2-second timer.
+- [~] **L8 — Further log readers.** Any logger’s ADIF export is `--adif PATH`.
+  No Log4OM / DXKeeper / CQRLOG native database.
+- [~] **L9 — GridTracker roster fallback.** If Advanced sets the fallback to
+  GridTracker and the settings file is not a plain JSON we can read, needed
+  uses WSJT-X Colors and says so. LevelDB filters are not read. No writes.
 
 ---
 
 ## Build log
 
+- **2026-10-15** — **Solo logs and contest rules (L1–L6, L7–L9 partial).**
+  ADIF reader, per-instance `wsjtx_log.adi` discovery, `WsjtxAdifLogSource` when
+  N1MM is not the log, JSON rules for NY QSO Party and ARRL VHF, WSJT-X Colors
+  fallback, Setup Contest dropdown, `python -m wims.logaudit`. NYQP multipliers
+  stay unmarked. JTTY / free-text roster risk left as-is. GridTracker roster
+  filters and a UNC stat timeout are still open.
 - **2026-10-15** — **Design only: solo logs, contest rules, log audit.** Proposal in
   [wims_logs_and_rules.md](wims_logs_and_rules.md). Milestones L1–L9. No runtime
   change. Contest rules are one original GPL-3.0 JSON file per contest (NY QSO
