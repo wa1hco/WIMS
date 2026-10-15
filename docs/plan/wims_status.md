@@ -136,7 +136,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Dupe/mult/points are still hard-coded ARRL VHF. Remaining: solo needed order — picked contest preset, else custom checkboxes, else WSJT-X Colors (GridTracker roster optional); N1MM stays authoritative when it is the log ([wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0, L1–L3, L9), **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`): pluggable, explainable factors, condition weights. Roster builder (`engine/roster.py`). Dupe/mult/points are still hard-coded ARRL VHF. Remaining: one Contest dropdown (None / NY QSO Party / ARRL VHF), rules files with NYQP first, Advanced hidden; dropdown None uses WSJT-X Colors; N1MM stays authoritative when it is the log ([wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0–§3.5, L1–L3, L9), **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. |
 | 3.6 | Logger interface (N1MM) | `[~]` | seed + live `<contactinfo>`/`delete`/`replace` + operator `POST /api/log/resync` → `reconcile()`; **remember last Setup/`--seed-db` log** across restarts (`state/last_log.py`); `LogSource` protocol + `N1mmLogSource` exist; dupe/mult self-computed (ARRL VHF). Remaining: WSJT-X ADIF / generic ADIF backends, solo log-access warnings, log audit (L4–L9 in [wims_logs_and_rules.md](wims_logs_and_rules.md)); **prior-contest band-history seed for C7** (not this-contest dupes). |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
@@ -205,16 +205,19 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   dupe/mult/points into `ContestRules` (`arrl-vhf`). `LogStore.is_dupe` / `is_new_mult`
   delegate to it. Existing scoring tests stay green. Design:
   [wims_logs_and_rules.md](wims_logs_and_rules.md) §3 / §8.
-- [ ] **L2 — Persist the rule and show which source is active.** `contest_rules.json`
-  (schema 2) beside `last_log.json`. State key `rules.source_label`. Solo order:
-  picked contest preset, else saved custom checkboxes, else WSJT-X Colors.
-  N1MM as the log of record stays on the contest rule (`arrl-vhf` if none picked).
-- [ ] **L3 — Contest presets, custom checkboxes, and the WSJT-X Colors fallback.**
-  Roster `need_reason` / `mult_reason`. Steps (a)(b): per band, mode, band+mode,
-  UTC day; grid/state/section mults; VHF band-table or flat points. Step (c):
-  New DXCC / New DXCC on Band / New Grid / New Grid on Band / New Call / New Call
-  on Band against the ADIF log, plus Highlight by Mode and Only grid Fields sought,
-  read from `WSJT-X.ini` where the keys are plain text.
+- [ ] **L2 — One Contest dropdown and a plain summary.** Choice file (schema 3)
+  beside `last_log.json`. Casual Setup shows Contest: None / NY QSO Party /
+  ARRL VHF, plus a line such as “Dupes: once per band per mode group.” Advanced
+  (checkboxes, rules editor, `.udc` import, Colors, GridTracker) stays collapsed.
+  No new CLI flag. Suggest from date or `CONTEST_ID`; do not override an explicit
+  choice. N1MM as the log and dropdown None stays `arrl-vhf`. Solo None stays
+  WSJT-X Colors.
+- [ ] **L3 — Rules files, NY QSO Party first, Colors fallback.** Loader for one
+  JSON file per contest (`rules_url`, mode groups, ban list, `dupe_scope`,
+  `dupe_reset`, points, multipliers). Ship `nyqp.json` from the published v1.1
+  rules (2026-09-25). `per: unverified` does not mark new mults. Generic
+  `excluded_modes` (FT8/FT4 on NYQP; JTTY is a loader example, not a contest).
+  Dropdown None: WSJT-X Colors, ini bools read when they are plain text.
 - [ ] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
   `wsjtx_log.adi`, `--rig-name` data dirs, shared-drive path. Solo setup check and
   Setup page, plain language. Log copy unchanged.
@@ -238,9 +241,10 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 - **2026-10-15** — **Design only: solo logs, contest rules, log audit.** Proposal in
   [wims_logs_and_rules.md](wims_logs_and_rules.md). Milestones L1–L9. No runtime
-  change. Solo needed order: picked contest preset, else custom checkboxes, else
-  WSJT-X Colors (GridTracker roster optional). N1MM stays authoritative when it
-  is the log.
+  change. Contest rules are one original GPL-3.0 JSON file per contest (NY QSO
+  Party first). Casual Setup is a single Contest dropdown; Advanced hides the
+  editor and the `.udc` importer. Dropdown None uses WSJT-X Colors. N1MM stays
+  authoritative when it is the log.
 - **2026-10-14** — **IF→RF mapping is off unless the seat is listed.**
   `if_seats.json` (Setup checkbox, or the seat agent page on that PC) names
   rig-names / N1MM stations that report IF (Roy 222 at 21 MHz, Roy 432 at

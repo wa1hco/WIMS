@@ -4,7 +4,7 @@
 **Date:** 2026-10-15
 **Related:** [wims_design.md](wims_design.md) §3.5 / §3.6 / §3.10 / §3.11;
 [wims_log_source_survey.md](wims_log_source_survey.md) (storage tiers and logger ranking);
-[wims_status.md](wims_status.md) milestones **L1–L8**.
+[wims_status.md](wims_status.md) milestones **L1–L9**.
 
 Solo (`python -m wims solo`) runs on the same PC as the WSJT-X instances. N1MM may be
 absent. WSJT-X may log only to its own ADIF, to one shared ADIF, or through GridTracker.
@@ -138,8 +138,8 @@ Two questions, in this order.
 
 **1. Is N1MM the log of record?** Yes when the primary `LogSource` is `n1mm` (saved `.s3db` still opens, or the operator chose N1MM). Then N1MM is authoritative: needed and dupe are computed from that log and a contest rule. The WSJT-X Colors rule and the GridTracker mirror are not applied. Rule inside that case:
 
-1. Contest preset the operator picked.
-2. Else the saved home/custom checkbox set, if there is one.
+1. Contest the operator picked in the dropdown (a rules file).
+2. Else a custom rules file saved from Advanced.
 3. Else `arrl-vhf` (today’s fleet behavior).
 
 Setup says so: “N1MM is the log of record, so needed uses {rule}. The WSJT-X / GridTracker fallback is not used.” Switching the log primary to WSJT-X ADIF (section 2.2) is how solo leaves N1MM.
@@ -148,22 +148,22 @@ Setup says so: “N1MM is the log of record, so needed uses {rule}. The WSJT-X /
 
 | Step | When | Rule |
 |------|------|------|
-| (a) | Operator picked a contest preset (`arrl-vhf`, `casual`, `band-mode`, …) | That preset, against the ADIF log |
-| (b) | No preset, and a home/custom checkbox set is saved | Those checkboxes (section 3.3) |
-| (c) | Neither | Fallback source (section 3.6 or 3.7) |
+| (a) | Contest dropdown is a named contest | That contest’s rules file (section 3.2), against the ADIF log |
+| (b) | Dropdown is Custom (an Advanced rules file was saved) | That file |
+| (c) | Dropdown is None | Fallback source (section 3.6 or 3.7) |
 
-A picked preset wins over a saved custom set. Setup shows that, so a leftover custom file does not silently apply. `casual` is an explicit preset (step a), not the automatic fallback.
+A named contest wins over a custom file. Custom is not on the casual path: it appears in the dropdown only after Advanced saves one. None is the WSJT-X Colors fallback, not a fake contest.
 
 The active source is always visible: on Setup, at the top of **Contest rules**, and as one line on the Operate roster (`rules.source_label` in the state contract). Examples:
 
 | Situation | Label |
 |-----------|--------|
-| N1MM log, no extra pick | `N1MM · ARRL VHF` |
-| Operator picked Band + mode | `Contest rule · Band + mode` |
-| Custom checkboxes, no preset | `Custom checkboxes` |
-| Fallback, ini read succeeded | `WSJT-X Colors · WSJT-X.ini` |
-| Fallback, operator edited the copy in WIMS | `WSJT-X Colors · edited in WIMS` |
-| Operator chose the GridTracker mirror | `GridTracker roster` |
+| N1MM log, dropdown None | `N1MM · ARRL VHF` |
+| Dropdown is NY QSO Party | `NY QSO Party` |
+| Dropdown is Custom | `Custom rules` |
+| Dropdown None, ini read succeeded | `WSJT-X Colors · WSJT-X.ini` |
+| Dropdown None, colors edited in WIMS | `WSJT-X Colors · edited in WIMS` |
+| Dropdown None, GridTracker chosen under Advanced | `GridTracker roster` |
 
 ### 3.1 Interface
 
@@ -175,7 +175,7 @@ ContestRules
   dupe(qso_view, call, band, mode, grid, when) -> (bool, reason)
   new_mult(qso_view, call, band, mode, grid, exchange) -> (bool, reason)
   qso_points(band, mode) -> (int, reason)
-  checks() -> dict            # the checkbox snapshot, for the UI
+  checks() -> dict            # the loaded file, for Advanced and the state contract
   to_dict() -> dict           # state contract
 ```
 
@@ -192,126 +192,184 @@ Roster row (state contract) gains:
 
 `factors[].detail` for `new_mult` and `points` uses the same sentences. Dupes stay on the roster (the console already hides them by default) with `need_reason` set, score excluded, reason visible when the operator shows worked stations.
 
-### 3.2 Built-in presets
+### 3.2 One rules file per contest
 
-Checkboxes (section 3.3) are filled by the preset and shown disabled, so the operator can see the rule.
+Each contest is one small file WIMS loads. The engine does not hard-code NYQP, ARRL VHF, or the next one. JSON is the format (same as `last_log.json` and `if_seats.json`; stdlib `json` only). TOML is not a second format in v1. Python 3.11+ `tomllib` could read it later without a dependency.
 
-| Id | Title | Dupe key | Rover | Mult | Points | Summary shown on Setup |
-|----|-------|----------|-------|------|--------|------------------------|
-| `arrl-vhf` | ARRL VHF | call + band, whole log | `/R` adds grid | 4-char grid × band | Existing `BAND_POINTS` (6m/2m 1, 1.25m/70cm 2, 33cm/23cm/13cm 3, higher 4) | “ARRL VHF: worked on this band is a dupe. A rover in a new grid is a new contact. A new grid on this band is a multiplier. Points follow the VHF band table.” |
-| `casual` | Casual | call + band + mode, whole log | off | none | 1 per QSO | “Not a contest. A call already in the log on this band and mode is a dupe. No multipliers.” |
-| `band-mode` | Band + mode | call + band + mode, whole log | off | none until the operator turns one on | 1 per QSO | “Dupe is call + band + mode. Turn on a multiplier below if this contest has one.” |
+Shipped files live in the package, for example `src/wims/rules/nyqp.json`. A custom file from Advanced is stored beside `last_log.json` and is not a substitute for the shipped file.
 
-`arrl-vhf` is the default **while N1MM is the log** and the operator has not picked another rule. It is not the solo fallback. Solo with no preset and no custom set uses section 3.6.
+**License.** WIMS is GPL-3.0-or-later. Each rules file is an original summary, written from that contest’s published rules, with the rules URL in the file. Copying GPL-3.0 code (Not1MM contest plugins are the example) is allowed only with the original copyright and GPL notices kept. Prefer writing our own file from the sponsor’s page. Do **not** commit N1MM User Defined Contest gallery files (`.udc`) or DXLog contest files. Their licenses are not verified. An optional importer may read a `.udc` the operator already has on their own disk (section 3.3). It does not download or bundle one.
 
-Mode identity is `SUBMODE` when set, else `MODE`, uppercased. FT8, FT4, and MSK144 are different modes. `MFSK` alone does not collapse them when submode is present.
+**Reference only, not shipped.** N1MM’s published UDC guide describes an INI-like `.udc` whose fields cover contest name, dupe type, points, multiplier names, exchange, and Cabrillo name. DXLog.net uses one `.txt` definition per contest (bands, modes, exchange, dupe, scoring) under its contest-definition folder. Those field lists are a map for the importer. They are not source files in this repo.
 
-**Exchange-backed rules** (ARRL Field Day section-once, state QSO party, CQ zone) are checkbox settings, not extra presets, until the log actually contains `ARRL_SECT` / `STATE` / `CQZ`. WSJT-X’s own ADIF usually has grid and mode and no section. When mult is `section` or `state` and the loaded QSOs have no exchange, Setup adds: “This multiplier needs a section or state in the log. WSJT-X’s own file does not record one, so new-mult will stay off.”
+Schema (one contest):
 
-N1MM `ContestName` can **suggest** a preset. It does not override a saved choice.
+| Field | Meaning |
+|-------|---------|
+| `id`, `title` | Stable id and the dropdown label |
+| `license` | `GPL-3.0-or-later` |
+| `rules_url`, `rules_version`, `rules_date` | Sponsor page, the version we read, and its date |
+| `season` | `{start, end}` dates for this running. Used only to suggest the contest |
+| `year` | Season year the file was written for |
+| `aliases` | N1MM `ContestName` and ADIF `CONTEST_ID` strings that suggest this file |
+| `mode_groups` | Map of group id → mode names. Built-in groups are `CW`, `PH`, `DIG` |
+| `excluded_modes` | Ban list (section 3.2.1). A QSO in an excluded mode is not a contact in this contest |
+| `dupe_scope` | `band` (call+band), `band+group` (call+band+mode group), or `all` (call once) |
+| `dupe_reset` | What makes the same call new again. Example: `my_county` when a NY station changes county. Empty means no reset |
+| `points` | Points per mode group, or a named table such as `vhf-band` |
+| `multipliers` | List of `{type, who, cap, per}`. `per` is `band`, `mode`, `contest`, or `unverified` |
+| `summary` | Plain sentence the UI shows. Generated if omitted |
 
-| ContestName | Suggestion |
-|-------------|------------|
-| starts with `ARRLVHF`, or contains `VHF` | `arrl-vhf` |
-| `DX`, empty | `casual` |
-| anything else | keep the saved preset; Setup shows “N1MM contest {name} has no matching WIMS rule.” |
+Mode identity is `SUBMODE` when set, else `MODE`. A mode that is not in `PH` or `CW` is `DIG`, then the ban list removes it. `MFSK` alone does not pick a submode.
 
-N1MM’s `ismultiplier` flag stays stored on the row. Prospective roster mults come from the active rules. For `arrl-vhf`, a logged `is_mult` still confirms grid × band the way §3.5 describes. For other presets, `is_mult` is display-only.
+`arrl-vhf` stays the in-code rule for L1 so today’s fleet tests do not move: dupe call+band, rover `/R` adds grid, mult is 4-character grid × band, points are the existing `BAND_POINTS` (6m/2m 1, 1.25m/70cm 2, 33cm/23cm/13cm 3, higher 4). It becomes a file in the same schema when the loader exists. It is the N1MM-present default only when no contest file was suggested or picked. It is not the solo dropdown default.
 
-### 3.3 Custom checkboxes
+While a multiplier’s `per` is `unverified`, WIMS does not mark `is_new_mult`. The summary says the scope is unconfirmed. Dupe and points still run. A missing exchange (county, section, state) does not invent a multiplier; the reason says the log has no exchange.
 
-Preset `custom`. Setup enables the controls:
+N1MM’s `ismultiplier` flag stays on the row. For `arrl-vhf` it still confirms grid × band. For a file-backed contest, prospective mults come from the file.
 
-| Control | Values | Effect |
-|---------|--------|--------|
-| Count a dupe per band | on / off | `band` in the key |
-| Count a dupe per mode | on / off | `mode` in the key |
-| Rover in a new grid is a new contact | on / off | `/R` adds `grid` |
-| Dupe period | Whole log / UTC day | `qso_date` in the key when “UTC day” |
-| Multiplier | None / Grid / State / Section | |
-| Multiplier is per band | on / off | Ignored when multiplier is None |
-| Points | VHF band table / Flat N (1–10) | Flat N is one number |
+#### 3.2.1 Ban list
 
-Call is always part of the dupe key. Saving with every dupe box off and period “whole log” means “this call once, any band” — Setup states that sentence before the save sticks. At least the summary line updates live as boxes change, before Save.
+`excluded_modes` is a list of `{mode}` or `{mode, submode}`. This is the generic “digital but not these modes” mechanism. No contest is implied by the mechanism itself. NYQP uses it for modes that cannot carry that contest’s exchange. A later contest can list different modes without a code change.
 
-Grid mult uses the first four characters. State and section compare case-insensitively on the exchange field. A missing exchange is “not a new mult”, with the reason “no section/state in the log”.
+Placeholder entry, not attached to a contest yet:
 
-### 3.4 Persistence
+| ADIF | Cabrillo | UDP |
+|------|----------|-----|
+| `MODE=MFSK`, `SUBMODE=JTTY` | No Cabrillo code. Treat as `DG` if a Cabrillo line is ever written | The mode string WSJT-X puts on the UDP status/decode is **not** verified. Check it on a live JTTY period before matching decodes. Until then, classify JTTY only from ADIF `SUBMODE` |
 
-New file beside `last_log.json` (same directory rules: `$XDG_CONFIG_HOME/wims/`, else `~/.config/wims/`, Windows `%APPDATA%\wims\`). Override `WIMS_CONTEST_RULES`. **Do not** extend `last_log.json`; that file is the N1MM path.
+A live decode whose UDP mode is empty or unrecognized is not guessed into JTTY. An excluded mode is not needed and scores 0. Plain reason: “FT8 is not counted in NY QSO Party.”
 
-Schema 2. `preset` set means step (a). `preset` null and `custom` set means step (b). Both null means step (c) when N1MM is not the log, and `arrl-vhf` when N1MM is.
+#### 3.2.2 First file: NY QSO Party
+
+Written from the published rules, version **1.1**, dated **2026-09-25**: <https://nyqp.org/wordpress/nyqp-rules/>. Original summary. Not an N1MM or DXLog file.
+
+Verified from those rules:
+
+| Item | Value |
+|------|--------|
+| Dupe | Once per band per mode group |
+| Groups | Phone = SSB, FM, AM. CW = CW. Digital = RTTY and every other digital mode, one group. Phone and digital on the same band do not dupe |
+| Points | Phone 1, CW 2, digital 3 |
+| NY station mults | 50 states + 62 NY counties + 13 Canadian provinces, cap 125 |
+| Non-NY mults | NY counties only, cap 62 |
+| DX | No multiplier |
+| County change | A NY station that changes county is a new station (`dupe_reset: my_county`) |
+| Entry | Digital QSOs count only in the Mixed category |
+| Illegal modes | Digital modes that cannot carry the NYQP exchange natively are not allowed. Standard FT8 fails that test. FT4 is the same class (native exchange is a report/grid, not a county) and is on the ban list for that reason |
+
+Unverified, so `multipliers[].per` is `unverified`: whether each state, county, or province counts once per contest or again on every band or mode. The caps are the sizes of those lists. They are not a statement of the per-band rule. Until this is checked against the rules page, WIMS does not mark new multipliers. Dupe and points do run.
+
+`season` start/end for the suggestion come from that year’s rules page when the file is written. Do not invent the weekend in code.
+
+Digital-only-in-Mixed is stored as an entry constraint. WIMS mentions it only when the operator’s category is already known (N1MM entry category). It does not add a category question to the casual screen.
+
+Sketch (the shipped file matches this shape):
 
 ```json
 {
-  "schema": 2,
-  "preset": null,
-  "custom": null,
-  "fallback": "wsjtx-colors",
-  "wsjtx_override": null,
-  "gridtracker_path": ""
-}
-```
-
-`fallback` is `wsjtx-colors` (section 3.6) or `gridtracker` (section 3.7). `wsjtx_override` is null when WIMS is mirroring the ini. A non-null object means the operator edited the category list in WIMS; that copy is what step (c) uses, and the label says “edited in WIMS”.
-
-Custom example (step b; fallback unused while this is set):
-
-```json
-{
-  "schema": 2,
-  "preset": null,
-  "custom": {
-    "dupe_band": true,
-    "dupe_mode": false,
-    "rover_new_grid": true,
-    "period": "utc-day",
-    "mult": "grid",
-    "mult_per_band": true,
-    "points": "flat",
-    "flat_points": 1
+  "id": "nyqp",
+  "title": "NY QSO Party",
+  "license": "GPL-3.0-or-later",
+  "rules_url": "https://nyqp.org/wordpress/nyqp-rules/",
+  "rules_version": "1.1",
+  "rules_date": "2026-09-25",
+  "year": 2026,
+  "season": {"start": "", "end": ""},
+  "aliases": ["NYQP", "NY-QSO-PARTY", "NY QSO"],
+  "mode_groups": {
+    "PH": ["SSB", "USB", "LSB", "FM", "AM"],
+    "CW": ["CW"],
+    "DIG": ["RTTY"]
   },
+  "excluded_modes": [{"mode": "FT8"}, {"mode": "FT4"}],
+  "dupe_scope": "band+group",
+  "dupe_reset": "my_county",
+  "points": {"PH": 1, "CW": 2, "DIG": 3},
+  "multipliers": [
+    {"type": "ny_county", "who": "all", "cap": 62, "per": "unverified"},
+    {"type": "state", "who": "ny_station", "cap": 50, "per": "unverified"},
+    {"type": "province", "who": "ny_station", "cap": 13, "per": "unverified"}
+  ],
+  "dx_multiplier": false,
+  "entry_constraints": [{"modes": "DIG", "category": "Mixed"}],
+  "summary": "Dupes: once per band per mode group."
+}
+```
+
+`DIG: ["RTTY"]` plus “anything not PH or CW is DIG” covers the rest of the digital group. Confirm the exact N1MM `ContestName` / ADIF `CONTEST_ID` against one real NYQP log before treating `aliases` as complete. NY-station vs not: use N1MM or ADIF `MY_STATE` when present. If it is missing, multipliers use the non-NY set (counties only, the smaller one) and the summary says “WIMS does not know if this station is in NY, so only NY counties would count.” A fixed station with one county never trips `dupe_reset`. County comes from the logged exchange when the log has it.
+
+### 3.3 Advanced editor and .udc import
+
+Hidden under Advanced (section 3.5). Same schema as the shipped files, not a second language. The editor can change mode groups, the ban list, `dupe_scope`, `dupe_reset`, points, and multiplier `per`. Saving writes a custom file and sets the dropdown to Custom.
+
+The importer reads one local `.udc` path the operator chooses. It fills the fields it recognizes (name, dupe, points, multiplier names) and lists what it skipped. It does not write the `.udc`, does not fetch the N1MM gallery, and does not accept a DXLog `.txt` until that license is known. Unmapped keys stay in an `unparsed` note on screen so the operator can see the gap.
+
+### 3.4 What is remembered
+
+The dropdown choice is a small file beside `last_log.json` (same directory rules: `$XDG_CONFIG_HOME/wims/`, else `~/.config/wims/`, Windows `%APPDATA%\wims\`). Do not extend `last_log.json`. `WIMS_CONTEST_RULES` may point at that file in tests. Operator docs do not mention it. There is no contest CLI flag.
+
+```json
+{
+  "schema": 3,
+  "contest": null,
   "fallback": "wsjtx-colors",
   "wsjtx_override": null,
   "gridtracker_path": ""
 }
 ```
 
-`POST /api/rules` writes the file and swaps the in-memory rules. The next roster build uses them. No restart.
+`contest` null means dropdown None (step c) unless N1MM is the log, in which case the in-code `arrl-vhf` rule applies until a suggestion or a pick says otherwise. A string id loads that rules file (step a). `"custom"` is step b.
 
-State-contract key `rules` (sibling of `n1mm_sync`, which keeps its name):
+`fallback` is `wsjtx-colors` (section 3.6) or `gridtracker` (section 3.7), used only when the dropdown is None and N1MM is not the log. `wsjtx_override` works as before: null mirrors the ini; a saved object means “edited in WIMS”.
+
+Changing the dropdown applies on the next roster build and is saved. No separate Save button on the casual control. `POST /api/rules` remains the call the page uses.
+
+State-contract key `rules`:
 
 ```json
 {
-  "id": "wsjtx-colors",
-  "title": "WSJT-X Colors",
-  "source_label": "WSJT-X Colors · WSJT-X.ini",
+  "id": "nyqp",
+  "title": "NY QSO Party",
+  "source_label": "NY QSO Party",
   "n1mm_authoritative": false,
-  "summary": "Needed when a CQ matches an enabled WSJT-X color: New DXCC.",
-  "checks": {"new_dxcc": true, "new_dxcc_band": true, "new_grid": false,
-             "new_grid_band": false, "new_call": false, "new_call_band": false,
-             "highlight_by_mode": false, "only_fields": false},
-  "saved_path": "/home/op/.config/wims/contest_rules.json"
+  "summary": "Dupes: once per band per mode group.",
+  "rules_url": "https://nyqp.org/wordpress/nyqp-rules/",
+  "rules_version": "1.1"
 }
 ```
 
-### 3.5 Setup page
+### 3.5 Setup, for a casual operator
 
-New **Contest rules** section on `setup.html`, above the networking checklist:
+This is part of the design, not polish to do later. The casual screen auto-detects what it can and asks for almost nothing.
 
-- The active-source line from section 3.0, including “N1MM is the log of record” when that applies.
-- Preset `<select>`: (none), ARRL VHF, Casual, Band + mode. “(none)” clears step (a).
-- Home/custom checkboxes and the points control. They are step (b). Saving them does not by itself clear a picked preset; clearing the preset is what lets the custom set take effect.
-- The `summary` sentence under the controls.
-- **Fallback** controls, used only at step (c): source `WSJT-X Colors` or `GridTracker roster`, the category list (section 3.6), and the GridTracker path (section 3.7).
-- Save, and the path of `contest_rules.json`.
-- When an N1MM contest is loaded and its name suggests a different preset, one line: “Loaded N1MM contest ARRLVHFSEP matches ARRL VHF.” or the “no matching rule” line from section 3.2.
+Auto, with no extra questions: WSJT-X log locations (section 4), band and mode from UDP, IF-reporting seats (already on Setup), WSJT-X Colors settings (section 3.6). Where a contest is known, suggest it. Do not require it.
 
-`/n1mm` keeps picking the `.s3db`. It shows the same active-source line and links to Setup to change rules. Operate does not grow a settings form; the roster header shows `source_label`, and each row shows `need_reason`.
+Suggestion sources, in order, never overriding an explicit dropdown choice:
+
+1. N1MM `ContestName` or ADIF `CONTEST_ID` matches a file’s `aliases`.
+2. Today’s date falls in a file’s `season`.
+
+The dropdown moves to that contest and the sentence says it is a suggestion: “Suggested from the date: NY QSO Party. Set Contest to None if that is wrong.” Choosing None sticks for that season window.
+
+**Always visible**
+
+- One dropdown, labeled Contest: None / NY QSO Party / ARRL VHF / … (Custom only if a custom file exists).
+- One plain line from `summary`. NYQP’s line is “Dupes: once per band per mode group.” A second short clause is allowed when it changes what the operator will see, for example “FT8 and FT4 are not counted.”
+- While N1MM is the log: “N1MM is the log of record.” The dropdown still selects which rules read that log. None under N1MM means `arrl-vhf`, not WSJT-X Colors.
+
+**Advanced, collapsed by default**
+
+- The section 3.3 editor, the custom file path, and the `.udc` importer.
+- WSJT-X Colors category list and “Use WSJT-X.ini again”.
+- GridTracker fallback path (section 3.7).
+- Station state and county, only if they were not detected.
+
+No new command-line arguments. `python -m wims solo` is unchanged. Operate shows `source_label` and each row’s `need_reason`. It does not grow a contest form. `/n1mm` still picks the `.s3db` and shows the same one-line summary.
 
 ### 3.6 WSJT-X style needed rule
 
-Step (c) default. This is the substitute for a contest rule when the operator has not picked one and has not saved a custom checkbox set. It answers “needed?” for a **CQ** the way WSJT-X colors a decoded CQ. The scoring strategy still excludes non-CQ rows (“not calling CQ”).
+Step (c), when the Contest dropdown is None and N1MM is not the log. It answers “needed?” for a **CQ** the way WSJT-X colors a decoded CQ. The scoring strategy still excludes non-CQ rows (“not calling CQ”).
 
 A CQ is **needed** when **any** enabled category below matches the ADIF log (`wsjtx_log.adi`, or the shared file when that is the primary). The roster reason names the first match in Colors-tab order (top of the list wins). If WIMS cannot read that order, it uses the order in the table.
 
@@ -570,7 +628,9 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 
 | Risk | What we do about it |
 |------|---------------------|
-| Extracting rules changes fleet VHF verdicts | L1’s only preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. N1MM primary and no operator pick ⇒ `arrl-vhf`. Solo with no preset and no custom set ⇒ WSJT-X Colors (section 3.0), which is a different verdict and must not run while N1MM is the log. |
+| Extracting rules changes fleet VHF verdicts | L1’s only in-code preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. N1MM primary and dropdown None ⇒ `arrl-vhf`. Solo dropdown None ⇒ WSJT-X Colors (section 3.0), which must not run while N1MM is the log. |
+| Shipping someone else’s contest definition | Rules files are original GPL-3.0 summaries with `rules_url`. No N1MM `.udc` gallery and no DXLog `.txt` in the repo. Importer reads only a path the operator picks on their machine. |
+| NYQP multiplier scope guessed wrong | `per` stays `unverified`. New-mult stays off until the rules page is checked. Dupe and points still follow the verified table. |
 | Shared file plus per-instance files double-count in `LogStore` | Primary reads one or the other (section 4.2). Audit may read both and labels those pairs as the same contact. |
 | WSJT-X holds an exclusive lock on Windows | Warning `locked`. UDP type 5/12 fills contacts logged after WIMS started. Older contacts stay missing until the file opens. Confirm lock behavior on a real Windows WSJT-X before trusting the warning text. |
 | ADIF edit rewrites the file; there is no per-record delete | Shrink or non-append size change ⇒ full `resync` + `reconcile`. |
@@ -590,7 +650,7 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 
 ## 7. Open questions
 
-1. **Solo default — resolved (2026-10-15).** No picked preset and no custom set ⇒ WSJT-X Colors against the ADIF log. N1MM as the log of record stays on the contest rule (`arrl-vhf` if the operator has not picked another).
+1. **Solo default — resolved (2026-10-15), UX revised the same day.** Dropdown None ⇒ WSJT-X Colors. A suggested contest (date or `CONTEST_ID`) may move the dropdown, and the sentence says it is a suggestion. An explicit choice sticks. N1MM as the log of record stays on the contest file, or `arrl-vhf` when the dropdown is None.
 2. **GridTracker filename.** Confirm on a real GT2 install (Windows and Linux) before `--gridtracker-auto` looks for a log name, and before the fallback reader looks for a settings file (section 3.7). Until then the operator passes a path.
 3. **File lock.** Does WSJT-X on Windows allow a second process to read `wsjtx_log.adi` while the program is open? The locked-file warning depends on the answer.
 4. **Suggest vs auto-switch** when N1MM `ContestName` maps to a preset. This proposal suggests only. Auto-switch would surprise someone who set Custom.
@@ -599,6 +659,9 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 7. **Fleet.** Seat agent reports `log_access` for WSJT-X PCs the site server cannot read. Confirm that L4 solo is enough before any agent work. The Colors ini and `wsjtx_log.adi` are on the WSJT-X PC; a remote site server cannot be the step (c) reader.
 8. **General-tab master switch.** User guide §6.7 “Show DXCC, grid, and worked-before status” — confirm the ini key. Behavior until then is in section 3.6.
 9. **Colors category list on the installed build.** Header `DecodeHighlightingModel` lists more rows than the six needed-categories (continent, CQ/ITU zone, LoTW). Confirm the Colors tab before coding, and do not treat those extra rows as needed unless the operator asks.
+10. **NYQP multiplier scope.** Once per contest, or again per band or mode? Unverified against <https://nyqp.org/wordpress/nyqp-rules/> (v1.1, 2026-09-25). Do not mark new mults until this is filled in.
+11. **NYQP season dates and alias strings.** `season.start` / `season.end`, N1MM `ContestName`, and ADIF `CONTEST_ID` — fill from the rules page and one real log. The suggestion logic stays off for NYQP until `season` is non-empty.
+12. **JTTY on the UDP wire.** ADIF is `MODE=MFSK` / `SUBMODE=JTTY`. The status/decode mode string is unchecked. Cabrillo has no JTTY code; assume `DG` only if Cabrillo export is built.
 
 ---
 
@@ -609,8 +672,8 @@ Each step is shippable on its own. Tests are stdlib `tests/unit/test_*.py` plus 
 | Id | Deliver | Done when |
 |----|---------|-----------|
 | **L1** | `ContestRules` + preset `arrl-vhf`. `LogStore.is_dupe` / `is_new_mult` delegate to it. | Existing scoring, roster, and N1MM log tests pass with no verdict change. New tests call the rules object directly. |
-| **L2** | `contest_rules.json` (schema 2), `POST /api/rules`, state key `rules` including `source_label`. Setup shows which source is active (section 3.0). | N1MM primary and no pick ⇒ `N1MM · ARRL VHF`. Solo with no preset and no custom set ⇒ `WSJT-X Colors` (categories may still be defaults until L3 reads the ini). A picked preset beats a saved custom set. |
-| **L3** | Steps (a) and (b): presets `casual` and `band-mode`, custom checkboxes, `need_reason` / `mult_reason`. Step (c): WSJT-X Colors rule against an ADIF fixture, including Highlight by Mode and Only grid Fields sought. Read `HighlightByMode` and `OnlyFieldsSought` from an ini fixture. Spike `DecodeHighlighting`; if it does not parse, say so and use factory defaults. | A unit test: New Call on Band is needed; the same call already on that band and mode is not; a two-letter field match honors Only grid Fields sought. The Operate row shows the category name. N1MM-primary tests still expect `arrl-vhf`. |
+| **L2** | Dropdown choice file (schema 3) and `rules.source_label`. Casual Setup is one Contest dropdown plus the plain summary. Advanced stays collapsed. No new CLI flag. | N1MM and dropdown None ⇒ `N1MM · ARRL VHF`. Solo dropdown None ⇒ `WSJT-X Colors`. Picking NY QSO Party shows “Dupes: once per band per mode group.” A date or `CONTEST_ID` suggestion does not override an explicit None. |
+| **L3** | Rules-file loader. First file `nyqp.json` (section 3.2.2), original text, `rules_url` set. Generic `excluded_modes`. WSJT-X Colors remains dropdown None, including Highlight by Mode and Only grid Fields sought. Read the plain ini bools. Spike `DecodeHighlighting`. | Tests: phone and digital on the same band are not a dupe; two digital modes on the same band are; points 1 / 2 / 3; FT8 scores 0 and is not needed; `per: unverified` does not set `is_new_mult`. N1MM-primary tests still expect `arrl-vhf`. A JTTY ban-list entry is accepted by the loader and is not wired to NYQP. |
 | **L4** | Discover per-instance and shared paths. Warnings in the solo check and on Setup (`log_access`). | A fixture directory tree (default + `--rig-name` + missing dir + shared symlink) produces the sentences in section 4.3. `LogStore` still unchanged. |
 | **L5** | `WsjtxAdifLogSource` + `adif_drop`. Solo auto-pick (section 2.2). Poll + UDP fast path, one id function. | With no N1MM file, a sample `wsjtx_log.adi` seeds dupes. Appending one record flips that call to a dupe. N1MM seed still works when `last_log.json` points at a `.s3db`. |
 | **L6** | `python -m wims.logaudit` for WSJT-X, N1MM, and generic ADIF. Text + JSON. | A fixture pair with one missing QSO, one grid clash, and one match exits 1 and prints the section 5.4 shape. Read-only. |
