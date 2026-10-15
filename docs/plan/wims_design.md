@@ -1794,11 +1794,12 @@ Candidate situations worth covering — rename, add, or cut freely:
   **parallel read-only viewer**, not a relay and not a TX controller; WIMS's roster (§3.12) is the
   click-to-work path. Coexists per operator preference; go-boxes run none.
 - **Scoring model source** — per-contest QSO-point + multiplier rules feed §3.5 ranking and §3.11
-  config. **Proposal (2026-10-15, not yet built):** hand-authored presets (`arrl-vhf`, `casual`,
-  `band-mode`) plus custom checkboxes, saved in `contest_rules.json`. N1MM `ContestName` may
-  suggest a preset. It does not import N1MM’s contest-definition database. Solo log seed from
-  `wsjtx_log.adi` and the read-only log-audit tool are in the same proposal:
-  [wims_logs_and_rules.md](wims_logs_and_rules.md).
+  config. **Proposal (2026-10-15, not yet built):** when N1MM is the log, it stays authoritative
+  (`arrl-vhf` unless the operator picked another preset or a custom checkbox set). Solo with no
+  picked preset and no custom set uses WSJT-X Colors categories against `wsjtx_log.adi`, or
+  GridTracker’s roster filters if the operator selects that read-only source. Saved in
+  `contest_rules.json`. N1MM `ContestName` may suggest a preset. It does not import N1MM’s
+  contest-definition database. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0–§3.7.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must
   prompt for (antenna geometry, intended az/el limits). Decide the form vs file-edit balance.

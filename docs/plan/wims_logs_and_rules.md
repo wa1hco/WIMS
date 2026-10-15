@@ -9,6 +9,9 @@
 Solo (`python -m wims solo`) runs on the same PC as the WSJT-X instances. N1MM may be
 absent. WSJT-X may log only to its own ADIF, to one shared ADIF, or through GridTracker.
 Needed-vs-dupe and QSO points must follow the contest the operator is actually in.
+When no contest rule is selected, solo “needed” follows WSJT-X’s own Colors
+categories against `wsjtx_log.adi` (or GridTracker’s roster filters, if the
+operator picks that source). When N1MM is the log of record, N1MM stays authoritative.
 
 WIMS still **reads** logs and **never writes** them. A human still initiates every TX.
 
@@ -129,6 +132,39 @@ A 1-second timer under the server lock calls `primary.poll()` and applies events
 
 Dupe, multiplier, and QSO points are a **rules** object. Rank weights (`snr`, `cq`, `rover`, condition open/marginal/dead) stay in `ScoringStrategy`. The two axes are independent: rules decide “is this contact worth points / a mult, or already worked?”; the strategy decides how to rank the stations that are still worth working.
 
+### 3.0 Which rule is active
+
+Two questions, in this order.
+
+**1. Is N1MM the log of record?** Yes when the primary `LogSource` is `n1mm` (saved `.s3db` still opens, or the operator chose N1MM). Then N1MM is authoritative: needed and dupe are computed from that log and a contest rule. The WSJT-X Colors rule and the GridTracker mirror are not applied. Rule inside that case:
+
+1. Contest preset the operator picked.
+2. Else the saved home/custom checkbox set, if there is one.
+3. Else `arrl-vhf` (today’s fleet behavior).
+
+Setup says so: “N1MM is the log of record, so needed uses {rule}. The WSJT-X / GridTracker fallback is not used.” Switching the log primary to WSJT-X ADIF (section 2.2) is how solo leaves N1MM.
+
+**2. Solo, N1MM not the log.** Needed for a CQ uses this order (owner direction, 2026-10-15):
+
+| Step | When | Rule |
+|------|------|------|
+| (a) | Operator picked a contest preset (`arrl-vhf`, `casual`, `band-mode`, …) | That preset, against the ADIF log |
+| (b) | No preset, and a home/custom checkbox set is saved | Those checkboxes (section 3.3) |
+| (c) | Neither | Fallback source (section 3.6 or 3.7) |
+
+A picked preset wins over a saved custom set. Setup shows that, so a leftover custom file does not silently apply. `casual` is an explicit preset (step a), not the automatic fallback.
+
+The active source is always visible: on Setup, at the top of **Contest rules**, and as one line on the Operate roster (`rules.source_label` in the state contract). Examples:
+
+| Situation | Label |
+|-----------|--------|
+| N1MM log, no extra pick | `N1MM · ARRL VHF` |
+| Operator picked Band + mode | `Contest rule · Band + mode` |
+| Custom checkboxes, no preset | `Custom checkboxes` |
+| Fallback, ini read succeeded | `WSJT-X Colors · WSJT-X.ini` |
+| Fallback, operator edited the copy in WIMS | `WSJT-X Colors · edited in WIMS` |
+| Operator chose the GridTracker mirror | `GridTracker roster` |
+
 ### 3.1 Interface
 
 New module `engine/contest_rules.py` (stdlib only):
@@ -166,7 +202,7 @@ Checkboxes (section 3.3) are filled by the preset and shown disabled, so the ope
 | `casual` | Casual | call + band + mode, whole log | off | none | 1 per QSO | “Not a contest. A call already in the log on this band and mode is a dupe. No multipliers.” |
 | `band-mode` | Band + mode | call + band + mode, whole log | off | none until the operator turns one on | 1 per QSO | “Dupe is call + band + mode. Turn on a multiplier below if this contest has one.” |
 
-`arrl-vhf` is the default, including existing installs with no rules file, so fleet scoring stays put.
+`arrl-vhf` is the default **while N1MM is the log** and the operator has not picked another rule. It is not the solo fallback. Solo with no preset and no custom set uses section 3.6.
 
 Mode identity is `SUBMODE` when set, else `MODE`, uppercased. FT8, FT4, and MSK144 are different modes. `MFSK` alone does not collapse them when submode is present.
 
@@ -204,20 +240,27 @@ Grid mult uses the first four characters. State and section compare case-insensi
 
 New file beside `last_log.json` (same directory rules: `$XDG_CONFIG_HOME/wims/`, else `~/.config/wims/`, Windows `%APPDATA%\wims\`). Override `WIMS_CONTEST_RULES`. **Do not** extend `last_log.json`; that file is the N1MM path.
 
+Schema 2. `preset` set means step (a). `preset` null and `custom` set means step (b). Both null means step (c) when N1MM is not the log, and `arrl-vhf` when N1MM is.
+
 ```json
 {
-  "schema": 1,
-  "preset": "arrl-vhf",
-  "custom": null
+  "schema": 2,
+  "preset": null,
+  "custom": null,
+  "fallback": "wsjtx-colors",
+  "wsjtx_override": null,
+  "gridtracker_path": ""
 }
 ```
 
-Custom example:
+`fallback` is `wsjtx-colors` (section 3.6) or `gridtracker` (section 3.7). `wsjtx_override` is null when WIMS is mirroring the ini. A non-null object means the operator edited the category list in WIMS; that copy is what step (c) uses, and the label says “edited in WIMS”.
+
+Custom example (step b; fallback unused while this is set):
 
 ```json
 {
-  "schema": 1,
-  "preset": "custom",
+  "schema": 2,
+  "preset": null,
   "custom": {
     "dupe_band": true,
     "dupe_mode": false,
@@ -227,7 +270,10 @@ Custom example:
     "mult_per_band": true,
     "points": "flat",
     "flat_points": 1
-  }
+  },
+  "fallback": "wsjtx-colors",
+  "wsjtx_override": null,
+  "gridtracker_path": ""
 }
 ```
 
@@ -237,12 +283,14 @@ State-contract key `rules` (sibling of `n1mm_sync`, which keeps its name):
 
 ```json
 {
-  "id": "arrl-vhf",
-  "title": "ARRL VHF",
-  "summary": "ARRL VHF: worked on this band is a dupe. …",
-  "checks": {"dupe_band": true, "dupe_mode": false, "rover_new_grid": true,
-             "period": "contest", "mult": "grid", "mult_per_band": true,
-             "points": "vhf-band"},
+  "id": "wsjtx-colors",
+  "title": "WSJT-X Colors",
+  "source_label": "WSJT-X Colors · WSJT-X.ini",
+  "n1mm_authoritative": false,
+  "summary": "Needed when a CQ matches an enabled WSJT-X color: New DXCC.",
+  "checks": {"new_dxcc": true, "new_dxcc_band": true, "new_grid": false,
+             "new_grid_band": false, "new_call": false, "new_call_band": false,
+             "highlight_by_mode": false, "only_fields": false},
   "saved_path": "/home/op/.config/wims/contest_rules.json"
 }
 ```
@@ -251,13 +299,102 @@ State-contract key `rules` (sibling of `n1mm_sync`, which keeps its name):
 
 New **Contest rules** section on `setup.html`, above the networking checklist:
 
-- Preset `<select>`: ARRL VHF, Casual, Band + mode, Custom.
-- The checkboxes and the points control, disabled unless Custom.
+- The active-source line from section 3.0, including “N1MM is the log of record” when that applies.
+- Preset `<select>`: (none), ARRL VHF, Casual, Band + mode. “(none)” clears step (a).
+- Home/custom checkboxes and the points control. They are step (b). Saving them does not by itself clear a picked preset; clearing the preset is what lets the custom set take effect.
 - The `summary` sentence under the controls.
+- **Fallback** controls, used only at step (c): source `WSJT-X Colors` or `GridTracker roster`, the category list (section 3.6), and the GridTracker path (section 3.7).
 - Save, and the path of `contest_rules.json`.
 - When an N1MM contest is loaded and its name suggests a different preset, one line: “Loaded N1MM contest ARRLVHFSEP matches ARRL VHF.” or the “no matching rule” line from section 3.2.
 
-`/n1mm` keeps picking the `.s3db`. It shows the same one-line summary and links to Setup to change rules. Operate does not grow a settings form; the roster already shows `need_reason` / factor detail.
+`/n1mm` keeps picking the `.s3db`. It shows the same active-source line and links to Setup to change rules. Operate does not grow a settings form; the roster header shows `source_label`, and each row shows `need_reason`.
+
+### 3.6 WSJT-X style needed rule
+
+Step (c) default. This is the substitute for a contest rule when the operator has not picked one and has not saved a custom checkbox set. It answers “needed?” for a **CQ** the way WSJT-X colors a decoded CQ. The scoring strategy still excludes non-CQ rows (“not calling CQ”).
+
+A CQ is **needed** when **any** enabled category below matches the ADIF log (`wsjtx_log.adi`, or the shared file when that is the primary). The roster reason names the first match in Colors-tab order (top of the list wins). If WIMS cannot read that order, it uses the order in the table.
+
+| Category | Needed when |
+|----------|-------------|
+| New DXCC | The call’s DXCC entity is not in the log |
+| New DXCC on Band | That entity is not in the log on this band |
+| New Grid | The grid is not in the log |
+| New Grid on Band | That grid is not in the log on this band |
+| New Call | The call is not in the log |
+| New Call on Band | The call is not in the log on this band |
+
+Options, same names as the Colors tab:
+
+| Option | Effect |
+|--------|--------|
+| Highlight by Mode | Worked-before is per mode. A 6 m FT8 QSO does not count as worked for 6 m FT4. |
+| Only grid Fields sought | Grid compare uses the first two characters (the field, `FN`) instead of the four-character square (`FN42`). Field and square highlighting are alternatives, as on the Colors tab. |
+
+ADIF fields on each logged QSO:
+
+| Field | Role |
+|-------|------|
+| `CALL` | Required. A record with no call is ignored. |
+| `BAND` | Optional. Without it, the record does not fill “on band” sets. |
+| `MODE` / `SUBMODE` | Optional. With Highlight by Mode off, mode is ignored. With it on, a record with no mode does not count as worked for any mode. Submode wins when both are present (FT8, FT4, MSK144 stay distinct). |
+| `GRIDSQUARE` | Optional. Without it, the record does not fill grid sets. |
+| `DXCC` | Optional. When present, that entity number is the logged entity. When absent, the entity comes from the call. |
+
+DXCC for a decoded call (and for a logged call with no `DXCC` field) comes from WSJT-X’s `cty.dat`, read-only, searched beside the WSJT-X install and in the data directory. `log/pfx.py` is a small prefix table for N1MM inserts and is not the DXCC authority. If `cty.dat` cannot be read, New DXCC and New DXCC on Band stay off and Setup says “DXCC highlighting is off because cty.dat was not found.”
+
+QSO points under this rule are flat 1. `is_new_mult` is true when the winning category is New DXCC, New DXCC on Band, New Grid, or New Grid on Band. New Call and New Call on Band are needed, and they are not multipliers. Example reasons:
+
+- `Needed: New Grid on Band — FN20 on 6m is not in wsjtx_log.adi.`
+- `Not needed: K1ABC on 6m FT8 matches no enabled WSJT-X color.`
+
+Per instance: a decode on `--rig-name` 6m uses that instance’s ini and that instance’s `wsjtx_log.adi`. A configured shared log is the single ADIF; categories still come from the instance ini. If two inis disagree, Setup lists each one and the label says the rule is per instance.
+
+**Read the Colors tab so the operator does not enter it twice.** WIMS reads the same ini `wsjtx_config.py` already opens (section 4.1 paths). Confirmed QSettings keys (WSJT-X `Configuration.cpp`, Colors tab):
+
+| Key | Control |
+|-----|---------|
+| `HighlightByMode` | Highlight by Mode. Default false. |
+| `OnlyFieldsSought` | Only grid Fields sought. Default false. |
+| `IncludeWAEEntities` | Include extra WAE entities. Default false. Affects which DXCC entities count; not one of the six categories. Honor it when New DXCC is on. |
+| `DecodeHighlighting` | The ordered category list: enabled flag plus colors, one row per highlight type. |
+
+`HighlightByMode`, `OnlyFieldsSought`, and `IncludeWAEEntities` are plain `true`/`false` lines. `DecodeHighlighting` is a Qt `QVariant` list (`QList` of highlight rows, written with `QDataStream`). A stdlib reader for that blob is a spike (L3 in the milestone table). Until the blob parses, WIMS uses the factory defaults from `DecodeHighlightingModel::default_items` and Setup says: “WIMS could not read the Colors list from WSJT-X.ini. Showing WSJT-X’s default categories. You can edit them here.”
+
+Factory defaults in current WSJT-X source (verify on the Colors tab of the installed build before coding — the list has grown): New DXCC and New DXCC on Band start enabled; New Grid, New Grid on Band, New Call, and New Call on Band start disabled. The same list also has rows that are **not** this needed rule: CQ in message, My Call in message, Transmitted message, New Continent, New Continent on Band, New CQ Zone, New CQ Zone on Band, New ITU Zone, New ITU Zone on Band, and LoTW. User guide §6.7 ([Colors](https://wsjtx.github.io/wsjtx/guide-full.html)) is the check. Dragging a row changes priority only. WIMS does not write `WSJT-X.ini`.
+
+The General tab box “Show DXCC, grid, and worked-before status” (user guide §6.7) turns worked-before coloring on inside WSJT-X. Its ini key is **not** confirmed yet. When the spike finds it and the box is off, Setup says “WSJT-X is not coloring worked-before status (General tab). WIMS is still using the Colors categories below.” WIMS does not refuse the fallback because of that box.
+
+If the operator edits a category in WIMS, save into `wsjtx_override` and stop live-mirroring until they press **Use WSJT-X.ini again**. No enabled category at all: Setup warns “No color category is enabled, so no CQ will show as needed.”
+
+### 3.7 GridTracker roster as the fallback source
+
+Alternative for step (c) only. The operator sets `fallback` to `gridtracker`. WIMS then mirrors GridTracker’s decode-list / call-roster filters (needed, new call, new grid, new DXCC, worked-before) instead of the WSJT-X Colors list. This is **read-only**. WIMS never writes a GridTracker file, never changes a GridTracker setting, and never sends GridTracker a configuration UDP.
+
+**Where the settings live**
+
+| What | Where | Confidence |
+|------|--------|------------|
+| GridTracker 2 app data | Windows `%APPDATA%\GridTracker2\` (`\Users\{name}\AppData\Roaming\GridTracker2`). Linux `~/.config/GridTracker2\`. macOS `~/Library/Application Support/GridTracker2\`. | GridTracker 2 changelog 2.241115 |
+| GridTracker 1 export/import file | `Documents\gt_settings.json` (Windows `C:\Users\%user%\Documents\`, Linux `~/Documents/`). The Export Settings button writes this name. | GridTracker 1 user guide. This is a snapshot the operator exported, not proof of the live GT2 store. |
+| Live roster filter object | In GT2 code the call-roster window reads `rosterSettings` (fields seen in source include `cqOnly`, `requireGrid`, `minDb`, `usesLoTW`, `useseQSL`, `usesOQRS`, `onlySpot`, and an award-tracker flag). Hunting mode is the New / New + Unconfirmed / Mixed control; the hunting target is Call, Grid, DXCC, and the other roster columns. | Seen in GT2 source. The on-disk JSON path of this object is **not** confirmed. |
+
+**How WIMS would read them**
+
+1. Look for a JSON settings file under the GT2 app-data directory. The filename is a spike (`gt_settings.json` is the name to try first; do not ship a guess).
+2. If that directory has no readable JSON, use `gridtracker_path` when the operator set one (an exported `gt_settings.json` is the intended file).
+3. Map the roster’s worked-before filter onto the same ADIF test as section 3.6, using the log files named in the settings. If the settings do not name a log, use `wsjtx_log.adi` and say “GridTracker’s log list was not in the settings file. Using wsjtx_log.adi.”
+4. “New” means not in that log for the hunting target (call, grid, or DXCC). “New + Unconfirmed” also treats a logged QSO as still needed when the ADIF confirmation field GT uses is empty (`LOTW_QSL_RCVD` / `EQSL_QSL_RCVD` / `QSL_RCVD` — which field GT actually checks is part of the spike). If those fields are absent, treat the filter as “New” and say so.
+5. Reload when the file’s mtime changes. Do not hold a write lock.
+
+**Unknown until a spike on a real GT2 install**
+
+- The live filename, and whether roster filters are in that JSON or in Chromium local storage (LevelDB under the app-data directory). LevelDB is out of scope for a stdlib reader. In that case the operator’s exported JSON is the supported input, and Setup says the live store was not a plain file.
+- JSON keys for Hunting target, Callsigns = New / New + Unconfirmed / All, and per-band / per-mode worked-before.
+- Whether GT’s “new grid” is a four-character square or a two-letter field.
+- Which ADIF files GT has loaded when several are configured.
+
+If the chosen file cannot be read, Setup says “GridTracker settings are not readable ({path}). Needed is using WSJT-X Colors until this file opens.” Step (c) falls back to section 3.6 rather than marking every station needed.
 
 ---
 
@@ -433,7 +570,7 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 
 | Risk | What we do about it |
 |------|---------------------|
-| Extracting rules changes fleet VHF verdicts | L1’s only preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. Default file absent ⇒ `arrl-vhf`. |
+| Extracting rules changes fleet VHF verdicts | L1’s only preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. N1MM primary and no operator pick ⇒ `arrl-vhf`. Solo with no preset and no custom set ⇒ WSJT-X Colors (section 3.0), which is a different verdict and must not run while N1MM is the log. |
 | Shared file plus per-instance files double-count in `LogStore` | Primary reads one or the other (section 4.2). Audit may read both and labels those pairs as the same contact. |
 | WSJT-X holds an exclusive lock on Windows | Warning `locked`. UDP type 5/12 fills contacts logged after WIMS started. Older contacts stay missing until the file opens. Confirm lock behavior on a real Windows WSJT-X before trusting the warning text. |
 | ADIF edit rewrites the file; there is no per-record delete | Shrink or non-append size change ⇒ full `resync` + `reconcile`. |
@@ -445,18 +582,23 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 | `Path.resolve()` on Linux does not see a Windows junction made elsewhere | Compare resolved paths on the machine that holds the file. Document that the shared-drive check runs on the WSJT-X PC. |
 | Audit time window pairs the wrong QSO when a station is worked twice in 3 minutes | Rare on FT8. The report shows both times. A later milestone can tighten the window; 3 minutes is the first cut. |
 | Reading Log4OM SQLite while it is open | Out of scope until the survey spike. ADIF export only. |
+| `DecodeHighlighting` is a Qt binary list | Plain bools (`HighlightByMode`, `OnlyFieldsSought`) are readable now. The category list needs a spike. Until it parses, show factory defaults and say the ini list was not read. |
+| Mirroring GridTracker writes or guesses its config | Read-only open. No write, no UDP. Unknown filename or LevelDB ⇒ operator-supplied export, and WSJT-X Colors until that file reads. |
+| WSJT-X Colors and a contest rule both apply | Section 3.0 picks one source. The roster label is that source. |
 
 ---
 
 ## 7. Open questions
 
-1. **Solo default preset.** This proposal keeps `arrl-vhf` whenever `contest_rules.json` is missing, so an existing contest install does not change. A home PC that has never run a contest would be better on `casual`. Prefer a default of `arrl-vhf` until the operator picks, or default solo to `casual` when no N1MM contest is loaded?
-2. **GridTracker filename.** Confirm on a real GT2 install (Windows and Linux) before `--gridtracker-auto` looks for a specific name. Until then the operator passes `--adif` or `--gridtracker`.
+1. **Solo default — resolved (2026-10-15).** No picked preset and no custom set ⇒ WSJT-X Colors against the ADIF log. N1MM as the log of record stays on the contest rule (`arrl-vhf` if the operator has not picked another).
+2. **GridTracker filename.** Confirm on a real GT2 install (Windows and Linux) before `--gridtracker-auto` looks for a log name, and before the fallback reader looks for a settings file (section 3.7). Until then the operator passes a path.
 3. **File lock.** Does WSJT-X on Windows allow a second process to read `wsjtx_log.adi` while the program is open? The locked-file warning depends on the answer.
 4. **Suggest vs auto-switch** when N1MM `ContestName` maps to a preset. This proposal suggests only. Auto-switch would surprise someone who set Custom.
 5. **Dupe period “contest weekend”** as a third period value (start/end timestamps) versus UTC day plus a `--since` on the audit only.
 6. **Cabrillo** after the contest: in the audit tool later, or leave it to N1MM’s export?
-7. **Fleet.** Seat agent reports `log_access` for WSJT-X PCs the site server cannot read. Confirm that L4 solo is enough before any agent work.
+7. **Fleet.** Seat agent reports `log_access` for WSJT-X PCs the site server cannot read. Confirm that L4 solo is enough before any agent work. The Colors ini and `wsjtx_log.adi` are on the WSJT-X PC; a remote site server cannot be the step (c) reader.
+8. **General-tab master switch.** User guide §6.7 “Show DXCC, grid, and worked-before status” — confirm the ini key. Behavior until then is in section 3.6.
+9. **Colors category list on the installed build.** Header `DecodeHighlightingModel` lists more rows than the six needed-categories (continent, CQ/ITU zone, LoTW). Confirm the Colors tab before coding, and do not treat those extra rows as needed unless the operator asks.
 
 ---
 
@@ -467,12 +609,13 @@ Each step is shippable on its own. Tests are stdlib `tests/unit/test_*.py` plus 
 | Id | Deliver | Done when |
 |----|---------|-----------|
 | **L1** | `ContestRules` + preset `arrl-vhf`. `LogStore.is_dupe` / `is_new_mult` delegate to it. | Existing scoring, roster, and N1MM log tests pass with no verdict change. New tests call the rules object directly. |
-| **L2** | `contest_rules.json`, `POST /api/rules`, state key `rules`, Setup section with the four presets shown and Custom disabled. | Changing the file (or the POST) changes `rules` on the next SSE snapshot. Default remains ARRL VHF. |
-| **L3** | Presets `casual` and `band-mode`, Custom checkboxes, `need_reason` / `mult_reason` on the roster. | A unit test proves band+mode dupe and “UTC day” dupe. The Operate row shows the reason string. |
+| **L2** | `contest_rules.json` (schema 2), `POST /api/rules`, state key `rules` including `source_label`. Setup shows which source is active (section 3.0). | N1MM primary and no pick ⇒ `N1MM · ARRL VHF`. Solo with no preset and no custom set ⇒ `WSJT-X Colors` (categories may still be defaults until L3 reads the ini). A picked preset beats a saved custom set. |
+| **L3** | Steps (a) and (b): presets `casual` and `band-mode`, custom checkboxes, `need_reason` / `mult_reason`. Step (c): WSJT-X Colors rule against an ADIF fixture, including Highlight by Mode and Only grid Fields sought. Read `HighlightByMode` and `OnlyFieldsSought` from an ini fixture. Spike `DecodeHighlighting`; if it does not parse, say so and use factory defaults. | A unit test: New Call on Band is needed; the same call already on that band and mode is not; a two-letter field match honors Only grid Fields sought. The Operate row shows the category name. N1MM-primary tests still expect `arrl-vhf`. |
 | **L4** | Discover per-instance and shared paths. Warnings in the solo check and on Setup (`log_access`). | A fixture directory tree (default + `--rig-name` + missing dir + shared symlink) produces the sentences in section 4.3. `LogStore` still unchanged. |
 | **L5** | `WsjtxAdifLogSource` + `adif_drop`. Solo auto-pick (section 2.2). Poll + UDP fast path, one id function. | With no N1MM file, a sample `wsjtx_log.adi` seeds dupes. Appending one record flips that call to a dupe. N1MM seed still works when `last_log.json` points at a `.s3db`. |
 | **L6** | `python -m wims.logaudit` for WSJT-X, N1MM, and generic ADIF. Text + JSON. | A fixture pair with one missing QSO, one grid clash, and one match exits 1 and prints the section 5.4 shape. Read-only. |
 | **L7** | GridTracker path spike, then `--gridtracker-auto`. LoTW file as notes. Setup **Check logs** renders the L6 report. | A GT sample ADIF and a LoTW sample produce notes, and an unpaired LoTW-only row is not a hard “missing from WSJT-X” failure. |
 | **L8** | More loggers as `--adif` documentation and, only after a survey spike, one native reader (Log4OM SQLite or CQRLOG). | The spike checklist in the survey is filled in for that one program before any SQL is merged. |
+| **L9** | GridTracker roster as the step (c) alternative (section 3.7). Read-only. | A fixture JSON (once the spike names the file and keys) selects “new grid” and a CQ in a logged grid is not needed. Missing file ⇒ WSJT-X Colors, with the Setup sentence in section 3.7. No GridTracker file is written. |
 
-L1–L3 do not require a logger change. L4 does not require rules beyond L1. L6 can start as soon as the ADIF reader from L5 exists; it can also carry its own small reader if L5 slips, as long as the id and field rules match section 2.3.
+L1 does not require a logger change. L2 can ship the source label before L3 fills in Colors parsing. L4 does not require rules beyond L1. L9 waits on the section 3.7 spike and can share the ADIF reader with L5. L6 can start as soon as that reader exists; it can also carry its own small reader if L5 slips, as long as the id and field rules match section 2.3.
