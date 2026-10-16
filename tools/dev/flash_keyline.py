@@ -44,9 +44,10 @@ from pyftdi.eeprom import FtdiEeprom, FtdiEepromError
 from pyftdi.ftdi import Ftdi
 from pyftdi.usbtools import UsbTools
 
-HERE = Path(__file__).resolve().parent
-BACKUP_DIR = HERE / "backups"
-FLEET_CSV = HERE / "fleet.csv"
+# Data stays next to the boards (fleet.csv, backups). This file lives in tools/dev.
+_EEPROM_DIR = Path(__file__).resolve().parents[2] / "hardware" / "keyline_interface" / "eeprom"
+BACKUP_DIR = _EEPROM_DIR / "backups"
+FLEET_CSV = _EEPROM_DIR / "fleet.csv"
 
 VID = 0x0403
 PID = 0x6015

@@ -62,7 +62,7 @@ jobs:
           fi
 
           # Shared parser (rejects unknown suffixes)
-          EVAL=$(python3 scripts/packaging/write_manifest.py "$RAW" --repo-root . | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['version'], m['version_base'], m['channel'])")
+          EVAL=$(python3 tools/dev/packaging/write_manifest.py "$RAW" --repo-root . | python3 -c "import sys,json; m=json.load(sys.stdin); print(m['version'], m['version_base'], m['channel'])")
           VERSION=$(echo "$EVAL" | awk '{print $1}')
           VERSION_BASE=$(echo "$EVAL" | awk '{print $2}')
           CHANNEL=$(echo "$EVAL" | awk '{print $3}')
@@ -108,7 +108,7 @@ jobs:
       - name: Validate (unit + live no-RF)
         env:
           PYTHON: python
-        run: scripts/validate.sh
+        run: tools/dev/validate.sh
 
   package:
     name: package
@@ -125,8 +125,8 @@ jobs:
           STRICT: "1"
         run: |
           set -euo pipefail
-          chmod +x scripts/package-release.sh install.sh scripts/install-linux.sh
-          scripts/package-release.sh "${{ needs.prepare.outputs.version }}"
+          chmod +x tools/dev/package-release.sh install.sh scripts/install-linux.sh
+          tools/dev/package-release.sh "${{ needs.prepare.outputs.version }}"
           ls -la dist/
 
       - name: Upload artifact

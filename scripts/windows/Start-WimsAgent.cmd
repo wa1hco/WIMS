@@ -52,9 +52,8 @@ if defined WIMS_SERVER (
 )
 echo.
 
-REM Prefer scripts\run_agent.py (sets up src path). Falls back to -m with PYTHONPATH.
-if exist "%ROOT%\scripts\run_agent.py" (
-  "%PYTHON_EXE%" "%ROOT%\scripts\run_agent.py" %SRV_ARGS% %SEAT_ARGS% %*
+if exist "%ROOT%\tools\dev\run_agent.py" (
+  "%PYTHON_EXE%" "%ROOT%\tools\dev\run_agent.py" %SRV_ARGS% %SEAT_ARGS% %*
 ) else (
   "%PYTHON_EXE%" -m wims.agent %SRV_ARGS% %SEAT_ARGS% %*
 )
@@ -68,8 +67,7 @@ if %ERR%==0 (
   echo  RESULT: could not export to site server ^(exit 2^)
 ) else (
   echo  RESULT: failed ^(exit %ERR%^)
-  echo  Tip: use this .cmd, or:  set PYTHONPATH=%ROOT%\src
-  echo        python -m wims.agent
+  echo  Tip: double-click this file again. If Python is missing, double-click Install-Wims.cmd.
 )
 echo.
 pause

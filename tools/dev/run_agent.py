@@ -21,9 +21,9 @@
 """Run the seat agent without requiring PYTHONPATH.
 
 Usage (from any cwd):
-  python scripts/run_agent.py
-  python scripts/run_agent.py --daemon
-  python scripts/run_agent.py --server http://192.168.1.119:8787
+  python tools/dev/run_agent.py
+  python tools/dev/run_agent.py --daemon
+  python tools/dev/run_agent.py --server http://192.168.1.119:8787
 
 Prefer this over bare ``python -m wims.agent`` on seats — ``-m`` needs
 ``PYTHONPATH=<repo>/src`` (the Windows .cmd wrappers set that for you).

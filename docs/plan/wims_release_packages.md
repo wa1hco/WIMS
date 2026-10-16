@@ -35,8 +35,8 @@ This design defines **release packages** for Windows (primary) and Linux (second
 | Python pin consume | All `.cmd` launchers (including `Start-WimsServer.cmd`) call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python`. A pin that is a directory or vendor embed is ignored. Install must not rewrite the tracked `.cmd`. |
 | Windows update | `Update-Wims.ps1`: `git pull --ff-only origin/main` when `.git` exists. Startup (`check_for_update`) also queries **GitHub Releases**; ZIP / no-git trees get the banner and open the release URL. Tag `v*` publishes; push to `main` does not. |
 | Local seat configs (gitignored) | `scripts/windows/seat-common.cmd`, `seat-local.cmd`, `radio-flex50.cmd`, `radio-ic9700-144.cmd`, `python-path.txt` |
-| Linux | `apt install git python3 python3-tk`; run from tree; `scripts/install-wims-desktop.sh` |
-| CI | `.github/workflows/ci.yml` → `scripts/validate.sh` on 3.10/3.12/3.14; version pin `pyproject.toml` ↔ `wims.__version__` |
+| Linux | `apt install git python3 python3-tk`; run from tree; `scripts/add-wims-to-desktop.sh` |
+| CI | `.github/workflows/ci.yml` → `tools/dev/validate.sh` on 3.10/3.12/3.14; version pin `pyproject.toml` ↔ `wims.__version__` |
 | Releases | [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0); Windows bundled runtime still later |
 | KEY software | IN product: `wims.seat --key` (N1MM agent KEY section) |
 | Keyline hardware tools | OUT of software package: entire `hardware/` (EEPROM flash, `*.bin`, `99-keyline.rules`, KiCad) |
@@ -172,7 +172,7 @@ Official **Windows embeddable** package has no Tk. Release packaging **must** bu
 
 | Input | Example pin | Verify |
 |-------|-------------|--------|
-| Embeddable zip | `https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip` | SHA256 in `scripts/packaging/windows_runtime.hashes` |
+| Embeddable zip | `https://www.python.org/ftp/python/3.12.8/python-3.12.8-embed-amd64.zip` | SHA256 in `tools/dev/packaging/windows_runtime.hashes` |
 | Tk donor (primary) | **Installed** official CPython **3.12.8 x64** tree (same patch as embed) — e.g. `%LocalAppData%\Programs\Python\Python312` or `C:\Program Files\Python312` after a normal python.org install with Tcl/Tk included | `python.exe -c "import sys; print(sys.version)"` shows 3.12.8; `import tkinter` works on that install |
 | Tk donor (CI / no persistent install) | Direct MSI: `https://www.python.org/ftp/python/3.12.8/amd64/tcltk.msi` (and if needed `core.msi` / layout MSIs for `zlib1.dll`) extracted with **administrative install**, not `/layout` alone | SHA256 of each MSI; see donor extraction below |
 
@@ -243,7 +243,7 @@ Both imports required. Match current Install success criterion (`import wims.ser
    machine PATH prepend). Record whether env vars were required.
 6. Launch `python -m wims` (Tk launcher window opens).
 7. Record file list + hashes + any `TCL_LIBRARY`/`TK_LIBRARY` requirement in
-   `scripts/packaging/windows_runtime.hashes` / spike note.
+   `tools/dev/packaging/windows_runtime.hashes` / spike note.
 8. Only then automate in CI (PR 5).
 
 **If the spike fails** (fragile `._pth`, missing DLL on old Win10, env vars still insufficient): fall back to Alternative F (portable full CPython layout) without changing the Install pin contract (`python-path.txt` still points at a private `python.exe`).
@@ -497,7 +497,7 @@ flowchart LR
 
 ### Publish gates (mandatory)
 
-1. `scripts/validate.sh` green (or reused CI).
+1. `tools/dev/validate.sh` green (or reused CI).
 2. Tag ↔ version parity per Tag scheme above (supports `-tester` and `-rcN`).
 3. Windows zip: deny-list clean; `runtime\python\python.exe` present; smoke:
    `python.exe -c "import tkinter; import wims.server.app; print('import ok')"` with `PYTHONPATH=src`.
@@ -566,7 +566,7 @@ flowchart LR
 ## Rollout Plan
 
 1. **Phase 0 — Windows runtime spike (blocks offline claim)**  
-   Hand-build `runtime\` on a spare Win10 seat using the overlay recipe. Record hashes + smoke transcript in `scripts/packaging/` (or a short spike note under `docs/plan/`). **Do not** treat “system-Python-only zip” as sufficient de-risk for contest offline.
+   Hand-build `runtime\` on a spare Win10 seat using the overlay recipe. Record hashes + smoke transcript in `tools/dev/packaging/` (or a short spike note under `docs/plan/`). **Do not** treat “system-Python-only zip” as sufficient de-risk for contest offline.
 
 2. **Phase 1 — Install prefers bundle + FromZip preserve semantics**  
    Script changes land even before full CI packaging, so USB trees with a hand-built `runtime\` work.
@@ -754,14 +754,14 @@ Ordered, independently reviewable PRs. Each should leave `main` green.
 ### PR 0 — Windows runtime overlay spike (blocks PR 5)
 
 - **Title:** `packaging: spike embeddable CPython 3.12 + Tk overlay recipe`
-- **Files/components:** `scripts/packaging/windows_runtime.hashes` (or spike note under `docs/plan/`), hand-verified file list; optional checked-in script that documents steps without uploading secrets
+- **Files/components:** `tools/dev/packaging/windows_runtime.hashes` (or spike note under `docs/plan/`), hand-verified file list; optional checked-in script that documents steps without uploading secrets
 - **Dependencies:** none
 - **Description:** Produce one working `runtime\python\` on Win10. Donor = installed 3.12.8 tree and/or `msiexec /a tcltk.msi` (not `/layout` alone). Record exact copies, `python312._pth`, SHA256 pins, whether `TCL_LIBRARY`/`TK_LIBRARY` were required, and smoke transcript (`import tkinter; import wims.server.app; print('import ok')`). If spike fails, document switch to Alternative F before PR 5. **PR 5 is blocked on this.**
 
 ### PR 1 — Release manifest + version stamping helpers
 
 - **Title:** `packaging: add manifest.json schema and version stamp helpers`
-- **Files/components:** new `scripts/packaging/write_manifest.py`; tests for JSON shape / channel mapping from tag suffix
+- **Files/components:** new `tools/dev/packaging/write_manifest.py`; tests for JSON shape / channel mapping from tag suffix
 - **Dependencies:** none
 - **Description:** Define `manifest.json` fields including `channel` ∈ {`GA`,`RC`,`tester`}. Helper writes version/git sha/channel. No CI release yet.
 
@@ -782,14 +782,14 @@ Ordered, independently reviewable PRs. Each should leave `main` green.
 ### PR 4 — Linux install script + tarball layout checklist
 
 - **Title:** `linux: add install-linux.sh with python3-tk check`
-- **Files/components:** `scripts/install-linux.sh`, README Linux section, optional `scripts/packaging/build_linux_tarball.sh`
+- **Files/components:** `scripts/install-linux.sh`, README Linux section, optional `tools/dev/packaging/build_linux_tarball.sh`
 - **Dependencies:** PR 1
 - **Description:** Idempotent prereq check; desktop shortcut hook; firewall notes; **exclude entire `hardware/`**.
 
 ### PR 5 — CI: build Windows zip with embeddable Python + Tk
 
 - **Title:** `ci: package Windows release zip with bundled CPython+Tk`
-- **Files/components:** packaging workflow job on `windows-latest`, `scripts/packaging/build_windows_zip.*`, deny-list test
+- **Files/components:** packaging workflow job on `windows-latest`, `tools/dev/packaging/build_windows_zip.*`, deny-list test
 - **Dependencies:** **PR 0 (spike)**, PR 1, PR 2
 - **Description:** Automate overlay from spike recipe (`msiexec /a` or cached donor tree — not `/layout` as file source); hash-verify upstreams; smoke standard command; package by **allow-list** (fail if `tests/`/`testbed/`/`.github/`/`dashboard/`/`hardware/` present). `workflow_dispatch` may upload Windows-only draft for lab USB before Linux gate exists.
 
@@ -817,7 +817,7 @@ Ordered, independently reviewable PRs. Each should leave `main` green.
 ### PR 9 — Thin Windows setup.exe wrapper (**v1 in-scope**)
 
 - **Title:** `packaging: Inno/SFX setup.exe extracts to C:\\WIMS and runs Install`
-- **Files/components:** `scripts/packaging/windows_sfx.*` / Inno script, release workflow asset, Authenticode step (lab self-signed → real cert)
+- **Files/components:** `tools/dev/packaging/windows_sfx.*` / Inno script, release workflow asset, Authenticode step (lab self-signed → real cert)
 - **Dependencies:** PR 5 (zip payload); soft-dep PR 7 for publishing
 - **Description:** Same payload as zip. Double-click extracts to `C:\WIMS` and launches `Install-Wims.cmd`. Sign the `.exe` (ephemeral/self-signed acceptable for lab; plan real Authenticode). Zip remains FromZip / USB source of truth. **Not deferred** — ship for first tester tag when zip CI is green.
 

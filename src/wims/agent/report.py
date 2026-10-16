@@ -1485,6 +1485,6 @@ def format_report_solo(report: dict) -> str:
     if err:
         out.append("Fix the [XX] item(s) above, then run this check again.")
     else:
-        out.append("Next: start WIMS (Start-Wims-Solo.cmd, or `python -m wims.solo`)")
+        out.append("Next: double-click the WIMS icon, or Start-Wims-Solo.cmd")
         out.append("      then open  http://localhost:8787/  and watch the roster.")
     return "\n".join(out)

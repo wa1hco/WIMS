@@ -25,16 +25,16 @@
 # unit suites AND a live no-RF run (server ingests the emulator's multicast →
 # state → SSE → JSON). No network hardware, no N1MM, no pytest required.
 #
-# Usage:   scripts/validate.sh
+# Usage:   tools/dev/validate.sh
 # Exit:    0 = all checks passed, non-zero = first failing check's status.
 #
 # Throwaway logs land in ./scratch/validate/ (gitignored).
 
 set -u
 
-# --- locate repo root (script lives in scripts/) ---------------------------
+# --- locate repo root (script lives in tools/dev/) -------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
 export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"

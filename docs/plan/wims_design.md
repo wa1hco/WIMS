@@ -12,6 +12,12 @@ records design decisions as they're made.
 companion tracker [wims_status.md](wims_status.md).** Keep the two separated: change this file
 when the *design* changes; record *progress* there.
 
+**Zero-knowledge / zero-memory** is a standing principle: a person who only vaguely
+remembers the name WIMS must be able to get going. Recognition over recall, zero-config,
+auto-detect, progressive disclosure, and errors that say the next step in plain words.
+Operator instructions do not ask for environment variables, `python -m`, or flags.
+Statement and checklist: [design-principles.md](../design-principles.md).
+
 **Fleet networking map** (WSJT-X / N1MM / GridTracker multicast ports, logger segregation,
 consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).

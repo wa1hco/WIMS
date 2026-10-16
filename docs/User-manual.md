@@ -2,7 +2,7 @@
 
 **Audience:** contest operators and seat wranglers (W2SZ multi-multi VHF and similar).  
 **Setup how-to (WSJT-X · N1MM · Keyline):** **[operator_setup.md](operator_setup.md)** ← start here for install/config.  
-**Screenshots:** refresh with `scripts/capture-user-manual-shots.sh` (see [manual/README.md](manual/README.md)).  
+**Screenshots:** refresh with `tools/dev/capture-user-manual-shots.sh` (see [manual/README.md](manual/README.md)).  
 **Related:** [tester_quickstart.md](tester_quickstart.md), [plan/wims_design.md](plan/wims_design.md), [plan/wims_networking.md](plan/wims_networking.md).
 
 ---
@@ -43,13 +43,8 @@ That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when an
 
 ## Quick start
 
-```bash
-# Desktop launcher (recommended)
-python -m wims
-```
-
-- **Windows:** Desktop **WIMS** / `Install-Wims.cmd` once — [scripts/windows/README.md](../scripts/windows/README.md)  
-- **Linux:** `scripts/install-wims-desktop.sh` (needs `python3-tk`)  
+- **Windows:** double-click `scripts\Add WIMS to Desktop.bat`, then Desktop **WIMS**. First time: `Install-Wims.cmd` — [scripts/windows/README.md](../scripts/windows/README.md)
+- **Linux:** `./scripts/add-wims-to-desktop.sh` (needs `python3-tk`), then double-click **WIMS**  
 - Console: `http://<server>:8787/` (the WIMS launcher opens it as a chrome-free
 	app window with Chrome, Chromium, or Edge, or a dedicated resizable Firefox
 	window; otherwise it uses the normal default browser)  
@@ -116,7 +111,7 @@ One **site server** per contest LAN. Top nav:
 
 ## N1MM agent (logger / SSB-CW PC)
 
-One process: `python -m wims.seat --log --key` (or launcher intents).
+In the WIMS window, check **N1MM** and **SSB/CW KEY**.
 
 | Section | Job |
 |---------|-----|
@@ -185,8 +180,8 @@ Authoritative: [plan/wims_networking.md](plan/wims_networking.md).
 **Launcher → Other tools… → Screenshots…** (select pages, standard name or suffix), or:
 
 ```bash
-scripts/capture-user-manual-shots.sh
-scripts/capture-user-manual-shots.sh --suffix contest_run
+tools/dev/capture-user-manual-shots.sh
+tools/dev/capture-user-manual-shots.sh --suffix contest_run
 ```
 
 See [manual/README.md](manual/README.md). Catalog: [manual/shots.json](manual/shots.json).  

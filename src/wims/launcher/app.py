@@ -466,28 +466,42 @@ def desktop_dir() -> Path:
     return home / "Desktop"
 
 
+def linux_desktop_entry_text() -> str:
+    """Freedesktop entry named WIMS. The program finds its own files."""
+    icon = find_icon_path()
+    icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
+    exe = _console_python()
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Version=1.0\n"
+        "Name=WIMS\n"
+        "GenericName=WSJT-X Instance Management\n"
+        "Comment=WIMS agents and site console\n"
+        f"Exec=env PYTHONPATH={_SRC} {exe} -m wims.launcher\n"
+        f"Path={_REPO_ROOT}\n"
+        f"{icon_line}\n"
+        "Terminal=false\n"
+        "Categories=HamRadio;Network;\n"
+        "StartupNotify=true\n"
+    )
+
+
 def write_linux_desktop_shortcut() -> Path:
     desk = desktop_dir()
     desk.mkdir(parents=True, exist_ok=True)
     path = desk / "WIMS.desktop"
-    icon = find_icon_path()
-    icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
-    exe = _console_python()
-    content = f"""[Desktop Entry]
-Type=Application
-Version=1.0
-Name=WIMS
-GenericName=WSJT-X Instance Management
-Comment=WIMS agents + site console
-Exec=env PYTHONPATH={_SRC} {exe} -m wims.launcher
-Path={_REPO_ROOT}
-{icon_line}
-Terminal=false
-Categories=HamRadio;Network;
-StartupNotify=true
-"""
+    content = linux_desktop_entry_text()
     path.write_text(content, encoding="utf-8")
     path.chmod(path.stat().st_mode | 0o111)
+    menu = Path.home() / ".local" / "share" / "applications"
+    try:
+        menu.mkdir(parents=True, exist_ok=True)
+        menu_path = menu / "WIMS.desktop"
+        menu_path.write_text(content, encoding="utf-8")
+        menu_path.chmod(menu_path.stat().st_mode | 0o111)
+    except OSError:
+        pass
     return path
 
 
@@ -829,8 +843,8 @@ class LauncherApp:
         ent.pack(side="left")
         ToolTip(
             ent,
-            "Normally filled from WIMS_SERVER, last success, or LAN discovery.\n"
-            "Override only if discovery fails.",
+            "Filled from the last success, or from finding WIMS on the network.\n"
+            "Change this only when that search fails.",
         )
         tk.Button(
             site_row, text="Find on LAN", font=_ui_font(10),
@@ -2380,7 +2394,7 @@ class LauncherApp:
         if role.id in ("log", "key", "n1mm_seat", "inhibit_home") and "--no-gui" not in py_argv:
             py_argv = list(py_argv) + ["--no-gui"]
         cmd = _python_cmd() + py_argv
-        self._append_log(f"$ {' '.join(cmd)}")
+        self._append_log(f"Starting {role.title}.")
         popen_kw: dict = {
             "cwd": str(_REPO_ROOT),
             "env": _role_env(),
@@ -2566,9 +2580,27 @@ class LauncherApp:
             self._append_log(f"Shortcut failed: {e}")
 
 
+def announce_already_running() -> int:
+    """Second double-click: show the console that is already up."""
+    ok, base = probe_site_urls(None, timeout=0.6)
+    if ok:
+        url = base.rstrip("/") + "/"
+        try:
+            open_wims_url(url)
+        except Exception:
+            pass
+        print(f"WIMS is already open. The console is {url}")
+        return 0
+    print(
+        "WIMS is already open on this PC.\n"
+        "Use the WIMS window that is already on the screen."
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        prog="python -m wims.launcher",
+        prog="WIMS",
         description="WIMS desktop launcher — checkbox agents for apps on this PC.",
     )
     ap.add_argument(
@@ -2588,22 +2620,14 @@ def main(argv: list[str] | None = None) -> int:
 
     from wims.launcher.singleton import try_acquire_launcher_lock
     if not try_acquire_launcher_lock():
-        print(
-            "ERROR: WIMS launcher is already running on this PC.\n"
-            "  Use the existing window — a second copy would restart seat agents.\n"
-            "  If that window is gone, remove ~/.config/wims/launcher.lock "
-            "(or %APPDATA%\\wims\\launcher.lock) only after confirming no "
-            "python -m wims.launcher process is alive.",
-            file=sys.stderr,
-            flush=True,
-        )
-        return 2
+        return announce_already_running()
 
     try:
         import tkinter as tk
     except ImportError:
         print(
-            "ERROR: tkinter is not available. On Debian/Ubuntu: sudo apt install python3-tk",
+            "WIMS needs the Python window library.\n"
+            "On Ubuntu, install the python3-tk package, then double-click WIMS again.",
             file=sys.stderr,
         )
         return 2

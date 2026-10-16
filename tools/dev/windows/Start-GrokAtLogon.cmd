@@ -5,7 +5,7 @@ REM Logon: Start-GrokAtLogon.vbs. Interactive: double-click this file.
 
 setlocal EnableExtensions
 cd /d "%~dp0"
-set "ROOT=%~dp0..\.."
+set "ROOT=%~dp0..\..\.."
 pushd "%ROOT%" 2>nul || (echo Bad repo root & pause & exit /b 1)
 set "ROOT=%CD%"
 popd

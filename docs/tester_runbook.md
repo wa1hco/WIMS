@@ -213,8 +213,8 @@ and N1MM keep running normally.
 | **Work says ok but DX/Enable unchanged in WSJT-X** | Control packet not accepted — Accept UDP, multi-host dest (VM IP in `tx-meta`), fresh decode still on Band Activity (6c). |
 | **TX OFF (read-only)** | Server was started with `--no-tx`. Restart without that flag. |
 | **Manual double‑click works, Work does not** | Control path only — Accept UDP + dest (6a/6c). || **Everything shows as "new mult"** | Expected on a sparse or non-VHF log — WIMS counts grid×band mults. Not a problem for testing. |
-| **"needed/dupe" doesn't change when I log** | Broadcast Data **Contacts** → `127.0.0.1:12060` + **N1MM agent** with `WIMS_SERVER`; or **N1MM → Resync log**. |
-| **Port 8787 already in use** | Start with a different port: `python -m wims.solo --http-port 8788` (then open that port). |
+| **"needed/dupe" doesn't change when I log** | Broadcast Data **Contacts** → `127.0.0.1:12060` and the **N1MM** checkbox in the WIMS window; or **N1MM → Resync log**. |
+| **Port 8787 already in use** | WIMS is already open. Use that window. If another program has the port, close it and double-click **WIMS** again. |
 
 ## What to report back
 
@@ -227,8 +227,6 @@ and N1MM keep running normally.
 ## Linux / macOS
 
 ```bash
-scripts/start-wims-solo.sh        # setup check + server, opens the browser
-# or:  PYTHONPATH=src python3 -m wims.solo
-# setup check only:  PYTHONPATH=src python3 -m wims.agent --solo
+./scripts/start-wims-solo.sh
 ```
 Same WSJT-X settings (UDP Server `224.0.0.73` port **`2237`**, Accept UDP requests on).

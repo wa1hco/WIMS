@@ -41,6 +41,13 @@ UDP.
   **no automated/unattended transmit** — a human always initiates TX.
 - **Don't over-assume; fold in corrections** (e.g. the dev FlexRadio station is
   *not* the contest fleet) and adjust the plan.
+- **Zero-knowledge / zero-memory.** A person who only vaguely remembers the name
+  WIMS must be able to get going: recognition over recall, zero-config,
+  auto-detect, progressive disclosure, and errors that say what to do next in
+  plain words. Operator instructions do not ask for environment variables,
+  `python -m`, or command-line flags. Those belong in a section titled
+  **Developer**. Full statement and checklist:
+  [`docs/design-principles.md`](docs/design-principles.md).
 
 ## GUI
 

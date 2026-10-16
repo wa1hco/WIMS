@@ -47,4 +47,4 @@ jobs:
       - name: Validate (unit + live no-RF)
         env:
           PYTHON: python
-        run: scripts/validate.sh
+        run: tools/dev/validate.sh

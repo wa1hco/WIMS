@@ -1,9 +1,31 @@
 # WIMS — WSJT-X Instance Management System
 
+**Step 1.** Put **WIMS** on the Desktop and in the Start menu (Linux: the app menu).
+
+| | |
+|--|--|
+| Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
+| Linux or Mac | [`./scripts/add-wims-to-desktop.sh`](scripts/add-wims-to-desktop.sh) |
+
+**Step 2.** Double-click **WIMS**.
+
+The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If WIMS is already running, double-clicking the icon opens that console.
+
+Every file you can double-click is listed in [scripts/README.md](scripts/README.md).
+
 Supervised, **human-in-the-loop** console for multi-instance VHF contesting: one operator sees a
 ranked **call roster** across the fleet and **clicks to work** stations (S&P / tailend via WSJT-X
 UDP Reply). Works with N1MM+, optional GridTracker, and rotators. **Not an autobot** — a human
 starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
+
+On the Setup page, **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds color checkboxes, a custom rule, station state and county, and a shared log path. To compare log files, open Setup → Advanced → **Check logs**. WIMS only reads logs.
+
+| Where the choice is saved | |
+|--|--|
+| Linux | `~/.config/wims/` |
+| Windows | `%APPDATA%\wims\` |
+
+None, with no N1MM log, uses WSJT-X Colors against each instance’s log. An N1MM log that opens stays the log of record; dropdown None then means ARRL VHF.
 
 > Design: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
 > Status: [docs/plan/wims_status.md](docs/plan/wims_status.md)
@@ -107,78 +129,17 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 **Fleet networking** (ports, N1MM, WSJT-X settings, readiness):  
 **[docs/plan/wims_networking.md](docs/plan/wims_networking.md)**
 
-### B. Linux — full setup (dev / Linux site server)
+### B. Linux — first time on this PC
 
-```bash
-# Debian/Ubuntu — prereqs if missing
-sudo apt update
-sudo apt install -y git python3 python3-tk   # ≥ 3.10; 3.12–3.14 fine
+Double-click is not available until the icon exists. From the WIMS folder:
 
-git clone https://github.com/wa1hco/WIMS.git
-cd WIMS
-./install.sh            # Python check, import smoke, Desktop WIMS icon
-PYTHONPATH=src python3 -m wims solo
-# Console: http://localhost:8787/  (use the LAN iface IP for multi-host)
-```
+`./scripts/add-wims-to-desktop.sh`
 
-No `pip` packages. Optional smoke test / no-RF fleet:
-
-```bash
-python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
-    --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000
-scripts/validate.sh   # or: for t in tests/unit/test_*.py; do python3 "$t"; done
-```
-
-### Run solo from a git checkout
-
-The owner’s checkout is `~/ham/wims` on Windows and Linux. From that directory, with no extra flags:
-
-```bash
-# Linux
-cd ~/ham/wims
-PYTHONPATH=src python3 -m wims solo
-```
-
-```bat
-REM Windows (cmd)
-cd %USERPROFILE%\ham\wims
-set PYTHONPATH=src
-python -m wims solo
-```
-
-Then open [http://localhost:8787/](http://localhost:8787/). Setup → **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds the color checkboxes, a custom rule, station state/county, and a shared log path. There is no contest command-line flag.
-
-WIMS writes the choice itself:
-
-| | |
-|--|--|
-| Linux | `~/.config/wims/contest_rules.json` (custom rules: `custom_rules.json`, shared log: `logs.json`) |
-| Windows | `%APPDATA%\wims\contest_rules.json` (same sibling files) |
-
-None, with no N1MM log, uses WSJT-X Colors against each instance’s `wsjtx_log.adi`. An N1MM log that opens stays the log of record; dropdown None then means ARRL VHF.
-
-Check that the ADIF files agree (read-only; prints a report, changes nothing):
-
-```bash
-# Linux, from ~/ham/wims
-PYTHONPATH=src python3 -m wims.logaudit
-
-# Windows, from %USERPROFILE%\ham\wims
-set PYTHONPATH=src
-python -m wims.logaudit
-```
-
-No arguments discovers local WSJT-X logs (and a GridTracker `.adi` when one is sitting in the GridTracker folder). Add `--adif PATH`, `--n1mm-db PATH`, or `--lotw PATH` to compare those files too. `--json report.json` writes the same report.
+Then double-click **WIMS**. If Python or its window library is missing, the script says what to install.
 
 ### C. Already installed — just run
 
-```bash
-# Linux / PATH has python3
-python3 src/wims/server/app.py --iface 127.0.0.1
-
-# Windows (after Install-Wims.cmd)
-scripts\windows\Start-WimsServer.cmd
-```
+Double-click **WIMS**. On Windows the same window is **Start-WimsLauncher** in `scripts\windows\`. On one PC with WSJT-X, **Start-Wims-Solo** opens Operate and the browser.
 
 ---
 
@@ -228,11 +189,31 @@ Command path (click-to-work) and later milestones: [wims_status.md](docs/plan/wi
 ```
 WIMS/
 ├── docs/plan/            design · status · networking
-├── scripts/windows/      Install-Wims.cmd (prereqs) · Start-WimsServer · seat pack
+├── scripts/              double-click launchers (see scripts/README.md)
+├── tools/dev/            tests, packaging, lab helpers
 ├── src/wims/             server, udp, engine, interlock, n1mm, agent, …
 ├── testbed/              WSJT-X emulator, interlock bench
 └── tests/unit/           no-pytest unit suites
 ```
+
+## Developer
+
+Typed commands, path variables, and flags are for people changing WIMS. Operators use the Desktop icon.
+
+```bash
+# from the repo root; the checkout shim finds src/ with no path variable
+python3 -m wims version
+python3 -m wims solo --no-open
+python3 -m wims.logaudit
+tools/dev/validate.sh
+```
+
+```bat
+set PYTHONPATH=src
+python -m wims solo
+```
+
+Log compare flags (`--adif`, `--n1mm-db`, `--lotw`, `--json`) are optional. With no arguments the compare tool uses the WSJT-X logs it can find on this PC.
 
 ## License
 

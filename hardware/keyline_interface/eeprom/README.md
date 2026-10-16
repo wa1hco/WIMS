@@ -27,15 +27,18 @@ commit.
 Plug **one** board at a time. Program the serial that matches the unit in
 your hand — do not use `next` for a numbered pile.
 
-```bash
-cd /home/jeff/ham/wims/hardware/keyline_interface/eeprom
+The programmer lives in `tools/dev/flash_keyline.py`. It still writes
+`fleet.csv` and `backups/` in this folder.
 
-python3 flash_keyline.py list
-python3 flash_keyline.py read
+```bash
+cd /home/jeff/ham/wims
+
+python3 tools/dev/flash_keyline.py list
+python3 tools/dev/flash_keyline.py read
 
 # board #1 in hand:
-python3 flash_keyline.py program KL0001          # dry-run
-python3 flash_keyline.py program KL0001 --write  # commit
+python3 tools/dev/flash_keyline.py program KL0001          # dry-run
+python3 tools/dev/flash_keyline.py program KL0001 --write  # commit
 ```
 
 Then unplug, plug board #2, `program KL0002 --write`, and so on.

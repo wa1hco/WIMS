@@ -36,7 +36,7 @@ Default layout matches the multi-multi sketch (networking §1):
 
 Run (repo root):
 
-    scripts/run_ui_fleet.sh
+    tools/dev/run_ui_fleet.sh
     # or: PYTHONPATH=src python3 testbed/simulators/fleet_ui.py
     # → http://localhost:8787/status
 

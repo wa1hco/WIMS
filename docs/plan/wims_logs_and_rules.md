@@ -552,6 +552,10 @@ Readers are shared with section 2 (ADIF parser, N1MM `read_dxlog`). The audit to
 
 ### 5.2 CLI and UI
 
+Operators compare logs from Setup → Advanced → **Check logs**.
+
+### Developer
+
 ```text
 python -m wims.logaudit
 python -m wims.logaudit --wsjtx-auto --n1mm-db "D:\N1MM Logger+\Databases\2026 Sep.s3db" --contest-nr 3

@@ -11,38 +11,32 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## How to run (current)
 
-```
-# Desktop GUI launcher (recommended — peer to N1MM / WSJT-X icons):
-python -m wims                 # Checkbox agent console (tired-operator UX)
-#   Windows: Install-WIMS-Desktop-Shortcut.cmd → Desktop "WIMS" (assets\wims.ico)
-#            or Start-WimsLauncher.cmd
-#   Linux:   scripts/install-wims-desktop.sh  ·  needs python3-tk
-#            icon: scripts/assets/wims.png (white W + wims on blue; .ico is blank on Linux)
-#   Checkbox agents: N1MM→Log, WSJT-X→Seat, Key, Site server (auto-check on detect)
-#   On open: replace leftover Log/Seat/Key on this PC; site server left alone
-#   Green when checked agents are running; Other tools… for Solo / overrides
-#   Log agent CLI: python -m wims.log   (add --no-gui for console-only)
+1. Put **WIMS** on the Desktop and in the Start menu (Linux: the app menu).
+   Windows: double-click `scripts\Add WIMS to Desktop.bat`.
+   Linux or Mac: `./scripts/add-wims-to-desktop.sh`.
+2. Double-click **WIMS**. The window opens. Start Operate or the site server
+   there. The browser opens at `http://localhost:8787/`. A second double-click,
+   when the console is already up, opens that page.
+3. On one PC with WSJT-X, **Start-Wims-Solo** (`scripts/start-wims-solo.sh` or
+   `scripts\windows\Start-Wims-Solo.cmd`) opens Operate and the browser.
+   In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP
+   requests ON. Plane A is one port for all bands (decision 2026-09-05).
+4. First Windows install: double-click `scripts\windows\Install-Wims.cmd`.
+   Setup check: `Check-WimsSetup.cmd`, or the WSJT seat check in the WIMS window.
+   Compare logs: Setup → Advanced → **Check logs**.
 
-# Solo single-PC (CLI / scripts still work):
-python -m wims solo            # or: python -m wims.solo
-#   In WSJT-X: Settings → Reporting → UDP Server 224.0.0.73:2237, "Accept UDP requests" ON.
-#   Fleet plane A is ONE port for all bands (decision 2026-09-05). Distinguish with --rig-name.
-#   Windows: scripts\windows\Start-Wims-Solo.cmd   ·  Linux/macOS: scripts/start-wims-solo.sh
-#   Setup check only: python -m wims agent --solo   (Windows: Check-WimsSetup.cmd)
-#   Tester walkthrough: docs/tester_runbook.md
-#   Operator setup: docs/operator_setup.md · User-manual: docs/User-manual.md
-#   Windows: Install-Wims.cmd once; Update-Wims.cmd / launcher Update button (git pull main)
-#   Seat CAT / Icom+wfview (not a WIMS plane): docs/plan/wims_networking.md §3.2–§3.3
+Checklist: [design-principles.md](../design-principles.md).
 
-# Fleet / multi-host (site server):
-#   GUI: Start server  ·  Windows: Start-WimsServer.cmd
-#   Or: python -m wims server   (defaults join 2237 only)
-#   Operate:   http://localhost:8787/
-#   Overview / WSJT-X / N1MM / Setup: /overview /wsjt /n1mm /setup
-```
+### Developer
+
+Typed commands are for people changing WIMS. From the repo root the checkout
+shim finds `src/` with no path variable: `python3 -m wims version`,
+`python3 -m wims solo --no-open`, `python3 -m wims.logaudit`.
+One-command smoke: `tools/dev/validate.sh`.
+
 - **Zero-memory start:** site server defaults to plane A **`2237` only**
   (`FLEET_WSJT_PORTS`); `Start-WimsServer.cmd` auto-picks LAN iface. Solo uses
-  `python -m wims.solo` (same port). Lab escape: `--ports 2237,2238,…`.
+  the same port. Lab escape is a port list on the developer command.
 - **TX control:** **no global arm / Enable TX** — roster **line click** = Work (Reply),
   **Halt TX** stops this console’s Work only (two bands from the same console → both).
   Server flags: `--tx-host`/`--tx-port` (unicast WSJT-X), `--no-tx`
@@ -67,17 +61,17 @@ python -m wims solo            # or: python -m wims.solo
 `test_server_state` · `test_agent_report` · `test_presence` · `test_server_tx` · `test_solo_casual` ·
 `test_rotator` · `test_last_log` · `test_inhibit` · `test_key_discovery`
 
-**One-command smoke validation:** `scripts/validate.sh` — runs the unit suites, an
+**One-command smoke validation:** `tools/dev/validate.sh` — runs the unit suites, an
 import check, the interlock bench, and a **live** no-RF run (boots server + emulator,
 captures one SSE frame, asserts the state contract + emulated instances flow through).
 Exit 0 = all green; per-check logs land in `scratch/validate/` (gitignored). Overridable
 via `WIMS_IFACE` / `WIMS_HTTP_PORT` / `WIMS_INSTANCES` / `PYTHON`.
 
-**GitHub CI / release track:** `.github/workflows/ci.yml` runs the same `scripts/validate.sh`
+**GitHub CI / release track:** `.github/workflows/ci.yml` runs the same `tools/dev/validate.sh`
 on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `wims.__version__` pin check. **Release design:** [wims_release_packages.md](wims_release_packages.md)
 (rev 4). **Scaffolding landed:** root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,
-`scripts/packaging/write_manifest.py`, allow-list `scripts/package-release.sh`,
+`tools/dev/packaging/write_manifest.py`, allow-list `tools/dev/package-release.sh`,
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
@@ -234,6 +228,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-16** — **Zero-knowledge start and launcher path.** Desktop and Start
+  menu icon named WIMS (`scripts/Add WIMS to Desktop.bat`,
+  `scripts/add-wims-to-desktop.sh`). Second double-click reopens the console.
+  A busy port says what to do next. Checkout shim so a start from the repo
+  needs no path variable. Principle: [design-principles.md](../design-principles.md).
 - **2026-10-15** — **Solo logs and contest rules (L1–L6, L7–L9 partial).**
   ADIF reader, per-instance `wsjtx_log.adi` discovery, `WsjtxAdifLogSource` when
   N1MM is not the log, JSON rules for NY QSO Party and ARRL VHF, WSJT-X Colors
@@ -340,7 +339,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-09-11** — Startup checks **GitHub Releases** (launcher, site server,
   N1MM agent, WSJT agent) in addition to `git fetch`. ZIP / no-git PCs see
   **Update available** after a tagged Release. Push to `main` does not publish;
-  `scripts/cut-release.sh` / `git push origin vX.Y.Z` does.
+  `tools/dev/cut-release.sh` / `git push origin vX.Y.Z` does.
 - **2026-09-11** — N1MM agent Log connects **TCP 127.0.0.1:52001** at start and
   reconnects while waiting (Configurer JTDX/Others TCP). BROADCAST row shows the
   real site-POST error (ERR N was a count, not a WinError); RadioInfo failures
@@ -355,7 +354,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-09-07** — **Version `1.0.0`** + GitHub Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
   Install/release scaffolding (aligned to [wims_release_packages.md](wims_release_packages.md)):
   root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,
-  `scripts/packaging/write_manifest.py`, allow-list `package-release.sh`,
+  `tools/dev/packaging/write_manifest.py`, allow-list `package-release.sh`,
   `release.yml` + `tester-packages.yml`, `INSTALL.md`. Windows bundled CPython+Tk still open (PR 0/5).
 - **2026-09-07** — **GitHub release + install scaffolding** landed earlier the same day
   (superseded by `v1.0.0` publish).
@@ -410,7 +409,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (Solo ★, Check, Site server, Seat agent, KEY lab) with tooltips, Solo band-port radios,
   Open Operate/Status/Setup, Put-on-Desktop shortcut helper. Windows Desktop **WIMS** icon
   now points at `Start-WimsLauncher.cmd` (`assets\wims.ico`); Linux
-  `scripts/install-wims-desktop.sh`. Top-level CLI roles (`solo`/`server`/`agent`/`key`/
+  `scripts/add-wims-to-desktop.sh`. Top-level CLI roles (`solo`/`server`/`agent`/`key`/
   `version`); `wims.solo --port`; thin `wims.key` wrapping inhibit bench selftest.
   Tests: `test_cli_launcher.py`. Docs: tester_roles + how-to-run.
 - **2026-06-17** — §3.1 parser + read-only console monitor. N1MM log layer (DXLOG seed +
@@ -617,7 +616,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - **2026-08-11** — **Release-track Phase 0:** fix seat-agent N1MM probe so UserDir\\Databases
   is found via `n1mm_user_dirs()` (test was patching agent helpers while `database_dirs()`
   only consulted logdb’s host scan — failed on Linux CI/dev). `test_agent_report` green
-  again. Add `.github/workflows/ci.yml` (push/PR → `scripts/validate.sh` on Python
+  again. Add `.github/workflows/ci.yml` (push/PR → `tools/dev/validate.sh` on Python
   3.10/3.12/3.14 + version pin check). Releases later landed as `v1.0.0` (2026-09-07).
 - **2026-08-11** — **Tester roles doc:** [tester_roles.md](../tester_roles.md) freezes the
   install surface (solo / site server / console / seat agent; KEY agent lab-only). Fixed

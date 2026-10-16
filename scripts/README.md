@@ -1,0 +1,69 @@
+# Scripts
+
+These are the files you double-click or run. Nothing else belongs in this folder.
+
+<!-- scripts-allowlist -->
+- `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu.
+- `add-wims-to-desktop.sh` — Linux/Mac: put a WIMS icon on the desktop and in the app menu.
+- `assets/wims-128.png` — Icon, 128 px.
+- `assets/wims-48.png` — Icon, 48 px.
+- `assets/wims-64.png` — Icon, 64 px.
+- `assets/wims.png` — Icon used on the Linux desktop entry.
+- `install-linux.sh` — First-time Linux install (Python check and the desktop icon).
+- `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
+- `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser.
+- `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
+- `windows/Find-And-Set-WsjtxRigName.cmd` — Point WSJT-X shortcuts at the right rig name.
+- `windows/Find-And-Set-WsjtxRigName.ps1` — Helper used by Find-And-Set-WsjtxRigName.cmd.
+- `windows/Import-WSJTX-From50.cmd` — Copy a 50 MHz WSJT-X setup into another rig name.
+- `windows/Install-WIMS-Desktop-Shortcut.cmd` — Desktop and Start menu icon only.
+- `windows/Install-WSJTX-RigNameShortcuts.cmd` — Point WSJT-X icons at Start-WSJTX.
+- `windows/Install-WSJTX-RigNameShortcuts.ps1` — Helper used by Install-WSJTX-RigNameShortcuts.cmd.
+- `windows/Install-Wims.cmd` — First Windows install: Python, Git, firewall, desktop icon.
+- `windows/Install-Wims.ps1` — Helper used by Install-Wims.cmd.
+- `windows/Install-WimsAgent-Desktop-Shortcut.cmd` — Lab-only agent icon. Not part of the normal install.
+- `windows/Install-WimsConsoleKiosk.ps1` — Desktop shortcut that opens Operate in a compact window.
+- `windows/Install-WimsDesktopShortcut.ps1` — Helper that writes the WIMS shortcut.
+- `windows/Install-WimsLogonStartup.cmd` — Start WIMS when you sign in.
+- `windows/Install-WimsLogonStartup.ps1` — Helper used by Install-WimsLogonStartup.cmd.
+- `windows/Install-WimsSeatStartup.cmd` — Start a radio pack when you sign in.
+- `windows/Remove-WimsLogonStartup.cmd` — Stop WIMS from starting at sign-in.
+- `windows/Remove-WimsSeatStartup.cmd` — Stop the radio pack from starting at sign-in.
+- `windows/Set-ContestAppFirewall.cmd` — Allow contest programs through the Private firewall.
+- `windows/Set-ContestAppFirewall.ps1` — Helper used by Set-ContestAppFirewall.cmd.
+- `windows/Set-ContestLanPrivate.cmd` — Set the contest Ethernet network to Private.
+- `windows/Set-ContestLanPrivate.ps1` — Helper used by Set-ContestLanPrivate.cmd.
+- `windows/Set-SeatAfterClone.cmd` — After a seat clone: name, startup, Private network.
+- `windows/Start-LogAgent.cmd` — Start the N1MM log agent.
+- `windows/Start-Seat-Flex50.cmd` — Start the Flex 50 MHz radio pack.
+- `windows/Start-Seat-IC9700-144.cmd` — Start the IC-9700 144 MHz radio pack.
+- `windows/Start-WSJTX-144.cmd` — Start the 144 MHz WSJT-X.
+- `windows/Start-WSJTX-50.cmd` — Start the 50 MHz WSJT-X.
+- `windows/Start-WSJTX.cmd` — Start WSJT-X with the rig name from the seat config.
+- `windows/Start-Wims-Inhibit-Home.cmd` — Home inhibit (key line holds transmit).
+- `windows/Start-Wims-Solo.cmd` — Operate on this PC and open the browser.
+- `windows/Start-WimsAgent-Continuous.cmd` — Seat monitor that stays running.
+- `windows/Start-WimsAgent-Continuous.vbs` — Starts the continuous seat monitor without a console flash.
+- `windows/Start-WimsAgent.cmd` — One-shot seat check.
+- `windows/Start-WimsAtLogon.cmd` — What Windows runs at sign-in.
+- `windows/Start-WimsAtLogon.vbs` — Starts the sign-in launcher without a console flash.
+- `windows/Start-WimsConsole-Kiosk.cmd` — Open Operate in a compact browser window.
+- `windows/Start-WimsLauncher.cmd` — Open the WIMS window (the desktop icon runs this).
+- `windows/Start-WimsLauncher.vbs` — Starts the WIMS window without a console flash.
+- `windows/Start-WimsSeat.cmd` — Start the radio pack named in the seat config.
+- `windows/Start-WimsServer.cmd` — Start the site server.
+- `windows/Update-Wims.cmd` — Bring this copy of WIMS up to date.
+- `windows/Update-Wims.ps1` — Helper used by Update-Wims.cmd.
+- `windows/WIMS.cmd` — Text menu for seat packs, startup, and firewall.
+- `windows/_Start-Seat-Core.cmd` — Shared start sequence used by the radio packs.
+- `windows/_resolve-python.cmd` — Finds Python for the other Windows files.
+- `windows/_resolve-wsjtx.cmd` — Finds wsjtx.exe for the other Windows files.
+- `windows/assets/wims-agent.ico` — Icon for the lab agent shortcut.
+- `windows/assets/wims.ico` — Icon on the WIMS shortcut.
+- `windows/radio-flex50.example.cmd` — Example paths for the Flex 50 MHz pack. Copy to radio-flex50.cmd.
+- `windows/radio-ic9700-144.example.cmd` — Example paths for the IC-9700 pack. Copy to radio-ic9700-144.cmd.
+- `windows/README.md` — What each Windows file in this folder does.
+- `windows/seat-common.example.cmd` — Example shared seat settings. Copy to seat-common.cmd.
+- `windows/seat-config.example.cmd` — Example per-seat settings. Copy to seat-config.cmd.
+<!-- /scripts-allowlist -->
+

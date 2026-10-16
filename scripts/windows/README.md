@@ -29,13 +29,13 @@ Setup check anytime: **`Check-WimsSetup.cmd`**.
 ### H1 — Inhibit (KEY → digi hold)
 
 1. Patched WSJT-X with TxInhibit on **UDP 22372**.
-2. Set **`WIMS_KEY_DEVICE`** to your Keyline COM port (or use launcher KEY combobox).
+2. In the WIMS window, pick the key port (the COM port on the key line).
 3. **`Start-Wims-Inhibit-Home.cmd`** — holds `127.0.0.1:22372` (no N1MM RadioInfo needed).
 
 | File | What it does |
 |------|----------------|
 | **`Check-WimsSetup.cmd`** | Single-PC setup check (`wims.agent --solo`). Starts nothing. |
-| **`Start-Wims-Solo.cmd`** | **H0 Operate:** `python -m wims.solo` (localhost, no fleet presence). |
+| **`Start-Wims-Solo.cmd`** | **H0 Operate** on this PC. Opens the console in the browser. |
 | **`Start-Wims-Inhibit-Home.cmd`** | **H1 Inhibit:** `wims.seat --key --targets 127.0.0.1:22372`. |
 
 To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster row turns to
@@ -85,7 +85,7 @@ When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` a
 | **`Install-WimsSeatStartup.cmd`** / **`Remove-WimsSeatStartup.cmd`** | Logon auto-start: `Install-WimsSeatStartup.cmd flex50` or `ic9700-144`. |
 | **`Start-WimsAtLogon.cmd`** / **`.vbs`** | Logon: read launcher **seat intent**, start WSJT-X (and N1MM if that intent) + WIMS. |
 | **`Install-WimsLogonStartup.cmd`** / **`Remove-WimsLogonStartup.cmd`** | Put **WIMS at logon** in the user Startup folder (no admin). |
-| **`Start-GrokAtLogon.cmd`** / **`Install-GrokLogonStartup.cmd`** | Logon: Grok CLI in this tree with `--always-approve` (no tool prompts). |
+| Grok logon | Developer only. See `tools/dev/windows/`. |
 | **`seat-common.example.cmd`** / **`seat-common.cmd`** | Shared: server URL, N1MM path, agent flags. |
 | **`radio-flex50.example.cmd`** / **`radio-flex50.cmd`** | Flex paths + 50 MHz `WSJTX_RIG_NAME`. |
 | **`radio-ic9700-144.example.cmd`** / **`radio-ic9700-144.cmd`** | wfview path + 144 MHz `WSJTX_RIG_NAME`. |
@@ -102,8 +102,7 @@ When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` a
 
 | File | What it does |
 |------|----------------|
-| **`proxmox-clone-wims-seats.sh`** | On the **Proxmox host**: template the golden Win10 guest, clone IC-9700 + Flex seats. |
-| **`_pve_api.py`** / **`_pve_spawn_seats.py`** | Optional API helpers (password via CLI arg only — never commit secrets). Lab defaults (host/VMIDs) are in-file; edit for your cluster. |
+| Proxmox clone helpers | Developer / lab only. See `tools/dev/`. |
 
 After clones boot, run **`Set-SeatAfterClone.cmd SEAT-ID [WSJT-RIG-NAME]`** inside each guest (elevated if renaming). That now also sets Ethernet to **Private** and adds contest app firewall rules (UAC). If N1MM already shows other stations but Send/Receive stays red, run **`Set-ContestLanPrivate.cmd`** (menu **P**) then **`Set-ContestAppFirewall.cmd`** (menu **F**) on each N1MM PC.
 

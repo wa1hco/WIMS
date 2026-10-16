@@ -2466,9 +2466,20 @@ def main() -> None:
         group=args.group, host=mcast_iface, n1mm_group=n1mm_mcast,
     )
 
-    httpd = _QuietThreadingHTTPServer(
-        ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
-    )
+    try:
+        httpd = _QuietThreadingHTTPServer(
+            ("0.0.0.0", args.http_port), make_handler(live, args.refresh)
+        )
+    except OSError as e:
+        print(
+            f"WIMS could not use port {args.http_port}.\n"
+            f"If WIMS is already open, use that window: "
+            f"http://localhost:{args.http_port}/\n"
+            f"If another program is using the port, close it and start WIMS again.\n"
+            f"({e})",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
     console_ip = P._primary_lan_ip(args.iface)
     # Operator banner: one URL (open this), log status, how to stop.
     # Bind/conflict warnings above go to stderr only when something is wrong.

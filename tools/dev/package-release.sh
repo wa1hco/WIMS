@@ -4,7 +4,7 @@
 # Design: docs/plan/wims_release_packages.md
 #
 # Usage:
-#   scripts/package-release.sh [VERSION]
+#   tools/dev/package-release.sh [VERSION]
 #
 # VERSION is a release id: X.Y.Z | X.Y.Z-tester | X.Y.Z-rcN
 # Numeric base must equal pyproject.toml / wims.__version__.
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$ROOT"
 
 if [ "${STRICT:-0}" = "1" ]; then
@@ -42,7 +42,7 @@ fi
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
-python3 "$ROOT/scripts/packaging/write_manifest.py" "$VERSION" \
+python3 "$ROOT/tools/dev/packaging/write_manifest.py" "$VERSION" \
     -o "$STAGE/manifest.json" --repo-root "$ROOT"
 
 DISPLAY=$(python3 -c "import json; print(json.load(open('$STAGE/manifest.json'))['version'])")
@@ -110,9 +110,8 @@ Windows (contest seat):
 
 Linux (personal laptop):
   1. Unpack the linux tar.gz
-  2. ./install.sh
-     (or: scripts/install-linux.sh)
-  3. Start Desktop WIMS or: PYTHONPATH=src python3 -m wims solo
+  2. ./scripts/add-wims-to-desktop.sh
+  3. Double-click the WIMS icon. The console opens in the browser.
 
 Docs: INSTALL.md · docs/tester_quickstart.md
 Design: docs/plan/wims_release_packages.md

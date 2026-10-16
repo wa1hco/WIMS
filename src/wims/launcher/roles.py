@@ -158,8 +158,8 @@ ROLES: tuple[Role, ...] = (
     Role(
         id="log",
         title="N1MM agent Log-only (escape)",
-        summary="Log-only (--log). Prefer N1MM intent in the launcher.",
-        tooltip="Escape hatch: python -m wims.seat --log (or wims.log).",
+        summary="Log only. Prefer the N1MM checkbox in this window.",
+        tooltip="Same job as the N1MM checkbox, log only.",
         button="Start Log-only",
         recommended=False,
         advanced=True,
@@ -169,11 +169,10 @@ ROLES: tuple[Role, ...] = (
     Role(
         id="key",
         title="N1MM agent KEY-only (escape)",
-        summary="KEY-only (--key). Prefer SSB/CW KEY intent in the launcher.",
+        summary="Key only. Prefer the SSB/CW KEY checkbox in this window.",
         tooltip=(
-            "Escape hatch: python -m wims.seat --key.\n"
-            "KEY device from launcher (WIMS_KEY_DEVICE); targets from discovery "
-            "or WIMS_KEY_TARGETS."
+            "Same job as the SSB/CW KEY checkbox, key only. "
+            "Pick the key port in this window."
         ),
         button="Start KEY-only",
         recommended=False,
@@ -220,10 +219,9 @@ ROLES: tuple[Role, ...] = (
                 "See docs/home_h0_h1.md.",
         tooltip=(
             "Home stage H0 — standalone Operate window.\n\n"
-            "Starts local WIMS + browser (plane A on this PC). "
-            "Not the W2SZ multi-PC bring-up path (use Site server + agents).\n\n"
-            "CLI: python -m wims solo\n"
-            "Windows: Start-Wims-Solo.cmd"
+            "Starts WIMS on this PC and opens the browser. "
+            "For several radios, use Site server instead.\n\n"
+            "Or double-click Start-Wims-Solo in the scripts folder."
         ),
         button="Start Operate (home)",
         recommended=False,
@@ -238,10 +236,10 @@ ROLES: tuple[Role, ...] = (
                 "See docs/home_h0_h1.md.",
         tooltip=(
             "Home stage H1 — standalone Inhibit.\n\n"
-            "Runs: wims.seat --key --targets 127.0.0.1:22372\n"
-            "Set KEY device in the launcher (SSB/CW KEY) or WIMS_KEY_DEVICE.\n"
+            "Holds transmit on this PC when the key line is keyed.\n"
+            "Pick the key port in this window.\n"
             "Needs patched WSJT-X inhibit gate on 22372.\n\n"
-            "Windows: Start-Wims-Inhibit-Home.cmd"
+            "Windows: double-click Start-Wims-Inhibit-Home in the scripts folder."
         ),
         button="Start Inhibit (home)",
         recommended=False,

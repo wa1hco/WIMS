@@ -116,10 +116,10 @@
     shows results on that PC (<code>http://127.0.0.1:8790/</code>). The same report is
     POSTed here for the wrangler. Template / fleet:
   </p>
-  <pre class="cmd" style="font-size:12px;padding:8px;overflow:auto">python -m wims.agent
-python -m wims.agent --server http://192.168.1.119:8787
-python -m wims.agent --daemon --server http://192.168.1.119:8787
-python src/wims/integrations/wsjtx_config.py --all</pre>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    On a radio PC, double-click <b>WIMS</b> and start the seat check.
+    That PC reads WSJT-X and N1MM and sends the result here.
+  </p>
   <div id="setup-agents" class="syncrow"><span class="k">waiting for agent reports…</span></div>
   <div id="setup-cfg-audit" class="empty">No agent config detail yet.</div>
 

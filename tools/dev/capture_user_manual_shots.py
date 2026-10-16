@@ -11,10 +11,10 @@ docs/manual/images/ — re-run after UI changes; User-manual.md keeps the same
 paths. Use ``--suffix`` for a variant that does not overwrite the doc embed.
 
 Usage:
-  python scripts/capture_user_manual_shots.py
-  python scripts/capture_user_manual_shots.py --only site-operate,site-n1mm
-  python scripts/capture_user_manual_shots.py --suffix contest_run
-  WIMS_MANUAL_BASE=http://192.168.1.119:8787 python scripts/capture_user_manual_shots.py
+  python tools/dev/capture_user_manual_shots.py
+  python tools/dev/capture_user_manual_shots.py --only site-operate,site-n1mm
+  python tools/dev/capture_user_manual_shots.py --suffix contest_run
+  WIMS_MANUAL_BASE=http://192.168.1.119:8787 python tools/dev/capture_user_manual_shots.py
 """
 
 from __future__ import annotations
