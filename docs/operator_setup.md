@@ -40,8 +40,8 @@ Details: [scripts/windows/README.md](../scripts/windows/README.md).
 ```bash
 sudo apt install -y git python3 python3-tk   # 3.10+; 3.12–3.14 fine
 cd WIMS
-scripts/install-wims-desktop.sh              # optional Desktop entry
-PYTHONPATH=src python3 -m wims               # launcher
+./scripts/add-wims-to-desktop.sh
+# then double-click WIMS
 ```
 
 No `pip` packages for runtime.
@@ -81,7 +81,7 @@ N1MM Network Status **Band 10000 / Freq 10368090.00** is **10 GHz** (kHz), host
 - **Secondary UDP / “Broadcast to N1MM”** → **OFF** when the **N1MM agent Log** path owns logging (avoids double-log).  
 - CAT/PTT stays **seat-local** (e.g. Icom + wfview) — not configured in WIMS.
 
-**Check:** launcher **WSJT-X** intent or `Check-WimsSetup.cmd` / `python -m wims.agent --solo`.  
+**Check:** the WSJT seat check in the WIMS window, or `Check-WimsSetup.cmd`.  
 **See live:** console **WSJT-X** tab (`/wsjt`).
 
 ---

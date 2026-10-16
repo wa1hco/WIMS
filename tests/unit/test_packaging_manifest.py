@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Unit tests for scripts/packaging/write_manifest.py (no pytest)."""
+"""Unit tests for tools/dev/packaging/write_manifest.py (no pytest)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-MOD_PATH = ROOT / "scripts" / "packaging" / "write_manifest.py"
+MOD_PATH = ROOT / "tools" / "dev" / "packaging" / "write_manifest.py"
 
 
 def _load():

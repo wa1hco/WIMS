@@ -123,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         "--repo-root",
         type=Path,
         default=None,
-        help="Repo root (default: parent of scripts/)",
+        help="Repo root (default: parent of tools/)",
     )
     p.add_argument(
         "--python-bundled",
@@ -134,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
 
     root = args.repo_root
     if root is None:
-        root = Path(__file__).resolve().parents[2]
+        root = Path(__file__).resolve().parents[3]
     root = root.resolve()
 
     try:

@@ -52,11 +52,28 @@ $s.Save()
 # Drop COM ref so the .lnk is fully flushed before we report.
 [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh) | Out-Null
 
+$startMenu = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs"
+if (-not (Test-Path -LiteralPath $startMenu)) {
+    New-Item -ItemType Directory -Path $startMenu -Force | Out-Null
+}
+$startLnk = Join-Path $startMenu "WIMS.lnk"
+$wsh2 = New-Object -ComObject WScript.Shell
+$sm = $wsh2.CreateShortcut($startLnk)
+$sm.TargetPath = $wscript
+$sm.Arguments = "//nologo `"$vbsAbs`""
+$sm.WorkingDirectory = $here
+$sm.WindowStyle = 1
+$sm.Description = "WIMS launcher - agents + site console"
+$sm.IconLocation = "$icoAbs,0"
+$sm.Save()
+[System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh2) | Out-Null
+
 Write-Host ""
 Write-Host " Desktop shortcut ready: WIMS"
 Write-Host "  $lnkPath"
+Write-Host " Start menu: $startLnk"
 Write-Host "  Icon: $icoAbs"
-Write-Host " Double-click WIMS on the Desktop for the GUI launcher."
+Write-Host " Double-click WIMS. The console opens in your browser when you start it."
 Write-Host ""
 
 # Install / refresh never creates WIMS Server or WIMS Agent icons.

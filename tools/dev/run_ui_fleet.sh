@@ -2,14 +2,14 @@
 # WIMS — start site server + UI fleet simulator (no RF).
 #
 # Usage:
-#   scripts/run_ui_fleet.sh              # full multi-band backdrop
-#   scripts/run_ui_fleet.sh --six-only   # only 3×6m → N1MM-50 on SSB-PC
+#   tools/dev/run_ui_fleet.sh              # full multi-band backdrop
+#   tools/dev/run_ui_fleet.sh --six-only   # only 3×6m → N1MM-50 on SSB-PC
 #
 # Then open: http://localhost:8787/status
 # Stop: Ctrl-C (kills both).
 
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
 PY="${PYTHON:-python3}"

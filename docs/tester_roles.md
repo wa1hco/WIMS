@@ -29,7 +29,7 @@ same idea as double-clicking N1MM or WSJT-X.
 **Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
 **Linux:** `git` + `python3` (≥ 3.10) + `python3-tk`; run **`./install.sh`**  
-(or `scripts/install-wims-desktop.sh` / `PYTHONPATH=src python3 -m wims --install-shortcut`).
+(or `./scripts/add-wims-to-desktop.sh`).
 
 **Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
 on each **N1MM** PC check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent**; on **WSJT** PCs
@@ -104,8 +104,8 @@ If `scripts/windows/` looks crowded, only these matter for home:
 | Step | Windows | Linux |
 |------|---------|--------|
 | 1. Install prereqs | `Install-Wims.cmd` | `apt install git python3 python3-tk` |
-| 2. Desktop icon | `Install-WIMS-Desktop-Shortcut.cmd` | `scripts/install-wims-desktop.sh` |
-| 3. Open WIMS | Double-click Desktop **WIMS** | same, or `PYTHONPATH=src python3 -m wims` |
+| 2. Desktop icon | `Install-WIMS-Desktop-Shortcut.cmd` | `scripts/add-wims-to-desktop.sh` |
+| 3. Open WIMS | Double-click Desktop **WIMS** | same |
 | 4. In the GUI | **Check this PC**, then **Start Solo** | same |
 | 5. Console | GUI **Open Operate** → http://localhost:8787/ | same |
 
@@ -164,12 +164,12 @@ multi-op or KEY; site multi-multi does.
 
 ## Quick “see what a tester sees” (no RF)
 
+Double-click **WIMS**, or run `./scripts/start-wims-solo.sh`. The browser opens at http://localhost:8787/.
+
+### Developer
+
 ```bash
-cd WIMS
-PYTHONPATH=src python3 -m wims.solo          # browser → :8787
-# optional:
-PYTHONPATH=src python3 -m wims.agent --solo
-PYTHONPATH=src python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
+python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
   --instances SIM-6M:50313000,SIM-2M:144174000
 ```
 
@@ -179,13 +179,13 @@ Simulates the Status / N1MM network view without Springhill:
 
 ```bash
 # one shot (server + traffic):
-scripts/run_ui_fleet.sh
+tools/dev/run_ui_fleet.sh
 # or 6 m only:
-scripts/run_ui_fleet.sh --six-only
+tools/dev/run_ui_fleet.sh --six-only
 
-# manual:
-PYTHONPATH=src python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
-PYTHONPATH=src python3 testbed/simulators/fleet_ui.py   # or --six-only
+# manual (developer):
+python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
+python3 testbed/simulators/fleet_ui.py   # or --six-only
 # → http://localhost:8787/status
 ```
 

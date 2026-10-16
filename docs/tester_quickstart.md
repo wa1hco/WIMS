@@ -53,12 +53,7 @@ sudo apt install -y git python3   # 3.10+; 3.12–3.14 fine
 ### A3. Start the server and open the browser
 
 **Windows:** Desktop **WIMS** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
-**Linux:**
-
-```bash
-cd WIMS
-PYTHONPATH=src python3 src/wims/server/app.py --iface 127.0.0.1 --no-presence
-```
+**Linux:** `./scripts/add-wims-to-desktop.sh`, then double-click **WIMS** and start the site server. One PC: `./scripts/start-wims-solo.sh`.
 
 Open:
 
@@ -79,12 +74,7 @@ Open:
 **Windows:** **`Start-WimsAgent.cmd`** (one-shot check) or **WIMS Agent** continuous.  
 Local agent UI: http://127.0.0.1:8790/  
 
-**Linux:**
-
-```bash
-PYTHONPATH=src python3 -m wims.agent --solo
-# continuous:  python3 -m wims.agent --daemon --server http://127.0.0.1:8787
-```
+**Linux:** double-click **WIMS** and run the WSJT seat check.
 
 **Pass:** agent prints a setup report; continuous agent appears under Status/Setup **agents** if the server URL is correct.
 
@@ -92,8 +82,10 @@ PYTHONPATH=src python3 -m wims.agent --solo
 
 With the **server already running** on the same machine:
 
+### Developer
+
 ```bash
-PYTHONPATH=src python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
+python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
   --instances SIM-6M:50313000,SIM-2M:144174000
 ```
 
@@ -114,7 +106,7 @@ Prefer **solo** on one PC (simplest):
 | OS | Start |
 |----|--------|
 | Windows | **`Start-Wims-Solo.cmd`** |
-| Linux | `scripts/start-wims-solo.sh` or `PYTHONPATH=src python3 -m wims.solo` |
+| Linux | `./scripts/start-wims-solo.sh` |
 
 Solo = local server, no fleet presence election, browser to Operate.
 
@@ -134,7 +126,7 @@ Optional but good: **`--rig-name=HOME-FT8`** (or any unique name) so the instanc
 ### B3. Check setup
 
 **Windows:** **`Check-WimsSetup.cmd`**  
-**Linux:** `PYTHONPATH=src python3 -m wims.agent --solo`
+**Linux:** double-click **WIMS** and run the WSJT seat check.
 
 Fix anything marked **`[XX]`** before continuing.
 

@@ -87,6 +87,17 @@ class LoggedQso:
     operator: str | None
     rover_location: str | None
     source: str          # "seed" (DB) or "live" (broadcast)
+    # Optional ADIF / contest fields. Defaults keep older constructors working.
+    submode: str | None = None
+    qso_date: str | None = None
+    time_on: str | None = None
+    exchange: str | None = None
+    state: str | None = None
+    section: str | None = None
+    my_state: str | None = None
+    my_county: str | None = None
+    dxcc: str | None = None
+    contest_id: str | None = None
 
     @classmethod
     def _from_dict(cls, d: dict, source: str) -> "LoggedQso":

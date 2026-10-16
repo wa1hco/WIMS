@@ -60,6 +60,25 @@
     <a href="/n1mm">N1MM</a>. Fleet overview: <a href="/overview">Overview</a>.
   </p>
 
+  <h2>Contest</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    One choice. WIMS finds each WSJT-X log on this PC. None uses WSJT-X Colors
+    when N1MM is not the log.
+  </p>
+  <div id="setup-contest" class="syncrow" style="align-items:center;gap:10px;flex-wrap:wrap">
+    <label>Contest
+      <select id="contest-pick" style="font:inherit;margin-left:6px">
+        <option value="">None</option>
+      </select>
+    </label>
+  </div>
+  <p id="contest-summary" class="hint" style="font-size:12px;margin:6px 0">Waiting for the server…</p>
+  <div id="contest-logs" style="font-size:12px;line-height:1.45"></div>
+  <details id="contest-advanced" style="margin:8px 0 16px 0">
+    <summary>Advanced</summary>
+    <div id="contest-advanced-body" style="font-size:12px;margin-top:8px"></div>
+  </details>
+
   <h2>Networking checklist</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
     Flat LAN; WSJT-X multicast by band port; N1MM external broadcast to WIMS; see
@@ -97,10 +116,10 @@
     shows results on that PC (<code>http://127.0.0.1:8790/</code>). The same report is
     POSTed here for the wrangler. Template / fleet:
   </p>
-  <pre class="cmd" style="font-size:12px;padding:8px;overflow:auto">python -m wims.agent
-python -m wims.agent --server http://192.168.1.119:8787
-python -m wims.agent --daemon --server http://192.168.1.119:8787
-python src/wims/integrations/wsjtx_config.py --all</pre>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    On a radio PC, double-click <b>WIMS</b> and start the seat check.
+    That PC reads WSJT-X and N1MM and sends the result here.
+  </p>
   <div id="setup-agents" class="syncrow"><span class="k">waiting for agent reports…</span></div>
   <div id="setup-cfg-audit" class="empty">No agent config detail yet.</div>
 

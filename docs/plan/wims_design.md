@@ -12,6 +12,12 @@ records design decisions as they're made.
 companion tracker [wims_status.md](wims_status.md).** Keep the two separated: change this file
 when the *design* changes; record *progress* there.
 
+**Zero-knowledge / zero-memory** is a standing principle: a person who only vaguely
+remembers the name WIMS must be able to get going. Recognition over recall, zero-config,
+auto-detect, progressive disclosure, and errors that say the next step in plain words.
+Operator instructions do not ask for environment variables, `python -m`, or flags.
+Statement and checklist: [design-principles.md](../design-principles.md).
+
 **Fleet networking map** (WSJT-X / N1MM / GridTracker multicast ports, logger segregation,
 consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).
@@ -1794,7 +1800,12 @@ Candidate situations worth covering — rename, add, or cut freely:
   **parallel read-only viewer**, not a relay and not a TX controller; WIMS's roster (§3.12) is the
   click-to-work path. Coexists per operator preference; go-boxes run none.
 - **Scoring model source** — per-contest QSO-point + multiplier rules feed §3.5 ranking and §3.11
-  config. Hand-author per contest, or derive from N1MM's loaded contest definition?
+  config. **Proposal (2026-10-15, not yet built):** one original GPL-3.0 JSON file per contest
+  (first file: NY QSO Party, from the published rules). Casual Setup is a single Contest
+  dropdown plus a plain sentence. When N1MM is the log it stays authoritative (`arrl-vhf` if
+  the dropdown is None). Solo with Contest set to None uses WSJT-X Colors against
+  `wsjtx_log.adi`. Date or `CONTEST_ID` may suggest a contest. N1MM `.udc` and DXLog files
+  are not bundled. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0–§3.7.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must
   prompt for (antenna geometry, intended az/el limits). Decide the form vs file-edit balance.

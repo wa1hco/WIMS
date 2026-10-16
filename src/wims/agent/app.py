@@ -189,7 +189,8 @@ def _presence_block_html(state: AgentState) -> str:
         return (
             '<div class="sum" style="color:#9a6700">'
             "No WIMS site server heard on the LAN (presence multicast). "
-            "Start the site server on the designated PC, or set --server / WIMS_SERVER."
+            "Start the site server on the contest PC (double-click WIMS). "
+            "This PC finds it on the network."
             "</div>"
         )
     urls = p.get("urls") or {}
@@ -523,7 +524,7 @@ def make_handler(state: AgentState):
                 state.discover_server(duration_s=1.5)
             if not state.server_url:
                 self._send(400, "text/plain",
-                           b"no site server URL (presence not heard; set --server or WIMS_SERVER)")
+                           b"No site server yet. Double-click WIMS on the contest PC and start the site server, then try again.")
                 return
             rep = state.refresh()
             result = export_report(rep, state.server_url)
@@ -727,7 +728,8 @@ def main(argv: list[str] | None = None) -> int:
                     flush=True,
                 )
         else:
-            print("  NOT FOUND yet. Escape hatch: WIMS_SERVER=http://x.x.x.x:8787",
+            print("  NOT FOUND yet. On the contest PC, double-click WIMS and start "
+                  "the site server, then run this check again.",
                   flush=True)
         print(flush=True)
 
@@ -858,20 +860,16 @@ def _print_next_steps(state: AgentState) -> None:
         print(f"  Setup:    {base}/setup")
         print("  (paste into a browser on any machine that can reach that host)")
     else:
-        print("  No server URL yet — presence multicast was not heard and --server")
-        print("  / WIMS_SERVER was not set. On the site PC, start/restart:")
-        print("    python -m wims.server.app --iface <LAN-IP> ...")
+        print("  No server URL yet. On the site PC, double-click WIMS and start the site server.")
         print("  and confirm it prints: presence announce 224.0.0.73:8788")
-        print("  Or pin the URL on this seat:")
-        print("    set WIMS_SERVER=http://192.168.1.119:8787")
-        print("    python scripts\\run_agent.py")
+        print("  Or open the WIMS window on this seat and check N1MM.")
         print("  Then open that URL in the browser.")
     print()
     print("Clickable links on this seat (zero memory)")
     print("------------------------------------------")
-    print("  python scripts\\run_agent.py --daemon")
+    print("  Double-click scripts\\windows\\Start-WimsAgent-Continuous.cmd")
     print("  then open  http://127.0.0.1:8790/")
-    print("  (local agent page; uses presence or WIMS_SERVER for Operate/Status/Setup)")
+    print("  (local agent page; Operate, Status, and Setup appear when the site server is found)")
     print()
     print("Send this seat's report to the wrangler dashboard")
     print("------------------------------------------------")
@@ -880,8 +878,8 @@ def _print_next_steps(state: AgentState) -> None:
         print("  One-shot already POSTs unless you used --no-export.")
         print("  Continuous:  scripts\\windows\\Start-WimsAgent-Continuous.cmd")
     else:
-        print("  Set WIMS_SERVER or wait until presence finds the site server, then re-run")
-        print("  or use --daemon so Status → Seat agents updates.")
+        print("  Wait until this PC finds the site server, then double-click the seat check again.")
+        print("  Status → Seat agents updates while the continuous seat check is running.")
 
 
 if __name__ == "__main__":

@@ -119,7 +119,7 @@ class SeatStatusModelTests(unittest.TestCase):
         model = _status_model(state, None, do_log=True, do_key=False)
         self.assertEqual(model.banner_level, "err")
         self.assertIn("Site forward", model.banner_text)
-        self.assertIn("WIMS_SERVER", model.fix_text)
+        self.assertIn("Start the site server", model.fix_text)
         by_label = {name: (lvl, text) for lvl, name, text in model.status_rows}
         self.assertEqual(by_label["BROADCAST"][0], "err")
         self.assertIn("connection refused", by_label["BROADCAST"][1])

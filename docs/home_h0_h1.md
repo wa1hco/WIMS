@@ -14,7 +14,7 @@ You want WIMS to **filter and rank decodes** and **click-to-Work** (Reply) — n
 
 | Have | Do |
 |------|-----|
-| WSJT-X on air (Reporting → `224.0.0.73:2237`, **Accept UDP ON**) | `Start-Wims-Solo.cmd` / `python -m wims.solo` |
+| WSJT-X on air (Reporting → `224.0.0.73:2237`, **Accept UDP ON**) | Double-click **WIMS**, or `Start-Wims-Solo.cmd` / `scripts/start-wims-solo.sh` |
 | Browser | `http://localhost:8787/` → **Operate** |
 | Optional N1MM log | Auto-seed needed vs dupe; or `--no-seed` (all look needed) |
 
@@ -71,20 +71,18 @@ Do not mix them by accident: Local bind will **not** see VM/LAN WSJT traffic.
 |----|--------|
 | Windows | `scripts\windows\Start-Wims-Solo.cmd` |
 | Linux | `scripts/start-wims-solo.sh` |
-| CLI | `python -m wims.solo` |
 | Launcher | **Other tools… → Start Operate (home)** |
 
 Browser: `http://localhost:8787/` — **Operate** tab (roster). Click a line to Work; **Halt TX** to stop.
 
-Setup check only: `Check-WimsSetup.cmd` / `python -m wims.agent --solo`.
+Setup check: `Check-WimsSetup.cmd`, or the WSJT seat check in the WIMS window.
 
 ### Start Operate (Network)
 
 | OS | Action |
 |----|--------|
-| Windows | Site server / `Start-WimsServer.cmd` (LAN iface) |
-| Linux | `python -m wims.server --iface <lan-ipv4>` |
-| CLI solo on LAN | `python -m wims.solo --iface <lan-ipv4>` |
+| Windows | Double-click **WIMS** and start the site server, or `Start-WimsServer.cmd` |
+| Linux | Double-click **WIMS** and start the site server |
 
 WSJT-X on each seat: Outgoing interface = contest LAN NIC.  
 Full fleet notes: [`operator_setup.md`](operator_setup.md).
@@ -127,15 +125,13 @@ Uses **explicit localhost target** on the current home scripts (older fixed gate
 |----|--------|
 | Windows | `scripts\windows\Start-Wims-Inhibit-Home.cmd` |
 | Linux | `scripts/start-wims-inhibit-home.sh` |
-| CLI | see below |
+| In the window | Pick the key port, then start Inhibit |
+
+### Developer
 
 ```text
-# Device: COM port, /dev/tty…, or sim:up for a lab stick-down
-set WIMS_KEY_DEVICE=COM3          # Windows example
-export WIMS_KEY_DEVICE=/dev/ttyUSB0
-
 # Older fixed gate (current home script default):
-python -m wims.seat --key --targets 127.0.0.1:22372
+python3 -m wims.seat --key --targets 127.0.0.1:22372
 
 # inhibit-3.2-rc1: prefer discovery once home H1 is retargeted
 # (omit --targets; needs live band from Status / RadioInfo)

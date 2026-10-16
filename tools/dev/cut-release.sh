@@ -3,12 +3,12 @@
 # Not run on every push — call when operators should see Update available.
 #
 # Usage:
-#   scripts/cut-release.sh                 # tag v$(pyproject version)
-#   scripts/cut-release.sh v1.0.1
-#   scripts/cut-release.sh v1.0.1-tester
-#   scripts/cut-release.sh v1.0.1-rc1
+#   tools/dev/cut-release.sh                 # tag v$(pyproject version)
+#   tools/dev/cut-release.sh v1.0.1
+#   tools/dev/cut-release.sh v1.0.1-tester
+#   tools/dev/cut-release.sh v1.0.1-rc1
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
 if [ -n "${1:-}" ]; then
@@ -22,7 +22,7 @@ else
   TAG="v${BASE}"
 fi
 
-python3 scripts/packaging/write_manifest.py "${TAG#v}" --repo-root "$ROOT" >/dev/null
+python3 tools/dev/packaging/write_manifest.py "${TAG#v}" --repo-root "$ROOT" >/dev/null
 
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "ERROR: tag $TAG already exists." >&2

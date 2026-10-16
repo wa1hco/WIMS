@@ -3,7 +3,10 @@
 **Status:** planning survey for standalone Operate  
 **Date:** 2026-09-19  
 **Style:** STE Lite  
-**Related:** design §3.6 / §3.10; Operate log-source plan; `docs/home_h0_h1.md`
+**Related:** design §3.6 / §3.10; Operate log-source plan; `docs/home_h0_h1.md`;
+[wims_logs_and_rules.md](wims_logs_and_rules.md) (contest rules, solo `wsjtx_log.adi`
+seed, the log-access warning, and the multi-log audit tool). This survey remains
+the storage-tier ranking.
 
 ## 1. Why this survey
 

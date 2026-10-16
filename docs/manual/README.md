@@ -23,10 +23,10 @@ Launcher window grab needs ImageMagick (`import`) or `gnome-screenshot` on Linux
 ### B. CLI (browser pages)
 
 ```bash
-scripts/capture-user-manual-shots.sh
-scripts/capture-user-manual-shots.sh --only site-operate,site-n1mm
-scripts/capture-user-manual-shots.sh --suffix contest_run
-WIMS_MANUAL_BASE=http://192.168.1.119:8787 scripts/capture-user-manual-shots.sh
+tools/dev/capture-user-manual-shots.sh
+tools/dev/capture-user-manual-shots.sh --only site-operate,site-n1mm
+tools/dev/capture-user-manual-shots.sh --suffix contest_run
+WIMS_MANUAL_BASE=http://192.168.1.119:8787 tools/dev/capture-user-manual-shots.sh
 ```
 
 Requires Chrome/Chromium. Window shots (`launcher-home`) are skipped here — use the panel.

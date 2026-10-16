@@ -32,7 +32,27 @@ cd /d "%ROOT%"
 
 call "%~dp0_resolve-python.cmd"
 if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EXE%"=="python" (
-  echo Python missing. Run Install-Wims.cmd again.
+  echo Python was not found, so WIMS cannot start.
+  echo Double-click Install-Wims.cmd in this folder, then try again.
+  pause
+  exit /b 1
+)
+
+REM 0 = port free. 11 = something is listening. Then 10 = that something is WIMS.
+"%PYTHON_EXE%" -c "import socket,sys;s=socket.socket();s.settimeout(0.4);r=s.connect_ex(('127.0.0.1',8787));s.close();sys.exit(0 if r else 11)"
+if errorlevel 11 (
+  "%PYTHON_EXE%" -c "import json,sys,urllib.request;d={};exec('try:\n d=json.loads(urllib.request.urlopen(\'http://127.0.0.1:8787/healthz\',timeout=0.8).read().decode())\nexcept Exception:\n pass');sys.exit(10 if d.get('ok') and d.get('role')=='wims-site-server' else 11)"
+)
+set PROBE=%ERRORLEVEL%
+if "%PROBE%"=="10" (
+  echo WIMS is already open. Showing the console.
+  start "" "http://localhost:8787/"
+  exit /b 0
+)
+if "%PROBE%"=="11" (
+  echo Port 8787 is in use, but it is not WIMS.
+  echo Close the other program, or use the WIMS window if it is already open.
+  echo The console, when WIMS is up, is http://localhost:8787/
   pause
   exit /b 1
 )

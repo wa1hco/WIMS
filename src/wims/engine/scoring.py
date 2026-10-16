@@ -75,6 +75,9 @@ class Candidate:
     is_new_mult: bool = False
     is_rover: bool = False
     reachable: bool = True          # antenna can hear/point at it (§3.14 geometry)
+    need_reason: str = ""
+    mult_reason: str = ""
+    qso_points: int | None = None
 
 
 @dataclass
@@ -119,12 +122,13 @@ FactorFn = Callable[[Candidate, Context], "Factor | None"]
 
 def f_new_mult(c: Candidate, ctx: Context) -> Factor | None:
     if c.is_new_mult:
-        return Factor("new_mult", ctx.w("new_mult", 25), f"new {c.band} grid {c.grid}")
+        detail = c.mult_reason or f"new {c.band} grid {c.grid}"
+        return Factor("new_mult", ctx.w("new_mult", 25), detail)
     return None
 
 
 def f_points(c: Candidate, ctx: Context) -> Factor | None:
-    pts = band_points(c.band)
+    pts = band_points(c.band) if c.qso_points is None else int(c.qso_points)
     return Factor("points", pts * ctx.w("points", 2), f"{c.band}={pts}pt")
 
 
@@ -220,11 +224,24 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
     grid = (grid or decode.grid or None)
     if grid:
         grid = str(grid).strip().upper() or None
-    is_dupe = bool(log and call and log.is_dupe(call, band, grid))
-    is_new_mult = bool(log and grid and log.is_new_mult(grid, band))
+    mode = getattr(decode, "mode", None)
+    need_reason = ""
+    mult_reason = ""
+    qso_points = None
+    if log is not None and hasattr(log, "classify"):
+        verdict = log.classify(call, band, grid, mode)
+        is_dupe = bool(verdict.is_dupe)
+        is_new_mult = bool(verdict.is_new_mult)
+        need_reason = verdict.need_reason or ""
+        mult_reason = verdict.mult_reason or ""
+        qso_points = verdict.points
+    else:
+        is_dupe = bool(log and call and log.is_dupe(call, band, grid))
+        is_new_mult = bool(log and grid and log.is_new_mult(grid, band))
     is_rover = "/R" in call
     return Candidate(
         call=call, grid=grid, band=band, instance_id=decode.id or "?",
         snr=decode.snr, is_cq=decode.is_cq, is_dupe=is_dupe,
         is_new_mult=is_new_mult, is_rover=is_rover, reachable=reachable,
+        need_reason=need_reason, mult_reason=mult_reason, qso_points=qso_points,
     )

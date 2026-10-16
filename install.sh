@@ -73,14 +73,14 @@ VER="$("$PYTHON_CMD" -c 'import wims; print(wims.__version__)')"
 echo "WIMS import OK (version $VER)"
 
 if [ "$WANT_SHORTCUT" = "1" ]; then
-    if [ -x "$REPO_DIR/scripts/install-wims-desktop.sh" ]; then
+    if [ -x "$REPO_DIR/scripts/add-wims-to-desktop.sh" ]; then
         echo "Installing Desktop shortcut ..."
-        "$REPO_DIR/scripts/install-wims-desktop.sh" || {
+        "$REPO_DIR/scripts/add-wims-to-desktop.sh" || {
             echo "WARNING: Desktop shortcut install failed (tk / desktop dir?)." >&2
-            echo "  You can re-run: scripts/install-wims-desktop.sh" >&2
+            echo "  You can re-run: scripts/add-wims-to-desktop.sh" >&2
         }
     else
-        echo "WARNING: scripts/install-wims-desktop.sh missing; skip shortcut." >&2
+        echo "WARNING: scripts/add-wims-to-desktop.sh missing; skip shortcut." >&2
     fi
 else
     echo "Skipping Desktop shortcut (--no-shortcut)."
@@ -90,11 +90,9 @@ cat <<EOF
 
 Install complete.
 
-Start (pick one):
-  Desktop icon:     WIMS
-  GUI launcher:     PYTHONPATH=src $PYTHON_CMD -m wims
-  Solo (one PC):    PYTHONPATH=src $PYTHON_CMD -m wims solo
-  Site server:      PYTHONPATH=src $PYTHON_CMD -m wims server
+Start: double-click the Desktop icon named WIMS.
+One PC with WSJT-X: scripts/start-wims-solo.sh
+Windows site server: scripts\\windows\\Start-WimsServer.cmd
 
 Docs: INSTALL.md · docs/tester_quickstart.md
 EOF

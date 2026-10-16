@@ -30,7 +30,7 @@ sudo apt install -y git python3 python3-tk   # ≥ 3.10
 # same entry: scripts/install-linux.sh
 ```
 
-Start: Desktop **WIMS**, or `PYTHONPATH=src python3 -m wims solo`.
+Start: double-click Desktop **WIMS**.
 
 ## Windows
 
@@ -71,7 +71,7 @@ Pushing `main` does **not** publish a GitHub Release. Tag when other PCs should 
    - `git tag v1.0.0-tester` (prerelease)
    - `git tag v1.0.0-rc1` (prerelease)
    - `git tag v1.0.0` (GA)
-   - or `scripts/cut-release.sh v1.0.1` then `git push origin v1.0.1`
+   - or `tools/dev/cut-release.sh v1.0.1` then `git push origin v1.0.1`
 3. `git push origin <tag>` → Actions **Release** validates, builds allow-list artifacts, publishes.
 
 Mid-cycle lab drop: Actions → **Tester packages** → Run workflow.
@@ -79,7 +79,7 @@ Mid-cycle lab drop: Actions → **Tester packages** → Run workflow.
 Local package smoke:
 
 ```bash
-scripts/package-release.sh 1.0.0
+tools/dev/package-release.sh 1.0.0
 # writes dist/wims-1.0.0-linux-x86_64.tar.gz
 #      dist/wims-1.0.0-windows-x86_64.zip
 #      dist/SHA256SUMS

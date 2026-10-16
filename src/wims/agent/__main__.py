@@ -25,7 +25,7 @@ Requires the ``src`` directory on sys.path, e.g.::
 
 Or use the path-safe launcher (preferred on seats)::
 
-    python scripts/run_agent.py
+    python tools/dev/run_agent.py
     scripts\\windows\\Start-WimsAgent.cmd
 """
 
@@ -44,10 +44,8 @@ try:
 except ModuleNotFoundError as e:
     if e.name == "wims" or (e.name and e.name.startswith("wims")):
         print(
-            "ERROR: cannot import wims — PYTHONPATH must include the repo's src/ folder.\n"
-            "  Windows cmd:  set PYTHONPATH=%CD%\\src\n"
-            "  Then:         python -m wims.agent\n"
-            "  Or:           python scripts\\run_agent.py\n"
+            "ERROR: WIMS could not start from this folder.\n"
+            "  Double-click the WIMS icon, or scripts\\windows\\Start-WimsAgent.cmd.\n"
             "  Or double-click: scripts\\windows\\Start-WimsAgent.cmd",
             file=sys.stderr,
         )

@@ -122,7 +122,7 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
         rows.append(("warn", "BROADCAST", f"no RadioInfo yet · listen {radio_dest}"))
     else:
         bcast = snap.get("broadcast") or {}
-        site = bcast.get("site_url") or snap.get("site_url") or "(no WIMS_SERVER)"
+        site = bcast.get("site_url") or snap.get("site_url") or "(site not found yet)"
         n_bf = bcast.get("n_fwd", 0)
         n_be = bcast.get("n_err", 0)
         site_err = bcast.get("last_error") or ""
@@ -137,8 +137,9 @@ def _status_model(log_state: LogState, key: KeyRuntime | None, *, do_log: bool, 
             fix = (
                 f"Cannot POST RadioInfo to {site}/api/n1mm/broadcast"
                 f"{f' ({site_err})' if site_err else ''}. "
-                "Start the site server, or set WIMS_SERVER to its LAN IP "
-                "(not 127.0.0.1 unless this PC hosts the site console)."
+                "Start the site server on the contest PC (double-click WIMS). "
+                "This PC finds it on the network. "
+                "127.0.0.1 works only when this PC hosts the console."
             )
         else:
             bcast_txt = (

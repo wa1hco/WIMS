@@ -1,0 +1,28 @@
+{
+  "id": "nyqp",
+  "title": "NY QSO Party",
+  "license": "GPL-3.0-or-later",
+  "rules_url": "https://nyqp.org/wordpress/nyqp-rules/",
+  "rules_version": "1.1",
+  "rules_date": "2026-09-25",
+  "year": 2026,
+  "season": {"start": "", "end": ""},
+  "aliases": ["NYQP", "NY-QSO-PARTY", "NY QSO"],
+  "mode_groups": {
+    "PH": ["SSB", "USB", "LSB", "FM", "AM"],
+    "CW": ["CW"],
+    "DIG": ["RTTY"]
+  },
+  "excluded_modes": [{"mode": "FT8"}, {"mode": "FT4"}],
+  "dupe_scope": "band+group",
+  "dupe_reset": "my_county",
+  "points": {"PH": 1, "CW": 2, "DIG": 3},
+  "multipliers": [
+    {"type": "ny_county", "who": "all", "cap": 62, "per": "unverified"},
+    {"type": "state", "who": "ny_station", "cap": 50, "per": "unverified"},
+    {"type": "province", "who": "ny_station", "cap": 13, "per": "unverified"}
+  ],
+  "dx_multiplier": false,
+  "entry_constraints": [{"modes": "DIG", "category": "Mixed"}],
+  "summary": "Dupes: once per band per mode group."
+}
