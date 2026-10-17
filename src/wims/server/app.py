@@ -493,10 +493,15 @@ class LiveFleet:
         """Load the contest dropdown (and Colors fallback). Not called from __init__."""
         from wims.engine.contest_rules import resolve
         from wims.integrations.wsjtx_logs import ini_path
-        from wims.rules.choice import load_choice, load_custom, save_choice
+        from wims.rules.choice import load_choice, load_custom, needs_migration, save_choice
         if n1mm_authoritative is not None:
             self._n1mm_authoritative = bool(n1mm_authoritative)
         choice = load_choice()
+        if needs_migration():
+            try:
+                save_choice(choice)
+            except OSError:
+                pass
         custom = load_custom()
         names = list(self._contest_names)
         with self._lock:
@@ -512,10 +517,13 @@ class LiveFleet:
             custom_data=custom,
         )
         if resolved.suggested and resolved.contest and not choice.get("explicit"):
-            choice = dict(choice)
+            choice = dict(resolved.choice)
             choice["contest"] = resolved.contest
+            choice["goal"] = "contest"
+            choice["goal_id"] = resolved.contest
             choice["suggested"] = True
             choice["explicit"] = False
+            choice["schema"] = 4
             try:
                 save_choice(choice)
             except OSError:
@@ -560,17 +568,31 @@ class LiveFleet:
         """POST /api/rules. The dropdown applies immediately."""
         from wims.engine.contest_rules import custom_from_checkboxes, import_udc
         from wims.rules.choice import (
-            load_choice, load_logs, save_choice, save_custom, save_logs,
+            load_choice, load_custom, load_logs, save_choice, save_custom, save_logs,
         )
         if not isinstance(body, dict):
             return {"ok": False, "error": "invalid_body"}
         action = str(body.get("action") or "select").strip()
         choice = load_choice()
         if action == "select":
-            contest = body.get("contest")
-            if contest in ("", "none", "None"):
-                contest = None
-            choice["contest"] = contest
+            if body.get("goal"):
+                from wims.engine.goal_rules import sanitize_selection
+                goal, goal_id = sanitize_selection(
+                    str(body.get("goal") or ""),
+                    str(body.get("goal_id") or ""),
+                    custom_available=bool(load_custom()),
+                )
+                choice["goal"] = goal
+                choice["goal_id"] = goal_id
+                choice["schema"] = 4
+            else:
+                contest = body.get("contest")
+                if contest in ("", "none", "None"):
+                    contest = None
+                choice["contest"] = contest
+                choice["goal"] = None
+                choice["goal_id"] = None
+                choice["schema"] = 3
             choice["explicit"] = True
             choice["suggested"] = False
             save_choice(choice)
@@ -590,9 +612,20 @@ class LiveFleet:
         elif action == "colors_reset":
             choice["wsjtx_override"] = None
             save_choice(choice)
+        elif action == "checklist":
+            choice["checklist"] = body.get("items")
+            choice["schema"] = 4
+            if choice.get("goal") in {"operating", "custom"}:
+                choice["goal_id"] = "checklist"
+            choice["explicit"] = True
+            choice["suggested"] = False
+            save_choice(choice)
         elif action == "save_custom":
             save_custom(custom_from_checkboxes(body))
+            choice["goal"] = "custom"
+            choice["goal_id"] = "custom-file"
             choice["contest"] = "custom"
+            choice["schema"] = 4
             choice["explicit"] = True
             choice["suggested"] = False
             save_choice(choice)

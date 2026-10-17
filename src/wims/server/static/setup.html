@@ -60,19 +60,37 @@
     <a href="/n1mm">N1MM</a>. Fleet overview: <a href="/overview">Overview</a>.
   </p>
 
-  <h2>Contest</h2>
+  <h2>Goal</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    One choice. WIMS finds each WSJT-X log on this PC. None uses WSJT-X Colors
-    when N1MM is not the log.
+    What you want from the stations you hear. WIMS uses the contacts already in the log.
+    Pick a goal, then the choice next to it.
   </p>
   <div id="setup-contest" class="syncrow" style="align-items:center;gap:10px;flex-wrap:wrap">
-    <label>Contest
-      <select id="contest-pick" style="font:inherit;margin-left:6px">
-        <option value="">None</option>
-      </select>
-    </label>
+    <span class="advline">
+      <label>Goal
+        <select id="goal-pick" style="font:inherit;margin-left:6px"
+          title="What you are trying to do. A contest, an award, just operating, or your own list.">
+          <option value="contest">Contest</option>
+          <option value="award">Award</option>
+          <option value="operating" selected>Just operating (not a contest)</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <span id="goal-pick-tip"></span>
+    </span>
+    <span class="advline">
+      <label><span id="goal-detail-label">Worth working</span>
+        <select id="goal-detail" style="font:inherit;margin-left:6px"
+          title="WSJT-X Colors follows the color settings. Checklist is a short list of what is worth working.">
+          <option value="wsjtx-colors" selected>WSJT-X Colors</option>
+          <option value="checklist">Checklist</option>
+        </select>
+      </label>
+      <span id="goal-detail-tip"></span>
+    </span>
   </div>
   <p id="contest-summary" class="hint" style="font-size:12px;margin:6px 0">Waiting for the server…</p>
+  <div id="goal-checklist" style="font-size:12px;margin:6px 0 8px 0"></div>
   <div id="contest-logs" style="font-size:12px;line-height:1.45"></div>
   <details id="contest-advanced" style="margin:8px 0 16px 0">
     <summary>Advanced</summary>

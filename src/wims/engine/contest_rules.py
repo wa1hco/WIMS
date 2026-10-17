@@ -220,7 +220,9 @@ class FileRules:
         return False, ""
 
     def classify(self, store, call: str, band: str, mode: str | None, grid: str | None,
-                 *, exchange: str | None = None, my_county: str | None = None) -> Verdict:
+                 *, exchange: str | None = None, my_county: str | None = None,
+                 state: str | None = None) -> Verdict:
+        del state
         points, _why = self.qso_points(band, mode)
         banned = self.excluded_name(mode)
         new_mult, mult_reason = self._new_mult(store, band, grid, exchange)
@@ -444,8 +446,9 @@ class WsjtxColors:
         return built
 
     def classify(self, store, call: str, band: str, mode: str | None, grid: str | None,
-                 *, exchange: str | None = None, my_county: str | None = None) -> Verdict:
-        del exchange, my_county
+                 *, exchange: str | None = None, my_county: str | None = None,
+                 state: str | None = None) -> Verdict:
+        del exchange, my_county, state
         call_u = _upper(call)
         mode_u = _upper(mode)
         idx = self._worked_index(store)
@@ -717,39 +720,73 @@ def resolve(
     custom_data: dict | None = None,
     log_label: str = "wsjtx_log.adi",
 ) -> Resolved:
-    """Pick the active rule. Does not override an explicit dropdown choice."""
-    choice = dict(choice or {})
+    """Pick the active rule. Does not override an explicit goal choice."""
+    from wims.engine.goal_rules import (
+        AwardRules,
+        ChecklistRules,
+        goal_menu,
+        legacy_contest,
+        sanitize_selection,
+        shape_choice,
+    )
+
+    choice = shape_choice(dict(choice or {}))
     explicit = bool(choice.get("explicit"))
-    contest = choice.get("contest") or None
-    if contest == "":
-        contest = None
+    goal, goal_id = sanitize_selection(
+        choice.get("goal") or "operating",
+        choice.get("goal_id") or "",
+        custom_available=bool(custom_data),
+    )
     suggested = bool(choice.get("suggested"))
     suggested_from = ""
-    if not explicit and not contest:
+    # Same window as the old empty Contest menu: just operating, not an explicit pick.
+    if (
+        not explicit
+        and goal == "operating"
+        and goal_id == "wsjtx-colors"
+    ):
         sid, how = suggest_contest(contest_names or [], today)
         if sid:
-            contest = sid
+            goal, goal_id = "contest", sid
             suggested = True
             suggested_from = how
     rules_obj: object
     label: str
     note = ""
-    if contest and contest != "custom":
+    contest: str | None = legacy_contest(goal, goal_id)
+    if goal == "contest":
         try:
-            rules_obj = load_builtin(str(contest))
+            rules_obj = load_builtin(str(goal_id))
         except KeyError:
             rules_obj = load_builtin("arrl-vhf")
+            goal_id = "arrl-vhf"
             contest = "arrl-vhf"
         label = rules_obj.title
-        if n1mm and not suggested:
-            label = rules_obj.title
-    elif contest == "custom" and custom_data:
+    elif goal == "award":
+        rules_obj = AwardRules(
+            goal_id, dxcc_lookup=dxcc_lookup, log_label=log_label,
+        )
+        label = rules_obj.title
+        contest = None
+    elif goal == "custom" and goal_id == "custom-file" and custom_data:
         rules_obj = FileRules(custom_data)
         label = "Custom rules"
-    elif n1mm:
-        rules_obj = load_builtin("arrl-vhf")
+        contest = "custom"
+    elif goal == "custom" or goal_id == "checklist":
+        title = "Custom checklist" if goal == "custom" else "Checklist"
+        rules_obj = ChecklistRules(
+            choice.get("checklist"),
+            title=title,
+            dxcc_lookup=dxcc_lookup,
+            log_label=log_label,
+        )
+        label = rules_obj.title
         contest = None
+    elif n1mm:
+        # Just operating while N1MM is the log: same as the old empty menu.
+        rules_obj = load_builtin("arrl-vhf")
         label = "N1MM · ARRL VHF"
+        contest = None
         suggested = False
     else:
         rules_obj, label, note = _colors_from_choice(
@@ -757,12 +794,15 @@ def resolve(
             dxcc_lookup=dxcc_lookup, log_label=log_label,
         )
         contest = None
-    if n1mm and contest:
-        # Named contest under N1MM keeps the contest title. The sentence adds the log line.
-        pass
+    choice["goal"] = goal
+    choice["goal_id"] = goal_id
+    choice["contest"] = contest
+    menu_choice = dict(choice)
     extra = {
         "choice": {
             "contest": contest,
+            "goal": goal,
+            "goal_id": goal_id,
             "explicit": explicit,
             "suggested": suggested and not explicit,
             "fallback": choice.get("fallback") or "wsjtx-colors",
@@ -771,23 +811,29 @@ def resolve(
         },
         "custom_available": bool(custom_data),
         "colors_note": note,
+        "goal": goal_menu(menu_choice, custom_available=bool(custom_data)),
     }
     if suggested and not explicit and suggested_from:
+        wrong = "Choose Just operating (not a contest) if that is wrong."
         if suggested_from == "date":
             extra["suggested_note"] = (
-                f"Suggested from the date: {rules_obj.title}. "
-                "Set Contest to None if that is wrong."
+                f"Suggested from the date: {rules_obj.title}. {wrong}"
             )
         elif suggested_from == "log":
             extra["suggested_note"] = (
-                f"Suggested from the log: {rules_obj.title}. "
-                "Set Contest to None if that is wrong."
+                f"Suggested from the log: {rules_obj.title}. {wrong}"
             )
     if n1mm:
-        extra["n1mm_line"] = (
-            f"N1MM is the log of record, so needed uses {getattr(rules_obj, 'title', label)}. "
-            "The WSJT-X / GridTracker fallback is not used."
-        )
+        if goal == "operating" and goal_id == "wsjtx-colors":
+            extra["n1mm_line"] = (
+                "N1MM is the log of record, so needed uses ARRL VHF. "
+                "WSJT-X Colors is used when N1MM is not the log."
+            )
+        else:
+            extra["n1mm_line"] = (
+                f"N1MM is the log of record, so needed uses {getattr(rules_obj, 'title', label)} "
+                "against that log."
+            )
     public = rules_obj.public(source_label=label, n1mm=n1mm, extra=extra)
     if getattr(rules_obj, "id", "") == "nyqp" and not (choice.get("station_state") or "").strip():
         public["summary"] = (

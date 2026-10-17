@@ -867,6 +867,108 @@ function renderSetupExtras(n1mm, s) {
 
 let _contestWired = false;
 let _contestAdvSig = "";
+let _goalMenus = null;
+let _checklistSig = "";
+
+function goalTip(text) {
+  const tip = text || "";
+  const t = escAttr(tip);
+  return `<span class="advtip"><button type="button" class="tipbtn" title="${t}" aria-label="Help. ${t}">?</button>` +
+    `<span class="tiptxt" role="tooltip">${esc(tip)}</span></span>`;
+}
+
+function wireGoalTips() {
+  if (window._wimsGoalTipsWired) return;
+  window._wimsGoalTipsWired = true;
+  const stop = (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".tipbtn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  document.addEventListener("click", stop);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== " " && ev.key !== "Enter") return;
+    stop(ev);
+  });
+}
+
+function fillGoalSelect(sel, options, current) {
+  if (!sel || document.activeElement === sel) return;
+  const html = (options || []).map(o =>
+    `<option value="${esc(o.id)}"${o.enabled === false ? " disabled" : ""}>${esc(o.title)}</option>`
+  ).join("");
+  if (sel.dataset.html !== html) {
+    sel.innerHTML = html;
+    sel.dataset.html = html;
+  }
+  const cur = current || "";
+  if (html && sel.value !== cur) sel.value = cur;
+}
+
+function postRules(body) {
+  return fetch("/api/rules", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+function renderGoalChecklist(goal) {
+  const box = $("goal-checklist");
+  if (!box) return;
+  if (!goal || !goal.show_checklist) {
+    if (box.innerHTML) box.innerHTML = "";
+    _checklistSig = "";
+    return;
+  }
+  if (box.contains(document.activeElement)) return;
+  const list = goal.checklist || {};
+  const rows = list.rows || [];
+  const scopes = list.scopes || [];
+  const sig = JSON.stringify({rows, scopes, tip: goal.scope_tip || ""});
+  if (sig === _checklistSig && box.dataset.ready === "1") return;
+  _checklistSig = sig;
+  const scopeTip = goal.scope_tip || "";
+  const body = rows.map(row => {
+    const soon = row.coming_soon || row.available === false;
+    const tip = row.tip || "";
+    const scopeHtml = scopes.map(sc =>
+      `<option value="${esc(sc.id)}"${sc.id === row.scope ? " selected" : ""}>${esc(sc.label)}</option>`
+    ).join("");
+    const label = soon ? `${row.label} (coming soon)` : row.label;
+    return `<div class="goal-row advline">` +
+      `<label class="${soon ? "goal-soon" : ""}" title="${escAttr(tip)}">` +
+      `<input type="checkbox" data-kind="${esc(row.kind)}"${row.enabled ? " checked" : ""}` +
+      `${soon ? " disabled" : ""} title="${escAttr(tip)}"> ${esc(label)}</label>` +
+      `<select data-scope="${esc(row.kind)}" title="${escAttr(scopeTip)}"${soon ? " disabled" : ""}>` +
+      scopeHtml + `</select>` +
+      goalTip(tip) +
+      `</div>`;
+  }).join("");
+  box.innerHTML =
+    `<p class="hint" style="margin:4px 0">Check what is worth working. ` +
+    `WIMS compares each station with the contacts already in the log.</p>` +
+    body;
+  box.dataset.ready = "1";
+  const send = () => {
+    const items = rows.map(row => {
+      const boxEl = box.querySelector(`input[data-kind="${row.kind}"]`);
+      const scopeEl = box.querySelector(`select[data-scope="${row.kind}"]`);
+      const soon = row.coming_soon || row.available === false;
+      return {
+        kind: row.kind,
+        enabled: !soon && !!(boxEl && boxEl.checked),
+        scope: (scopeEl && scopeEl.value) || row.scope || "overall",
+      };
+    });
+    _checklistSig = "";
+    postRules({action: "checklist", items});
+  };
+  box.querySelectorAll("input[data-kind], select[data-scope]").forEach(el => {
+    el.addEventListener("change", send);
+  });
+}
 
 function renderContestRules(s) {
   const rules = s && s.rules;
@@ -888,29 +990,56 @@ function renderContestRules(s) {
       return `<div${bad ? ' style="color:#8a3b00"' : ""}>${esc(r.message || "")}</div>`;
     }).join("");
   }
-  const sel = $("contest-pick");
-  if (sel && document.activeElement !== sel) {
-    const opts = [{id: "", title: "None"}].concat(rules.catalog || []);
-    if (rules.custom_available) opts.push({id: "custom", title: "Custom"});
-    const html = opts.map(o =>
-      `<option value="${esc(o.id)}">${esc(o.title)}</option>`).join("");
-    if (sel.dataset.html !== html) {
-      sel.innerHTML = html;
-      sel.dataset.html = html;
+  const goal = rules.goal;
+  const typeSel = $("goal-pick");
+  const detailSel = $("goal-detail");
+  if (goal && typeSel) {
+    _goalMenus = goal.menus || _goalMenus;
+    const typeTip = ((goal.types || []).find(t => t.id === goal.type) || {}).tip || typeSel.title;
+    if (document.activeElement !== typeSel) typeSel.title = typeTip || typeSel.title;
+    fillGoalSelect(typeSel, goal.types || [], goal.type);
+    const tipHost = $("goal-pick-tip");
+    if (tipHost && tipHost.dataset.tip !== typeTip) {
+      tipHost.innerHTML = goalTip(typeTip);
+      tipHost.dataset.tip = typeTip || "";
     }
-    const cur = (rules.choice && rules.choice.contest) || "";
-    if (sel.value !== cur) sel.value = cur;
   }
-  if (sel && !_contestWired) {
+  if (goal && detailSel) {
+    const detailTip = goal.detail_tip || detailSel.title;
+    if (document.activeElement !== detailSel) detailSel.title = detailTip;
+    const lab = $("goal-detail-label");
+    if (lab && goal.detail_label) lab.textContent = goal.detail_label;
+    fillGoalSelect(detailSel, goal.options || [], goal.id);
+    const tipHost = $("goal-detail-tip");
+    if (tipHost && tipHost.dataset.tip !== detailTip) {
+      tipHost.innerHTML = goalTip(detailTip);
+      tipHost.dataset.tip = detailTip || "";
+    }
+  }
+  if (typeSel && detailSel && !_contestWired) {
     _contestWired = true;
-    sel.addEventListener("change", () => {
-      fetch("/api/rules", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({action: "select", contest: sel.value || null}),
-      }).catch(() => {});
+    wireGoalTips();
+    typeSel.addEventListener("change", () => {
+      const next = typeSel.value;
+      const menu = (_goalMenus && _goalMenus[next]) || {};
+      const opt = (menu.options || []).find(o => o.enabled !== false);
+      const lab = $("goal-detail-label");
+      if (lab && menu.label) lab.textContent = menu.label;
+      if (menu.tip) detailSel.title = menu.tip;
+      fillGoalSelect(detailSel, menu.options || [], opt ? opt.id : "");
+      postRules({action: "select", goal: next, goal_id: opt ? opt.id : ""});
+    });
+    detailSel.addEventListener("change", () => {
+      const picked = detailSel.selectedOptions && detailSel.selectedOptions[0];
+      if (picked && picked.disabled) return;
+      postRules({
+        action: "select",
+        goal: typeSel.value,
+        goal_id: detailSel.value,
+      });
     });
   }
+  renderGoalChecklist(goal);
   renderContestAdvanced(s);
 }
 
