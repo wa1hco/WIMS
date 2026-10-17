@@ -323,6 +323,7 @@ def test_log_page_has_the_log_controls_and_setup_does_not():
     assert "LOG_TIPS" in js
     assert "renderN1mmNav" in js
     assert "nav-n1mm" in js
+    assert 'here = p === "/n1mm"' in js
 
 
 def test_changing_the_log_reloads_and_the_window_changes_dupes():

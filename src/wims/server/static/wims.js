@@ -1072,8 +1072,15 @@ function renderLogToUse(s) {
 function renderN1mmNav(s) {
   const n = (s && s.loggers) ? s.loggers.length : 0;
   const multi = n >= 2;
+  let here = false;
+  try {
+    const p = (location.pathname || "/").replace(/\/$/, "") || "/";
+    here = p === "/n1mm";
+  } catch (_) {}
   document.querySelectorAll("a.nav-n1mm").forEach(a => {
-    if (multi) a.removeAttribute("hidden");
+    // Several stations: show it everywhere. One station: show it only on this page,
+    // so a direct visit still has a selected tab.
+    if (multi || here) a.removeAttribute("hidden");
     else a.setAttribute("hidden", "");
   });
   const single = $("n1mm-single");
