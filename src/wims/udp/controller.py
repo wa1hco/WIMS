@@ -33,6 +33,7 @@ Lease/arbiter gating lives above this (§3.4/§4.5) — this layer just sends.
 
 from __future__ import annotations
 
+import errno
 import ipaddress
 import socket
 import struct
@@ -110,6 +111,74 @@ def v4_unicast_dest(host, port) -> tuple[str, int] | None:
     return (str(ip), port_i)
 
 
+# "No route / no local address for this send."
+# Linux: EADDRNOTAVAIL 99, ENETUNREACH 101, EHOSTUNREACH 113.
+# Windows: WSAEADDRNOTAVAIL 10049, WSAENETUNREACH 10051, WSAEHOSTUNREACH 10065.
+_NO_ROUTE = frozenset({
+    errno.EADDRNOTAVAIL,
+    errno.ENETUNREACH,
+    errno.EHOSTUNREACH,
+    99, 101, 113,
+    10049, 10051, 10065,
+})
+
+
+class RouteError(OSError):
+    """Work/Halt could not be routed. The message is for the operator."""
+
+
+def _error_codes(err: BaseException) -> set[int]:
+    codes: set[int] = set()
+    for attr in ("errno", "winerror"):
+        n = getattr(err, attr, None)
+        if isinstance(n, int) and n:
+            codes.add(n)
+    return codes
+
+
+def no_route(err: BaseException) -> bool:
+    return bool(_error_codes(err) & _NO_ROUTE)
+
+
+def plain_route_message(host: str, port: int) -> str:
+    return (
+        f"Cannot reach {host}:{port}. This computer has no path to that "
+        "WSJT-X address. Check that both computers are on the same network, "
+        "then try Work again."
+    )
+
+
+def route_error(host: str, port: int, src: OSError | None = None) -> RouteError:
+    err = RouteError(plain_route_message(host, port))
+    if src is not None:
+        if isinstance(src.errno, int) and src.errno:
+            err.errno = src.errno
+        win = getattr(src, "winerror", None)
+        if isinstance(win, int) and win:
+            err.winerror = win
+    return err
+
+
+def ipv4_route_error(host: str) -> OSError | None:
+    """Ask the kernel which local address would reach ``host``.
+
+    A throwaway datagram socket is used so the send socket stays unconnected
+    and can still reach other destinations. Returns the OS error only when
+    the host is not routable.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect((str(host), 9))
+    except OSError as e:
+        if no_route(e):
+            return e
+        return None
+    else:
+        return None
+    finally:
+        s.close()
+
+
 def open_send_socket(iface: str = "0.0.0.0", ttl: int = 3) -> socket.socket:
     """Multicast send socket. ``iface`` should be a real LAN IP when commanding
     remote WSJT-X (VMs); 0.0.0.0 leaves interface selection to the kernel.
@@ -127,16 +196,17 @@ def open_send_socket(iface: str = "0.0.0.0", ttl: int = 3) -> socket.socket:
 
 
 def open_unicast_socket(iface: str = "0.0.0.0") -> socket.socket:
-    """AF_INET UDP socket for MessageClient unicast. Bind to ``iface`` when it is
-    a real LAN IPv4 so dual-stack / extra NICs cannot pick an IPv6 path."""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    if iface and iface not in ("0.0.0.0", "::"):
-        try:
-            ipaddress.IPv4Address(iface)
-            s.bind((iface, 0))
-        except (OSError, ValueError):
-            pass
-    return s
+    """AF_INET UDP socket for MessageClient unicast.
+
+    ``iface`` is the address WIMS listens on. The socket is left unbound so
+    the OS picks the route for each destination. Binding to that listen
+    address (``127.0.0.1`` in solo) makes a reply to any other address fail:
+    Linux errno 22, Windows 10051 / 10049 / 10065. The socket is already
+    AF_INET, so the path stays IPv4 without pinning the source.
+    """
+    # Listen address is intentionally unused. See the docstring.
+    del iface
+    return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
 class TxController:
@@ -214,13 +284,24 @@ class TxController:
         last_err: OSError | None = None
         refreshed = False
         for d in ordered:
+            sock = self._sock_for(d[0])
+            # Real sockets only. Unit fakes must not depend on this host's routes.
+            if isinstance(sock, socket.socket) and not _is_multicast(d[0]):
+                route_err = ipv4_route_error(d[0])
+                if route_err is not None:
+                    last_err = route_error(d[0], d[1], route_err)
+                    continue
             try:
-                self._sock_for(d[0]).sendto(raw, d)
+                sock.sendto(raw, d)
                 ok.append(d)
                 continue
             except OSError as e:
+                if no_route(e):
+                    last_err = route_error(d[0], d[1], e)
+                    continue
                 last_err = e
             # WinError 10022 / errno 22 / 10038: stale UDP socket or bad multicast IF.
+            # A missing route is not a stale socket — refreshing does not add one.
             if not refreshed:
                 refreshed = True
                 try:
@@ -230,10 +311,15 @@ class TxController:
                     last_err = None
                     continue
                 except OSError as e2:
-                    last_err = e2
+                    if no_route(e2):
+                        last_err = route_error(d[0], d[1], e2)
+                    else:
+                        last_err = e2
                 except Exception:
                     pass
         if not ok:
+            if isinstance(last_err, RouteError):
+                raise RouteError(str(last_err)) from last_err
             if last_err is not None:
                 raise OSError(
                     f"UDP send failed to {ordered}: {last_err}"
