@@ -16,7 +16,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""``python -m wims.logaudit`` — compare logs. No arguments discovers local ADIF."""
+"""Compare logs. With no arguments, use the logs already on this PC.
+
+Operators start this from Check logs or from Setup. The flags below are for
+people changing WIMS.
+"""
 
 from __future__ import annotations
 
@@ -25,31 +29,19 @@ import json
 import sys
 from pathlib import Path
 
-from wims.logaudit.check import (
-    Report,
-    SourceInfo,
-    compare,
-    load_adif_source,
-    render_text,
-    to_json,
+from wims.logaudit.check import Report, render_text, to_json
+from wims.logaudit.files import (
+    STAT_TIMEOUT_S,
+    Candidate,
+    default_cache_path,
+    run_audit,
+    run_bounded,
 )
 
 
-def _since_filter(rows, since: str):
-    if not since:
-        return rows
-    day = since.replace("-", "")[:8]
-    kept = []
-    for row in rows:
-        # time_text starts YYYY-MM-DD when the ADIF date parsed.
-        stamp = (row.time_text or "").replace("-", "")[:8]
-        if stamp and stamp < day:
-            continue
-        kept.append(row)
-    return kept
-
-
-def build_report(argv: list[str] | None = None) -> Report:
+def build_report(argv: list[str] | None = None, *, progress=None,
+                  cache_path: Path | str | None = None,
+                  stat_timeout: float = STAT_TIMEOUT_S) -> Report:
     ap = argparse.ArgumentParser(
         prog="python -m wims.logaudit",
         description="Compare WSJT-X, N1MM, GridTracker, and other ADIF logs. Read-only.",
@@ -67,91 +59,128 @@ def build_report(argv: list[str] | None = None) -> Report:
     args = ap.parse_args(argv)
 
     explicit = bool(args.adif or args.n1mm_db or args.gridtracker or args.lotw)
-    groups = []
-    lotw_names: set[str] = set()
-    notes = []
+    candidates: list[Candidate] = []
+    notes: list[str] = []
 
     if args.wsjtx_auto or not explicit:
-        from wims.integrations.wsjtx_logs import discover_access, seed_files
-        from wims.rules.choice import load_logs
-        logs = load_logs()
-        files = seed_files(logs=logs)
-        if not files:
-            info = SourceInfo(
-                name="WSJT-X", path="", status="note",
-                detail="no wsjtx_log.adi found",
-            )
-            groups.append((info, []))
-            notes.append("No WSJT-X log found.")
-        for path in files:
-            access = discover_access(logs=logs)
-            label = path.parent.name or "WSJT-X"
-            for row in access:
-                if row.path == str(path) or row.path == str(Path(path)):
-                    label = f"WSJT-X {row.instance}"
-                    break
-            info, rows = load_adif_source(path, label)
-            groups.append((info, _since_filter(rows, args.since)))
-
+        candidates.extend(_wsjtx_candidates(notes, timeout=stat_timeout))
     for path in args.adif:
-        info, rows = load_adif_source(path, f"ADIF {Path(path).name}")
-        groups.append((info, _since_filter(rows, args.since)))
-
+        candidates.append(Candidate(f"ADIF {Path(path).name}", path, "adif"))
     if args.n1mm_db:
-        info, rows = _load_n1mm(args.n1mm_db, args.contest_nr)
-        groups.append((info, _since_filter(rows, args.since)))
+        candidates.append(Candidate("N1MM", args.n1mm_db, "n1mm", contest_nr=args.contest_nr))
+    elif not explicit:
+        _add_n1mm(candidates, notes)
 
     gt_paths = list(args.gridtracker)
     if args.gridtracker_auto or not explicit:
-        from wims.integrations.wsjtx_logs import discover_gridtracker_adif
-        auto = discover_gridtracker_adif()
-        if not auto and (args.gridtracker_auto or not explicit):
-            notes.append("GridTracker not found — pass --gridtracker with the ADIF path.")
-        for path in auto:
-            if str(path) not in gt_paths:
-                gt_paths.append(str(path))
+        gt_paths.extend(_gridtracker_paths(notes, timeout=stat_timeout, already=gt_paths))
     for path in gt_paths:
-        info, rows = load_adif_source(path, f"GridTracker {Path(path).name}")
-        groups.append((info, _since_filter(rows, args.since)))
+        candidates.append(Candidate(f"GridTracker {Path(path).name}", path, "adif"))
 
+    lotw_names: set[str] = set()
     if args.lotw:
-        info, rows = load_adif_source(args.lotw, "LoTW")
+        candidates.append(Candidate("LoTW", args.lotw, "lotw"))
         lotw_names.add("LoTW")
-        groups.append((info, _since_filter(rows, args.since)))
-    elif not args.lotw:
-        notes.append("LoTW file not provided — confirmation was not checked.")
+    elif not explicit:
+        notes.append("LoTW was not checked.")
 
-    report = compare(groups, lotw_names=lotw_names)
+    cache = default_cache_path() if cache_path is None else cache_path
+    report = run_audit(
+        candidates,
+        cache_path=cache,
+        progress=progress,
+        stat_timeout=stat_timeout,
+        since=args.since,
+        lotw_names=lotw_names,
+    )
     report.notes = notes + report.notes
-    if args.since:
-        report.window = f"since {args.since}"
     report.json_path = args.json_path  # type: ignore[attr-defined]
     return report
 
 
-def _load_n1mm(path: str, contest_nr: int | None):
-    from wims.logaudit.check import SourceInfo, qsos_from_logged
-    info = SourceInfo(name="N1MM", path=path)
-    if not Path(path).is_file():
-        info.status = "unreadable"
-        info.detail = "not found"
-        return info, []
+def _wsjtx_candidates(notes: list[str], *, timeout: float) -> list[Candidate]:
+    def work() -> list[Candidate]:
+        from wims.integrations.wsjtx_logs import _id_from_dir, adi_path, installed_dirs
+        from wims.rules.choice import load_logs
+        logs = load_logs()
+        found: list[Candidate] = []
+        ids: list[str] = []
+        for folder in installed_dirs():
+            ident = _id_from_dir(folder)
+            if ident not in ids:
+                ids.append(ident)
+        if not ids:
+            ids = ["WSJT-X"]
+        overrides = logs.get("overrides") or {}
+        for ident in ids:
+            override = (overrides.get(ident) or "").strip()
+            path = override or str(adi_path(ident))
+            label = "WSJT-X" if ident in {"", "WSJT-X"} else f"WSJT-X {ident}"
+            found.append(Candidate(label, path, "adif"))
+        shared = (logs.get("shared_path") or "").strip()
+        if shared:
+            found.append(Candidate("WSJT-X shared", shared, "adif"))
+        return found
+
+    kind, value = run_bounded(work, timeout)
+    if kind == "timeout":
+        notes.append("WSJT-X folders did not answer. Connect that drive and check again.")
+        return []
+    if kind == "error":
+        notes.append("WSJT-X logs could not be found on this PC.")
+        return []
+    rows = value or []
+    if not rows:
+        notes.append("No WSJT-X log found.")
+    return rows
+
+
+def _add_n1mm(candidates: list[Candidate], notes: list[str]) -> None:
     try:
-        from wims.integrations.n1mm import logdb
-        qsos = logdb.read_dxlog(path, contest_nr=contest_nr)
-    except Exception as exc:
-        info.status = "unreadable"
-        info.detail = str(exc)
-        return info, []
-    info.count = len(qsos)
-    info.detail = f"{info.count} contacts"
-    return info, qsos_from_logged(qsos, "N1MM")
+        from wims.state.last_log import load as load_last
+        pref = load_last()
+    except Exception:
+        pref = None
+    if not pref or not (pref.get("db_path") or "").strip():
+        notes.append("N1MM was not checked. Choose the contest log in WIMS, then check again.")
+        return
+    nr = pref.get("contest_nr")
+    try:
+        contest_nr = int(nr) if nr is not None else None
+    except (TypeError, ValueError):
+        contest_nr = None
+    candidates.append(Candidate("N1MM", str(pref["db_path"]), "n1mm", contest_nr=contest_nr))
+
+
+def _gridtracker_paths(notes: list[str], *, timeout: float, already: list[str]) -> list[str]:
+    def work() -> list[str]:
+        from wims.integrations.wsjtx_logs import discover_gridtracker_adif
+        return [str(path) for path in discover_gridtracker_adif()]
+
+    kind, value = run_bounded(work, timeout)
+    if kind == "timeout":
+        notes.append("GridTracker folders did not answer. Connect that drive and check again.")
+        return []
+    if kind == "error" or not value:
+        notes.append("GridTracker was not found on this PC.")
+        return []
+    extra = []
+    seen = set(already)
+    for path in value:
+        if path not in seen:
+            seen.add(path)
+            extra.append(path)
+    if not extra and not already:
+        notes.append("GridTracker was not found on this PC.")
+    return extra
 
 
 def main(argv: list[str] | None = None) -> int:
-    report = build_report(argv)
-    text = render_text(report)
-    sys.stdout.write(text)
+    def progress(message: str) -> None:
+        print(message, file=sys.stderr, flush=True)
+
+    report = build_report(argv, progress=progress)
+    sys.stdout.write(render_text(report))
     json_path = getattr(report, "json_path", "") or ""
     if json_path:
         Path(json_path).write_text(

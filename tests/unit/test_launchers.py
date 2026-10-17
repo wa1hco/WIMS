@@ -127,6 +127,21 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         self.assertIn("Name=WIMS\n", text)
         self.assertIn("Icon=", text)
 
+    def test_check_logs_launcher_is_obvious(self):
+        script = ROOT / "scripts" / "Check logs.sh"
+        self.assertTrue(script.is_file())
+        self.assertTrue(os.access(script, os.X_OK), "Check logs.sh is not executable")
+        self.assertIn("wims.logaudit.page", script.read_text(encoding="utf-8"))
+        from wims.launcher.app import linux_check_logs_desktop_entry_text
+
+        text = linux_check_logs_desktop_entry_text()
+        self.assertIn("Name=Check logs\n", text)
+        self.assertNotIn("python", text.lower())
+        shortcut = (ROOT / "scripts" / "windows" / "Install-WimsDesktopShortcut.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("Check logs.lnk", shortcut)
+
     def test_second_click_reopens_the_console(self):
         from wims.launcher.app import announce_already_running
 

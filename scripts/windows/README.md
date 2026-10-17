@@ -34,6 +34,7 @@ Setup check anytime: **`Check-WimsSetup.cmd`**.
 
 | File | What it does |
 |------|----------------|
+| **`Check-Logs.cmd`** | See whether the logs on this PC agree. Opens the result in the browser. Reads logs only. |
 | **`Check-WimsSetup.cmd`** | Single-PC setup check (`wims.agent --solo`). Starts nothing. |
 | **`Start-Wims-Solo.cmd`** | **H0 Operate** on this PC. Opens the console in the browser. |
 | **`Start-Wims-Inhibit-Home.cmd`** | **H1 Inhibit:** `wims.seat --key --targets 127.0.0.1:22372`. |

@@ -1160,8 +1160,9 @@ function renderContestAdvanced(s) {
     `<p class="advline"><label>N1MM contest file on this computer <input id="udc-path" title="${escAttr(ADV_TIPS.udcPath)}" size="42"></label>${tipBtn(ADV_TIPS.udcPath)} ` +
     `<button type="button" id="udc-import" title="${escAttr(ADV_TIPS.udcImport)}">Read it</button>${tipBtn(ADV_TIPS.udcImport)}</p>` +
     `<pre id="udc-out" style="white-space:pre-wrap"></pre>` +
-    `<p class="advline"><button type="button" id="logs-check" title="${escAttr(ADV_TIPS.checkLogs)}">Check logs</button>${tipBtn(ADV_TIPS.checkLogs)}</p>` +
-    `<pre id="logs-check-out" style="white-space:pre-wrap;max-height:240px;overflow:auto"></pre>`;
+    `<p class="advline"><button type="button" id="logs-check" title="${escAttr(ADV_TIPS.checkLogs)}">Check logs</button>${tipBtn(ADV_TIPS.checkLogs)} ` +
+    `<span id="logs-check-progress" class="meta"></span></p>` +
+    `<div id="logs-check-out"></div>`;
   box.dataset.ready = "1";
   const post = (body) => fetch("/api/rules", {
     method: "POST",
@@ -1205,17 +1206,140 @@ function renderContestAdvanced(s) {
       .then(j => { $("udc-out").textContent = JSON.stringify(j.udc || j, null, 2); })
       .catch(() => {});
   };
-  $("logs-check").onclick = () => {
-    const out = $("logs-check-out");
-    out.textContent = "Checking…";
-    fetch("/api/logs/check", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: "{}",
-    }).then(r => r.json()).then(j => {
-      out.textContent = j.text || JSON.stringify(j);
-    }).catch(() => { out.textContent = "Check failed."; });
+  $("logs-check").onclick = () => startLogCheck();
+}
+
+const LOG_CHECK_PAGE = 40;
+
+function startLogCheck() {
+  const prog = $("logs-check-progress");
+  const out = $("logs-check-out");
+  if (prog) prog.textContent = "Looking for logs…";
+  if (out) out.innerHTML = "";
+  const tick = () => {
+    fetch("/api/logs/check").then(r => r.json()).then(j => {
+      if (!j || j.state === "running" || j.state === "idle") {
+        if (prog) prog.textContent = (j && j.progress) || "Looking for logs…";
+        setTimeout(tick, 400);
+        return;
+      }
+      if (prog) prog.textContent = "";
+      renderLogCheckResult(out, j);
+    }).catch(() => { if (prog) prog.textContent = "Check failed. Try again."; });
   };
+  fetch("/api/logs/check", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: "{}",
+  }).then(r => r.json()).then(j => {
+    if (j && j.state === "done") {
+      if (prog) prog.textContent = "";
+      renderLogCheckResult(out, j);
+      return;
+    }
+    if (prog) prog.textContent = (j && j.progress) || "Looking for logs…";
+    setTimeout(tick, 400);
+  }).catch(() => { if (prog) prog.textContent = "Check failed. Try again."; });
+}
+
+function renderLogCheckResult(out, report) {
+  if (!out || !report) return;
+  const state = {page: {}, filter: ""};
+  const paint = () => {
+    const body = out.querySelector("[data-logcheck-detail]");
+    if (!body) return;
+    body.innerHTML = logCheckDetailHtml(report, state);
+    body.querySelectorAll("button[data-page]").forEach(btn => {
+      btn.onclick = () => {
+        state.page[btn.getAttribute("data-group")] = Number(btn.getAttribute("data-page"));
+        paint();
+      };
+    });
+  };
+  const sources = (report.sources || []).map(src => {
+    let extra = "";
+    if (src.shared_by && src.shared_by.length > 1) {
+      extra += " Same file for " + src.shared_by.map(esc).join(", ") + ".";
+    }
+    if (src.cached) extra += " Unchanged, so it was not read again.";
+    return `<div>${esc(src.name)} — ${esc(src.detail || src.status || "")}.${extra}</div>`;
+  }).join("");
+  const notes = (report.notes || []).map(note => `<div class="meta">${esc(note)}</div>`).join("");
+  out.innerHTML =
+    `<p><b>${esc(report.summary || "")}</b></p>` +
+    sources + notes +
+    `<details><summary>Show details</summary>` +
+    `<p><label>Filter <input data-logcheck-filter size="18" title="Show only contacts that match this text."></label></p>` +
+    `<div data-logcheck-detail></div></details>`;
+  const filt = out.querySelector("[data-logcheck-filter]");
+  if (filt) {
+    filt.oninput = () => {
+      state.filter = filt.value;
+      state.page = {};
+      paint();
+    };
+  }
+  paint();
+}
+
+function logCheckHit(row, q) {
+  if (!q) return true;
+  return [row.call, row.band, row.mode, row.time, row.grid, row.found_in, row.detail]
+    .join(" ").toLowerCase().includes(q);
+}
+
+function logCheckDetailHtml(report, state) {
+  const q = (state.filter || "").trim().toLowerCase();
+  const missing = report.missing || {};
+  let html = "";
+  Object.keys(missing).forEach(name => {
+    const all = (missing[name] || []).filter(row => logCheckHit(row, q));
+    if (!all.length && q) return;
+    const page = state.page[name] || 0;
+    const slice = all.slice(page * LOG_CHECK_PAGE, (page + 1) * LOG_CHECK_PAGE);
+    html += `<p><b>Missing from ${esc(name)}</b> (${all.length})</p>` +
+      slice.map(logCheckLine).join("") + logCheckPager(name, page, all.length);
+  });
+  const disag = (report.disagreements || []).filter(row => logCheckHit(row, q));
+  if (disag.length) {
+    const page = state.page.disagreements || 0;
+    const slice = disag.slice(page * LOG_CHECK_PAGE, (page + 1) * LOG_CHECK_PAGE);
+    html += `<p><b>Different grid or mode</b> (${disag.length})</p>` +
+      slice.map(row => {
+        const why = row.detail === "grid" ? (row.grid ? "  " + esc(row.grid) : "")
+          : (row.detail ? "  " + esc(row.detail) : "");
+        return `<div>${esc(row.time)}  ${esc(row.call)}  ${esc(row.band)}  ${esc(row.mode)}${why}</div>`;
+      }).join("") + logCheckPager("disagreements", page, disag.length);
+  }
+  const dupes = report.duplicates || [];
+  if (dupes.length) {
+    const extra = dupes.reduce((n, row) => n + Math.max(0, (row.count || 0) - 1), 0);
+    html += `<p><b>${extra} extra cop${extra === 1 ? "y" : "ies"} collapsed</b></p>` +
+      dupes.slice(0, LOG_CHECK_PAGE).map(row =>
+        `<div>${esc(row.time)}  ${esc(row.call)}  ${esc(row.band)}  ${esc(row.mode)}  ×${esc(row.count)}</div>`
+      ).join("");
+  }
+  if (!html) html = `<p class="meta">Nothing else to list.</p>`;
+  return html;
+}
+
+function logCheckLine(row) {
+  const grid = row.grid ? "  " + esc(row.grid) : "";
+  const found = row.found_in ? "  (in " + esc(row.found_in) + ")" : "";
+  return `<div>${esc(row.time)}  ${esc(row.call)}  ${esc(row.band)}  ${esc(row.mode)}${grid}${found}</div>`;
+}
+
+function logCheckPager(name, page, total) {
+  if (total <= LOG_CHECK_PAGE) return "";
+  const from = page * LOG_CHECK_PAGE + 1;
+  const to = Math.min(total, (page + 1) * LOG_CHECK_PAGE);
+  const prev = page > 0
+    ? `<button type="button" data-group="${esc(name)}" data-page="${page - 1}" title="Previous page">Previous</button> `
+    : "";
+  const next = to < total
+    ? ` <button type="button" data-group="${esc(name)}" data-page="${page + 1}" title="Next page">Next</button>`
+    : "";
+  return `<p>${prev}${from}–${to} of ${total}${next}</p>`;
 }
 
 // -- H2 seat-profile marks (Setup) ------------------------------------------ //

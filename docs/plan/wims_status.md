@@ -23,7 +23,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
    requests ON. Plane A is one port for all bands (decision 2026-09-05).
 4. First Windows install: double-click `scripts\windows\Install-Wims.cmd`.
    Setup check: `Check-WimsSetup.cmd`, or the WSJT seat check in the WIMS window.
-   Compare logs: Setup → Advanced → **Check logs**.
+   Compare logs: double-click **Check logs**, or Setup → Advanced → **Check logs**.
+   `Add WIMS to Desktop` puts **Check logs** next to **WIMS**.
 
 Checklist: [design-principles.md](../design-principles.md).
 
@@ -131,7 +132,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. N1MM stays the log when that file opened; just operating then still uses ARRL VHF. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
-| 3.6 | Logger interface (N1MM) | `[~]` | N1MM seed + live contact UDP + resync, plus `WsjtxAdifLogSource` when that `.s3db` is not the log. Per-instance `wsjtx_log.adi` discovery and Setup warnings. `python -m wims.logaudit` compares ADIF (and an N1MM export / LoTW file when you pass the path). Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), **prior-contest band-history seed for C7**. |
+| 3.6 | Logger interface (N1MM) | `[~]` | N1MM seed + live contact UDP + resync, plus `WsjtxAdifLogSource` when that `.s3db` is not the log. Per-instance `wsjtx_log.adi` discovery and Setup warnings. **Check logs** compares the logs on this PC (summary first; shared files count once). Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -220,12 +221,15 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - [x] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Used when N1MM did not
   open. Shared path is the only file when set. UDP type 5/12 uses the same id.
   N1MM stays the log when it opened.
-- [x] **L6 — Log audit CLI.** `python -m wims.logaudit`. ADIF, optional N1MM
-  `.s3db`, optional LoTW. Text + `--json`. Read-only.
-- [~] **L7 — Audit extras.** GridTracker `*.adi` under the usual app-data folders
-  is included when present (filename still not fixed). LoTW is a note, not a
-  failure. Setup **Check logs** runs the same report. A dead UNC path is not
-  yet on a 2-second timer.
+- [x] **L6 — Check logs.** ADIF, the N1MM log chosen in WIMS, optional LoTW.
+  Summary first. Text + JSON. Read-only. Several instances on one file (same
+  path, same inode, or the same bytes) are one log.
+- [x] **L7 — Check logs window.** GridTracker `*.adi` under the GridTracker
+  data folder when present. LoTW is a note, not a failure. Setup → Advanced →
+  **Check logs**, and the Desktop **Check logs** icon, show the same summary
+  with **Show details**. A path that does not answer within 2 seconds is
+  unreadable. Unchanged files are not read again. The live Setup log-access
+  poll is still not on that timer.
 - [~] **L8 — Further log readers.** Any logger’s ADIF export is `--adif PATH`.
   No Log4OM / DXKeeper / CQRLOG native database.
 - [~] **L9 — GridTracker roster fallback.** If Advanced sets the fallback to
@@ -236,6 +240,17 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-17** — **Check logs is a summary, and it finishes.** Pairing had been
+  every contact against every later contact: 1,000 contacts in two logs 0.08 s,
+  5,000 in 1.9 s, 15,000 in 19.7 s, while reading a 15,000-contact file took
+  about 0.3 s. Discovery parsed each instance log again inside that loop, and a
+  dead network path had no timeout. The same bytes were also reported once per
+  instance. Check logs now groups by call, band, mode, and a 3-minute window
+  (20,000 contacts in two logs, 50 missing, about 1 s including the read).
+  Shared path, inode, or identical file is one log. The first line is the
+  summary; **Show details** lists only contacts missing from a log. Size and
+  modification time skip an unchanged file. Desktop **Check logs** opens the
+  same check as Setup → Advanced. The Check logs button keeps the Advanced tip.
 - **2026-10-17** — **CI green: Windows KEY tests, interlock bench, unbound
   Work socket.** `test_key_cts` drives the Win32 path with a fake kernel32 on
   Linux (`ctypes.get_last_error` is absent there, and `COM7` is not a device).

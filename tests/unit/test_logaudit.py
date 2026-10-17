@@ -19,14 +19,18 @@
 """Log audit: match, only-in, grid disagreement, duplicate, exit codes."""
 
 import json
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.logaudit.check import compare, load_adif_source, render_text, to_json  # noqa: E402
 from wims.logaudit.cli import main  # noqa: E402
+from wims.logaudit.files import Candidate, probe_path, run_audit  # noqa: E402
+from wims.logaudit.page import PAGE  # noqa: E402
 
 
 def _adi(rows: list[str]) -> str:
@@ -92,14 +96,189 @@ def test_cli_json_on_two_files():
     root = Path(tempfile.mkdtemp())
     a = root / "a.adi"
     b = root / "b.adi"
-    a.write_text(_adi([_row("K1ABC", "6m", "FT8", "140200", "FN42")]), encoding="utf-8")
-    b.write_text(_adi([_row("K1ABC", "6m", "FT8", "140200", "FN42")]), encoding="utf-8")
+    # Different headers so the files are not byte-identical copies of one log.
+    a.write_text("WSJT-X\n" + _adi([_row("K1ABC", "6m", "FT8", "140200", "FN42")]), encoding="utf-8")
+    b.write_text("N1MM export\n" + _adi([_row("K1ABC", "6m", "FT8", "140200", "FN42")]), encoding="utf-8")
     out = root / "report.json"
-    code = main(["--adif", str(a), "--adif", str(b), "--json", str(out)])
+    os.environ["WIMS_LOGCHECK_CACHE"] = str(root / "cache.json")
+    try:
+        code = main(["--adif", str(a), "--adif", str(b), "--json", str(out)])
+    finally:
+        os.environ.pop("WIMS_LOGCHECK_CACHE", None)
     assert code == 0
     data = json.loads(out.read_text(encoding="utf-8"))
     assert data["matched"]
     assert data["disagreements"] == []
+
+
+def _adi_file(path: Path, rows: list[str], header: str = "") -> None:
+    path.write_text(header + _adi(rows), encoding="utf-8")
+
+
+def test_shared_path_inode_and_hash_are_one_log():
+    root = Path(tempfile.mkdtemp())
+    body = _adi([
+        _row("K1ABC", "6m", "FT8", "140200", "FN42"),
+        _row("W2XYZ", "2m", "FT8", "151000", "FN31"),
+    ])
+    shared = root / "wsjtx_log.adi"
+    shared.write_text(body, encoding="utf-8")
+    linked = root / "link.adi"
+    try:
+        os.link(shared, linked)
+    except OSError:
+        linked = None
+    copy = root / "copy.adi"
+    copy.write_text(body, encoding="utf-8")
+    other = root / "n1mm.adi"
+    # Same contacts except the last one is absent, plus a header so the bytes differ.
+    other.write_text("N1MM\n" + _adi([
+        _row("K1ABC", "6m", "FT8", "140200", "FN42"),
+    ]), encoding="utf-8")
+    third = root / "gt.adi"
+    third.write_text("GridTracker\n" + body, encoding="utf-8")
+    cands = [
+        Candidate("WSJT-X 6m", str(shared)),
+        Candidate("WSJT-X 2m", str(shared)),
+        Candidate("N1MM", str(other)),
+        Candidate("GridTracker log.adi", str(third)),
+    ]
+    if linked is not None:
+        cands.append(Candidate("WSJT-X 222", str(linked)))
+    cands.append(Candidate("WSJT-X backup", str(copy)))
+    report = run_audit(cands, cache_path=root / "cache.json")
+    text = render_text(report)
+    assert report.shared_count == 1
+    assert report.logs_read == 3
+    assert not report.duplicates
+    assert "1 shared file" in report.summary
+    assert "3 logs read" in report.summary
+    assert "1 contact missing from N1MM" in report.summary
+    assert "W2XYZ" in text
+    # The shared copies are not listed as a second WSJT-X log.
+    names = [src.name for src in report.sources if src.status == "ok"]
+    assert names.count("WSJT-X") == 1
+    assert "duplicate" not in report.summary.lower()
+
+
+def test_summary_lists_missing_contacts_not_matches():
+    root = Path(tempfile.mkdtemp())
+    a = root / "wsjtx.adi"
+    b = root / "n1mm.adi"
+    _adi_file(a, [
+        _row("K1ABC", "6m", "FT8", "140200", "FN42"),
+        _row("N1ONLY", "6m", "FT8", "160000", "FN20"),
+    ], header="WSJT-X\n")
+    _adi_file(b, [
+        _row("K1ABC", "6m", "FT8", "140200", "FN42"),
+    ], header="N1MM\n")
+    report = run_audit(
+        [Candidate("WSJT-X", str(a)), Candidate("N1MM", str(b))],
+        cache_path=root / "cache.json",
+    )
+    assert report.summary.startswith("2 logs read, 1 contact missing from N1MM")
+    text = render_text(report)
+    assert text.splitlines()[2] == report.summary
+    assert "N1ONLY" in text
+    assert "Missing from N1MM" in text
+    # The contact present in both logs is a count, not a dumped row.
+    assert "K1ABC" not in text
+    payload = to_json(report)
+    assert payload["matched_count"] == 1
+    assert payload["matched"]
+    assert "K1ABC" not in payload["summary"]
+    assert "Show details" in PAGE
+
+
+def test_unchanged_file_is_not_read_again():
+    root = Path(tempfile.mkdtemp())
+    path = root / "wsjtx.adi"
+    path.write_text(_adi([_row("K1ABC", "6m", "FT8", "140200", "FN42")]), encoding="utf-8")
+    reads = {"n": 0}
+
+    def counting(file_path):
+        reads["n"] += 1
+        return Path(file_path).read_bytes()
+
+    cache = root / "cache.json"
+    messages = []
+    run_audit([Candidate("WSJT-X", str(path))], cache_path=cache,
+              read_bytes=counting, progress=messages.append)
+    assert reads["n"] == 1
+    messages.clear()
+    report = run_audit([Candidate("WSJT-X", str(path))], cache_path=cache,
+                       read_bytes=counting, progress=messages.append)
+    assert reads["n"] == 1
+    assert report.sources[0].cached is True
+    assert any("not read again" in msg for msg in messages)
+
+
+def test_dead_path_times_out():
+    def slow_stat(_path):
+        time.sleep(2)
+        return os.stat(".")
+
+    started = time.perf_counter()
+    probe = probe_path(r"\\server\share\wsjtx_log.adi", timeout=0.2, stat_fn=slow_stat)
+    elapsed = time.perf_counter() - started
+    assert probe.status == "timeout"
+    assert elapsed < 1.0
+    messages = []
+    started = time.perf_counter()
+    report = run_audit(
+        [Candidate(f"WSJT-X {i}", r"\\dead\share\wsjtx_log.adi") for i in range(4)],
+        cache_path=None,
+        stat_timeout=0.2,
+        stat_fn=slow_stat,
+        progress=messages.append,
+    )
+    elapsed = time.perf_counter() - started
+    # Four labels, one path: one timed stat, not four.
+    assert elapsed < 0.7, elapsed
+    assert report.exit_code() == 2
+    assert len(report.sources) == 1
+    assert report.sources[0].status == "timeout"
+    assert len(report.sources[0].shared_by) == 4
+    assert "did not answer" in report.summary.lower()
+    assert any("did not answer" in msg.lower() or "Checking" in msg for msg in messages)
+
+
+def test_large_synthetic_log_compares_quickly():
+    """20k contacts x 2 logs. The old all-pairs compare took ~20s at 15k."""
+    root = Path(tempfile.mkdtemp())
+    n = 20000
+
+    def write(path: Path, count: int, header: str) -> None:
+        lines = [header, "<eoh>"]
+        for i in range(count):
+            call = f"K{i % 9000:04d}"
+            sec = (i * 30) % 86400
+            hhmmss = f"{sec // 3600:02d}{(sec % 3600) // 60:02d}{sec % 60:02d}"
+            band = "6m" if i % 2 == 0 else "2m"
+            lines.append(
+                f"<call:{len(call)}>{call} <gridsquare:4>FN42 <mode:3>FT8 "
+                f"<band:{len(band)}>{band} <qso_date:8>20260912 <time_on:6>{hhmmss} <eor>"
+            )
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    wsjtx = root / "wsjtx.adi"
+    n1mm = root / "n1mm.adi"
+    write(wsjtx, n, "WSJT-X")
+    write(n1mm, n - 50, "N1MM")
+    started = time.perf_counter()
+    report = run_audit(
+        [Candidate("WSJT-X", str(wsjtx)), Candidate("N1MM", str(n1mm))],
+        cache_path=None,
+    )
+    elapsed = time.perf_counter() - started
+    assert elapsed < 8.0, elapsed
+    assert report.logs_read == 2
+    missing = report.missing_from.get("N1MM") or []
+    assert len(missing) == 50
+    assert "50 contacts missing from N1MM" in report.summary
+    text = render_text(report)
+    assert "And 10 more" in text
+    assert text.splitlines()[2].startswith("2 logs read")
 
 
 if __name__ == "__main__":

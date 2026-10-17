@@ -279,7 +279,6 @@ def gridtracker_dirs() -> list[Path]:
     else:
         roots.append(Path.home() / ".config" / "GridTracker2")
         roots.append(Path.home() / ".local" / "share" / "GridTracker2")
-    roots.append(Path.home() / "Documents")
     return roots
 
 
