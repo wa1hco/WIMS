@@ -100,6 +100,10 @@ class LogStore:
         self.rules = load_builtin("arrl-vhf")
         self.station_state = ""
         self.station_county = ""
+        # Time window for needed/dupe. Empty means that side is open.
+        # The lookup itself drops contacts outside the window.
+        self.count_since = ""
+        self.count_until = ""
         self._gen = 0
         self._row_cache = None
         self._row_gen = -1
@@ -116,12 +120,24 @@ class LogStore:
     def generation(self) -> int:
         return getattr(self, "_gen", 0)
 
+    def set_window(self, since: str = "", until: str = "") -> None:
+        """Contacts outside this span do not count as worked. Empty is open."""
+        self.count_since = since or ""
+        self.count_until = until or ""
+        self._touch()
+
     def cached_rows(self) -> list[dict]:
+        """Rows the rules use. A count-since / count-until window is applied here."""
         gen = self.generation()
         if self._row_cache is None or self._row_gen != gen:
             self._row_cache = [dict(row) for row in self.con.execute("SELECT * FROM qsos")]
             self._row_gen = gen
-        return self._row_cache
+        since = getattr(self, "count_since", "") or ""
+        until = getattr(self, "count_until", "") or ""
+        if not since and not until:
+            return self._row_cache
+        from wims.rules.log_use import qso_in_window
+        return [row for row in self._row_cache if qso_in_window(row, since, until)]
 
     # -- mutations ---------------------------------------------------------- #
 

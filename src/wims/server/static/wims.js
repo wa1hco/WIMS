@@ -528,9 +528,12 @@ function renderSync(n) {
     const lq = n.last_qso ? `${n.last_qso.call} ${fmtBand(n.last_qso.band)} (${age(n.last_qso.age)} ago)` : "—";
     const seed = n.seed ? ` ✓ seeded from ${esc(n.seed.source)}` : "";
     const rsTxt = formatResync(n.last_resync);
+    const resyncHint = $("contest-resync")
+      ? "use <b>Resync log</b> above"
+      : "<b>Resync log</b> is on the Log page";
     const resync = rsTxt
       ? `<span><span class="k">last resync:</span>${esc(rsTxt)}</span>`
-      : `<span><span class="k">last resync:</span>— use <b>Resync log</b> above</span>`;
+      : `<span><span class="k">last resync:</span>— ${resyncHint}</span>`;
     $("n1mm-sync").innerHTML =
       `<span><span class="dot ${n.status}"></span><span class="k">live feed:</span><b>${label}</b></span>` +
       `<span><span class="k">last packet:</span>${feed}</span>` +
@@ -610,20 +613,19 @@ function fillContestPicker(list, active, scanDirs) {
 }
 
 function renderContests(n) {
-  // N1MM tab — other pages have no contest-active element.
+  if (!n) return;
   const act = $("contest-active");
-  if (!act) return;
   const active = n.active_contest;
-  if (active && (active.label || active.contest_name)) {
+  if (act && active && (active.label || active.contest_name)) {
     act.innerHTML =
       `<span><span class="dot active"></span><span class="k">active log:</span>` +
       `<b>${esc(active.label || active.contest_name)}</b></span>` +
       `<span><span class="k">file:</span>${esc(active.db_label || "")}</span>` +
       `<span><span class="k">loaded:</span><b>${n.qso_count||0}</b> QSOs in WIMS</span>`;
-  } else {
+  } else if (act) {
     act.innerHTML =
       `<span><span class="dot idle"></span><span class="k">active log:</span>` +
-      `<b>none</b> — Rescan… to pick a contest (needed for correct dupe/mult)</span>`;
+      `<b>none</b> — choose a contest on the Log page</span>`;
   }
   // Remember active for the ephemeral picker "loaded" badge (picker is not always open).
   const prev = contestPickerActive;
@@ -633,7 +635,7 @@ function renderContests(n) {
     const rsTxt = formatResync(n.last_resync);
     rline.innerHTML = rsTxt
       ? `Last resync: <b>${esc(rsTxt)}</b>`
-      : `Last resync: <span class="k">never</span> — use <b>Resync log</b> after copying a fresh N1MM .s3db or if roster greying looks wrong.`;
+      : `Last resync: <span class="k">never</span> — use <b>Resync log</b> after the contest file changes, or if already-worked stations look wrong.`;
   }
   // While picker is open, only re-paint if the active log identity changed (avoid
   // clobbering mid-click on every SSE tick). Catalog itself is fixed from Rescan.
@@ -743,6 +745,27 @@ function wireContestToolbar() {
   }
 }
 wireContestToolbar();
+
+function wireLogPage() {
+  renderLogPageControls();
+  const again = $("log-refresh");
+  if (again && !again._wired) {
+    again._wired = true;
+    again.onclick = () => {
+      const msg = $("log-refresh-msg");
+      if (msg) msg.textContent = "Looking…";
+      fetch("/api/rules", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({action: "refresh_logs"}),
+      }).then(r => r.json()).then(j => {
+        if (msg) msg.textContent = (j && j.ok) ? "Log list updated." : "Could not look again.";
+      }).catch(() => {
+        if (msg) msg.textContent = "Could not look again.";
+      });
+    };
+  }
+}
 
 /** Setup: mark rig-names / N1MM stations that report IF, not RF. */
 let _ifSeatsHtml = "";
@@ -975,7 +998,99 @@ function renderGoalChecklist(goal) {
   });
 }
 
+const LOG_TIPS = {
+  pick: "The log WIMS checks for needed and already worked. Your choice stays until you change it. Suggested for this goal is used only when you have not chosen.",
+  cutoff: "Whole log counts every contact. Start now counts only contacts you log after you pick it. This year counts contacts since January 1. This changes which contacts count as worked, not just the list on screen.",
+  refresh: "Look for logs again. A new contest file shows up here, and the log you already chose stays chosen.",
+  resync: "Read this N1MM contest file again. Use this after the file was updated, or when already-worked stations look wrong.",
+};
+
+function renderLogToUse(s) {
+  const line = $("log-in-use");
+  if (!line) return;
+  const info = s && s.log_in_use;
+  if (!info) {
+    line.textContent = "Log in use: waiting for the server…";
+    return;
+  }
+  line.textContent = info.line || "Log in use: no log yet, 0 contacts, whole log";
+  const why = $("log-in-use-why");
+  if (why) why.textContent = info.why || "";
+  const warn = $("log-warnings");
+  if (warn) {
+    const rows = (info.warnings || []).concat(info.notes || []);
+    warn.innerHTML = rows.map(r => {
+      const bad = r.level === "warn";
+      return `<div${bad ? ' style="color:#8a3b00"' : ""}>${esc(r.message || "")}</div>`;
+    }).join("");
+  }
+  const guide = $("log-guidance");
+  if (guide) guide.textContent = info.guidance || "";
+  const pick = $("log-pick");
+  const cut = $("log-cutoff");
+  if (pick) fillGoalSelect(pick, info.options || [], info.selected_id || "auto");
+  if (cut) fillGoalSelect(cut, info.cutoffs || [], info.cutoff || "whole");
+  const pickTip = $("log-pick-tip");
+  if (pickTip && pickTip.dataset.tip !== LOG_TIPS.pick) {
+    pickTip.innerHTML = goalTip(LOG_TIPS.pick);
+    pickTip.dataset.tip = LOG_TIPS.pick;
+  }
+  const cutTip = $("log-cutoff-tip");
+  if (cutTip && cutTip.dataset.tip !== LOG_TIPS.cutoff) {
+    cutTip.innerHTML = goalTip(LOG_TIPS.cutoff);
+    cutTip.dataset.tip = LOG_TIPS.cutoff;
+  }
+  if (pick && cut && !window._wimsLogWired) {
+    window._wimsLogWired = true;
+    wireGoalTips();
+    pick.addEventListener("change", () => {
+      postRules({action: "select_log", id: pick.value});
+    });
+    cut.addEventListener("change", () => {
+      postRules({action: "select_cutoff", cutoff: cut.value});
+    });
+  }
+  const refreshTip = $("log-refresh-tip");
+  if (refreshTip && refreshTip.dataset.tip !== LOG_TIPS.refresh) {
+    refreshTip.innerHTML = goalTip(LOG_TIPS.refresh);
+    refreshTip.dataset.tip = LOG_TIPS.refresh;
+  }
+  const resyncTip = $("log-resync-tip");
+  if (resyncTip && resyncTip.dataset.tip !== LOG_TIPS.resync) {
+    resyncTip.innerHTML = goalTip(LOG_TIPS.resync);
+    resyncTip.dataset.tip = LOG_TIPS.resync;
+  }
+  const tools = $("log-n1mm-tools");
+  if (tools) tools.hidden = info.kind !== "n1mm";
+  const shared = $("shared-log");
+  if (shared && shared.dataset.filled !== "1" && document.activeElement !== shared) {
+    shared.value = info.shared_path || "";
+    shared.dataset.filled = "1";
+  }
+}
+
+function renderN1mmNav(s) {
+  const n = (s && s.loggers) ? s.loggers.length : 0;
+  const multi = n >= 2;
+  let here = false;
+  try {
+    const p = (location.pathname || "/").replace(/\/$/, "") || "/";
+    here = p === "/n1mm";
+  } catch (_) {}
+  document.querySelectorAll("a.nav-n1mm").forEach(a => {
+    // Several stations: show it everywhere. One station: show it only on this page,
+    // so a direct visit still has a selected tab.
+    if (multi || here) a.removeAttribute("hidden");
+    else a.setAttribute("hidden", "");
+  });
+  const single = $("n1mm-single");
+  const multiBox = $("n1mm-multi");
+  if (single) single.hidden = multi;
+  if (multiBox) multiBox.hidden = !multi;
+}
+
 function renderContestRules(s) {
+  renderLogToUse(s);
   const rules = s && s.rules;
   if (!rules) return;
   let line = rules.source_label
@@ -1052,7 +1167,7 @@ function renderContestRules(s) {
 // Casual operators: no commands, no file-format names, no setting keys.
 const ADV_TIPS = {
   summary: "Extra choices. Leave this closed when the Goal menus already look right.",
-  colors: "These boxes are used for Just operating with WSJT-X Colors, when N1MM is not keeping the log. A checked box means that kind of new station looks needed.",
+  colors: "These boxes are used for Just operating with WSJT-X Colors. A checked box means that kind of new station looks needed.",
   colorGeneric: "Mark a station as new when this color matches your log.",
   new_dxcc: "Mark a station as new when its country is not already in your log.",
   new_dxcc_band: "Mark a station as new when you have not worked that country on this band.",
@@ -1142,8 +1257,6 @@ function renderContestAdvanced(s) {
     `<p class="advline"><label>Station state <input id="st-state" title="${escAttr(ADV_TIPS.stationState)}" value="${escAttr(choice.station_state || "")}" size="6"></label>${tipBtn(ADV_TIPS.stationState)} ` +
     `<label>county <input id="st-county" title="${escAttr(ADV_TIPS.stationCounty)}" value="${escAttr(choice.station_county || "")}" size="12"></label>${tipBtn(ADV_TIPS.stationCounty)} ` +
     `<button type="button" id="st-save" title="${escAttr(ADV_TIPS.saveStation)}">Save station</button>${tipBtn(ADV_TIPS.saveStation)}</p>` +
-    `<p class="advline"><label>Shared log file <input id="shared-log" title="${escAttr(ADV_TIPS.sharedLog)}" size="42"></label>${tipBtn(ADV_TIPS.sharedLog)} ` +
-    `<button type="button" id="shared-save" title="${escAttr(ADV_TIPS.saveShared)}">Use this WSJT-X log</button>${tipBtn(ADV_TIPS.saveShared)}</p>` +
     `<p class="advline">Contest rules ${tipBtn(ADV_TIPS.rules)}</p>` +
     `<p class="advline"><label>How often a station counts <select id="custom-scope" title="${escAttr(ADV_TIPS.dupeScope)}">` +
     `<option value="band">once per band</option>` +
@@ -1159,10 +1272,7 @@ function renderContestAdvanced(s) {
     `<p class="advline"><button type="button" id="custom-save" title="${escAttr(ADV_TIPS.saveCustom)}">Save custom rules</button>${tipBtn(ADV_TIPS.saveCustom)}</p>` +
     `<p class="advline"><label>N1MM contest file on this computer <input id="udc-path" title="${escAttr(ADV_TIPS.udcPath)}" size="42"></label>${tipBtn(ADV_TIPS.udcPath)} ` +
     `<button type="button" id="udc-import" title="${escAttr(ADV_TIPS.udcImport)}">Read it</button>${tipBtn(ADV_TIPS.udcImport)}</p>` +
-    `<pre id="udc-out" style="white-space:pre-wrap"></pre>` +
-    `<p class="advline"><button type="button" id="logs-check" title="${escAttr(ADV_TIPS.checkLogs)}">Check logs</button>${tipBtn(ADV_TIPS.checkLogs)} ` +
-    `<span id="logs-check-progress" class="meta"></span></p>` +
-    `<div id="logs-check-out"></div>`;
+    `<pre id="udc-out" style="white-space:pre-wrap"></pre>`;
   box.dataset.ready = "1";
   const post = (body) => fetch("/api/rules", {
     method: "POST",
@@ -1187,11 +1297,6 @@ function renderContestAdvanced(s) {
     station_state: $("st-state").value,
     station_county: $("st-county").value,
   }).catch(() => {});
-  $("shared-save").onclick = () => post({
-    action: "shared_log",
-    shared_path: $("shared-log").value,
-    use_wsjtx: true,
-  }).catch(() => {});
   $("custom-save").onclick = () => post({
     action: "save_custom",
     dupe_scope: $("custom-scope").value,
@@ -1206,7 +1311,38 @@ function renderContestAdvanced(s) {
       .then(j => { $("udc-out").textContent = JSON.stringify(j.udc || j, null, 2); })
       .catch(() => {});
   };
-  $("logs-check").onclick = () => startLogCheck();
+}
+
+function renderLogPageControls() {
+  const shared = $("log-shared");
+  if (shared && shared.dataset.ready !== "1") {
+    shared.innerHTML =
+      `<p class="advline"><label>Shared log file <input id="shared-log" title="${escAttr(ADV_TIPS.sharedLog)}" size="42"></label>${tipBtn(ADV_TIPS.sharedLog)} ` +
+      `<button type="button" id="shared-save" title="${escAttr(ADV_TIPS.saveShared)}">Use this WSJT-X log</button>${tipBtn(ADV_TIPS.saveShared)}</p>`;
+    shared.dataset.ready = "1";
+    $("shared-save").onclick = () => {
+      const field = $("shared-log");
+      if (field) field.dataset.filled = "1";
+      fetch("/api/rules", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          action: "shared_log",
+          shared_path: field ? field.value : "",
+          use_wsjtx: true,
+        }),
+      }).catch(() => {});
+    };
+  }
+  const check = $("log-check");
+  if (check && check.dataset.ready !== "1") {
+    check.innerHTML =
+      `<p class="advline"><button type="button" id="logs-check" title="${escAttr(ADV_TIPS.checkLogs)}">Check logs</button>${tipBtn(ADV_TIPS.checkLogs)} ` +
+      `<span id="logs-check-progress" class="meta"></span></p>` +
+      `<div id="logs-check-out"></div>`;
+    check.dataset.ready = "1";
+    $("logs-check").onclick = () => startLogCheck();
+  }
 }
 
 const LOG_CHECK_PAGE = 40;
@@ -2250,6 +2386,7 @@ function render(s) {
   renderLoggers(s);
   renderSetupExtras(s.n1mm_sync, s);
   renderContestRules(s);
+  renderN1mmNav(s);
 }
 
 // Status panels selected by top nav path: /overview | /wsjt | /n1mm (/status → overview)
@@ -2294,6 +2431,7 @@ function markNavActive() {
 
 function connect() {
   wireTipButtons();
+  wireLogPage();
   const tab = statusTabFromPath();
   if (tab) statusShowTab(tab);
   markNavActive();

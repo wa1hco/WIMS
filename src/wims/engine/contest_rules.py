@@ -782,13 +782,9 @@ def resolve(
         )
         label = rules_obj.title
         contest = None
-    elif n1mm:
-        # Just operating while N1MM is the log: same as the old empty menu.
-        rules_obj = load_builtin("arrl-vhf")
-        label = "N1MM · ARRL VHF"
-        contest = None
-        suggested = False
     else:
+        # Just operating. WSJT-X Colors is a rule, checked against whichever
+        # log the operator selected. The log does not switch this rule.
         rules_obj, label, note = _colors_from_choice(
             choice, ini_path=ini_path, cty_ok=cty_ok,
             dxcc_lookup=dxcc_lookup, log_label=log_label,
@@ -822,17 +818,6 @@ def resolve(
         elif suggested_from == "log":
             extra["suggested_note"] = (
                 f"Suggested from the log: {rules_obj.title}. {wrong}"
-            )
-    if n1mm:
-        if goal == "operating" and goal_id == "wsjtx-colors":
-            extra["n1mm_line"] = (
-                "N1MM is the log of record, so needed uses ARRL VHF. "
-                "WSJT-X Colors is used when N1MM is not the log."
-            )
-        else:
-            extra["n1mm_line"] = (
-                f"N1MM is the log of record, so needed uses {getattr(rules_obj, 'title', label)} "
-                "against that log."
             )
     public = rules_obj.public(source_label=label, n1mm=n1mm, extra=extra)
     if getattr(rules_obj, "id", "") == "nyqp" and not (choice.get("station_state") or "").strip():

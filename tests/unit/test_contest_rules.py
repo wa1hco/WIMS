@@ -143,11 +143,12 @@ def test_colors_fallback_without_cty_enables_call_and_grid():
     assert "default categories" in factory_note
 
 
-def test_n1mm_none_stays_arrl_and_solo_none_is_colors():
-    n1mm = resolve({"contest": None, "explicit": True}, n1mm=True)
-    assert n1mm.rules.id == "arrl-vhf"
-    assert n1mm.public["source_label"] == "N1MM · ARRL VHF"
+def test_just_operating_stays_colors_on_any_log():
+    # The log does not switch the rule. Colors is checked against the chosen log.
+    n1mm = resolve({"contest": None, "explicit": True}, n1mm=True, cty_ok=False)
+    assert n1mm.rules.id == "wsjtx-colors"
     assert n1mm.public["n1mm_authoritative"] is True
+    assert "ARRL VHF" not in (n1mm.public.get("n1mm_line") or "")
     solo = resolve({"contest": None, "explicit": True}, n1mm=False, cty_ok=False)
     assert solo.rules.id == "wsjtx-colors"
     picked = resolve({"contest": "nyqp", "explicit": True}, n1mm=False)
@@ -167,7 +168,7 @@ def test_suggestion_uses_alias_and_does_not_invent_a_date():
         n1mm=True,
         contest_names=["NYQP"],
     )
-    assert kept.rules.id == "arrl-vhf"
+    assert kept.rules.id == "wsjtx-colors"
 
 
 if __name__ == "__main__":

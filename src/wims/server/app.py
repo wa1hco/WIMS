@@ -166,6 +166,31 @@ class LiveFleet:
         self._rules_attached = False
         self._n1mm_authoritative = False
         self._adif_source = None
+        # True after Log to use has chosen a source. Until then, N1MM contact
+        # packets still update the log copy (tests and the moment before seed).
+        self._log_choice_active = False
+        # Log to use. Filled by apply_log_use. Goal never replaces a saved choice.
+        self._log_in_use = {
+            "line": "Log in use: no log yet, 0 contacts, whole log",
+            "why": "",
+            "name": "",
+            "path": "",
+            "paths": [],
+            "count": 0,
+            "file_count": 0,
+            "cutoff": "whole",
+            "cutoff_label": "whole log",
+            "count_since": "",
+            "count_until": "",
+            "explicit": False,
+            "selected_id": "auto",
+            "kind": "",
+            "warnings": [],
+            "notes": [],
+            "guidance": "",
+            "options": [],
+            "cutoffs": [],
+        }
         self._adif_poll_mono = 0.0
         self._log_access_mono = 0.0
         self._contest_names: list[str] = []
@@ -349,7 +374,7 @@ class LiveFleet:
             seed_db_dir=self._seed_db_dir,
             seed_db_hint=self._seed_db_hint or db_path,
         )
-        qsos = list(self._log_source.seed())
+        qsos = self._retain(list(self._log_source.seed()))
         contests = logdb.list_contests(db_path)
         active = None
         for c in contests:
@@ -508,6 +533,7 @@ class LiveFleet:
             active = dict(self._active_contest or {})
         if active.get("contest_name"):
             names.append(str(active["contest_name"]))
+        log_name = (getattr(self, "_log_in_use", None) or {}).get("name") or "the log"
         resolved = resolve(
             choice,
             n1mm=self._n1mm_authoritative,
@@ -515,6 +541,7 @@ class LiveFleet:
             ini_path=ini_path("WSJT-X"),
             cty_ok=False,
             custom_data=custom,
+            log_label=log_name,
         )
         if resolved.suggested and resolved.contest and not choice.get("explicit"):
             choice = dict(resolved.choice)
@@ -535,6 +562,221 @@ class LiveFleet:
             self._rules_meta = resolved.public
             self._rules_attached = True
         return resolved.public
+
+    def _retain(self, qsos):
+        """Drop contacts outside the count-since / count-until window."""
+        from wims.rules.log_use import qso_in_window
+        since = getattr(self._log, "count_since", "") or ""
+        until = getattr(self._log, "count_until", "") or ""
+        if not since and not until:
+            return list(qsos)
+        return [q for q in qsos if qso_in_window(q, since, until)]
+
+    def _collect_log_catalog(self, logs: dict) -> list[dict]:
+        from wims.adif import load_qsos
+        from wims.integrations.n1mm import logdb
+        from wims.integrations.wsjtx_logs import (
+            discover_access, discover_gridtracker_adif, seed_files,
+        )
+        from wims.rules.log_use import catalog_from_parts
+        disc = logdb.discover(self._seed_db_dir, self._seed_db_hint)
+        with self._lock:
+            self._contest_catalog = disc["contests"]
+            self._seed_scan_dirs = list(disc.get("scan_dirs") or [])
+            ids = list(self._tracker.nodes)
+        access = discover_access(ids, logs=logs)
+        files = seed_files(ids, logs=logs)
+        gt = []
+        for path in discover_gridtracker_adif():
+            qsos, problem = load_qsos(path)
+            gt.append({
+                "path": str(path),
+                "count": len(qsos),
+                "problem": problem or "",
+            })
+        return catalog_from_parts(
+            contests=disc["contests"],
+            access=[a.to_dict() for a in access],
+            seed_paths=[str(p) for p in files],
+            gridtracker=gt,
+            shared_path=str(logs.get("shared_path") or ""),
+        )
+
+    def _read_chosen(self, chosen: dict | None):
+        """``(qsos, problem, mtime)``. problem is missing, unreadable, locked, or None."""
+        if not chosen:
+            return [], None, None
+        kind = chosen.get("kind") or ""
+        if kind == "n1mm":
+            path = str(chosen.get("path") or "")
+            if not path or not Path(path).is_file():
+                return [], "missing", None
+            try:
+                mtime = Path(path).stat().st_mtime
+            except OSError:
+                return [], "unreadable", None
+            try:
+                from wims.integrations.n1mm import logdb
+                nr = chosen.get("contest_nr")
+                qsos = logdb.read_dxlog(
+                    path,
+                    contest_nr=int(nr) if nr is not None else None,
+                    contest_name=chosen.get("contest_name") or None,
+                )
+                return qsos, None, mtime
+            except Exception:
+                return [], "unreadable", mtime
+        paths = [p for p in (chosen.get("paths") or []) if p]
+        if not paths and chosen.get("path"):
+            paths = [str(chosen["path"])]
+        if not paths:
+            return [], "missing", None
+        from wims.adif import load_qsos
+        out = []
+        seen: set[str] = set()
+        problems: list[str] = []
+        mtimes: list[float] = []
+        any_ok = False
+        for path in paths:
+            p = Path(path)
+            try:
+                exists = p.is_file()
+            except OSError:
+                problems.append("unreadable")
+                continue
+            if not exists:
+                problems.append("missing")
+                continue
+            try:
+                mtimes.append(p.stat().st_mtime)
+            except OSError:
+                problems.append("unreadable")
+                continue
+            qsos, problem = load_qsos(p)
+            if problem:
+                problems.append(problem)
+                continue
+            any_ok = True
+            for qso in qsos:
+                if qso.id in seen:
+                    continue
+                seen.add(qso.id)
+                out.append(qso)
+        if not any_ok:
+            if "locked" in problems:
+                problem = "locked"
+            elif "unreadable" in problems:
+                problem = "unreadable"
+            else:
+                problem = "missing"
+            return [], problem, (max(mtimes) if mtimes else None)
+        return out, None, (max(mtimes) if mtimes else None)
+
+    def _install_chosen(self, chosen: dict | None, kept: list, problem: str | None) -> None:
+        kind = (chosen or {}).get("kind") or ""
+        with self._lock:
+            self._log.reconcile(kept)
+            if kind == "n1mm" and chosen and chosen.get("path") and problem is None:
+                self._log_source = N1mmLogSource(
+                    db_path=chosen["path"],
+                    contest_nr=chosen.get("contest_nr"),
+                    contest_name=chosen.get("contest_name") or None,
+                    seed_db_dir=self._seed_db_dir,
+                    seed_db_hint=self._seed_db_hint or chosen["path"],
+                )
+                self._n1mm_authoritative = True
+                self._adif_source = None
+                self._active_contest = {
+                    "contest_nr": chosen.get("contest_nr"),
+                    "contest_name": chosen.get("contest_name"),
+                    "qso_count": len(kept),
+                    "db_path": chosen["path"],
+                    "db_label": Path(chosen["path"]).name,
+                    "label": chosen.get("label"),
+                }
+                self._seed = {
+                    "count": len(kept),
+                    "source": Path(chosen["path"]).name,
+                    "db_path": chosen["path"],
+                    "contest_nr": chosen.get("contest_nr"),
+                    "contest_name": chosen.get("contest_name"),
+                    "label": chosen.get("label"),
+                    "selection": "log_to_use",
+                }
+                self._seed_db_hint = chosen["path"]
+                return
+            self._n1mm_authoritative = False
+            self._active_contest = None
+            paths = [p for p in ((chosen or {}).get("paths") or []) if p]
+            if kind in {"wsjtx", "adif", "gridtracker"} and paths and problem is None:
+                from wims.integrations.logsource.adif_source import WsjtxAdifLogSource
+                self._adif_source = WsjtxAdifLogSource(paths)
+                self._seed = {"count": len(kept), "source": kind, "selection": "log_to_use"}
+            else:
+                self._adif_source = None
+                self._seed = {
+                    "count": len(kept),
+                    "source": kind or "none",
+                    "selection": "log_to_use",
+                }
+
+    def apply_log_use(self) -> dict:
+        """Load the saved log, or the goal's suggestion, into the log copy now."""
+        from datetime import date
+        from wims.rules.choice import load_choice, load_logs
+        from wims.rules.log_use import public_view, qso_in_window, resolve_use
+        logs = load_logs()
+        choice = load_choice()
+        goal = choice.get("goal") or "operating"
+        goal_id = choice.get("goal_id") or ""
+        catalog = self._collect_log_catalog(logs)
+        decision = resolve_use(logs, goal=goal, goal_id=goal_id, catalog=catalog)
+        since = str(logs.get("count_since") or "")
+        until = str(logs.get("count_until") or "")
+        self._log.set_window(since, until)
+        qsos, problem, mtime = self._read_chosen(decision.get("chosen"))
+        kept = [q for q in qsos if qso_in_window(q, since, until)]
+        self._install_chosen(decision.get("chosen"), kept, problem)
+        view = public_view(
+            decision=decision,
+            logs=logs,
+            catalog=catalog,
+            qsos=qsos,
+            problem=problem,
+            mtime=mtime,
+            today=date.today(),
+        )
+        self._log_in_use = view
+        self._log_choice_active = True
+        return view
+
+    def _persist_active_n1mm(self) -> None:
+        """Remember the contest just loaded as the explicit log to use."""
+        from wims.rules.choice import load_logs, save_logs
+        from wims.rules.log_use import selection_record
+        with self._lock:
+            active = dict(self._active_contest or {})
+        path = str(active.get("db_path") or "")
+        if not path:
+            return
+        nr = active.get("contest_nr")
+        try:
+            nr_i = int(nr) if nr is not None else 0
+        except (TypeError, ValueError):
+            nr_i = 0
+        chosen = {
+            "id": f"n1mm|{nr_i}|{path}",
+            "kind": "n1mm",
+            "path": path,
+            "label": active.get("contest_name") or active.get("label") or "Contest",
+            "contest_nr": nr_i,
+            "contest_name": active.get("contest_name") or "",
+        }
+        logs = load_logs()
+        logs["explicit"] = True
+        logs["primary"] = "n1mm"
+        logs["selection"] = selection_record(chosen)
+        save_logs(logs)
 
     def refresh_log_access(self) -> list[dict]:
         from wims.integrations.wsjtx_logs import discover_access
@@ -596,6 +838,9 @@ class LiveFleet:
             choice["explicit"] = True
             choice["suggested"] = False
             save_choice(choice)
+            # A new goal may suggest a different log. A saved log stays put.
+            if not load_logs().get("explicit"):
+                self.apply_log_use()
         elif action == "station":
             if "station_state" in body:
                 choice["station_state"] = str(body.get("station_state") or "").strip()
@@ -638,19 +883,73 @@ class LiveFleet:
             return {"ok": True, "udc": import_udc(text)}
         elif action == "shared_log":
             logs = load_logs()
-            logs["shared_path"] = str(body.get("shared_path") or "").strip()
+            shared = str(body.get("shared_path") or "").strip()
+            logs["shared_path"] = shared
             if body.get("use_wsjtx"):
                 logs["primary"] = "wsjtx"
+                logs["explicit"] = True
+                logs["selection"] = {
+                    "id": "wsjtx",
+                    "kind": "wsjtx",
+                    "path": shared,
+                    "label": "WSJT-X shared log" if shared else "WSJT-X log",
+                    "contest_nr": None,
+                    "contest_name": "",
+                }
             save_logs(logs)
-            if body.get("use_wsjtx"):
-                self._n1mm_authoritative = False
-                self.seed_wsjtx_adif()
+            self.apply_log_use()
         elif action == "use_wsjtx":
             logs = load_logs()
             logs["primary"] = "wsjtx"
+            logs["explicit"] = True
+            logs["selection"] = {
+                "id": "wsjtx",
+                "kind": "wsjtx",
+                "path": str(logs.get("shared_path") or ""),
+                "label": "WSJT-X log",
+                "contest_nr": None,
+                "contest_name": "",
+            }
             save_logs(logs)
-            self._n1mm_authoritative = False
-            self.seed_wsjtx_adif()
+            self.apply_log_use()
+        elif action == "select_log":
+            ident = str(body.get("id") or "").strip()
+            logs = load_logs()
+            if ident in {"", "auto", "suggested"}:
+                logs["explicit"] = False
+                logs["primary"] = "auto"
+                logs["selection"] = None
+                save_logs(logs)
+            else:
+                catalog = self._collect_log_catalog(logs)
+                chosen = next((o for o in catalog if o.get("id") == ident), None)
+                if chosen is None:
+                    return {"ok": False, "error": "unknown_log"}
+                from wims.rules.log_use import selection_record
+                kind = chosen.get("kind") or "adif"
+                logs["explicit"] = True
+                logs["primary"] = {"n1mm": "n1mm", "wsjtx": "wsjtx"}.get(kind, "adif")
+                logs["selection"] = selection_record(chosen)
+                save_logs(logs)
+            self.apply_log_use()
+        elif action == "select_cutoff":
+            preset = str(body.get("cutoff") or "whole").strip()
+            from wims.rules.log_use import cutoff_bounds
+            if preset == "custom":
+                pass
+            elif preset not in {"whole", "start_now", "this_year"}:
+                return {"ok": False, "error": "unknown_cutoff"}
+            else:
+                cutoff, since, until = cutoff_bounds(preset)
+                logs = load_logs()
+                logs["cutoff"] = cutoff
+                logs["count_since"] = since
+                logs["count_until"] = until
+                save_logs(logs)
+            self.apply_log_use()
+        elif action == "refresh_logs":
+            # Look again. The saved choice stays; a new file can appear in the list.
+            self.apply_log_use()
         else:
             return {"ok": False, "error": "unknown_action"}
         public = self.attach_rules()
@@ -727,11 +1026,14 @@ class LiveFleet:
         """Operator picked a contest in Setup — reload log copy and remember it."""
         n = self.seed_from_db(db_path, contest_nr=int(contest_nr),
                               remember=True, selection="manual")
+        self._persist_active_n1mm()
+        self.apply_log_use()
         self.refresh_contest_catalog()
         with self._lock:
             active = self._active_contest
-        return {"ok": True, "seeded": n, "contest": active,
-                "remembered": True}
+            seeded = self._log.count()
+        return {"ok": True, "seeded": seeded or n, "contest": active,
+                "remembered": True, "log_in_use": self._log_in_use}
 
     def seed_explicit_db(self, db_path: str) -> dict:
         """CLI ``--seed-db``: load best contest in that file and remember it.
@@ -761,10 +1063,12 @@ class LiveFleet:
                         "db_path": path, "contests": [c.to_dict() for c in contests]}
             with self._lock:
                 active = self._active_contest
+            self._persist_active_n1mm()
             return {"ok": True, "seeded": n, "contest": active, "source": "cli",
                     "contests": [c.to_dict() for c in contests]}
         n = self.seed_from_db(path, contest_nr=pick.contest_nr,
                               remember=True, selection="cli")
+        self._persist_active_n1mm()
         return {"ok": True, "seeded": n, "contest": pick.to_dict(),
                 "source": "cli",
                 "contests": [c.to_dict() for c in contests]}
@@ -794,14 +1098,14 @@ class LiveFleet:
             return {
                 "ok": False,
                 "error": "no_active_log",
-                "hint": "Pick a contest log under N1MM first.",
+                "hint": "Choose an N1MM contest on the Log page first.",
             }
         if not Path(db_path).is_file():
             return {
                 "ok": False,
                 "error": "db_not_found",
                 "db_path": db_path,
-                "hint": "Copy the N1MM .s3db onto this host (seed dir), then Rescan.",
+                "hint": "Copy the N1MM contest file onto this computer, then choose it on the Log page.",
             }
         try:
             nr = int(contest_nr) if contest_nr is not None else None
@@ -810,7 +1114,7 @@ class LiveFleet:
         self._log_source.configure(
             db_path=db_path, contest_nr=nr, contest_name=contest_name,
         )
-        qsos = list(self._log_source.resync())
+        qsos = self._retain(list(self._log_source.resync()))
         err = self._log_source.status().get("error")
         if err and not qsos:
             return {"ok": False, "error": err, "db_path": db_path}
@@ -1402,6 +1706,10 @@ class LiveFleet:
             self._last_n1mm = now
             self._tracker.observe_n1mm_xml(xml_text, now, src_ip=src_ip)
             self._roster.drop_own_station(self._own_station_calls())
+            # Needed/dupe follows the chosen log. Once that choice is active,
+            # N1MM packets update the copy only when the log is an N1MM contest.
+            if self._log_choice_active and not self._n1mm_authoritative:
+                return
             # Live log maintenance via LogSource (N1MM Contacts Broadcast).
             # Edit = contactdelete + contactreplace (same ID). Delete alone removes the
             # row so roster needed/dupe flips back without waiting for DXLOG resync.
@@ -1421,6 +1729,8 @@ class LiveFleet:
                         got_name = (q.contest or "").strip().upper()
                         if want_name and got_name and want_name != got_name:
                             return
+                    if not self._retain([q]):
+                        return
                     self._log.upsert(q)
                     self._last_qso = {"call": q.call, "band": q.band, "ts": now}
             except Exception:
@@ -1530,6 +1840,7 @@ class LiveFleet:
             self._maybe_refresh_access_locked()
             d["rules"] = self._rules_meta
             d["log_access"] = list(self._log_access_rows)
+            d["log_in_use"] = dict(self._log_in_use)
             return d
 
     def _fold_logged_udp(self, msg) -> None:
@@ -1551,7 +1862,7 @@ class LiveFleet:
                     text = text + "<eor>"
                 for rec in read_text(text):
                     qso = to_logged_qso(rec, realpath=real, source="live")
-                    if qso is not None:
+                    if qso is not None and self._retain([qso]):
                         self._log.upsert(qso)
                 return
             if isinstance(msg, M.QSOLogged):
@@ -1565,7 +1876,7 @@ class LiveFleet:
                     "time_on": qtime,
                 }
                 qso = to_logged_qso(fields, realpath=real, source="live")
-                if qso is not None:
+                if qso is not None and self._retain([qso]):
                     self._log.upsert(qso)
         except Exception:
             return
@@ -1580,7 +1891,7 @@ class LiveFleet:
         self._adif_poll_mono = now
         try:
             if src.poll_changed():
-                self._log.reconcile(src.seed())
+                self._log.reconcile(self._retain(src.seed()))
         except Exception:
             return
 
@@ -1944,6 +2255,7 @@ def make_handler(live: LiveFleet, refresh: float):
             "/overview": "status.html",
             "/wsjt": "status.html",
             "/n1mm": "status.html",
+            "/log": "log.html",
             "/setup": "setup.html",
         }
         TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css",
@@ -1974,6 +2286,7 @@ def make_handler(live: LiveFleet, refresh: float):
                         "overview": f"{base}/overview",
                         "wsjt": f"{base}/wsjt",
                         "n1mm": f"{base}/n1mm",
+                        "log": f"{base}/log",
                         "setup": f"{base}/setup",
                         "healthz": f"{base}/healthz",
                     },
@@ -2287,9 +2600,9 @@ def main() -> None:
                     help="EXPERIMENTAL: allow Call CQ via one-shot WSJT-X FreeText "
                          "(no auto-sequence; pending live verify). Off by default.")
     ap.add_argument("--seed-db", default=None,
-                    help="N1MM contest .s3db to seed from (read-only); loads the best "
-                         "contest in THAT file only and remembers it for next start. "
-                         "If omitted: last N1MM-tab pick, else auto-find latest contest")
+                    help="Developer: N1MM .s3db to use as the log (read-only). "
+                         "Saved as the Log to use choice. If omitted, a saved choice "
+                         "wins; otherwise the Goal suggests a log.")
     # Default prefers UserDir\\Databases / home\\Databases when present (many N1MM
     # installs); also_standard discovery still scans all known roots on Rescan.
     from wims.integrations.n1mm import logdb as _logdb_cli  # noqa: E402
@@ -2298,7 +2611,7 @@ def main() -> None:
                     help="dir to auto-find contest .s3db files (default: first existing "
                          "UserDir/home/Documents N1MM Databases folder)")
     ap.add_argument("--no-seed", action="store_true",
-                    help="do not seed from any N1MM .s3db at startup")
+                    help="Developer: do not load a log at startup")
     ap.add_argument("--presence-group", default=P.DEFAULT_GROUP,
                     help=f"site-server presence multicast group (default {P.DEFAULT_GROUP})")
     ap.add_argument("--presence-port", type=int, default=P.DEFAULT_PORT,
@@ -2412,66 +2725,34 @@ def main() -> None:
     # Seed before opening sockets so the first browser load already has the log.
     # Operator-facing lines are printed after the console URL (below).
     seed_lines: list[str] = []
-    n1mm_ok = False
     if not args.no_seed:
-        # Order: explicit --seed-db (that file only + remember) → last N1MM-tab pick
-        # → auto latest contest. Operator can always change on the N1MM tab.
+        # A saved log wins. Otherwise the goal suggests one (contest → newest
+        # matching contest log, anything else → WSJT-X). A leftover N1MM file
+        # is not used just because it is there. --seed-db is a developer choice
+        # and is saved as the log to use.
         try:
             if args.seed_db:
-                result = live.seed_explicit_db(args.seed_db)
-            else:
-                result = live.auto_seed()
-            if result.get("ok"):
-                n1mm_ok = True
-                c = result.get("contest") or {}
-                src = result.get("source") or "auto"
-                # label() already includes QSO count (e.g. ARRLVHFJUN · date · N QSOs).
-                how = {"remembered": "remembered", "cli": "from --seed-db",
-                       "auto": "auto", "manual": "manual"}.get(src, src)
-                seed_lines.append(
-                    f"  Log: {c.get('db_label') or Path(c.get('db_path') or '').name}"
-                    f" · {c.get('label') or c.get('contest_name')}"
-                    f" ({how})"
-                )
-                others = [x for x in result.get("contests") or []
-                          if x.get("qso_count", 0) > 0
-                          and (x.get("db_path") != c.get("db_path")
-                               or x.get("contest_nr") != c.get("contest_nr"))]
-                if others and src != "cli":
+                seeded = live.seed_explicit_db(args.seed_db)
+                if not seeded.get("ok") and seeded.get("reason") == "db_not_found":
                     seed_lines.append(
-                        f"  Log: {len(others)} other contest(s) available — pick on N1MM tab"
+                        f"  Log: --seed-db not found: {seeded.get('db_path')}"
                     )
-            else:
-                seed_lines.append(
-                    "  Log: no contest with QSOs found — add an N1MM .s3db or open Setup"
-                )
-                scanned = result.get("scan_dirs") or live.seed_scan_dirs()
-                if scanned:
-                    seed_lines.append("  Log scan: " + "; ".join(scanned[:4])
-                                      + ("…" if len(scanned) > 4 else ""))
-                if result.get("reason") == "db_not_found":
-                    seed_lines.append(
-                        f"  Log: --seed-db not found: {result.get('db_path')}"
-                    )
+            live.apply_log_use()
+            info = live._log_in_use or {}
+            if info.get("line"):
+                seed_lines.append("  " + info["line"])
+            if info.get("why"):
+                seed_lines.append("  " + info["why"])
+            for warn in (info.get("warnings") or [])[:3]:
+                text = (warn.get("message") or "").strip()
+                if text:
+                    seed_lines.append("  " + text)
         except Exception as e:
             seed_lines.append(f"  Log: seed skipped ({e})")
-        if not n1mm_ok:
-            try:
-                adi = live.seed_wsjtx_adif()
-                if adi.get("ok"):
-                    seed_lines.append(
-                        f"  Log: WSJT-X ADIF ({adi.get('seeded')} contacts)"
-                    )
-                elif adi.get("reason") == "no_adif":
-                    seed_lines.append(
-                        "  Log: no WSJT-X wsjtx_log.adi yet — stations will look needed"
-                    )
-            except Exception as e:
-                seed_lines.append(f"  Log: WSJT-X ADIF skipped ({e})")
     else:
         live.refresh_contest_catalog()
     try:
-        live.attach_rules(n1mm_authoritative=n1mm_ok)
+        live.attach_rules(n1mm_authoritative=live._n1mm_authoritative)
         live.refresh_log_access()
     except Exception as e:
         seed_lines.append(f"  Contest rules: {e}")

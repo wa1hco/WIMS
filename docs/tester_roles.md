@@ -72,8 +72,9 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Operate** | `/` | Ranked call roster; **click a row = Work**; **Halt TX** (this console’s Work only) |
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity |
-| **N1MM** | `/n1mm` | Contest log pick/resync, logger sync / network |
-| **Setup** | `/setup` | Install diagnostics, and which rig-names report IF (default: dial is RF, so 28 MHz stays 10m) |
+| **Log** | `/log` | Which log counts, count-since, resync, Check logs |
+| **N1MM** | `/n1mm` | Several N1MM stations at once. Hidden when fewer than two are heard |
+| **Setup** | `/setup` | Goal, install diagnostics, and which rig-names report IF (default: dial is RF, so 28 MHz stays 10m) |
 
 **TX model:** no global Arm. Human initiation = **roster click**. **Call CQ** stays in WSJT-X.
 
