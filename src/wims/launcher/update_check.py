@@ -17,6 +17,8 @@ import json
 import os
 import re
 import subprocess
+import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -201,7 +203,50 @@ def github_repo() -> str:
     return _DEFAULT_GITHUB_REPO
 
 
-def _http_json(url: str, *, timeout: float = 8.0):
+@dataclass(frozen=True)
+class HttpResult:
+    """One GitHub HTTP call. Rate limits stay data, not a traceback."""
+
+    data: object = None
+    error: str = ""
+    status: int = 0
+    rate_limited: bool = False
+    retry_after_s: float = 0.0
+
+
+def _retry_after_seconds(headers) -> float:
+    if headers is None:
+        return 0.0
+    raw = headers.get("Retry-After") if hasattr(headers, "get") else None
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            pass
+    reset = headers.get("X-RateLimit-Reset") if hasattr(headers, "get") else None
+    if reset:
+        try:
+            return max(0.0, float(reset) - time.time())
+        except (TypeError, ValueError):
+            return 0.0
+    return 0.0
+
+
+def _rate_limited(status: int, body: str, headers) -> bool:
+    if status == 429:
+        return True
+    text = (body or "").lower()
+    if status == 403 and "rate limit" in text:
+        return True
+    if headers is not None and hasattr(headers, "get"):
+        remaining = headers.get("X-RateLimit-Remaining")
+        if str(remaining or "") == "0" and status in (403, 429):
+            return True
+    return False
+
+
+def github_get(url: str, *, timeout: float = 8.0) -> HttpResult:
+    """GET JSON from GitHub. Offline and rate limits return a result, no raise."""
     req = Request(
         url,
         headers={
@@ -213,12 +258,38 @@ def _http_json(url: str, *, timeout: float = 8.0):
     try:
         with urlopen(req, timeout=timeout) as resp:  # noqa: S310 — GitHub API
             raw = resp.read(1_000_000)
-    except (HTTPError, URLError, TimeoutError, OSError, ValueError) as e:
-        return None, str(e)
+            status = int(getattr(resp, "status", 200) or 200)
+            headers = getattr(resp, "headers", None)
+    except HTTPError as e:
+        body = ""
+        try:
+            body = e.read(4000).decode("utf-8", "replace")
+        except Exception:
+            body = str(e)
+        status = int(getattr(e, "code", 0) or 0)
+        headers = getattr(e, "headers", None)
+        limited = _rate_limited(status, body, headers)
+        return HttpResult(
+            data=None,
+            error=body or str(e),
+            status=status,
+            rate_limited=limited,
+            retry_after_s=_retry_after_seconds(headers) if limited else 0.0,
+        )
+    except (URLError, TimeoutError, OSError, ValueError) as e:
+        return HttpResult(data=None, error=str(e), status=0)
     try:
-        return json.loads(raw.decode("utf-8")), ""
+        data = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        return None, str(e)
+        return HttpResult(data=None, error=str(e), status=status)
+    return HttpResult(data=data, error="", status=status, retry_after_s=0.0)
+
+
+def _http_json(url: str, *, timeout: float = 8.0):
+    result = github_get(url, timeout=timeout)
+    if result.data is None:
+        return None, result.error or "no response"
+    return result.data, ""
 
 
 def _version_key(tag_or_ver: str) -> tuple[int, int, int, int, int] | None:
@@ -442,3 +513,362 @@ def env_skip_update_check() -> bool:
     return (os.environ.get("WIMS_SKIP_UPDATE_CHECK") or "").strip() in (
         "1", "true", "yes", "YES", "True",
     )
+
+
+# While the WIMS window is open. A few hours, and never faster than the floor
+# even if a setting asks for a tighter loop. Check now ignores the interval.
+DEFAULT_CHECK_INTERVAL_S = 3 * 60 * 60
+MIN_CHECK_INTERVAL_S = 15 * 60
+INITIAL_CHECK_DELAY_S = 4.0
+
+# Background checks look only. Install runs from the Install button.
+AUTO_INSTALL = False
+
+
+def clamp_check_interval(
+    seconds: float,
+    *,
+    minimum_s: float = MIN_CHECK_INTERVAL_S,
+) -> float:
+    """Seconds between looks. Anything under the floor becomes the floor."""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError):
+        value = DEFAULT_CHECK_INTERVAL_S
+    if value < minimum_s:
+        return float(minimum_s)
+    return value
+
+
+def seconds_until_next_check(
+    *,
+    elapsed_s: float,
+    interval_s: float,
+    rate_limit_wait_s: float = 0.0,
+    force: bool = False,
+) -> float:
+    """How long to wait before the next background look.
+
+    ``force`` is Check now: wait zero. A rate-limit pause never shortens the
+    normal interval; it can only lengthen it. This does not install.
+    """
+    if force:
+        return 0.0
+    interval = clamp_check_interval(interval_s)
+    try:
+        elapsed = max(0.0, float(elapsed_s))
+    except (TypeError, ValueError):
+        elapsed = 0.0
+    remaining = max(0.0, interval - elapsed)
+    try:
+        limited = max(0.0, float(rate_limit_wait_s or 0.0))
+    except (TypeError, ValueError):
+        limited = 0.0
+    return max(remaining, limited)
+
+
+@dataclass(frozen=True)
+class ReleaseEntry:
+    """One published GitHub release, for the Updates list."""
+
+    tag: str
+    name: str
+    published: str
+    body: str
+    html_url: str
+    prerelease: bool
+    relation: str  # newer | current | older | other
+
+    def line(self) -> str:
+        mark = {
+            "newer": "available",
+            "current": "this copy",
+            "older": "older",
+            "other": "",
+        }.get(self.relation, "")
+        date = self.published or "no date"
+        extra = f"    {mark}" if mark else ""
+        return f"{self.tag}    {date}{extra}"
+
+    def summary(self) -> str:
+        return summarize_notes(self.body, limit=280)
+
+
+def summarize_notes(body: str, *, limit: int = 280) -> str:
+    """Short plain text from release notes. Empty notes say so."""
+    text = (body or "").replace("\r\n", "\n").strip()
+    if not text:
+        return "No notes were published with this release."
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    joined = " ".join(lines)
+    if len(joined) <= limit:
+        return joined
+    return joined[: limit - 3].rstrip() + "..."
+
+
+def notes_tooltip(entry: ReleaseEntry) -> str:
+    date = entry.published or "date not published"
+    return f"{entry.tag}  {date}\n\n{summarize_notes(entry.body, limit=700)}"
+
+
+def release_relation(tag: str, local_version: str) -> str:
+    remote = _version_key(tag)
+    local = _version_key(local_version)
+    if remote is None or local is None:
+        return "other"
+    if remote > local:
+        return "newer"
+    if remote == local:
+        return "current"
+    return "older"
+
+
+def _published_day(raw: str) -> str:
+    text = (raw or "").strip()
+    if "T" in text:
+        text = text.split("T", 1)[0]
+    return text[:10]
+
+
+def releases_from_payload(
+    payload: object,
+    *,
+    local_version: str,
+) -> tuple[ReleaseEntry, ...]:
+    """Turn a GitHub releases JSON list into list rows, newest version first."""
+    if not isinstance(payload, list):
+        return ()
+    rows: list[ReleaseEntry] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        tag = str(item.get("tag_name") or "").strip()
+        if not tag:
+            continue
+        rows.append(ReleaseEntry(
+            tag=tag,
+            name=str(item.get("name") or tag).strip(),
+            published=_published_day(str(item.get("published_at") or "")),
+            body=str(item.get("body") or ""),
+            html_url=str(item.get("html_url") or "").strip(),
+            prerelease=bool(item.get("prerelease")),
+            relation=release_relation(tag, local_version),
+        ))
+
+    def sort_key(entry: ReleaseEntry) -> tuple:
+        key = _version_key(entry.tag) or (0, 0, 0, 0, 0)
+        return (key, entry.published)
+
+    rows.sort(key=sort_key, reverse=True)
+    return tuple(rows)
+
+
+def list_github_releases(
+    repo: Path | None = None,
+    *,
+    github: str | None = None,
+) -> tuple[tuple[ReleaseEntry, ...], str, float]:
+    """Published releases plus a quiet notice.
+
+    Notice is ``""``, ``offline``, ``rate_limit``, or ``empty``.
+    The third value is how long a rate limit asked us to wait.
+    Does not install.
+    """
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    gh = (github or github_repo()).strip("/")
+    result = github_get(
+        f"https://api.github.com/repos/{gh}/releases?per_page=20"
+    )
+    if result.rate_limited:
+        return (), "rate_limit", float(result.retry_after_s or 0.0)
+    if result.data is None:
+        return (), "offline", 0.0
+    if not isinstance(result.data, list):
+        return (), "offline", 0.0
+    entries = releases_from_payload(result.data, local_version=_local_version(root))
+    if not entries:
+        return (), "empty", 0.0
+    return entries, "", 0.0
+
+
+_NOTICE_TEXT = {
+    "offline": "No network. The update list is unchanged.",
+    "rate_limit": "GitHub is limiting checks right now. WIMS will try again later.",
+    "empty": "No published releases yet.",
+}
+
+
+@dataclass(frozen=True)
+class UpdateSnapshot:
+    """One background look: banner info, release list, quiet notice."""
+
+    info: UpdateInfo
+    releases: tuple[ReleaseEntry, ...] = ()
+    notice: str = ""
+    notice_text: str = ""
+    retry_after_s: float = 0.0
+
+
+def gather_updates(
+    repo: Path | None = None,
+    *,
+    fetch: bool = True,
+) -> UpdateSnapshot:
+    """Look for updates. Does not install, even when something newer exists."""
+    if AUTO_INSTALL:
+        raise RuntimeError("background update check must not install")
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    info = check_for_update(root, fetch=fetch)
+    releases, notice, retry = list_github_releases(root)
+    return UpdateSnapshot(
+        info=info,
+        releases=releases,
+        notice=notice,
+        notice_text=_NOTICE_TEXT.get(notice, ""),
+        retry_after_s=retry,
+    )
+
+
+def wims_config_dir() -> Path:
+    xdg = (os.environ.get("XDG_CONFIG_HOME") or "").strip()
+    if xdg:
+        return Path(xdg) / "wims"
+    if sys.platform == "win32":
+        appdata = (os.environ.get("APPDATA") or "").strip()
+        base = Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+        return base / "wims"
+    return Path.home() / ".config" / "wims"
+
+
+def rollback_path() -> Path:
+    env = (os.environ.get("WIMS_UPDATE_ROLLBACK") or "").strip()
+    if env:
+        return Path(env)
+    return wims_config_dir() / "update_rollback.json"
+
+
+def read_rollback(path: Path | None = None) -> dict | None:
+    file = Path(path) if path is not None else rollback_path()
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    sha = str(data.get("sha") or "").strip()
+    if not sha:
+        return None
+    return data
+
+
+def _write_rollback(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _say(on_progress, message: str) -> None:
+    if on_progress is not None:
+        on_progress(message)
+
+
+def _tree_dirty(root: Path) -> bool:
+    code, out = _git(root, ["status", "--porcelain"])
+    return bool(out) if code == 0 else False
+
+
+def apply_release(
+    repo: Path | None,
+    tag: str,
+    *,
+    remote: str = "origin",
+    rollback_file: Path | None = None,
+    on_progress=None,
+) -> tuple[bool, str]:
+    """Switch this git tree to ``tag``. Saves the current copy first.
+
+    A tree that is not a git checkout is left unchanged. Local edits block
+    the switch. This runs only when the operator picks Install.
+    """
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    wanted = (tag or "").strip()
+    if not wanted:
+        return False, "Select an update in the list first."
+    if not (root / ".git").exists():
+        _say(on_progress, "This copy cannot switch versions by itself.")
+        return False, (
+            "This copy was not installed from git, so WIMS cannot switch it "
+            "in place. The release page has the download. Keep your seat "
+            "files when you replace the folder."
+        )
+    if _tree_dirty(root):
+        _say(on_progress, "Local edits are in the way.")
+        return False, (
+            "This copy has local edits. WIMS left it unchanged. "
+            "Install is available after those edits are put away."
+        )
+    _say(on_progress, f"Getting {wanted}.")
+    code, _out = _git(
+        root, ["fetch", "--quiet", remote, "tag", wanted], timeout=60.0,
+    )
+    if code != 0:
+        return False, "Could not reach GitHub. This copy is unchanged."
+
+    code_b, branch = _git(root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    code_s, sha = _git(root, ["rev-parse", "HEAD"])
+    if code_s != 0 or not sha:
+        return False, "Could not remember this copy. Nothing was changed."
+    _say(on_progress, "Saving this copy so you can go back.")
+    dest = Path(rollback_file) if rollback_file is not None else rollback_path()
+    try:
+        _write_rollback(dest, {
+            "schema": 1,
+            "sha": sha.strip(),
+            "branch": branch.strip() if code_b == 0 else "",
+            "tag": wanted,
+        })
+    except OSError:
+        return False, "Could not save the previous copy. Nothing was changed."
+
+    _say(on_progress, f"Switching to {wanted}.")
+    code, _out = _git(root, ["checkout", "--detach", wanted])
+    if code != 0:
+        return False, "Could not switch to that release. This copy is unchanged."
+    return True, f"Now on {wanted}. Restarting the WIMS window."
+
+
+def rollback_release(
+    repo: Path | None = None,
+    *,
+    rollback_file: Path | None = None,
+    on_progress=None,
+) -> tuple[bool, str]:
+    """Return to the copy saved by the last install. Does not run by itself."""
+    root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
+    dest = Path(rollback_file) if rollback_file is not None else rollback_path()
+    saved = read_rollback(dest)
+    if not saved:
+        return False, (
+            "There is no saved previous copy yet. "
+            "WIMS remembers one when you install an update."
+        )
+    if not (root / ".git").exists():
+        return False, "This copy cannot switch versions by itself."
+    if _tree_dirty(root):
+        return False, (
+            "This copy has local edits. WIMS left it unchanged."
+        )
+    sha = str(saved.get("sha") or "").strip()
+    branch = str(saved.get("branch") or "").strip()
+    _say(on_progress, "Restoring the previous copy.")
+    restored = False
+    if branch and branch not in ("HEAD", ""):
+        code, tip = _git(root, ["rev-parse", branch])
+        if code == 0 and tip.strip() == sha:
+            code_c, _out = _git(root, ["checkout", branch])
+            restored = code_c == 0
+    if not restored:
+        code_c, _out = _git(root, ["checkout", "--detach", sha])
+        restored = code_c == 0
+    if not restored:
+        return False, "Could not go back. This copy is unchanged."
+    return True, "Back on the previous copy. Restarting the WIMS window."
