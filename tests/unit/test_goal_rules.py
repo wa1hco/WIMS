@@ -104,10 +104,9 @@ def test_schema3_empty_menu_becomes_just_operating():
     assert got["contest"] is None
     solo = resolve(got, n1mm=False, cty_ok=False)
     assert solo.rules.id == "wsjtx-colors"
-    n1mm = resolve(got, n1mm=True)
-    assert n1mm.rules.id == "arrl-vhf"
-    assert n1mm.public["source_label"] == "N1MM · ARRL VHF"
-    assert "ARRL VHF" in n1mm.public["n1mm_line"]
+    n1mm = resolve(got, n1mm=True, cty_ok=False)
+    assert n1mm.rules.id == "wsjtx-colors"
+    assert "ARRL VHF" not in (n1mm.public.get("n1mm_line") or "")
 
 
 def test_schema3_custom_file_stays_custom():

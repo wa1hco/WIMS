@@ -160,7 +160,7 @@ Lab without hardware: device `sim:up` / `sim:down`.
 | Roster fills | **Operate** `/` |
 | Digi instances alive | **WSJT-X** `/wsjt` |
 | Both N1MMs listed | **N1MM** `/n1mm` (needs agent + `127.0.0.1:12060`) |
-| Contest log / resync | **N1MM** `/n1mm` |
+| Contest log / resync | **Log** `/log` |
 | Band policy / agents | **Overview** `/overview` |
 
 **Work** = click a roster line (answer). **Call CQ** = in WSJT-X, not WIMS.

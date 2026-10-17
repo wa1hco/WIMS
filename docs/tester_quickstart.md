@@ -62,6 +62,7 @@ Open:
 | **Operate** | http://localhost:8787/ |
 | **Overview** | http://localhost:8787/overview |
 | **WSJT-X** | http://localhost:8787/wsjt |
+| **Log** | http://localhost:8787/log |
 | **N1MM** | http://localhost:8787/n1mm |
 | **Setup** | http://localhost:8787/setup |
 

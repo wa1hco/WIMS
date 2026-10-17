@@ -100,6 +100,9 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
             "setup.html": (ROOT / "src" / "wims" / "server" / "static" / "setup.html").read_text(
                 encoding="utf-8"
             ),
+            "log.html": (ROOT / "src" / "wims" / "server" / "static" / "log.html").read_text(
+                encoding="utf-8"
+            ),
         }
         from wims.launcher.roles import ROLES
 

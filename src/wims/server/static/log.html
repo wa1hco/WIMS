@@ -1,0 +1,122 @@
+<!doctype html>
+
+<!--
+  WIMS — WSJT-X Instance Management System
+  Copyright (C) 2026 Jeff Millar, WA1HCO
+
+  SPDX-License-Identifier: GPL-3.0-or-later
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WIMS — Log</title>
+<link rel="stylesheet" href="/wims.css">
+</head>
+<body>
+<header>
+  <h1>WIMS</h1>
+  <nav>
+    <a href="/">Operate</a>
+    <a href="/overview">Overview</a>
+    <a href="/wsjt">WSJT-X</a>
+    <a href="/log" class="active">Log</a>
+    <a href="/n1mm" class="nav-n1mm" hidden>N1MM</a>
+    <a href="/setup">Setup</a>
+  </nav>
+  <span id="conn" class="down">connecting…</span>
+  <span class="meta" id="rx"></span>
+  <span class="meta" id="ingest-stall" hidden></span>
+  <span class="meta" id="clock" style="margin-left:auto"></span>
+</header>
+<main>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 12px 0">
+    <b>Log</b> is the list of contacts WIMS checks for needed and already worked.
+    The goal on <a href="/setup">Setup</a> decides what counts. It does not switch this log.
+  </p>
+
+  <h2>Log to use</h2>
+  <p id="log-in-use" style="font-size:14px;margin:6px 0">Log in use: waiting for the server…</p>
+  <p id="log-in-use-why" class="hint" style="font-size:12px;margin:0 0 6px 0"></p>
+  <div class="syncrow" style="align-items:center;gap:10px;flex-wrap:wrap">
+    <span class="advline">
+      <label>Log
+        <select id="log-pick" style="font:inherit;margin-left:6px"
+          title="The log WIMS checks for needed and already worked. Your choice stays until you change it. Suggested for this goal is used only when you have not chosen.">
+          <option value="auto">Suggested for this goal</option>
+        </select>
+      </label>
+      <span id="log-pick-tip"></span>
+    </span>
+    <span class="advline">
+      <label>Count only since
+        <select id="log-cutoff" style="font:inherit;margin-left:6px"
+          title="Whole log counts every contact. Start now counts only contacts you log after you pick it. This year counts contacts since January 1. This changes which contacts count as worked, not just the list on screen.">
+          <option value="whole">Whole log</option>
+          <option value="start_now">Start now</option>
+          <option value="this_year">This year</option>
+        </select>
+      </label>
+      <span id="log-cutoff-tip"></span>
+    </span>
+    <span class="advline">
+      <button type="button" id="log-refresh"
+        title="Look for logs again. A new contest file shows up here, and the log you already chose stays chosen.">Look again</button>
+      <span id="log-refresh-tip"></span>
+      <span id="log-refresh-msg" class="meta"></span>
+    </span>
+  </div>
+  <div id="log-warnings" style="font-size:12px;line-height:1.45;margin-top:6px"></div>
+  <p id="log-guidance" class="hint" style="font-size:12px;margin:6px 0 8px 0"></p>
+
+  <h2>Each radio’s log</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Whether WIMS can read the log for each WSJT-X on this computer.
+  </p>
+  <div id="contest-logs" style="font-size:12px;line-height:1.45"></div>
+
+  <div id="log-n1mm-tools" hidden>
+    <h2>N1MM contest file</h2>
+    <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+      Shown when the log above is an N1MM contest. New contacts still arrive on their own.
+      Read the file again when it was updated outside WIMS.
+    </p>
+    <div class="toolbar" style="margin:6px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button type="button" id="contest-resync"
+        title="Read this N1MM contest file again. Use this after the file was updated, or when already-worked stations look wrong.">Resync log</button>
+      <span id="log-resync-tip"></span>
+      <span class="meta" id="contest-msg"></span>
+    </div>
+    <div id="contest-resync-line" class="meta" style="margin:0 0 6px 0"></div>
+    <div id="n1mm-sync" class="syncrow"><span class="k">waiting…</span></div>
+  </div>
+
+  <h2>Shared WSJT-X log</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    One file for every WSJT-X on this computer. Leave the box empty to keep each program’s own log.
+  </p>
+  <div id="log-shared" style="font-size:12px;margin-top:8px"></div>
+
+  <h2>Check logs</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Compare the logs on this computer. Nothing in them is changed.
+  </p>
+  <div id="log-check" style="font-size:12px"></div>
+</main>
+<script src="/wims.js"></script>
+</body>
+</html>

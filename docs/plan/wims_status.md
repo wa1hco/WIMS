@@ -25,7 +25,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
    requests ON. Plane A is one port for all bands (decision 2026-09-05).
 4. First Windows install: double-click `scripts\windows\Install-Wims.cmd`.
    Setup check: `Check-WimsSetup.cmd`, or the WSJT seat check in the WIMS window.
-   Compare logs: double-click **Check logs**, or Setup → Advanced → **Check logs**.
+   Compare logs: double-click **Check logs**, or open the Log page → **Check logs**.
    `Add WIMS to Desktop` puts **Check logs** next to **WIMS**.
 
 Checklist: [design-principles.md](../design-principles.md).
@@ -133,8 +133,8 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). Reply socket is unbound (OS picks the route; no path → plain sentence). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. N1MM stays the log when that file opened; just operating then still uses ARRL VHF. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
-| 3.6 | Logger interface (N1MM) | `[~]` | N1MM seed + live contact UDP + resync, plus `WsjtxAdifLogSource` when that `.s3db` is not the log. Per-instance `wsjtx_log.adi` discovery and Setup warnings. **Check logs** compares the logs on this PC (summary first; shared files count once). Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), **prior-contest band-history seed for C7**. |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. Log to use is the log; Just operating uses WSJT-X Colors against that log. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
+| 3.6 | Logger interface (N1MM) | `[~]` | Log to use on the Log page: the operator’s log, or a Goal suggestion (contest → newest matching N1MM; otherwise WSJT-X). Count-since / count-until change the needed/dupe lookup. N1MM seed + live contact UDP + resync when that contest file is the log. Per-instance `wsjtx_log.adi` discovery and Log-page warnings. **Check logs** is on the Log page (summary first; shared files count once). The N1MM tab lists several stations and stays hidden when fewer than two are heard. Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), challenge pace UI, **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
 | 3.9 | Safety / watchdog | `[ ]` | — |
@@ -204,9 +204,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - [x] **L2 — One Contest dropdown and a plain summary.** `contest_rules.json`
   (schema 3) beside `last_log.json`. Setup → Contest. Advanced stays collapsed.
   Each Advanced control has a plain-language tip (hover and a keyboard ?).
-  No new CLI flag. Alias suggestion does not override an explicit None. N1MM +
-  None stays ARRL VHF. Solo None stays WSJT-X Colors. Superseded in the UI by
-  L10; the saved file still migrates.
+  No new CLI flag. Alias suggestion does not override an explicit Just operating
+  choice. Just operating stays WSJT-X Colors on whatever log is selected.
+  Superseded in the UI by L10; the saved file still migrates.
 - [x] **L10 — Goal menu.** Setup → Goal, then a second menu (contest, award,
   worth working, or your list). “Just operating (not a contest)” replaces the
   old empty Contest choice and still uses WSJT-X Colors. Awards: DXCC, Worked
@@ -219,19 +219,26 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `DecodeHighlighting` is not. Without `cty.dat`, the four call/grid categories
   start on (see the design note in §3.6).
 - [x] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
-  data dirs, shared path, Setup **Logs** lines, solo check **Logs** section.
-- [x] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Used when N1MM did not
-  open. Shared path is the only file when set. UDP type 5/12 uses the same id.
-  N1MM stays the log when it opened.
+  data dirs, shared path, Log page **Each radio’s log** lines, solo check **Logs** section.
+- [x] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Used when that log is
+  the one selected under Log to use. Shared path is the only file when set.
+  UDP type 5/12 uses the same id. An N1MM contest file is the log only when
+  the operator chose it, or a contest Goal suggested the newest matching one.
+- [x] **L11 — Log to use.** The Log page shows the log name, path, contact count,
+  and cutoff. The operator picks the log. The Goal only suggests one when
+  nothing is saved (contest → newest matching N1MM log; anything else →
+  WSJT-X). Start now and This year change the needed/dupe lookup. A saved
+  choice reloads immediately and stays across Goal changes. Setup no longer
+  holds log controls. The N1MM tab is the multi-station list.
 - [x] **L6 — Check logs.** ADIF, the N1MM log chosen in WIMS, optional LoTW.
   Summary first. Text + JSON. Read-only. Several instances on one file (same
   path, same inode, or the same bytes) are one log.
 - [x] **L7 — Check logs window.** GridTracker `*.adi` under the GridTracker
-  data folder when present. LoTW is a note, not a failure. Setup → Advanced →
+  data folder when present. LoTW is a note, not a failure. Log page
   **Check logs**, and the Desktop **Check logs** icon, show the same summary
-  with **Show details**. A path that does not answer within 2 seconds is
-  unreadable. Unchanged files are not read again. The live Setup log-access
-  poll is still not on that timer.
+  with **Show details**. A path that does not answer within
+  2 seconds is unreadable. Unchanged files are not read again. The live Log
+  page log-access poll is still not on that timer.
 - [~] **L8 — Further log readers.** Any logger’s ADIF export is `--adif PATH`.
   No Log4OM / DXKeeper / CQRLOG native database.
 - [~] **L9 — GridTracker roster fallback.** If Advanced sets the fallback to
@@ -242,6 +249,19 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-17** — **Log page.** Log to use, the count-since presets, per-radio
+  log warnings, the shared WSJT-X file, Check logs, and N1MM resync moved off
+  Setup onto `/log`. The operator picks the log WIMS checks for needed and
+  already worked. The line shows the name, path, contact count, and cutoff. A
+  contest Goal suggests the newest matching N1MM log; Just operating, an award,
+  or a custom list suggests the WSJT-X log. A saved choice wins and reloads
+  without a restart. Start now and This year set a count-since time; an
+  optional end time is a separate field. The window changes the lookup, and
+  “how often a station counts” still applies inside it. WSJT-X ADIF has no
+  contest name or exchange, and the Log page says so. The N1MM tab lists
+  several stations and stays hidden when fewer than two are heard. Challenge
+  pace (worked, elapsed, rate) is a follow-up in
+  [wims_logs_and_rules.md](wims_logs_and_rules.md) §2.5.
 - **2026-10-17** — **One start, and an Updates list on the WIMS window.** The
   desktop icon, `scripts/start-wims.sh`, and the Windows shortcuts open the
   same window (Update, Restart site server, Open site console stay). Operate
@@ -262,7 +282,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   Shared path, inode, or identical file is one log. The first line is the
   summary; **Show details** lists only contacts missing from a log. Size and
   modification time skip an unchanged file. Desktop **Check logs** opens the
-  same check as Setup → Advanced. The Check logs button keeps the Advanced tip.
+  same check as the Log page. The Check logs button keeps its ? tip.
 - **2026-10-17** — **CI green: Windows KEY tests, interlock bench, unbound
   Work socket.** `test_key_cts` drives the Win32 path with a fake kernel32 on
   Linux (`ctypes.get_last_error` is absent there, and `COM7` is not a device).

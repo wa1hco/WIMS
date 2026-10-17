@@ -505,9 +505,10 @@ SSB/CW or hand off to a 2nd op.
   is the only replaceable part.
 - **Console pages.** All pages share one SSE feed (`/events`) with a header nav:
   **`/` Operate** = workable stations (call roster + interlock/overlap safety banner);
-  **`/overview` / `/wsjt` / `/n1mm`** = live health split by concern — **N1MM** owns contest log
-  pick/resync (multi-contest `.s3db`) plus logger network / sync;
-  **`/setup` Setup** = **install diagnostics** — networking checklist, host app config audit
+  **`/overview` / `/wsjt` / `/log` / `/n1mm`** = live health split by concern — **Log** owns
+  which file counts, the count-since window, and contest-file resync;
+  **N1MM** lists several N1MM stations and stays hidden when fewer than two are heard;
+  **`/setup` Setup** = **goal and install diagnostics** — networking checklist, host app config audit
   (WSJT-X / N1MM / GridTracker; growing). Shared `static/wims.css` + `wims.js` (every render
   no-ops when its panel is absent).
 - **Two-phase UI build (guiding principle).** *Phase 1 — developer-oriented:* information-dense,

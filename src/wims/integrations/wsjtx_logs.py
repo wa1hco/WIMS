@@ -137,7 +137,7 @@ def assess(instance: str, path: Path) -> LogAccess:
             instance, str(parent), "missing_dir",
             f"WIMS hears {instance} but cannot find its WSJT-X folder ({parent}). "
             "Contacts from this radio will be missing from dupe checking. "
-            "Set the log file under Setup → Logs.",
+            "Set the log file on the Log page.",
         )
     try:
         exists = path.is_file()

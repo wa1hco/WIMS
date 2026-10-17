@@ -33,7 +33,7 @@ WIMS still **reads** logs and **never writes** them. A human still initiates eve
 | Solo check | `agent/report.py` `format_report_solo` | Plain-language WSJT-X UDP check. N1MM block is titled as required “for the needed-vs-dupe roster test”. Missing N1MM is a warning, and an empty log makes every station look needed. |
 | WSJT logged QSO | `server/app.py` `observe_wsjtx` | Type 5 `QSOLogged` and type 12 `LoggedADIF` go into `_logged_qsos` (last 80) for `GET /api/logged-qsos`. They do **not** enter `LogStore`. |
 | ADIF parse | `log/app.py` | Length-aware ADIF reader used to **deliver** QSOs into N1MM. Available to reuse for reading. |
-| Setup page | `server/static/setup.html` | Networking, IF seats, agent config, H2 marks. Contest pick/resync is on `/n1mm`. No rule choice. No per-instance log path. |
+| Setup page | `server/static/setup.html` | Goal, networking, IF seats, agent config, H2 marks. The log is on `/log`. |
 
 `LogSource` is real, and the server constructs `N1mmLogSource` in `seed_from_db`. Live N1MM still enters through the 12060 listener, not through a method on the protocol (`parse_live` is N1MM-only). Design §3.6’s `live_events()` is not on the protocol yet.
 
@@ -88,14 +88,7 @@ Operate has **one** primary `LogSource` into `LogStore`. Merging two live feeds 
 | `wsjtx_adif` | T2 | `poll` ~1 s | New. Union of per-instance `wsjtx_log.adi`, or one shared file when that path is set. |
 | `adif_drop` | T5 | `poll` ~2 s | New. Operator-picked ADIF (GridTracker export, shared drive, backup). Same parser as WSJT-X. |
 
-Auto-pick when the operator has not chosen (`logs.json` `"primary": "auto"`):
-
-1. Saved `last_log.json` whose `.s3db` still opens → `n1mm` (today’s restart behavior).
-2. Else a configured shared ADIF that opens → `wsjtx_adif` on that file alone.
-3. Else every accessible per-instance `wsjtx_log.adi` → one `wsjtx_adif` union.
-4. Else an empty log, and Setup says so.
-
-A remembered N1MM file still wins, including when Logger+ is closed, so a contest PC keeps its dupe base. Setup offers “use WSJT-X logs instead” as an explicit choice.
+Auto-pick when the operator has not chosen (`logs.json` `"explicit": false`) follows the Goal. It does not keep a leftover N1MM file just because that file opens. See §2.5. A saved choice in `logs.json` always wins, including across restarts and across Goal changes.
 
 ### 2.3 `LoggedQso` fields to add
 
@@ -124,7 +117,47 @@ Parser: the length-aware reader in `wims.log.app` (honor `<tag:N>`). WIMS opens 
 
 `WimsServer` already holds `_log_source`. Seed and resync call `seed()` / `resync()` then `LogStore.reconcile`, as `seed_from_db` does for N1MM.
 
-A 1-second timer under the server lock calls `primary.poll()` and applies events. The N1MM socket path is unchanged. When the primary is `wsjtx_adif`, `observe_wsjtx` also upserts type 5 / type 12 through the same id function (the file poll dedupes). That covers the seconds before the next poll, and the case where the file itself will not open (section 4).
+A 1-second timer under the server lock calls `primary.poll()` and applies events. The N1MM socket path is unchanged when the chosen log is N1MM. When the chosen log is WSJT-X or another ADIF file, `observe_wsjtx` also upserts type 5 / type 12 through the same id function (the file poll dedupes). N1MM contact packets do not enter the log copy in that case. That covers the seconds before the next poll, and the case where the file itself will not open (section 4).
+
+### 2.5 Log to use (2026-10-17)
+
+The **Log** page (`/log`) shows **Log to use**. The line is always there, in plain language:
+
+`Log in use: <name>, <path>, <contact count>, <cutoff>`
+
+The operator picks the log. The Goal does not. A saved choice in `logs.json` is reloaded immediately when it changes, without restarting the server, and it stays when the Goal changes.
+
+Three fields, kept separate:
+
+| Field | Meaning |
+|-------|---------|
+| Log (`selection`) | Which file counts. N1MM contest (name and contact count), a WSJT-X log (shared file or one radio), or a GridTracker ADIF the program already finds. |
+| `count_since` | Optional UTC start. Contacts before this time do not count. |
+| `count_until` | Optional UTC end. Contacts after this time do not count. Empty means no end. |
+
+The window changes the needed/dupe **lookup**. Contacts outside it are not “already worked,” even though they remain in the logger’s file. This is not a display filter.
+
+Presets, so nobody types a date:
+
+| Preset | What it sets |
+|--------|----------------|
+| Whole log | Clears both times. |
+| Start now | `count_since` is this moment. The end stays open. A fresh challenge (“how fast can I work 100 countries?”) uses this on the chosen log. |
+| This year | `count_since` is January 1 of this year, local midnight, stored in UTC. The end stays open. |
+
+**Suggestion, only when nothing is saved.** A contest Goal suggests the newest N1MM contest whose name matches that contest. A leftover file for a different contest is not used, and the page says so. Just operating, an award, or a custom list suggests the WSJT-X log. The page says why. **Suggested for this goal** clears a saved choice and lets that suggestion run again.
+
+A new contest needs a new log in N1MM or the other logger. WIMS reads that log and does not create it. The page says that next to the selector.
+
+Warnings, in plain words: the file is missing, it cannot be read, it has no contacts that count, or its newest contact is from before today’s operating session.
+
+**How often a station counts** (once per band, once per band and mode group, once per contest, or a checklist scope) still applies, to the contacts inside the window.
+
+WSJT-X’s logged ADIF does not store a contest name or an exchange. When that log is selected for a contest Goal, the Log page says county, section, and contest-name checks cannot be completed from it.
+
+**Where the controls live.** Log to use, the count-since presets, the log-in-use line, per-radio log warnings, the shared WSJT-X file, Check logs, and Resync of an N1MM contest file are on `/log`. Setup keeps the Goal and the installation checks. `/n1mm` is only the list of several N1MM stations at once. With one N1MM station, or none, that tab stays hidden.
+
+**Follow-up, not in this change.** A challenge view (countries so far, elapsed time, rate) can sit on this same log plus `count_since` / `count_until`. Do not add that pace UI until the lookup above is the one operators trust.
 
 ---
 
@@ -140,21 +173,13 @@ Dupe, multiplier, and QSO points are a **rules** object. Rank weights (`snr`, `c
 
 ### 3.0 Which rule is active
 
-Two questions, in this order.
+The log and the rule are separate. Needed and dupe are always computed from the log chosen under **Log to use** (§2.5). The Goal only decides what counts against that log. WSJT-X Colors is the fallback rule for Just operating. It is evaluated against the selected log, including when that log is an N1MM file. Choosing N1MM does not switch the rule to ARRL VHF.
 
-**1. Is N1MM the log of record?** Yes when the primary `LogSource` is `n1mm` (saved `.s3db` still opens, or the operator chose N1MM). Then N1MM is authoritative: needed and dupe are computed from that log and a contest rule. The WSJT-X Colors rule and the GridTracker mirror are not applied. Rule inside that case:
-
-1. Contest the operator picked in the dropdown (a rules file).
-2. Else a custom rules file saved from Advanced.
-3. Else `arrl-vhf` (today’s fleet behavior).
-
-Setup says so: “N1MM is the log of record, so needed uses {rule}. The WSJT-X / GridTracker fallback is not used.” Switching the log primary to WSJT-X ADIF (section 2.2) is how solo leaves N1MM.
-
-**2. Solo, N1MM not the log.** Needed for a CQ uses this order (owner direction, 2026-10-15):
+**Rule, in order:**
 
 | Step | When | Rule |
 |------|------|------|
-| (a) | Contest dropdown is a named contest | That contest’s rules file (section 3.2), against the ADIF log |
+| (a) | Goal is a named contest | That contest’s rules file (section 3.2), against the log chosen in §2.5 |
 | (b) | Dropdown is Custom (an Advanced rules file was saved) | That file |
 | (c) | Dropdown is None | Fallback source (section 3.6 or 3.7) |
 
@@ -164,7 +189,7 @@ The active source is always visible: on Setup, at the top of **Contest rules**, 
 
 | Situation | Label |
 |-----------|--------|
-| N1MM log, dropdown None | `N1MM · ARRL VHF` |
+| Just operating, any selected log | `WSJT-X Colors · …` |
 | Dropdown is NY QSO Party | `NY QSO Party` |
 | Dropdown is Custom | `Custom rules` |
 | Dropdown None, ini read succeeded | `WSJT-X Colors · WSJT-X.ini` |
@@ -371,7 +396,7 @@ The dropdown moves to that contest and the sentence says it is a suggestion: “
 - GridTracker fallback path (section 3.7).
 - Station state and county, only if they were not detected.
 
-No new command-line arguments. `python -m wims solo` is unchanged. Operate shows `source_label` and each row’s `need_reason`. It does not grow a contest form. `/n1mm` still picks the `.s3db` and shows the same one-line summary.
+No new command-line arguments. `python -m wims solo` is unchanged. Operate shows `source_label` and each row’s `need_reason`. It does not grow a contest form. The log is chosen on `/log`. `/n1mm` lists several N1MM stations when more than one is on the network.
 
 ### 3.6 WSJT-X style needed rule
 
@@ -479,7 +504,7 @@ The Setup control is two menus. The first is the goal. The second depends on tha
 
 **Checklist** (Just operating → Checklist, or Custom → My checklist). Each line is overall, per band, or per mode. New DXCC entity starts ticked, overall. Also available: new grid, new state or province, new call. New county and new callsign prefix are on the list and cannot be ticked. The short prefix table used for N1MM inserts is not a prefix list, and it is not used here.
 
-**N1MM.** When N1MM is the log and the goal is still Just operating with WSJT-X Colors, needed stays on ARRL VHF (the old empty-menu behavior). An explicit contest, award, or checklist reads that same log. The sentence on Setup says so.
+**Log.** The Goal does not choose the log. The Log page → **Log to use** does (§2.5). An explicit contest, award, checklist, or Just operating reads that same log. WSJT-X Colors, when that is the rule, is checked against it.
 
 **Suggestion.** A date or contest name in the log may still move an unset menu to a contest. The sentence says it is a suggestion and tells the operator to choose Just operating if that is wrong. An explicit goal is not overwritten.
 
@@ -543,14 +568,19 @@ If **Shared log file** is set, `LogStore` reads that file and does not also inge
 
 ```json
 {
-  "schema": 1,
+  "schema": 2,
   "primary": "auto",
+  "explicit": false,
+  "selection": null,
+  "count_since": "",
+  "count_until": "",
+  "cutoff": "whole",
   "shared_path": "",
   "overrides": {"6m": "D:/contest/6m.adi"}
 }
 ```
 
-`primary` is `auto` | `n1mm` | `wsjtx` | `adif`. `overrides` maps a UDP id to one ADIF file.
+`primary` is `auto` | `n1mm` | `wsjtx` | `adif`. `explicit` false means the Goal may suggest a log (§2.5). A saved `selection` wins. `count_since` and `count_until` are separate UTC timestamps; empty means that side is open. `overrides` maps a UDP id to one ADIF file. Schema 1 files still load: `primary` other than `auto` is a saved choice.
 
 Do not search the network for logs. Only default data dirs, overrides, and `shared_path`.
 
@@ -561,16 +591,16 @@ A dead UNC path can block `Path.exists()` for a long time. Stat configured UNC p
 Shown in two places, same sentences:
 
 1. Solo setup check (`format_report_solo`), new **Logs** section. The N1MM section stays, retitled as optional: “N1MM (optional contest log)”.
-2. Setup page section **Logs**, fed by state key `log_access` (and, before any UDP, by the on-disk scan the solo check already ran).
+2. Log page, **Each radio’s log**, fed by state key `log_access` (and, before any UDP, by the on-disk scan the solo check already ran).
 
 | Situation | Severity | Sentence |
 |-----------|----------|----------|
-| Heard UDP id, data directory missing | warn | “WIMS hears {id} but cannot find its WSJT-X folder ({path}). Contacts from this radio will be missing from dupe checking. Set the log file under Setup → Logs.” |
+| Heard UDP id, data directory missing | warn | “WIMS hears {id} but cannot find its WSJT-X folder ({path}). Contacts from this radio will be missing from dupe checking. Set the log file on the Log page.” |
 | Directory exists, no `wsjtx_log.adi` yet | note | “{id} has no wsjtx_log.adi yet. WSJT-X creates that file when you log the first contact. Until then, stations on this radio look needed.” |
 | Path set, open fails (share offline, permissions) | warn | “The log for {id} is not readable ({path}). If this file is on a shared drive, connect that drive. Dupe checking is incomplete.” |
 | Open fails because the file is locked | warn | “WSJT-X has {path} open so WIMS cannot read it. WIMS will use contacts logged while WIMS is running, and will miss older ones.” |
 | No N1MM file and no readable ADIF | warn | “No contest log and no WSJT-X log is readable. Every station will look needed.” |
-| N1MM process absent, `.s3db` readable, primary is still N1MM | note | “N1MM is not running. WIMS is using the contest file {label}. Switch to WSJT-X logs under Setup → Logs if that file is the wrong log.” |
+| N1MM process absent, `.s3db` readable, primary is still N1MM | note | “N1MM is not running. WIMS is using the contest file {label}. Choose the WSJT-X log on the Log page if that file is the wrong log.” |
 | Readable log | ok | “{id}: {path} ({n} contacts).” |
 
 `log_access` entries: `{instance, path, status, message}` with `status` of `ok` | `missing_file` | `missing_dir` | `unreadable` | `locked`.
@@ -608,7 +638,7 @@ Check logs is an occasional tidy-up. It is not part of the live console. Operate
 Two ways to open it, same check:
 
 1. Double-click **Check logs** (Desktop, Start menu, or app menu). `Add WIMS to Desktop` creates that icon along with **WIMS**. The files are `scripts/Check logs.sh` and `scripts/Check logs.bat` (Windows also `scripts/windows/Check-Logs.cmd`).
-2. Setup → Advanced → **Check logs**.
+2. Log page → **Check logs**.
 
 The window opens immediately and says what it is doing (which file it is checking, which file it skipped because it had not changed). The first line of the result is a plain summary. **Show details** lists only contacts that are in one log and missing from another, grouped under the log that lacks them, with a filter and pages of 40. Exact extra copies inside one log are counted, not printed one by one.
 
@@ -694,7 +724,7 @@ JSON outline: `{summary, sources, window, matched, matched_count, only, missing,
 
 | Risk | What we do about it |
 |------|---------------------|
-| Extracting rules changes fleet VHF verdicts | L1’s only in-code preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. N1MM primary and dropdown None ⇒ `arrl-vhf`. Solo dropdown None ⇒ WSJT-X Colors (section 3.0), which must not run while N1MM is the log. |
+| Extracting rules changes fleet VHF verdicts | L1’s only in-code preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. Just operating uses WSJT-X Colors against whichever log is selected (§2.5). The log does not switch that rule. |
 | Shipping someone else’s contest definition | Rules files are original GPL-3.0 summaries with `rules_url`. No N1MM `.udc` gallery and no DXLog `.txt` in the repo. Importer reads only a path the operator picks on their machine. |
 | NYQP multiplier scope guessed wrong | `per` stays `unverified`. New-mult stays off until the rules page is checked. Dupe and points still follow the verified table. |
 | Shared file plus per-instance files double-count in `LogStore` | Primary reads one or the other (section 4.2). Audit may read both and labels those pairs as the same contact. |
