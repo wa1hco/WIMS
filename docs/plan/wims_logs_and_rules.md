@@ -550,9 +550,24 @@ Readers are shared with section 2 (ADIF parser, N1MM `read_dxlog`). The audit to
 | 8 | CQRLOG, QLog, KLog | ADIF export via `--adif` | SQL only after a spike |
 | 9 | Cabrillo | After the contest, file compare | Later; not a live logger |
 
-### 5.2 CLI and UI
+### 5.2 Where the operator runs it
 
-Operators compare logs from Setup → Advanced → **Check logs**.
+Check logs is an occasional tidy-up. It is not part of the live console. Operate does not host it.
+
+Two ways to open it, same check:
+
+1. Double-click **Check logs** (Desktop, Start menu, or app menu). `Add WIMS to Desktop` creates that icon along with **WIMS**. The files are `scripts/Check logs.sh` and `scripts/Check logs.bat` (Windows also `scripts/windows/Check-Logs.cmd`).
+2. Setup → Advanced → **Check logs**.
+
+The window opens immediately and says what it is doing (which file it is checking, which file it skipped because it had not changed). The first line of the result is a plain summary. **Show details** lists only contacts that are in one log and missing from another, grouped under the log that lacks them, with a filter and pages of 40. Exact extra copies inside one log are counted, not printed one by one.
+
+A path that does not answer within 2 seconds is marked unreadable. Six radios that point at one dead share wait once, not six times. The sentence says to connect that drive and check again.
+
+While the check runs it remembers each file’s size and modification time. The next check does not read a file that has not changed.
+
+Several instances that point at one log are one log. “Point at one log” means the same real path, the same inode (a link), or the same bytes. That collapse is not reported as duplicates. The summary says how many logs were read and how many of them were shared.
+
+Exit 0 when every selected log opened and the logs agree. Exit 1 when a contact is missing from one of the logs, a grid or mode disagrees, or extra copies were collapsed. Exit 2 when a selected path could not be read, including a path that did not answer. Notes (LoTW not checked, GridTracker not installed) do not by themselves fail the run.
 
 ### Developer
 
@@ -562,9 +577,7 @@ python -m wims.logaudit --wsjtx-auto --n1mm-db "D:\N1MM Logger+\Databases\2026 S
 python -m wims.logaudit --adif \\server\vhf\logs\shared.adi --lotw lotw.adi --json report.json
 ```
 
-No arguments: discover local WSJT-X logs and print the report. Exit 0 when every selected source opened and there are no disagreements and no “only in one source” rows. Exit 1 when any of those exist. Exit 2 when a selected path could not be read. Notes (LoTW, empty file before first QSO) do not by themselves fail the run.
-
-UI, L7: Setup button **Check logs** calls the same function on the solo PC and renders the text report. No second layout. Operate does not host it.
+No arguments: discover local WSJT-X logs, the N1MM log chosen in WIMS, and a GridTracker ADIF under the GridTracker data folder. Progress lines go to standard error. The report goes to standard output.
 
 ### 5.3 What “consistent” means
 
@@ -582,9 +595,9 @@ Greedy one-to-one pairing inside the window. A QSO already paired is not paired 
 |--------|---------|
 | Matched | One record on each side, key agrees, grid agrees or is absent on one side. |
 | Disagreement | Paired, and grid (4-char) or band or mode differs. Time is already inside the window. |
-| Only in A | No partner in the other selected sources. |
+| Only in A | No partner in the other selected sources. The summary counts that contact as missing from each other log. |
 | Duplicate inside one file | Two records in the same file with the same call, band, mode, and time window. |
-| Same contact in a shared file and a per-instance file | A match, not a duplicate, when both were selected on purpose. Say so in Notes. |
+| Same file from several instances | One log. Same real path, same inode, or identical bytes. Not a duplicate and not a match against itself. The summary counts it as a shared file. |
 
 LoTW uses the same pairing, and an unpaired local QSO is filed under Notes, not under “Only in”. An LoTW QSO with no local partner is “Only in LoTW” (logged on another computer, or call/time outside the window).
 
@@ -594,39 +607,35 @@ The tool does not delete, merge, or rewrite any log.
 
 ### 5.4 Report format
 
-Plain text, ASCII marks consistent with the solo check (`[OK]` `[! ]` `[XX]`). Optional `--json` writes the same structure for tests.
+The first line is the summary. ASCII marks on the source list stay consistent with the solo check (`[OK]` `[! ]` `[XX]`). Details list contacts missing from a log, not the contacts that matched. A long list stops after 40 rows in the text report and says how many remain. The window pages those rows and can filter them.
 
 ```text
 WIMS log check
 ==============
+3 logs read, 1 shared file, 12 contacts missing from N1MM.
+
 Sources
-  [OK] WSJT-X 6m   C:\Users\op\AppData\Local\WSJT-X - 6m\wsjtx_log.adi  (128 contacts)
-  [OK] N1MM        D:\N1MM Logger+\Databases\2026 Sep.s3db  ARRLVHFSEP  (130 contacts)
-  [! ] GridTracker not found — pass --gridtracker with the ADIF path
+  [OK] WSJT-X   C:\Users\op\AppData\Local\WSJT-X\wsjtx_log.adi  (128 contacts; shared by WSJT-X 6m, WSJT-X 2m)
+  [OK] N1MM     D:\N1MM Logger+\Databases\2026 Sep.s3db  (116 contacts)
+  [OK] GridTracker log.adi  (128 contacts)
 
 Window: all contacts
 
-Matched: 120
-Only in WSJT-X 6m: 3
-Only in N1MM: 8
-Disagreements: 1
-Duplicates inside one file: 0
+Matched: 116
+Missing from N1MM: 12
+Disagreements: 0
+Extra copies collapsed: 0
 
-Only in WSJT-X 6m
-  2026-09-12 14:02  K1ABC  6m  FT8  FN42
-
-Only in N1MM
-  2026-09-12 16:40  W1AW   6m  USB  FN31
-
-Disagreements
-  2026-09-12 15:10  W2XYZ  2m  FT8
-    grid  WSJT-X FN31   N1MM FN32
+Missing from N1MM
+  2026-09-12 14:02  K1ABC  6m  FT8  FN42  (in WSJT-X)
 
 Notes
-  LoTW file not provided — confirmation was not checked.
+  LoTW was not checked.
 ```
 
-JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes}`. Each row includes `call`, `band`, `mode`, `time`, `grid`, `source`.
+Why an earlier build was slow, measured on synthetic ADIF before this change: pairing walked every contact against every later contact. Two copies of 1,000 contacts took 0.08 s, 5,000 took 1.9 s, and 15,000 took 19.7 s. Reading one 15,000-contact file took about 0.3 s. Discovery also parsed every instance log, and it did that again inside the per-file loop. A dead UNC path has no timeout on `stat`. After the change, 20,000 contacts in two logs (50 missing) finishes in about 1 s, including the read.
+
+JSON outline: `{summary, sources, window, matched, matched_count, only, missing, disagreements, duplicates, notes}`. Each row includes `call`, `band`, `mode`, `time`, `grid`, `source`. `missing` is grouped by the log that lacks the contact. The Setup page and the Check logs window send that shape without the full `matched` list.
 
 ---
 
@@ -682,8 +691,8 @@ Each step is shippable on its own. Tests are stdlib `tests/unit/test_*.py` plus 
 | **L3** | Rules-file loader. First file `nyqp.json` (section 3.2.2), original text, `rules_url` set. Generic `excluded_modes`. WSJT-X Colors remains dropdown None, including Highlight by Mode and Only grid Fields sought. Read the plain ini bools. Spike `DecodeHighlighting`. | Tests: phone and digital on the same band are not a dupe; two digital modes on the same band are; points 1 / 2 / 3; FT8 scores 0 and is not needed; `per: unverified` does not set `is_new_mult`. N1MM-primary tests still expect `arrl-vhf`. A JTTY ban-list entry is accepted by the loader and is not wired to NYQP. |
 | **L4** | Discover per-instance and shared paths. Warnings in the solo check and on Setup (`log_access`). | A fixture directory tree (default + `--rig-name` + missing dir + shared symlink) produces the sentences in section 4.3. `LogStore` still unchanged. |
 | **L5** | `WsjtxAdifLogSource` + `adif_drop`. Solo auto-pick (section 2.2). Poll + UDP fast path, one id function. | With no N1MM file, a sample `wsjtx_log.adi` seeds dupes. Appending one record flips that call to a dupe. N1MM seed still works when `last_log.json` points at a `.s3db`. |
-| **L6** | `python -m wims.logaudit` for WSJT-X, N1MM, and generic ADIF. Text + JSON. | A fixture pair with one missing QSO, one grid clash, and one match exits 1 and prints the section 5.4 shape. Read-only. |
-| **L7** | GridTracker path spike, then `--gridtracker-auto`. LoTW file as notes. Setup **Check logs** renders the L6 report. | A GT sample ADIF and a LoTW sample produce notes, and an unpaired LoTW-only row is not a hard “missing from WSJT-X” failure. |
+| **L6** | Check logs for WSJT-X, N1MM, and generic ADIF. Summary first, text + JSON. | A fixture pair with one missing QSO, one grid clash, and one match exits 1 and prints the section 5.4 shape. Shared path, inode, and identical bytes count as one log. Read-only. |
+| **L7** | GridTracker ADIF under the app-data folders. LoTW file as notes. Setup **Check logs** and the Desktop **Check logs** icon render the same summary. | A GT sample ADIF and a LoTW sample produce notes, and an unpaired LoTW-only row is not a hard “missing from WSJT-X” failure. A path that does not answer within 2 seconds is unreadable. Unchanged files are not read again. |
 | **L8** | More loggers as `--adif` documentation and, only after a survey spike, one native reader (Log4OM SQLite or CQRLOG). | The spike checklist in the survey is filled in for that one program before any SQL is merged. |
 | **L9** | GridTracker roster as the step (c) alternative (section 3.7). Read-only. | A fixture JSON (once the spike names the file and keys) selects “new grid” and a CQ in a logged grid is not needed. Missing file ⇒ WSJT-X Colors, with the Setup sentence in section 3.7. No GridTracker file is written. |
 

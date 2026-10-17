@@ -3,8 +3,10 @@
 These are the files you double-click or run. Nothing else belongs in this folder.
 
 <!-- scripts-allowlist -->
-- `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu.
-- `add-wims-to-desktop.sh` — Linux/Mac: put a WIMS icon on the desktop and in the app menu.
+- `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu. Also adds Check logs.
+- `add-wims-to-desktop.sh` — Linux/Mac: put a WIMS icon on the desktop and in the app menu. Also adds Check logs.
+- `Check logs.bat` — Windows: see whether the logs on this PC agree.
+- `Check logs.sh` — See whether the logs on this PC agree. Opens the result in the browser.
 - `assets/wims-128.png` — Icon, 128 px.
 - `assets/wims-48.png` — Icon, 48 px.
 - `assets/wims-64.png` — Icon, 64 px.
@@ -12,6 +14,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `install-linux.sh` — First-time Linux install (Python check and the desktop icon).
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
 - `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser.
+- `windows/Check-Logs.cmd` — See whether the logs on this PC agree.
 - `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
 - `windows/Find-And-Set-WsjtxRigName.cmd` — Point WSJT-X shortcuts at the right rig name.
 - `windows/Find-And-Set-WsjtxRigName.ps1` — Helper used by Find-And-Set-WsjtxRigName.cmd.

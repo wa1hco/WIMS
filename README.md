@@ -18,7 +18,7 @@ ranked **call roster** across the fleet and **clicks to work** stations (S&P / t
 UDP Reply). Works with N1MM+, optional GridTracker, and rotators. **Not an autobot** — a human
 starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
-On the Setup page, **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds color checkboxes, a custom rule, station state and county, and a shared log path. To compare log files, open Setup → Advanced → **Check logs**. WIMS only reads logs.
+On the Setup page, **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds color checkboxes, a custom rule, station state and county, and a shared log path. To compare log files, double-click **Check logs**, or open Setup → Advanced → **Check logs**. The first line says how many logs were read and what is missing. WIMS only reads logs.
 
 | Where the choice is saved | |
 |--|--|

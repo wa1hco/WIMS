@@ -624,16 +624,70 @@ class LiveFleet:
         self.refresh_log_access()
         return {"ok": True, "rules": public}
 
-    def check_logs(self) -> dict:
-        from wims.logaudit.check import render_text, to_json
-        from wims.logaudit.cli import build_report
-        report = build_report([])
-        code = report.exit_code()
+    def check_logs(self, *, start: bool = True) -> dict:
+        """Read-only log compare. A running check reports progress instead of blocking."""
+        if getattr(self, "_logcheck_lock", None) is None:
+            self._logcheck_lock = threading.Lock()
+            self._logcheck = {"state": "idle", "progress": "", "result": None}
+        if not start:
+            with self._logcheck_lock:
+                return self._logcheck_public()
+        with self._logcheck_lock:
+            if self._logcheck["state"] == "running":
+                return self._logcheck_public()
+            self._logcheck = {
+                "state": "running",
+                "progress": "Looking for logs…",
+                "result": None,
+            }
+
+        def worker() -> None:
+            def progress(message: str) -> None:
+                with self._logcheck_lock:
+                    if self._logcheck["state"] == "running":
+                        self._logcheck["progress"] = message
+
+            try:
+                from wims.logaudit.check import ui_payload
+                from wims.logaudit.cli import build_report
+                report = build_report([], progress=progress)
+                result = ui_payload(report)
+            except Exception:
+                result = {
+                    "ok": False,
+                    "state": "done",
+                    "summary": (
+                        "Check logs failed. Close any program that has a log "
+                        "open and try again."
+                    ),
+                    "sources": [],
+                    "missing": {},
+                    "disagreements": [],
+                    "duplicates": [],
+                    "notes": [],
+                    "matched_count": 0,
+                }
+            with self._logcheck_lock:
+                self._logcheck["state"] = "done"
+                self._logcheck["progress"] = ""
+                self._logcheck["result"] = result
+
+        threading.Thread(target=worker, name="wims-log-check", daemon=True).start()
+        with self._logcheck_lock:
+            return self._logcheck_public()
+
+    def _logcheck_public(self) -> dict:
+        state = self._logcheck["state"]
+        if state == "done" and self._logcheck.get("result"):
+            out = dict(self._logcheck["result"])
+            out["state"] = "done"
+            out["progress"] = ""
+            return out
         return {
-            "ok": code == 0,
-            "exit_code": code,
-            "text": render_text(report),
-            "report": to_json(report),
+            "ok": False,
+            "state": state,
+            "progress": self._logcheck.get("progress") or "",
+            "summary": "",
         }
 
     def select_contest(self, *, db_path: str, contest_nr: int) -> dict:
@@ -1922,6 +1976,8 @@ def make_handler(live: LiveFleet, refresh: float):
             elif path == "/api/seat-profile":
                 # Home H2: TX-capable vs decode-only marks (seat-profile.json).
                 self._send_json(200, {"ok": True, **live.seat_profile_public()})
+            elif path == "/api/logs/check":
+                self._send_json(200, live.check_logs(start=False))
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
             else:
@@ -1972,7 +2028,7 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/logs/check":
                 try:
-                    self._send_json(200, live.check_logs())
+                    self._send_json(200, live.check_logs(start=True))
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/log/resync":

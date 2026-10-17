@@ -487,6 +487,27 @@ def linux_desktop_entry_text() -> str:
     )
 
 
+def linux_check_logs_desktop_entry_text() -> str:
+    """Freedesktop entry for the occasional log compare. Not the live console."""
+    icon = find_icon_path()
+    icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
+    script = _REPO_ROOT / "scripts" / "Check logs.sh"
+    return (
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Version=1.0\n"
+        "Name=Check logs\n"
+        "GenericName=Compare contest logs\n"
+        "Comment=See whether WSJT-X, N1MM, and other logs agree\n"
+        f"Exec=\"{script}\"\n"
+        f"Path={_REPO_ROOT}\n"
+        f"{icon_line}\n"
+        "Terminal=true\n"
+        "Categories=HamRadio;\n"
+        "StartupNotify=true\n"
+    )
+
+
 def write_linux_desktop_shortcut() -> Path:
     desk = desktop_dir()
     desk.mkdir(parents=True, exist_ok=True)
@@ -500,6 +521,16 @@ def write_linux_desktop_shortcut() -> Path:
         menu_path = menu / "WIMS.desktop"
         menu_path.write_text(content, encoding="utf-8")
         menu_path.chmod(menu_path.stat().st_mode | 0o111)
+    except OSError:
+        pass
+    check = linux_check_logs_desktop_entry_text()
+    check_path = desk / "Check logs.desktop"
+    check_path.write_text(check, encoding="utf-8")
+    check_path.chmod(check_path.stat().st_mode | 0o111)
+    try:
+        menu_check = menu / "Check logs.desktop"
+        menu_check.write_text(check, encoding="utf-8")
+        menu_check.chmod(menu_check.stat().st_mode | 0o111)
     except OSError:
         pass
     return path

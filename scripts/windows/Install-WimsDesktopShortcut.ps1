@@ -76,6 +76,34 @@ Write-Host "  Icon: $icoAbs"
 Write-Host " Double-click WIMS. The console opens in your browser when you start it."
 Write-Host ""
 
+$checkCmd = Join-Path $here "Check-Logs.cmd"
+if (Test-Path -LiteralPath $checkCmd) {
+    $checkAbs = (Resolve-Path -LiteralPath $checkCmd).Path
+    $checkLnk = Join-Path $desk "Check logs.lnk"
+    $wsh3 = New-Object -ComObject WScript.Shell
+    $ck = $wsh3.CreateShortcut($checkLnk)
+    $ck.TargetPath = $checkAbs
+    $ck.WorkingDirectory = $here
+    $ck.WindowStyle = 1
+    $ck.Description = "See whether your logs agree"
+    $ck.IconLocation = "$icoAbs,0"
+    $ck.Save()
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh3) | Out-Null
+    $checkStart = Join-Path $startMenu "Check logs.lnk"
+    $wsh4 = New-Object -ComObject WScript.Shell
+    $csm = $wsh4.CreateShortcut($checkStart)
+    $csm.TargetPath = $checkAbs
+    $csm.WorkingDirectory = $here
+    $csm.WindowStyle = 1
+    $csm.Description = "See whether your logs agree"
+    $csm.IconLocation = "$icoAbs,0"
+    $csm.Save()
+    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh4) | Out-Null
+    Write-Host " Desktop shortcut ready: Check logs"
+    Write-Host "  $checkLnk"
+    Write-Host ""
+}
+
 # Install / refresh never creates WIMS Server or WIMS Agent icons.
 foreach ($staleName in @("WIMS Server.lnk", "WIMS Agent.lnk")) {
     $stale = Join-Path $desk $staleName
