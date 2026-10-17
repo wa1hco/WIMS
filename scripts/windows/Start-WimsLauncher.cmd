@@ -18,7 +18,8 @@ cd /d "%ROOT%"
 
 call "%~dp0_resolve-python.cmd"
 if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EXE%"=="python" (
-  echo Python missing. Run Install-Wims.cmd again.
+  echo Python was not found, so WIMS cannot start.
+  echo Double-click Install-Wims.cmd in this folder, then try again.
   pause
   exit /b 1
 )

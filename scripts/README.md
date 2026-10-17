@@ -11,9 +11,11 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `assets/wims-48.png` — Icon, 48 px.
 - `assets/wims-64.png` — Icon, 64 px.
 - `assets/wims.png` — Icon used on the Linux desktop entry.
+- `_resolve-python.sh` — Finds Python for the other Linux start files.
 - `install-linux.sh` — First-time Linux install (Python check and the desktop icon).
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
-- `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser.
+- `start-wims.sh` — Open the WIMS window. The desktop icon runs this.
+- `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WIMS window uses.
 - `windows/Check-Logs.cmd` — See whether the logs on this PC agree.
 - `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
 - `windows/Find-And-Set-WsjtxRigName.cmd` — Point WSJT-X shortcuts at the right rig name.

@@ -74,14 +74,17 @@ class ScriptsAllowlistTests(unittest.TestCase):
 
     def test_obvious_launchers_point_at_the_real_entry(self):
         solo = ROOT / "scripts" / "start-wims-solo.sh"
+        front = ROOT / "scripts" / "start-wims.sh"
         desk = ROOT / "scripts" / "add-wims-to-desktop.sh"
         bat = ROOT / "scripts" / "Add WIMS to Desktop.bat"
         cmd = ROOT / "scripts" / "windows" / "Start-WimsLauncher.cmd"
         ps1 = ROOT / "scripts" / "windows" / "Install-WimsDesktopShortcut.ps1"
         self.assertTrue(os.access(solo, os.X_OK), "start-wims-solo.sh is not executable")
+        self.assertTrue(os.access(front, os.X_OK), "start-wims.sh is not executable")
         self.assertTrue(os.access(desk, os.X_OK), "add-wims-to-desktop.sh is not executable")
         self.assertIn("wims.solo", solo.read_text(encoding="utf-8"))
-        self.assertIn("wims.launcher", desk.read_text(encoding="utf-8"))
+        self.assertIn("wims.launcher", front.read_text(encoding="utf-8"))
+        self.assertIn("start-wims.sh", desk.read_text(encoding="utf-8"))
         self.assertIn("wims.launcher", cmd.read_text(encoding="utf-8"))
         self.assertIn("Install-WIMS-Desktop-Shortcut.cmd", bat.read_text(encoding="utf-8"))
         shortcut = ps1.read_text(encoding="utf-8")
@@ -126,6 +129,9 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         text = linux_desktop_entry_text()
         self.assertIn("Name=WIMS\n", text)
         self.assertIn("Icon=", text)
+        self.assertIn("scripts/start-wims.sh", text.replace("\\", "/"))
+        self.assertNotIn("PYTHONPATH", text)
+        self.assertNotIn("-m ", text)
 
     def test_check_logs_launcher_is_obvious(self):
         script = ROOT / "scripts" / "Check logs.sh"
