@@ -127,10 +127,10 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | § | Module | Status | Built / remaining |
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
-| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
+| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). Reply socket is unbound (OS picks the route; no path → plain sentence). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files, Setup dropdown, WSJT-X Colors when solo and Contest is None. N1MM stays authoritative when that log opened. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. N1MM stays the log when that file opened; just operating then still uses ARRL VHF. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
 | 3.6 | Logger interface (N1MM) | `[~]` | N1MM seed + live contact UDP + resync, plus `WsjtxAdifLogSource` when that `.s3db` is not the log. Per-instance `wsjtx_log.adi` discovery and Setup warnings. `python -m wims.logaudit` compares ADIF (and an N1MM export / LoTW file when you pass the path). Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
@@ -200,8 +200,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   stay green.
 - [x] **L2 — One Contest dropdown and a plain summary.** `contest_rules.json`
   (schema 3) beside `last_log.json`. Setup → Contest. Advanced stays collapsed.
+  Each Advanced control has a plain-language tip (hover and a keyboard ?).
   No new CLI flag. Alias suggestion does not override an explicit None. N1MM +
-  None stays ARRL VHF. Solo None stays WSJT-X Colors.
+  None stays ARRL VHF. Solo None stays WSJT-X Colors. Superseded in the UI by
+  L10; the saved file still migrates.
+- [x] **L10 — Goal menu.** Setup → Goal, then a second menu (contest, award,
+  worth working, or your list). “Just operating (not a contest)” replaces the
+  old empty Contest choice and still uses WSJT-X Colors. Awards: DXCC, Worked
+  All States, VUCC. Checklist adds state or province and call, each overall /
+  per band / per mode. County and callsign prefix show as coming soon. Schema 3
+  `contest_rules.json` keeps the saved contest. Advanced stays collapsed.
 - [x] **L3 — Rules files, NY QSO Party first, Colors fallback.** `nyqp.json` from
   the published v1.1 rules (2026-09-25). FT8/FT4 banned. County change resets.
   `per: unverified` does not mark new mults. Colors ini bools are read;
@@ -228,6 +236,28 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-17** — **CI green: Windows KEY tests, interlock bench, unbound
+  Work socket.** `test_key_cts` drives the Win32 path with a fake kernel32 on
+  Linux (`ctypes.get_last_error` is absent there, and `COM7` is not a device).
+  The interlock bench sends Reply on a multicast socket so the emulator still
+  hears it. The unicast reply socket is not bound to the listen address (solo
+  `127.0.0.1` could not reach another source: Linux errno 22, Windows 10051 /
+  10049 / 10065). No route is a plain sentence. A Decode before the first
+  Status stays off the roster (historical Band Activity). Expected send
+  failures no longer print `FAIL`. The ingest stale check no longer
+  subtracts 40s from a monotonic clock that can still be younger than that
+  (a fresh CI runner treated the stamp as "never heard").
+- **2026-10-17** — **Goal menu on Setup.** Contest / Award / Just operating /
+  Custom, with a second menu. DXCC, Worked All States, and VUCC use the log as
+  the already-have list. Just operating defaults to WSJT-X Colors; a checklist
+  covers DXCC, grid, state or province, and call (overall, per band, or per
+  mode). County and callsign prefix stay off — no list is shipped. Saved
+  schema 3 contest choices migrate. Design: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
+- **2026-10-17** — **Setup Advanced tooltips.** Every control under Setup →
+  Advanced has a short plain-language tip: a native hover title and a
+  keyboard-focusable ?. Covers contest rules, how often a station counts,
+  county reset, mode groups, modes that do not count, points, multipliers,
+  log path, Check logs, and WSJT-X Colors when Just operating uses them.
 - **2026-10-16** — **Zero-knowledge start and launcher path.** Desktop and Start
   menu icon named WIMS (`scripts/Add WIMS to Desktop.bat`,
   `scripts/add-wims-to-desktop.sh`). Second double-click reopens the console.

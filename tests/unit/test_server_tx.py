@@ -20,6 +20,8 @@
 arbiter release, CQ gate, and the read-only (--no-tx) path (plan §3.2 / §2.12).
 No sockets: a fake controller records what would be sent."""
 
+import contextlib
+import io
 import sys
 import time
 from pathlib import Path
@@ -309,9 +311,14 @@ def test_work_send_failed_is_not_raw_oserror():
                        delta_frequency=1500, message="CQ K1ABC FN31")),
                        now, "127.0.0.1", CTRL_PORT)
     row_id = live.snapshot(now)["roster"]["candidates"][0]["id"]
-    r = live.work_station(row_id)
+    # The operator log may describe the refusal. Keep it out of the suite log
+    # so a passing run does not look failed.
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        r = live.work_station(row_id)
     assert r["ok"] is False and r["error"] == "send_failed"
     assert "Invalid argument" in (r.get("detail") or "")
+    assert "FAIL" not in buf.getvalue() and "ERROR" not in buf.getvalue()
 
 
 def test_work_refuses_multicast_control_addr():
@@ -360,21 +367,41 @@ def test_same_band_status_does_not_drop_roster():
     assert live.snapshot(now + 10)["roster"]["count"] >= 1
 
 
-def test_decode_before_status_survives_first_status():
-    """Decode tagged band '?' then Status must reband, not wipe."""
+def test_replay_hold_ignores_historical_decodes():
+    """After Replay, the Band Activity dump is not a live roster row."""
     tx = _FakeTx()
     live = LiveFleet(tx_controller=tx)
     now = time.time()
-    # Decode first (no Status yet → band "?")
+    live.observe_wsjtx(M.parse(E.build_status(MID, 50_313_000, mode="FT8",
+                       de_call="WA1HCO", de_grid="FN42")), now, "127.0.0.1", CTRL_PORT)
+    live._ignore_decode_until[MID] = now + 5.0
+    live.observe_wsjtx(M.parse(E.build_decode(
+        MID, time_ms=1000, snr=-8, delta_time=0.2, delta_frequency=1500,
+        message="CQ K1OLD FN31")), now + 0.2, "127.0.0.1", CTRL_PORT)
+    assert live._roster.entry_for(f"{MID}|K1OLD|FN31") is None
+
+
+def test_decode_before_status_is_not_a_roster_row():
+    """A Decode before the first Status is historical Band Activity.
+
+    It must not become a roster row, and the first Status must not have to
+    reband it. A Decode after Status is a normal row on that band.
+    """
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
     live.observe_wsjtx(M.parse(E.build_decode(
         MID, time_ms=1000, snr=-8, delta_time=0.2, delta_frequency=1500,
         message="CQ K1ABC FN31")), now, "127.0.0.1", CTRL_PORT)
-    e = live._roster.entry_for(f"{MID}|K1ABC|FN31")
-    assert e is not None and e.band == "?"
+    assert live._roster.entry_for(f"{MID}|K1ABC|FN31") is None
     live.observe_wsjtx(M.parse(E.build_status(
         MID, 50_313_000, mode="FT8", de_call="WA1HCO", de_grid="FN42")),
         now + 1, "127.0.0.1", CTRL_PORT)
-    e2 = live._roster.entry_for(f"{MID}|K1ABC|FN31")
+    assert live._roster.entry_for(f"{MID}|K1ABC|FN31") is None
+    live.observe_wsjtx(M.parse(E.build_decode(
+        MID, time_ms=2000, snr=-8, delta_time=0.2, delta_frequency=1600,
+        message="CQ K1NEW FN32")), now + 2, "127.0.0.1", CTRL_PORT)
+    e2 = live._roster.entry_for(f"{MID}|K1NEW|FN32")
     assert e2 is not None and e2.band == "6m"
 
 

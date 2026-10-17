@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import sys
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest import mock
 from ctypes import wintypes
@@ -22,6 +23,15 @@ if str(SRC) not in sys.path:
 from wims.key.cts import (  # noqa: E402
     CtsSource, _handle_value, _win_fail, win_com_path,
 )
+
+
+@contextmanager
+def _windows_cts(fake, last_error=0):
+    """Run the Win32 KEY path on any OS. kernel32 and last-error are fakes."""
+    with mock.patch("wims.key.cts.sys.platform", "win32"), \
+         mock.patch("wims.key.cts._kernel32", return_value=fake), \
+         mock.patch("wims.key.cts._get_last_error", return_value=last_error):
+        yield
 
 
 class FakeK32:
@@ -62,7 +72,7 @@ class HandleValueTests(unittest.TestCase):
 
 class WinFailTests(unittest.TestCase):
     def test_includes_device_and_code(self):
-        with mock.patch("ctypes.get_last_error", return_value=6):
+        with mock.patch("wims.key.cts._get_last_error", return_value=6):
             msg = _win_fail("GetCommModemStatus", "COM7")
         self.assertIn("COM7", msg)
         self.assertIn("win32 6", msg)
@@ -72,7 +82,7 @@ class WinFailTests(unittest.TestCase):
 class CtsWinTests(unittest.TestCase):
     def test_open_reads_cts_on_64bit_handle(self):
         fake = FakeK32(handle=0x7FF6ABCD0000, cts=True)
-        with mock.patch("wims.key.cts._kernel32", return_value=fake):
+        with _windows_cts(fake):
             src = CtsSource.open("COM7")
             self.assertIsNone(src.error)
             self.assertEqual(src._handle, 0x7FF6ABCD0000)
@@ -82,9 +92,8 @@ class CtsWinTests(unittest.TestCase):
 
     def test_modem_status_fail_names_port(self):
         fake = FakeK32(modem_ok=False)
-        with mock.patch("wims.key.cts._kernel32", return_value=fake):
-            with mock.patch("ctypes.get_last_error", return_value=1):
-                src = CtsSource.open("COM3")
+        with _windows_cts(fake, last_error=1):
+            src = CtsSource.open("COM3")
         self.assertIsNotNone(src.error)
         self.assertIn("GetCommModemStatus", src.error)
         self.assertIn("COM3", src.error)
@@ -102,7 +111,7 @@ class CtsWinTests(unittest.TestCase):
 
     def test_open_is_read_only_shared(self):
         fake = FakeK32()
-        with mock.patch("wims.key.cts._kernel32", return_value=fake):
+        with _windows_cts(fake):
             src = CtsSource.open("COM7")
             src.close()
         access, share = fake.create_args[1], fake.create_args[2]
@@ -145,13 +154,16 @@ class SenseRetryTests(unittest.TestCase):
         with mock.patch("wims.key.runtime.CtsSource.open", side_effect=fake_open):
             with mock.patch("wims.key.runtime.CTS_RETRY_S", 0.05):
                 rt = KeyRuntime(device="COM3")
-                t = threading.Thread(target=rt._sense_loop, daemon=True)
-                t.start()
-                deadline = time.time() + 2.0
-                while len(opens) < 2 and time.time() < deadline:
-                    time.sleep(0.02)
-                rt._stop.set()
-                t.join(timeout=1.0)
+                try:
+                    t = threading.Thread(target=rt._sense_loop, daemon=True)
+                    t.start()
+                    deadline = time.time() + 2.0
+                    while len(opens) < 2 and time.time() < deadline:
+                        time.sleep(0.02)
+                    rt._stop.set()
+                    t.join(timeout=1.0)
+                finally:
+                    rt._tx.close()
         self.assertGreaterEqual(len(opens), 2)
         self.assertIsNone(rt.state.snapshot()["cts_error"])
 

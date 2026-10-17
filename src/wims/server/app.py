@@ -58,7 +58,7 @@ from wims.udp import messages as M  # noqa: E402
 from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
-from wims.udp.controller import TxController, v4_unicast_dest  # noqa: E402
+from wims.udp.controller import RouteError, TxController, v4_unicast_dest  # noqa: E402
 from wims.udp.gt_bridge import (  # noqa: E402
     DEFAULT_GT_BRIDGE_PORT, DEFAULT_GT_FORWARD_PORT, GridTrackerBridge,
     is_loopback_host, parse_host_port)
@@ -493,10 +493,15 @@ class LiveFleet:
         """Load the contest dropdown (and Colors fallback). Not called from __init__."""
         from wims.engine.contest_rules import resolve
         from wims.integrations.wsjtx_logs import ini_path
-        from wims.rules.choice import load_choice, load_custom, save_choice
+        from wims.rules.choice import load_choice, load_custom, needs_migration, save_choice
         if n1mm_authoritative is not None:
             self._n1mm_authoritative = bool(n1mm_authoritative)
         choice = load_choice()
+        if needs_migration():
+            try:
+                save_choice(choice)
+            except OSError:
+                pass
         custom = load_custom()
         names = list(self._contest_names)
         with self._lock:
@@ -512,10 +517,13 @@ class LiveFleet:
             custom_data=custom,
         )
         if resolved.suggested and resolved.contest and not choice.get("explicit"):
-            choice = dict(choice)
+            choice = dict(resolved.choice)
             choice["contest"] = resolved.contest
+            choice["goal"] = "contest"
+            choice["goal_id"] = resolved.contest
             choice["suggested"] = True
             choice["explicit"] = False
+            choice["schema"] = 4
             try:
                 save_choice(choice)
             except OSError:
@@ -560,17 +568,31 @@ class LiveFleet:
         """POST /api/rules. The dropdown applies immediately."""
         from wims.engine.contest_rules import custom_from_checkboxes, import_udc
         from wims.rules.choice import (
-            load_choice, load_logs, save_choice, save_custom, save_logs,
+            load_choice, load_custom, load_logs, save_choice, save_custom, save_logs,
         )
         if not isinstance(body, dict):
             return {"ok": False, "error": "invalid_body"}
         action = str(body.get("action") or "select").strip()
         choice = load_choice()
         if action == "select":
-            contest = body.get("contest")
-            if contest in ("", "none", "None"):
-                contest = None
-            choice["contest"] = contest
+            if body.get("goal"):
+                from wims.engine.goal_rules import sanitize_selection
+                goal, goal_id = sanitize_selection(
+                    str(body.get("goal") or ""),
+                    str(body.get("goal_id") or ""),
+                    custom_available=bool(load_custom()),
+                )
+                choice["goal"] = goal
+                choice["goal_id"] = goal_id
+                choice["schema"] = 4
+            else:
+                contest = body.get("contest")
+                if contest in ("", "none", "None"):
+                    contest = None
+                choice["contest"] = contest
+                choice["goal"] = None
+                choice["goal_id"] = None
+                choice["schema"] = 3
             choice["explicit"] = True
             choice["suggested"] = False
             save_choice(choice)
@@ -590,9 +612,20 @@ class LiveFleet:
         elif action == "colors_reset":
             choice["wsjtx_override"] = None
             save_choice(choice)
+        elif action == "checklist":
+            choice["checklist"] = body.get("items")
+            choice["schema"] = 4
+            if choice.get("goal") in {"operating", "custom"}:
+                choice["goal_id"] = "checklist"
+            choice["explicit"] = True
+            choice["suggested"] = False
+            save_choice(choice)
         elif action == "save_custom":
             save_custom(custom_from_checkboxes(body))
+            choice["goal"] = "custom"
+            choice["goal_id"] = "custom-file"
             choice["contest"] = "custom"
+            choice["schema"] = 4
             choice["explicit"] = True
             choice["suggested"] = False
             save_choice(choice)
@@ -984,15 +1017,22 @@ class LiveFleet:
             with self._lock:
                 self._arbiter.release(inst)
             win = getattr(e, "winerror", None) or getattr(e, "errno", None)
-            print(f"TX Work FAIL {inst} {call} dests={dests}: {e}", flush=True)
-            return {
-                "ok": False,
-                "error": "send_failed",
-                "detail": (
+            if isinstance(e, RouteError):
+                detail = str(e)
+            else:
+                detail = (
                     f"UDP Work {call} → {dests} failed"
                     + (f" (err {win})" if win is not None else "")
                     + f": {e}"
-                ),
+                )
+            # Operator log. Avoid the words FAIL and ERROR — a green test that
+            # expects send_failed must not look like a suite failure.
+            print(f"TX Work could not send {inst} {call} → {dests}: {detail}",
+                  flush=True)
+            return {
+                "ok": False,
+                "error": "send_failed",
+                "detail": detail,
             }
         dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
         print(f"TX Work ok {inst!r} {call!r} msg={msg_text!r} "
@@ -1094,7 +1134,7 @@ class LiveFleet:
                 dest_s = ", ".join(f"{h}:{p}" for h, p in dests) or "?"
                 print(f"TX Halt ok {t!r} → [{dest_s}]", flush=True)
             except OSError as e:
-                print(f"TX Halt FAIL {t} dests={dests}: {e}", flush=True)
+                print(f"TX Halt could not send {t} → {dests}: {e}", flush=True)
         bands = sorted({band_of.get(t) or "?" for t in halted})
         with self._lock:
             for t in halted:
@@ -2012,7 +2052,7 @@ def make_handler(live: LiveFleet, refresh: float):
                             else 400)
                     self._send_json(code, result)
                 except Exception as e:
-                    print(f"TX Work EXC {e!r}", flush=True)
+                    print(f"TX Work unexpected {e!r}", flush=True)
                     self._send_json(500, {
                         "ok": False, "error": "send_failed",
                         "detail": f"Work failed: {e}",

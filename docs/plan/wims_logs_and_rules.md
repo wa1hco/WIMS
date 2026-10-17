@@ -130,6 +130,12 @@ A 1-second timer under the server lock calls `primary.poll()` and applies events
 
 ## 3. Contest rules
 
+**Update (2026-10-17).** The casual control is no longer one Contest menu with
+an empty “None” row. It is a Goal menu plus a second menu. See §3.8. Sections
+3.0–3.7 still describe how a contest file, N1MM, and WSJT-X Colors behave.
+Where they say “dropdown None”, read “Just operating (not a contest)” with
+Worth working set to WSJT-X Colors.
+
 Dupe, multiplier, and QSO points are a **rules** object. Rank weights (`snr`, `cq`, `rover`, condition open/marginal/dead) stay in `ScoringStrategy`. The two axes are independent: rules decide “is this contact worth points / a mult, or already worked?”; the strategy decides how to rank the stations that are still worth working.
 
 ### 3.0 Which rule is active
@@ -350,7 +356,7 @@ Suggestion sources, in order, never overriding an explicit dropdown choice:
 1. N1MM `ContestName` or ADIF `CONTEST_ID` matches a file’s `aliases`.
 2. Today’s date falls in a file’s `season`.
 
-The dropdown moves to that contest and the sentence says it is a suggestion: “Suggested from the date: NY QSO Party. Set Contest to None if that is wrong.” Choosing None sticks for that season window.
+The dropdown moves to that contest and the sentence says it is a suggestion: “Suggested from the date: NY QSO Party. Choose Just operating (not a contest) if that is wrong.” Choosing Just operating sticks for that season window. See §3.8.
 
 **Always visible**
 
@@ -455,6 +461,51 @@ Alternative for step (c) only. The operator sets `fallback` to `gridtracker`. WI
 - Which ADIF files GT has loaded when several are configured.
 
 If the chosen file cannot be read, Setup says “GridTracker settings are not readable ({path}). Needed is using WSJT-X Colors until this file opens.” Step (c) falls back to section 3.6 rather than marking every station needed.
+
+### 3.8 Goal menu (2026-10-17)
+
+The Setup control is two menus. The first is the goal. The second depends on that goal. Advanced stays collapsed. No new command-line flag. The page does not ask anyone to type a path for a normal start.
+
+| Goal | Second menu | What “needed” means |
+|------|-------------|---------------------|
+| Contest | NY QSO Party, ARRL VHF, and any later rules file | That file (section 3.2), against the log |
+| Award | DXCC, Worked All States, VUCC (grid squares), County hunting | A station is new when that place is not already in the log |
+| Just operating (not a contest) | WSJT-X Colors (the default), or Checklist | Colors: section 3.6. Checklist: the ticked lines below |
+| Custom | My checklist, and Saved contest rules when Advanced has saved one | The ticked lines, or the saved custom file (section 3.3) |
+
+“Just operating (not a contest)” is the old empty Contest row. The saved file still uses `contest: null` for that choice so an older build keeps the same meaning. A named contest id is unchanged.
+
+**Awards.** Logged contacts are the already-have list. DXCC matches a country number stored on the contact, and a callsign country only when a lookup is available. Without that lookup the summary says a station counts only when the log stores a country number. Worked All States is the fifty US states; a province does not count, and a station with no state is not marked new. VUCC is the four-character grid square. County hunting is shown and disabled: WIMS does not have a county list.
+
+**Checklist** (Just operating → Checklist, or Custom → My checklist). Each line is overall, per band, or per mode. New DXCC entity starts ticked, overall. Also available: new grid, new state or province, new call. New county and new callsign prefix are on the list and cannot be ticked. The short prefix table used for N1MM inserts is not a prefix list, and it is not used here.
+
+**N1MM.** When N1MM is the log and the goal is still Just operating with WSJT-X Colors, needed stays on ARRL VHF (the old empty-menu behavior). An explicit contest, award, or checklist reads that same log. The sentence on Setup says so.
+
+**Suggestion.** A date or contest name in the log may still move an unset menu to a contest. The sentence says it is a suggestion and tells the operator to choose Just operating if that is wrong. An explicit goal is not overwritten.
+
+**Saved file.** Schema 4, same path as before, beside `last_log.json`. On startup a schema 3 file is rewritten. `contest` is kept in sync for a contest id and for saved contest rules. Awards and Just operating leave `contest` empty.
+
+```json
+{
+  "schema": 4,
+  "goal": "operating",
+  "goal_id": "wsjtx-colors",
+  "contest": null,
+  "explicit": true,
+  "checklist": {
+    "dxcc": {"enabled": true, "scope": "overall"},
+    "grid": {"enabled": false, "scope": "overall"},
+    "state": {"enabled": false, "scope": "overall"},
+    "county": {"enabled": false, "scope": "overall"},
+    "prefix": {"enabled": false, "scope": "overall"},
+    "call": {"enabled": false, "scope": "overall"}
+  }
+}
+```
+
+`goal_id` for a contest is the rules-file id (`nyqp`, `arrl-vhf`). For an award it is `dxcc`, `was`, `vucc`, or `county`. For Just operating it is `wsjtx-colors` or `checklist`. For Custom it is `checklist` or `custom-file`.
+
+A heard station counts as a new state only when its state is already known (a state on the logged contact, or the exchange). A decode with no state is not invented from the callsign or from the grid. The summary says so.
 
 ---
 
@@ -656,7 +707,7 @@ JSON outline: `{sources, window, matched, only, disagreements, duplicates, notes
 
 ## 7. Open questions
 
-1. **Solo default — resolved (2026-10-15), UX revised the same day.** Dropdown None ⇒ WSJT-X Colors. A suggested contest (date or `CONTEST_ID`) may move the dropdown, and the sentence says it is a suggestion. An explicit choice sticks. N1MM as the log of record stays on the contest file, or `arrl-vhf` when the dropdown is None.
+1. **Solo default — resolved (2026-10-15), UX revised the same day, Goal menu 2026-10-17.** Just operating ⇒ WSJT-X Colors. A suggested contest (date or `CONTEST_ID`) may move the Goal menu to that contest, and the sentence says it is a suggestion. An explicit choice sticks. N1MM as the log of record stays on the contest file, or `arrl-vhf` when the goal is still just operating. Awards and the checklist, when chosen, read that same log. See §3.8.
 2. **GridTracker filename.** Confirm on a real GT2 install (Windows and Linux) before `--gridtracker-auto` looks for a log name, and before the fallback reader looks for a settings file (section 3.7). Until then the operator passes a path.
 3. **File lock.** Does WSJT-X on Windows allow a second process to read `wsjtx_log.adi` while the program is open? The locked-file warning depends on the answer.
 4. **Suggest vs auto-switch** when N1MM `ContestName` maps to a preset. This proposal suggests only. Auto-switch would surprise someone who set Custom.
@@ -686,5 +737,6 @@ Each step is shippable on its own. Tests are stdlib `tests/unit/test_*.py` plus 
 | **L7** | GridTracker path spike, then `--gridtracker-auto`. LoTW file as notes. Setup **Check logs** renders the L6 report. | A GT sample ADIF and a LoTW sample produce notes, and an unpaired LoTW-only row is not a hard “missing from WSJT-X” failure. |
 | **L8** | More loggers as `--adif` documentation and, only after a survey spike, one native reader (Log4OM SQLite or CQRLOG). | The spike checklist in the survey is filled in for that one program before any SQL is merged. |
 | **L9** | GridTracker roster as the step (c) alternative (section 3.7). Read-only. | A fixture JSON (once the spike names the file and keys) selects “new grid” and a CQ in a logged grid is not needed. Missing file ⇒ WSJT-X Colors, with the Setup sentence in section 3.7. No GridTracker file is written. |
+| **L10** | Goal menu (section 3.8). Schema 4 migrates a schema 3 contest id. | Setup shows Goal, then a second menu. Just operating stays on WSJT-X Colors. DXCC, WAS, and VUCC use the log as the already-have list. County and callsign prefix are visible and not selectable. An explicit Just operating choice is not replaced by a date or contest-name suggestion. N1MM plus Just operating stays ARRL VHF. |
 
 L1 does not require a logger change. L2 can ship the source label before L3 fills in Colors parsing. L4 does not require rules beyond L1. L9 waits on the section 3.7 spike and can share the ADIF reader with L5. L6 can start as soon as that reader exists; it can also carry its own small reader if L5 slips, as long as the id and field rules match section 2.3.

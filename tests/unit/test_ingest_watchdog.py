@@ -23,6 +23,21 @@ if str(SRC) not in sys.path:
 from wims.server.app import LiveFleet, ingest_loop, start_ingest, start_ingest_watchdog
 
 
+def _mono_ago(seconds: float) -> float:
+    """A positive monotonic stamp at least ``seconds`` before now.
+
+    ``time.monotonic()`` counts from boot. Subtracting more than the uptime
+    yields a negative number, and the ingest code treats that as "never
+    heard". On a young machine the oldest legal stamp is just after boot;
+    the age is then the whole uptime.
+    """
+    now = time.monotonic()
+    then = now - float(seconds)
+    if then > 0.0:
+        return then
+    return 1e-6
+
+
 class _BoomFleet(LiveFleet):
     def observe_wsjtx(self, msg, now, src_ip, src_port=None):
         raise RuntimeError("simulated observe failure")
@@ -56,7 +71,7 @@ class IngestHardenTests(unittest.TestCase):
 
     def test_watchdog_restarts_dead_thread(self):
         live = LiveFleet()
-        live.ingest_heartbeat_mono = time.monotonic() - 60.0  # already stalled
+        live.ingest_heartbeat_mono = _mono_ago(60.0)  # already stalled
         # Pretend there was a dead ingest thread.
         dead = threading.Thread(target=lambda: None, daemon=True)
         dead.start()
@@ -91,7 +106,7 @@ class IngestHardenTests(unittest.TestCase):
     def test_watchdog_rejoins_when_wsjt_traffic_stalls(self):
         live = LiveFleet()
         live.ingest_heartbeat_mono = time.monotonic()  # thread is fine
-        live.ingest_last_wsjt_mono = time.monotonic() - 30.0
+        live.ingest_last_wsjt_mono = _mono_ago(30.0)
         live.wsjt_pkts = 12
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(("127.0.0.1", 0))
@@ -121,7 +136,7 @@ class IngestHardenTests(unittest.TestCase):
     def test_watchdog_rebinds_if_rejoin_does_not_restore(self):
         live = LiveFleet()
         live.ingest_heartbeat_mono = time.monotonic()
-        live.ingest_last_wsjt_mono = time.monotonic() - 30.0
+        live.ingest_last_wsjt_mono = _mono_ago(30.0)
         live.wsjt_pkts = 12
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(("127.0.0.1", 0))
@@ -185,13 +200,20 @@ class IngestHardenTests(unittest.TestCase):
         sock.close()
 
     def test_snapshot_marks_stale_when_wsjt_silent(self):
+        """Silence longer than 15s is stale, even when the host just booted.
+
+        ``time.monotonic() - 40`` is negative until the machine has been up
+        for 40s, and a non-positive stamp means "never heard".
+        """
         live = LiveFleet()
-        live.ingest_heartbeat_mono = time.monotonic()
+        clock = 1_000.0
+        live.ingest_heartbeat_mono = clock
         live._ingest_thread = threading.Thread(target=lambda: None, daemon=True)
         live._ingest_thread.start()
-        live.ingest_last_wsjt_mono = time.monotonic() - 40.0
+        live.ingest_last_wsjt_mono = clock - 40.0
         live.wsjt_pkts = 3
-        d = live.snapshot(time.time())
+        with mock.patch("wims.server.app.time.monotonic", return_value=clock):
+            d = live.snapshot(time.time())
         ing = d["ingest"]
         self.assertTrue(ing["stale"])
         self.assertGreater(ing["wsjt_age_s"], 15.0)
