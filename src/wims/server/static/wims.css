@@ -123,7 +123,7 @@ tr.decode-only.workable { cursor: default; }
 .col-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:4px;
              white-space:nowrap; }
 .hint { font-size:12px; color:var(--dim); margin:0 0 8px 0; max-width:72rem; }
-/* Setup tips: native title, plus a keyboard-focusable ? */
+/* Setup tips: native title plus a keyboard-focusable ? */
 .advline { display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin:3px 0; }
 .advtip { position:relative; display:inline-flex; align-items:center; }
 .tipbtn {
@@ -143,6 +143,7 @@ tr.decode-only.workable { cursor: default; }
   font-size: 12px; font-weight: normal; line-height: 1.35; white-space: normal;
   text-align: left;
 }
+/* Keyboard focus shows the words. Mouse hover uses the native title. */
 .tipbtn:focus-visible + .tiptxt { display: block; }
 .goal-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:3px 0; }
 .goal-row select { font: inherit; font-size: 12px; }

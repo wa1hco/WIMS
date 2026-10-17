@@ -200,6 +200,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   stay green.
 - [x] **L2 — One Contest dropdown and a plain summary.** `contest_rules.json`
   (schema 3) beside `last_log.json`. Setup → Contest. Advanced stays collapsed.
+  Each Advanced control has a plain-language tip (hover and a keyboard ?).
   No new CLI flag. Alias suggestion does not override an explicit None. N1MM +
   None stays ARRL VHF. Solo None stays WSJT-X Colors. Superseded in the UI by
   L10; the saved file still migrates.
@@ -241,6 +242,11 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   covers DXCC, grid, state or province, and call (overall, per band, or per
   mode). County and callsign prefix stay off — no list is shipped. Saved
   schema 3 contest choices migrate. Design: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
+- **2026-10-17** — **Setup Advanced tooltips.** Every control under Setup →
+  Advanced has a short plain-language tip: a native hover title and a
+  keyboard-focusable ?. Covers contest rules, how often a station counts,
+  county reset, mode groups, modes that do not count, points, multipliers,
+  log path, Check logs, and WSJT-X Colors when Just operating uses them.
 - **2026-10-16** — **Zero-knowledge start and launcher path.** Desktop and Start
   menu icon named WIMS (`scripts/Add WIMS to Desktop.bat`,
   `scripts/add-wims-to-desktop.sh`). Second double-click reopens the console.
