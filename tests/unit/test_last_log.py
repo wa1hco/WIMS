@@ -133,6 +133,7 @@ def test_auto_seed_prefers_remembered_over_dated_contest():
         live0.configure_log_discovery(databases_dir=root)
         # Isolate preference file so host prefs don't leak into the test.
         os.environ["WIMS_LAST_LOG"] = pref_path
+        os.environ["WIMS_LOGS"] = str(Path(root) / "logs.json")
         try:
             if Path(pref_path).is_file():
                 os.unlink(pref_path)
@@ -157,6 +158,7 @@ def test_auto_seed_prefers_remembered_over_dated_contest():
             assert live1.snapshot(2.0)["n1mm_sync"]["seed"]["selection"] == "remembered"
         finally:
             os.environ.pop("WIMS_LAST_LOG", None)
+            os.environ.pop("WIMS_LOGS", None)
             try:
                 os.unlink(pref_path)
             except OSError:
@@ -181,6 +183,7 @@ def test_seed_explicit_db_remembers_and_ignores_other_files():
     Path(_mk_db([(0, "DX", "1900-01-01", ["D1D", "D2D"])])).replace(dx)
     pref_path = str(Path(root) / "last.json")
     os.environ["WIMS_LAST_LOG"] = pref_path
+    os.environ["WIMS_LOGS"] = str(Path(root) / "logs.json")
     try:
         live = LiveFleet()
         live.configure_log_discovery(databases_dir=root)
@@ -193,6 +196,7 @@ def test_seed_explicit_db_remembers_and_ignores_other_files():
         assert pref is not None and Path(pref["db_path"]).name == "wa1hco.s3db"
     finally:
         os.environ.pop("WIMS_LAST_LOG", None)
+        os.environ.pop("WIMS_LOGS", None)
         for p in (june, dx, Path(pref_path)):
             try:
                 os.unlink(p)

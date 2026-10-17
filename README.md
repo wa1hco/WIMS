@@ -18,14 +18,14 @@ ranked **call roster** across the fleet and **clicks to work** stations (S&P / t
 UDP Reply). Works with N1MM+, optional GridTracker, and rotators. **Not an autobot** — a human
 starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
 
-On the Setup page, **Contest** is one dropdown (None, NY QSO Party, ARRL VHF). The line under it is the rule in plain language. Changing the dropdown applies immediately. **Advanced** holds color checkboxes, a custom rule, station state and county, and a shared log path. To compare log files, double-click **Check logs**, or open Setup → Advanced → **Check logs**. The first line says how many logs were read and what is missing. WIMS only reads logs.
+On Setup, **Goal** is what you want from the stations you hear (a contest, an award, just operating, or your own list). The line under it is the rule in plain language. Changing it applies immediately. **Advanced** holds color checkboxes, a custom rule, and station state and county. The log WIMS checks is on **Log**: which file, and whether to count the whole log, contacts from now, or this year. To compare log files, double-click **Check logs**, or open Log → **Check logs**. The first line says how many logs were read and what is missing. WIMS only reads logs.
 
 | Where the choice is saved | |
 |--|--|
 | Linux | `~/.config/wims/` |
 | Windows | `%APPDATA%\wims\` |
 
-None, with no N1MM log, uses WSJT-X Colors against each instance’s log. An N1MM log that opens stays the log of record; dropdown None then means ARRL VHF.
+Just operating uses WSJT-X Colors against the log you chose. A contest goal suggests the newest matching contest log only when you have not chosen one. Your choice stays until you change it.
 
 > Design: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
 > Status: [docs/plan/wims_status.md](docs/plan/wims_status.md)
@@ -110,7 +110,7 @@ You only need the folder that contains `src\wims\` and `scripts\windows\`.
 
 - Desktop **WIMS** → **Site server** (N1MM or dedicated host PC — not a WSJT-X-only seat), or **`Start-WimsServer.cmd`**.
 - Browser on this PC: [http://localhost:8787/](http://localhost:8787/)  
-  · Overview `/overview` · WSJT-X `/wsjt` · N1MM `/n1mm` · Setup `/setup`
+  · Overview `/overview` · WSJT-X `/wsjt` · Log `/log` · N1MM `/n1mm` (several stations) · Setup `/setup`
 
 Use the **contest LAN IP** for `--iface` when other hosts must reach the server (the Start script
 defaults are lab-oriented; details in [scripts/windows/README.md](scripts/windows/README.md)).
@@ -119,7 +119,7 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 
 | Role | What to install / do |
 |------|----------------------|
-| **This PC = site server only** | WIMS install above is enough. Optional: copy N1MM contest `.s3db` onto the server for log seed (Setup page). |
+| **This PC = site server only** | WIMS install above is enough. Optional: copy an N1MM contest file onto the server, then choose it on the Log page. |
 | **Radio seat** (N1MM + WSJT-X) | Install N1MM/WSJT-X yourself. Multicast + **Outgoing interface = LAN**. Browser → `http://<server-ip>:8787/`. Seat agent pack: same `scripts\windows\` folder — see **Full Windows guide** below. |
 | **Operator laptop** | Browser only → `http://<server-ip>:8787/` (no WIMS install). |
 

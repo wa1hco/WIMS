@@ -761,7 +761,9 @@ def test_auto_seed_picks_one_contest_not_all():
     # Isolate from host ~/.config/wims/last_log.json (remembered DX log).
     pref = db + ".last_log.json"
     prev = os.environ.get("WIMS_LAST_LOG")
+    prev_logs = os.environ.get("WIMS_LOGS")
     os.environ["WIMS_LAST_LOG"] = pref
+    os.environ["WIMS_LOGS"] = pref + ".logs.json"
     con = sqlite3.connect(db)
     con.executescript("""
         CREATE TABLE ContestInstance (
@@ -799,7 +801,11 @@ def test_auto_seed_picks_one_contest_not_all():
             os.environ.pop("WIMS_LAST_LOG", None)
         else:
             os.environ["WIMS_LAST_LOG"] = prev
-        for p in (db, pref):
+        if prev_logs is None:
+            os.environ.pop("WIMS_LOGS", None)
+        else:
+            os.environ["WIMS_LOGS"] = prev_logs
+        for p in (db, pref, pref + ".logs.json"):
             try:
                 os.unlink(p)
             except OSError:

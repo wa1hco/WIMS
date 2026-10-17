@@ -85,13 +85,14 @@ One **site server** per contest LAN. Top nav:
 - **Work** = answer that station. **CQ / run** = WSJT-X UI only.
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 
-### Overview · WSJT-X · N1MM
+### Overview · WSJT-X · Log · N1MM
 
 | Page | URL | Content |
 |------|-----|---------|
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity heatmaps |
-| **N1MM** | `/n1mm` | Contest log pick/resync + logger sync / network |
+| **Log** | `/log` | Which log counts, count-since, resync, Check logs |
+| **N1MM** | `/n1mm` | Several N1MM stations at once (hidden when there is only one) |
 
 (`/status` still opens Overview.)
 
@@ -105,7 +106,7 @@ One **site server** per contest LAN. Top nav:
 
 ![Site console — Setup](manual/images/site-setup.png)
 
-*Setup — install diagnostics (networking, seat configs). Contest log is on **N1MM**.*
+*Setup — goal and install diagnostics (networking, seat configs). The log is on **Log**.*
 
 ---
 
