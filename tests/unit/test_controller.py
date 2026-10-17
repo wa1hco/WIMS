@@ -18,14 +18,18 @@
 
 """TxController send path — builds valid Reply/Halt addressed to an instance."""
 
+import socket
 import sys
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.udp import messages as M  # noqa: E402
 from wims.udp import encode as E  # noqa: E402
-from wims.udp.controller import TxController, v4_unicast_dest  # noqa: E402
+from wims.udp.controller import (  # noqa: E402
+    TxController, open_unicast_socket, plain_route_message, v4_unicast_dest,
+)
 
 
 class _FakeSock:
@@ -124,6 +128,95 @@ def test_send_coerces_mapped_v6_with_zone():
     c = TxController(fs, ("224.0.0.73", 2237), mcast_sock=fs)
     c.reply("SIM-6M", d, dests=[("::ffff:192.168.10.5%12", 54321)])
     assert [s[1] for s in fs.sent] == [("192.168.10.5", 54321)]
+
+
+def _cq():
+    return M.parse(E.build_decode(
+        "SIM-6M", time_ms=8_145_000, snr=-7, delta_time=0.2,
+        delta_frequency=1500, message="CQ K1ABC FN42"))
+
+
+def test_unicast_socket_is_not_pinned_to_listen_iface():
+    """Solo listens on 127.0.0.1. The reply socket must still reach another address.
+
+    Binding the reply socket to 127.0.0.1 makes sendto(LAN) Linux errno 22 and
+    Windows 10051 / 10049 / 10065.
+    """
+    s = open_unicast_socket("127.0.0.1")
+    try:
+        assert s.getsockname()[0] != "127.0.0.1"
+        try:
+            s.sendto(b"\x00", ("192.0.2.1", 9))
+        except OSError as e:
+            assert e.errno != 22
+            assert getattr(e, "winerror", None) not in (10049, 10051, 10065)
+        s.sendto(b"\x00", ("127.0.0.1", 9))
+    finally:
+        s.close()
+
+
+def test_unreachable_codes_are_plain_language():
+    d = _cq()
+    for code in (10051, 10049, 10065, 101):
+        class Boom(_FakeSock):
+            def sendto(self, data, dest):
+                err = OSError(code, "network unreachable")
+                err.winerror = code
+                raise err
+
+        fs = Boom()
+        c = TxController(fs, ("192.0.2.1", 2237))
+        try:
+            c.reply("SIM-6M", d)
+        except OSError as e:
+            text = str(e)
+        else:
+            raise AssertionError(f"code {code} must not send")
+        assert "same network" in text
+        assert "192.0.2.1:2237" in text
+        assert "FAIL" not in text and "ERROR" not in text
+        assert fs.sent == []
+
+
+class _RecordingSock(socket.socket):
+    """Real UDP socket whose sendto records the destination and does not transmit."""
+
+    def __init__(self):
+        super().__init__(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sent: list = []
+
+    def sendto(self, data, flags=0, *args):  # type: ignore[override]
+        dest = args[-1] if args else flags
+        self.sent.append(dest)
+        return len(data) if isinstance(data, (bytes, bytearray)) else 0
+
+
+def test_route_check_skips_unreachable_and_sends_the_rest():
+    d = _cq()
+    s = _RecordingSock()
+    blocked = OSError(10051, "network unreachable")
+    blocked.winerror = 10051
+
+    def route(host):
+        if host == "203.0.113.9":
+            return blocked
+        return None
+
+    c = TxController(s, ("203.0.113.9", 9))
+    try:
+        with mock.patch("wims.udp.controller.ipv4_route_error", side_effect=route):
+            c.reply("SIM-6M", d, dests=[("203.0.113.9", 5000), ("192.0.2.1", 5001)])
+        assert s.sent == [("192.0.2.1", 5001)]
+        with mock.patch("wims.udp.controller.ipv4_route_error", return_value=blocked):
+            try:
+                c.reply("SIM-6M", d, dests=[("203.0.113.9", 5000)])
+            except OSError as e:
+                assert str(e) == plain_route_message("203.0.113.9", 5000)
+            else:
+                raise AssertionError("unreachable dest must surface to the operator")
+        assert s.sent == [("192.0.2.1", 5001)]
+    finally:
+        s.close()
 
 
 def test_halt_sends_halt_tx():

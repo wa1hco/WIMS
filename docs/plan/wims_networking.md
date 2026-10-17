@@ -657,8 +657,10 @@ table (§4.3) is lab archaeology only.
     WIMS joined ALL registry streams (skip 2240)
 ```
 
-Control path: WIMS → Reply/Halt on `:2237`, keyed by UDP `id`. Only the **lease holder’s**
-console commands are honored (design §4.5).
+Control path: WIMS → Reply/Halt to the WSJT-X source address and port, keyed by UDP `id`.
+Only the **lease holder’s** console commands are honored (design §4.5). The reply socket
+is not bound to the address WIMS listens on. The operating system chooses the route, so
+a solo listen on loopback can still answer a WSJT-X packet that came from another address.
 
 ### 4.6 WSJT-X settings (every instance)
 

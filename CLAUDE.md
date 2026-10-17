@@ -48,6 +48,12 @@ UDP.
   `python -m`, or command-line flags. Those belong in a section titled
   **Developer**. Full statement and checklist:
   [`docs/design-principles.md`](docs/design-principles.md).
+- **Clean builds.** The GitHub check on Python 3.10, 3.12, and 3.14 is green
+  before a change is merged. A green run's log does not contain `FAIL` or
+  `ERROR` lines from a path that was supposed to succeed, or from a refusal
+  the test expected. A failure email is fixed at the cause — the bug, the
+  test, or the wording — so the mail stops. Full statement:
+  [`docs/design-principles.md`](docs/design-principles.md).
 
 ## GUI
 

@@ -127,7 +127,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | § | Module | Status | Built / remaining |
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
-| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
+| 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). Reply socket is unbound (OS picks the route; no path → plain sentence). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. N1MM stays the log when that file opened; just operating then still uses ARRL VHF. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
@@ -236,6 +236,17 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-17** — **CI green: Windows KEY tests, interlock bench, unbound
+  Work socket.** `test_key_cts` drives the Win32 path with a fake kernel32 on
+  Linux (`ctypes.get_last_error` is absent there, and `COM7` is not a device).
+  The interlock bench sends Reply on a multicast socket so the emulator still
+  hears it. The unicast reply socket is not bound to the listen address (solo
+  `127.0.0.1` could not reach another source: Linux errno 22, Windows 10051 /
+  10049 / 10065). No route is a plain sentence. A Decode before the first
+  Status stays off the roster (historical Band Activity). Expected send
+  failures no longer print `FAIL`. The ingest stale check no longer
+  subtracts 40s from a monotonic clock that can still be younger than that
+  (a fresh CI runner treated the stamp as "never heard").
 - **2026-10-17** — **Goal menu on Setup.** Contest / Award / Just operating /
   Custom, with a second menu. DXCC, Worked All States, and VUCC use the log as
   the already-have list. Just operating defaults to WSJT-X Colors; a checklist

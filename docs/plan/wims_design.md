@@ -224,6 +224,11 @@ bed (§5).
   WIMS must **extract grid** from `CQ CALL GRID` / Tx1 decode text.
 - **Inbound control** — confirm each command WIMS sends actually acts: Reply, Halt Tx, Free Text,
   Replay, Configure. *(Confirm exact message names/IDs against the WSJT-X UDP protocol header.)*
+- **Reply socket stays unbound.** WIMS may listen on `127.0.0.1` (solo) while WSJT-X's
+  packet source is another address on the same PC. Binding the unicast reply socket to
+  the listen address makes Work and Halt fail (Linux errno 22, Windows 10051 / 10049 /
+  10065). The operating system chooses the route. When there is no route, the operator
+  sees a plain sentence: both computers need to be on the same network, then try Work again.
 - **Free Text as closing / QSY message** — verify end-to-end that Free Text can carry a short
   operator message (e.g. `QSY 432`) on the final TX of a contact: character limit, whether it
   replaces the scheduled 73/RR73 or requires free-text mode, earliest/latest safe injection in a

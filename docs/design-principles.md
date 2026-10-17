@@ -21,3 +21,7 @@ Verify this before calling a launcher change done.
 3. **Setup auto-detects.** The Setup page shows the Goal menu and the log lines WIMS found. No path is typed for a normal start.
 4. **No typed commands.** The steps above do not ask the operator to set a variable, pass a flag, or run `python -m`.
 5. **Plain-language errors.** Missing Python, a busy port, and “already open” each say what to do next.
+
+## Clean builds
+
+The GitHub check on Python 3.10, 3.12, and 3.14 is green before a change is merged. A green run's log does not contain `FAIL` or `ERROR` lines from a path that was supposed to succeed, or from a refusal the test expected. A failure email is fixed at the cause — the bug, the test, or the wording — so the mail stops.

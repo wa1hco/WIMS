@@ -58,7 +58,7 @@ from wims.udp import messages as M  # noqa: E402
 from wims.udp.sink import open_socket  # noqa: E402
 from wims.discovery.fleet import FleetTracker  # noqa: E402
 from wims.interlock.arbiter import OverlapDetector, TxArbiter  # noqa: E402
-from wims.udp.controller import TxController, v4_unicast_dest  # noqa: E402
+from wims.udp.controller import RouteError, TxController, v4_unicast_dest  # noqa: E402
 from wims.udp.gt_bridge import (  # noqa: E402
     DEFAULT_GT_BRIDGE_PORT, DEFAULT_GT_FORWARD_PORT, GridTrackerBridge,
     is_loopback_host, parse_host_port)
@@ -1017,15 +1017,22 @@ class LiveFleet:
             with self._lock:
                 self._arbiter.release(inst)
             win = getattr(e, "winerror", None) or getattr(e, "errno", None)
-            print(f"TX Work FAIL {inst} {call} dests={dests}: {e}", flush=True)
-            return {
-                "ok": False,
-                "error": "send_failed",
-                "detail": (
+            if isinstance(e, RouteError):
+                detail = str(e)
+            else:
+                detail = (
                     f"UDP Work {call} → {dests} failed"
                     + (f" (err {win})" if win is not None else "")
                     + f": {e}"
-                ),
+                )
+            # Operator log. Avoid the words FAIL and ERROR — a green test that
+            # expects send_failed must not look like a suite failure.
+            print(f"TX Work could not send {inst} {call} → {dests}: {detail}",
+                  flush=True)
+            return {
+                "ok": False,
+                "error": "send_failed",
+                "detail": detail,
             }
         dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
         print(f"TX Work ok {inst!r} {call!r} msg={msg_text!r} "
@@ -1127,7 +1134,7 @@ class LiveFleet:
                 dest_s = ", ".join(f"{h}:{p}" for h, p in dests) or "?"
                 print(f"TX Halt ok {t!r} → [{dest_s}]", flush=True)
             except OSError as e:
-                print(f"TX Halt FAIL {t} dests={dests}: {e}", flush=True)
+                print(f"TX Halt could not send {t} → {dests}: {e}", flush=True)
         bands = sorted({band_of.get(t) or "?" for t in halted})
         with self._lock:
             for t in halted:
@@ -2045,7 +2052,7 @@ def make_handler(live: LiveFleet, refresh: float):
                             else 400)
                     self._send_json(code, result)
                 except Exception as e:
-                    print(f"TX Work EXC {e!r}", flush=True)
+                    print(f"TX Work unexpected {e!r}", flush=True)
                     self._send_json(500, {
                         "ok": False, "error": "send_failed",
                         "detail": f"Work failed: {e}",

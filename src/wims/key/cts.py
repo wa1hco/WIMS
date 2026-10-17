@@ -67,9 +67,25 @@ def _kernel32():
     return k
 
 
-def _win_fail(op: str, device: str, code: int | None = None) -> str:
+def _set_last_error(code: int) -> None:
+    """Clear or set the Win32 last-error code. No-op where ctypes has none."""
     import ctypes
-    n = int(code if code is not None else (ctypes.get_last_error() or 0))
+    fn = getattr(ctypes, "set_last_error", None)
+    if fn is not None:
+        fn(int(code))
+
+
+def _get_last_error() -> int:
+    """Win32 last-error code, or 0 on platforms that do not track one."""
+    import ctypes
+    fn = getattr(ctypes, "get_last_error", None)
+    if fn is None:
+        return 0
+    return int(fn() or 0)
+
+
+def _win_fail(op: str, device: str, code: int | None = None) -> str:
+    n = int(code if code is not None else _get_last_error())
     hint = _WINERR.get(n)
     extra = f": {hint}" if hint else ""
     return f"{op} failed on {device} (win32 {n}{extra})"
@@ -131,26 +147,26 @@ class CtsSource:
         FILE_SHARE_READ = 0x00000001
         OPEN_EXISTING = 3
         # Sense-only: no GENERIC_WRITE (that is what radio CAT often holds).
-        ctypes.set_last_error(0)
+        _set_last_error(0)
         handle = k.CreateFileW(
             win_com_path(self.device), GENERIC_READ, FILE_SHARE_READ, None,
             OPEN_EXISTING, 0, None,
         )
-        create_err = ctypes.get_last_error()
+        create_err = _get_last_error()
         hv = _handle_value(handle)
         if hv is None:
             self.error = _win_fail("CreateFile", self.device, create_err)
             return
         self._handle = hv
         # Probe now so a non-UART COM (or truncated handle) fails at open.
-        ctypes.set_last_error(0)
+        _set_last_error(0)
         status = wintypes.DWORD(0)
         ok = k.GetCommModemStatus(
             wintypes.HANDLE(self._handle), ctypes.byref(status),
         )
         if not ok:
             self.error = _win_fail(
-                "GetCommModemStatus", self.device, ctypes.get_last_error(),
+                "GetCommModemStatus", self.device, _get_last_error(),
             )
             self.close()
 
@@ -194,14 +210,14 @@ class CtsSource:
         import ctypes
         from ctypes import wintypes
         k = _kernel32()
-        ctypes.set_last_error(0)
+        _set_last_error(0)
         status = wintypes.DWORD(0)
         ok = k.GetCommModemStatus(
             wintypes.HANDLE(self._handle), ctypes.byref(status),
         )
         if not ok:
             self.error = _win_fail(
-                "GetCommModemStatus", self.device, ctypes.get_last_error(),
+                "GetCommModemStatus", self.device, _get_last_error(),
             )
             return False
         return bool(status.value & MS_CTS_ON)
