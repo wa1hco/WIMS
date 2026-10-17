@@ -224,6 +224,11 @@ bed (§5).
   WIMS must **extract grid** from `CQ CALL GRID` / Tx1 decode text.
 - **Inbound control** — confirm each command WIMS sends actually acts: Reply, Halt Tx, Free Text,
   Replay, Configure. *(Confirm exact message names/IDs against the WSJT-X UDP protocol header.)*
+- **Reply socket stays unbound.** WIMS may listen on `127.0.0.1` (solo) while WSJT-X's
+  packet source is another address on the same PC. Binding the unicast reply socket to
+  the listen address makes Work and Halt fail (Linux errno 22, Windows 10051 / 10049 /
+  10065). The operating system chooses the route. When there is no route, the operator
+  sees a plain sentence: both computers need to be on the same network, then try Work again.
 - **Free Text as closing / QSY message** — verify end-to-end that Free Text can carry a short
   operator message (e.g. `QSY 432`) on the final TX of a contact: character limit, whether it
   replaces the scheduled 73/RR73 or requires free-text mode, earliest/latest safe injection in a
@@ -1800,12 +1805,13 @@ Candidate situations worth covering — rename, add, or cut freely:
   **parallel read-only viewer**, not a relay and not a TX controller; WIMS's roster (§3.12) is the
   click-to-work path. Coexists per operator preference; go-boxes run none.
 - **Scoring model source** — per-contest QSO-point + multiplier rules feed §3.5 ranking and §3.11
-  config. **Proposal (2026-10-15, not yet built):** one original GPL-3.0 JSON file per contest
-  (first file: NY QSO Party, from the published rules). Casual Setup is a single Contest
-  dropdown plus a plain sentence. When N1MM is the log it stays authoritative (`arrl-vhf` if
-  the dropdown is None). Solo with Contest set to None uses WSJT-X Colors against
-  `wsjtx_log.adi`. Date or `CONTEST_ID` may suggest a contest. N1MM `.udc` and DXLog files
-  are not bundled. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.0–§3.7.
+  config. One original GPL-3.0 JSON file per contest (first file: NY QSO Party, from the
+  published rules). Casual Setup is a Goal menu (contest, award, just operating, or custom)
+  plus one menu that depends on that goal, and a plain sentence. Just operating uses
+  WSJT-X Colors unless the operator picks the checklist. When N1MM is the log and the goal
+  is still just operating, needed stays on `arrl-vhf`. Date or `CONTEST_ID` may suggest a
+  contest. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing
+  stay off until a list exists. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must
   prompt for (antenna geometry, intended az/el limits). Decide the form vs file-edit balance.

@@ -45,7 +45,10 @@ def main() -> int:
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(IFACE))
         sock.settimeout(0.3)
 
-        ctrl = TxController(sock, (GROUP, PORT))
+        # Reply must leave on a multicast send socket. The receive socket only
+        # watches Status/Decode. A group address on a plain unicast socket is
+        # refused ("no valid UDP dest" / Windows errno 22).
+        ctrl = TxController.for_group(GROUP, PORT, iface=IFACE)
         arb = TxArbiter(GROUP_OF)
         det = OverlapDetector(GROUP_OF)
         prev_tx = {i: False for i in INSTANCES}

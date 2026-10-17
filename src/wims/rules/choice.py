@@ -16,10 +16,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Operator contest choice and the optional shared-log file.
+"""Operator goal choice and the optional shared-log file.
 
 Same directory as ``last_log.json``. ``WIMS_CONTEST_RULES`` and ``WIMS_LOGS``
 exist so tests can point at a temp file. Operator docs do not mention them.
+
+Schema 4 stores a goal (contest, award, just operating, or custom) plus the
+second-menu id. Older files only had ``contest``; loading them keeps that
+choice.
 """
 
 from __future__ import annotations
@@ -30,7 +34,7 @@ from pathlib import Path
 
 from wims.state.last_log import default_path as last_log_path
 
-SCHEMA = 3
+SCHEMA = 4
 
 
 def config_dir() -> Path:
@@ -56,8 +60,12 @@ def logs_path() -> Path:
 
 
 def default_choice() -> dict:
+    from wims.engine.goal_rules import normalize_checklist
+
     return {
         "schema": SCHEMA,
+        "goal": "operating",
+        "goal_id": "wsjtx-colors",
         "contest": None,
         "explicit": False,
         "suggested": False,
@@ -66,40 +74,44 @@ def default_choice() -> dict:
         "gridtracker_path": "",
         "station_state": "",
         "station_county": "",
+        "checklist": normalize_checklist(None),
     }
 
 
 def load_choice(path: Path | str | None = None) -> dict:
+    from wims.engine.goal_rules import shape_choice
+
     p = Path(path) if path is not None else choice_path()
-    base = default_choice()
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return base
+        data = None
+    return shape_choice(data if isinstance(data, dict) else None)
+
+
+def needs_migration(path: Path | str | None = None) -> bool:
+    """True when a saved file is still the old contest-only shape."""
+    p = Path(path) if path is not None else choice_path()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
     if not isinstance(data, dict):
-        return base
-    contest = data.get("contest")
-    if contest == "":
-        contest = None
-    base.update({
-        "schema": int(data.get("schema") or SCHEMA),
-        "contest": contest,
-        "explicit": bool(data.get("explicit")),
-        "suggested": bool(data.get("suggested")),
-        "fallback": data.get("fallback") or "wsjtx-colors",
-        "wsjtx_override": data.get("wsjtx_override"),
-        "gridtracker_path": data.get("gridtracker_path") or "",
-        "station_state": data.get("station_state") or "",
-        "station_county": data.get("station_county") or "",
-    })
-    return base
+        return False
+    schema = int(data.get("schema") or 0)
+    return schema < SCHEMA or "goal" not in data
 
 
 def save_choice(data: dict, path: Path | str | None = None) -> Path:
+    from wims.engine.goal_rules import shape_choice
+
     p = Path(path) if path is not None else choice_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    out = default_choice()
-    out.update(data or {})
+    incoming = dict(data or {})
+    # shape_choice keeps an explicit goal. A legacy contest-only dict is migrated.
+    if "schema" not in incoming and incoming.get("goal"):
+        incoming["schema"] = SCHEMA
+    out = shape_choice(incoming)
     out["schema"] = SCHEMA
     p.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     return p

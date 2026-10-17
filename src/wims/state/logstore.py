@@ -181,7 +181,7 @@ class LogStore:
 
     def classify(self, call: str, band: str, grid: str | None = None,
                  mode: str | None = None, *, my_county: str | None = None,
-                 exchange: str | None = None):
+                 exchange: str | None = None, state: str | None = None):
         """Dupe, mult, points, and the plain reasons for the active rules file."""
         from wims.engine.contest_rules import Verdict
         call_u = (call or "").upper()
@@ -194,7 +194,7 @@ class LogStore:
             )
         return rules.classify(
             self, call_u, band, mode, grid_n,
-            exchange=exchange, my_county=county,
+            exchange=exchange, my_county=county, state=state,
         )
 
     def is_dupe(self, call: str, band: str, grid: str | None = None,

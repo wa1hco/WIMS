@@ -174,7 +174,7 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
 
 class SoloLauncherPathTests(unittest.TestCase):
     def test_solo_starts_without_pythonpath(self):
-        """The checkout shim serves /healthz and the Contest dropdown."""
+        """The checkout shim serves /healthz and the Goal menu."""
         port = 18787
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
         env.pop("WIMS_CONTEST_RULES", None)
@@ -222,7 +222,8 @@ class SoloLauncherPathTests(unittest.TestCase):
                     f"http://127.0.0.1:{port}/setup", timeout=2
                 ) as resp:
                     page = resp.read().decode()
-                self.assertIn('id="contest-pick"', page)
+                self.assertIn('id="goal-pick"', page)
+                self.assertIn("Just operating (not a contest)", page)
                 self.assertEqual(_hits("setup page", page), [])
             finally:
                 if proc.poll() is None:

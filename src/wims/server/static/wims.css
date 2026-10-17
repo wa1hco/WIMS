@@ -123,6 +123,31 @@ tr.decode-only.workable { cursor: default; }
 .col-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:4px;
              white-space:nowrap; }
 .hint { font-size:12px; color:var(--dim); margin:0 0 8px 0; max-width:72rem; }
+/* Setup tips: native title plus a keyboard-focusable ? */
+.advline { display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin:3px 0; }
+.advtip { position:relative; display:inline-flex; align-items:center; }
+.tipbtn {
+  font: inherit; font-size: 11px; font-weight: 700; line-height: 1;
+  width: 16px; height: 16px; min-width: 16px; min-height: 16px; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: #eef4fb; color: var(--accent); cursor: help; vertical-align: middle;
+}
+.tipbtn:hover, .tipbtn:focus, .tipbtn:focus-visible {
+  outline: 2px solid #54aeff66; outline-offset: 1px; background: #ddf4ff;
+}
+.tiptxt {
+  display: none; position: absolute; z-index: 40; left: 0; top: calc(100% + 4px);
+  width: max-content; max-width: min(26rem, 70vw); padding: 6px 8px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 4px 14px rgba(31,35,40,.12);
+  font-size: 12px; font-weight: normal; line-height: 1.35; white-space: normal;
+  text-align: left;
+}
+/* Keyboard focus shows the words. Mouse hover uses the native title. */
+.tipbtn:focus-visible + .tiptxt { display: block; }
+.goal-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:3px 0; }
+.goal-row select { font: inherit; font-size: 12px; }
+.goal-soon { color: var(--dim); }
 .subnav { display:flex; gap:4px; margin:0 0 12px; border-bottom:1px solid var(--line); padding-bottom:0; }
 .subnav .tab {
   font:inherit; font-size:13px; color:var(--dim); background:transparent;

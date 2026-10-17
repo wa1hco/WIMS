@@ -32,6 +32,11 @@ const $ = (id) => document.getElementById(id);
 const age = (a) => a == null ? "-" : (a < 90 ? a.toFixed(0)+"s" : (a/60).toFixed(0)+"m");
 const mhz = (hz) => hz ? (hz/1e6).toFixed(6) : "-";
 const esc = (s) => (s||"").replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function escAttr(s) {
+  return (s || "").replace(/[&<>"]/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;",
+  }[c]));
+}
 const sgn = (n) => (n>=0?'+':'')+n;
 // Meter bands: 6m → 6M (M = meters). cm unchanged. Not instance ids (ROY-6m).
 function fmtBand(b) {
@@ -867,6 +872,108 @@ function renderSetupExtras(n1mm, s) {
 
 let _contestWired = false;
 let _contestAdvSig = "";
+let _goalMenus = null;
+let _checklistSig = "";
+
+function goalTip(text) {
+  const tip = text || "";
+  const t = escAttr(tip);
+  return `<span class="advtip"><button type="button" class="tipbtn" title="${t}" aria-label="Help. ${t}">?</button>` +
+    `<span class="tiptxt" role="tooltip">${esc(tip)}</span></span>`;
+}
+
+function wireGoalTips() {
+  if (window._wimsGoalTipsWired) return;
+  window._wimsGoalTipsWired = true;
+  const stop = (ev) => {
+    const btn = ev.target.closest && ev.target.closest(".tipbtn");
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  document.addEventListener("click", stop);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== " " && ev.key !== "Enter") return;
+    stop(ev);
+  });
+}
+
+function fillGoalSelect(sel, options, current) {
+  if (!sel || document.activeElement === sel) return;
+  const html = (options || []).map(o =>
+    `<option value="${esc(o.id)}"${o.enabled === false ? " disabled" : ""}>${esc(o.title)}</option>`
+  ).join("");
+  if (sel.dataset.html !== html) {
+    sel.innerHTML = html;
+    sel.dataset.html = html;
+  }
+  const cur = current || "";
+  if (html && sel.value !== cur) sel.value = cur;
+}
+
+function postRules(body) {
+  return fetch("/api/rules", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(body),
+  }).catch(() => {});
+}
+
+function renderGoalChecklist(goal) {
+  const box = $("goal-checklist");
+  if (!box) return;
+  if (!goal || !goal.show_checklist) {
+    if (box.innerHTML) box.innerHTML = "";
+    _checklistSig = "";
+    return;
+  }
+  if (box.contains(document.activeElement)) return;
+  const list = goal.checklist || {};
+  const rows = list.rows || [];
+  const scopes = list.scopes || [];
+  const sig = JSON.stringify({rows, scopes, tip: goal.scope_tip || ""});
+  if (sig === _checklistSig && box.dataset.ready === "1") return;
+  _checklistSig = sig;
+  const scopeTip = goal.scope_tip || "";
+  const body = rows.map(row => {
+    const soon = row.coming_soon || row.available === false;
+    const tip = row.tip || "";
+    const scopeHtml = scopes.map(sc =>
+      `<option value="${esc(sc.id)}"${sc.id === row.scope ? " selected" : ""}>${esc(sc.label)}</option>`
+    ).join("");
+    const label = soon ? `${row.label} (coming soon)` : row.label;
+    return `<div class="goal-row advline">` +
+      `<label class="${soon ? "goal-soon" : ""}" title="${escAttr(tip)}">` +
+      `<input type="checkbox" data-kind="${esc(row.kind)}"${row.enabled ? " checked" : ""}` +
+      `${soon ? " disabled" : ""} title="${escAttr(tip)}"> ${esc(label)}</label>` +
+      `<select data-scope="${esc(row.kind)}" title="${escAttr(scopeTip)}"${soon ? " disabled" : ""}>` +
+      scopeHtml + `</select>` +
+      goalTip(tip) +
+      `</div>`;
+  }).join("");
+  box.innerHTML =
+    `<p class="hint" style="margin:4px 0">Check what is worth working. ` +
+    `WIMS compares each station with the contacts already in the log.</p>` +
+    body;
+  box.dataset.ready = "1";
+  const send = () => {
+    const items = rows.map(row => {
+      const boxEl = box.querySelector(`input[data-kind="${row.kind}"]`);
+      const scopeEl = box.querySelector(`select[data-scope="${row.kind}"]`);
+      const soon = row.coming_soon || row.available === false;
+      return {
+        kind: row.kind,
+        enabled: !soon && !!(boxEl && boxEl.checked),
+        scope: (scopeEl && scopeEl.value) || row.scope || "overall",
+      };
+    });
+    _checklistSig = "";
+    postRules({action: "checklist", items});
+  };
+  box.querySelectorAll("input[data-kind], select[data-scope]").forEach(el => {
+    el.addEventListener("change", send);
+  });
+}
 
 function renderContestRules(s) {
   const rules = s && s.rules;
@@ -888,30 +995,119 @@ function renderContestRules(s) {
       return `<div${bad ? ' style="color:#8a3b00"' : ""}>${esc(r.message || "")}</div>`;
     }).join("");
   }
-  const sel = $("contest-pick");
-  if (sel && document.activeElement !== sel) {
-    const opts = [{id: "", title: "None"}].concat(rules.catalog || []);
-    if (rules.custom_available) opts.push({id: "custom", title: "Custom"});
-    const html = opts.map(o =>
-      `<option value="${esc(o.id)}">${esc(o.title)}</option>`).join("");
-    if (sel.dataset.html !== html) {
-      sel.innerHTML = html;
-      sel.dataset.html = html;
+  const goal = rules.goal;
+  const typeSel = $("goal-pick");
+  const detailSel = $("goal-detail");
+  if (goal && typeSel) {
+    _goalMenus = goal.menus || _goalMenus;
+    const typeTip = ((goal.types || []).find(t => t.id === goal.type) || {}).tip || typeSel.title;
+    if (document.activeElement !== typeSel) typeSel.title = typeTip || typeSel.title;
+    fillGoalSelect(typeSel, goal.types || [], goal.type);
+    const tipHost = $("goal-pick-tip");
+    if (tipHost && tipHost.dataset.tip !== typeTip) {
+      tipHost.innerHTML = goalTip(typeTip);
+      tipHost.dataset.tip = typeTip || "";
     }
-    const cur = (rules.choice && rules.choice.contest) || "";
-    if (sel.value !== cur) sel.value = cur;
   }
-  if (sel && !_contestWired) {
+  if (goal && detailSel) {
+    const detailTip = goal.detail_tip || detailSel.title;
+    if (document.activeElement !== detailSel) detailSel.title = detailTip;
+    const lab = $("goal-detail-label");
+    if (lab && goal.detail_label) lab.textContent = goal.detail_label;
+    fillGoalSelect(detailSel, goal.options || [], goal.id);
+    const tipHost = $("goal-detail-tip");
+    if (tipHost && tipHost.dataset.tip !== detailTip) {
+      tipHost.innerHTML = goalTip(detailTip);
+      tipHost.dataset.tip = detailTip || "";
+    }
+  }
+  if (typeSel && detailSel && !_contestWired) {
     _contestWired = true;
-    sel.addEventListener("change", () => {
-      fetch("/api/rules", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({action: "select", contest: sel.value || null}),
-      }).catch(() => {});
+    wireGoalTips();
+    typeSel.addEventListener("change", () => {
+      const next = typeSel.value;
+      const menu = (_goalMenus && _goalMenus[next]) || {};
+      const opt = (menu.options || []).find(o => o.enabled !== false);
+      const lab = $("goal-detail-label");
+      if (lab && menu.label) lab.textContent = menu.label;
+      if (menu.tip) detailSel.title = menu.tip;
+      fillGoalSelect(detailSel, menu.options || [], opt ? opt.id : "");
+      postRules({action: "select", goal: next, goal_id: opt ? opt.id : ""});
+    });
+    detailSel.addEventListener("change", () => {
+      const picked = detailSel.selectedOptions && detailSel.selectedOptions[0];
+      if (picked && picked.disabled) return;
+      postRules({
+        action: "select",
+        goal: typeSel.value,
+        goal_id: detailSel.value,
+      });
     });
   }
+  renderGoalChecklist(goal);
   renderContestAdvanced(s);
+}
+
+// Plain-language tips for Setup → Advanced. One or two short sentences.
+// Casual operators: no commands, no file-format names, no setting keys.
+const ADV_TIPS = {
+  summary: "Extra choices. Leave this closed when the Goal menus already look right.",
+  colors: "These boxes are used for Just operating with WSJT-X Colors, when N1MM is not keeping the log. A checked box means that kind of new station looks needed.",
+  colorGeneric: "Mark a station as new when this color matches your log.",
+  new_dxcc: "Mark a station as new when its country is not already in your log.",
+  new_dxcc_band: "Mark a station as new when you have not worked that country on this band.",
+  new_grid: "Mark a station as new when its grid square is not already in your log.",
+  new_grid_band: "Mark a station as new when you have not worked that grid square on this band.",
+  new_call: "Mark a station as new when that call sign is not already in your log.",
+  new_call_band: "Mark a station as new when you have not worked that call sign on this band.",
+  highlightByMode: "The same station on FT8 and on FT4 counts as two different contacts. Uncheck this to treat every mode as the same contact.",
+  onlyFields: "Compare only the first two letters of a grid, such as FN, instead of the full square, such as FN42.",
+  saveColors: "Keep these color boxes in WIMS. They stay as you set them until you choose to copy WSJT-X again.",
+  resetColors: "Forget the color boxes saved here and copy the Colors choices from WSJT-X again.",
+  stationState: "The state you are operating from, such as NY. Leave this blank when the contest does not care.",
+  stationCounty: "The county you are operating from. In a county contest, a later change here can let the same station count again.",
+  saveStation: "Remember this state and county on this computer.",
+  sharedLog: "One log file used by every WSJT-X on this computer. Leave this blank to keep each program's own log.",
+  saveShared: "Read contacts from the file in the box, for every WSJT-X on this computer.",
+  rules: "Choices for a contest that is not in the Contest list. Saving them switches Goal to Custom.",
+  dupeScope: "How often the same station can count. Once on each band, once on each band for voice, CW, and digital separately, or only once in the whole contest.",
+  dupeReset: "After you change county, the same station can count again. A station that stays in one county is not affected.",
+  banFt8: "FT8 contacts do not count in this custom contest. Leave this unchecked when FT8 is allowed.",
+  banFt4: "FT4 contacts do not count in this custom contest. Leave this unchecked when FT4 is allowed.",
+  modeGroups: "Voice is one group, CW is another, and digital is a third. The menu above can count each group as its own contact.",
+  points: "A custom rule gives 1 point for voice, 2 for CW, and 3 for digital. A contest in the menu uses that contest's own points.",
+  multipliers: "A custom rule does not add multipliers. ARRL VHF counts a new grid on each band, and NY QSO Party does not mark multipliers yet.",
+  rover: "Working a rover again counts as a new contact after that rover moves to a new grid square.",
+  saveCustom: "Save these contest choices and switch Goal to Custom.",
+  udcPath: "An N1MM contest file on this computer. WIMS reads it, shows what it understood, and does not change the file.",
+  udcImport: "Read the N1MM contest file named above and show the name, how often a station counts, the points, and the multipliers.",
+  checkLogs: "Compare the logs WIMS found on this computer and list what does not match. Nothing in the logs is changed.",
+};
+
+function tipBtn(text) {
+  const t = escAttr(text);
+  return `<span class="advtip"><button type="button" class="tipbtn" title="${t}" aria-label="Help. ${t}">?</button><span class="tiptxt" role="tooltip">${t}</span></span>`;
+}
+
+function wireTipButtons() {
+  if (window._wimsTipsWired) return;
+  window._wimsTipsWired = true;
+  const hit = (e) => e.target && e.target.closest && e.target.closest("button.tipbtn");
+  document.addEventListener("mousedown", (e) => {
+    if (!hit(e)) return;
+    e.stopPropagation();
+  }, true);
+  document.addEventListener("click", (e) => {
+    if (!hit(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== " " && e.key !== "Enter") return;
+    if (!hit(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 }
 
 function renderContestAdvanced(s) {
@@ -930,34 +1126,41 @@ function renderContestAdvanced(s) {
   const sig = JSON.stringify({cats, note: rules.colors_note || "", choice});
   if (sig === _contestAdvSig && box.dataset.ready === "1") return;
   _contestAdvSig = sig;
-  const checks = Object.keys(labels).map(k =>
-    `<label style="display:block"><input type="checkbox" data-color="${esc(k)}"${cats[k] ? " checked" : ""}> ${esc(labels[k])}</label>`
-  ).join("");
+  const checks = Object.keys(labels).map(k => {
+    const tip = ADV_TIPS[k] || ADV_TIPS.colorGeneric;
+    const t = escAttr(tip);
+    return `<span class="advline"><label><input type="checkbox" data-color="${esc(k)}" title="${t}"${cats[k] ? " checked" : ""}> ${esc(labels[k])}</label>${tipBtn(tip)}</span>`;
+  }).join("");
   box.innerHTML =
+    `<p class="advline">WSJT-X Colors ${tipBtn(ADV_TIPS.colors)}</p>` +
     `<p>${esc(rules.colors_note || (colors.note || ""))}</p>` +
     checks +
-    `<label style="display:block"><input type="checkbox" id="color-by-mode"${colors.highlight_by_mode ? " checked" : ""}> Highlight by mode</label>` +
-    `<label style="display:block"><input type="checkbox" id="color-fields"${colors.only_fields_sought ? " checked" : ""}> Only grid fields sought</label>` +
-    `<p><button type="button" id="color-save">Save color checkboxes</button> ` +
-    `<button type="button" id="color-reset">Use WSJT-X.ini again</button></p>` +
-    `<p>Station state <input id="st-state" value="${esc(choice.station_state || "")}" size="6"> ` +
-    `county <input id="st-county" value="${esc(choice.station_county || "")}" size="12"> ` +
-    `<button type="button" id="st-save">Save station</button></p>` +
-    `<p>Shared log file <input id="shared-log" size="42"> ` +
-    `<button type="button" id="shared-save">Use this WSJT-X log</button></p>` +
-    `<p>Custom dupe <select id="custom-scope">` +
+    `<span class="advline"><label><input type="checkbox" id="color-by-mode" title="${escAttr(ADV_TIPS.highlightByMode)}"${colors.highlight_by_mode ? " checked" : ""}> Highlight by mode</label>${tipBtn(ADV_TIPS.highlightByMode)}</span>` +
+    `<span class="advline"><label><input type="checkbox" id="color-fields" title="${escAttr(ADV_TIPS.onlyFields)}"${colors.only_fields_sought ? " checked" : ""}> Only grid fields sought</label>${tipBtn(ADV_TIPS.onlyFields)}</span>` +
+    `<p class="advline"><button type="button" id="color-save" title="${escAttr(ADV_TIPS.saveColors)}">Save color checkboxes</button>${tipBtn(ADV_TIPS.saveColors)} ` +
+    `<button type="button" id="color-reset" title="${escAttr(ADV_TIPS.resetColors)}">Use WSJT-X.ini again</button>${tipBtn(ADV_TIPS.resetColors)}</p>` +
+    `<p class="advline"><label>Station state <input id="st-state" title="${escAttr(ADV_TIPS.stationState)}" value="${escAttr(choice.station_state || "")}" size="6"></label>${tipBtn(ADV_TIPS.stationState)} ` +
+    `<label>county <input id="st-county" title="${escAttr(ADV_TIPS.stationCounty)}" value="${escAttr(choice.station_county || "")}" size="12"></label>${tipBtn(ADV_TIPS.stationCounty)} ` +
+    `<button type="button" id="st-save" title="${escAttr(ADV_TIPS.saveStation)}">Save station</button>${tipBtn(ADV_TIPS.saveStation)}</p>` +
+    `<p class="advline"><label>Shared log file <input id="shared-log" title="${escAttr(ADV_TIPS.sharedLog)}" size="42"></label>${tipBtn(ADV_TIPS.sharedLog)} ` +
+    `<button type="button" id="shared-save" title="${escAttr(ADV_TIPS.saveShared)}">Use this WSJT-X log</button>${tipBtn(ADV_TIPS.saveShared)}</p>` +
+    `<p class="advline">Contest rules ${tipBtn(ADV_TIPS.rules)}</p>` +
+    `<p class="advline"><label>How often a station counts <select id="custom-scope" title="${escAttr(ADV_TIPS.dupeScope)}">` +
     `<option value="band">once per band</option>` +
-    `<option value="band+group">once per band per mode group</option>` +
-    `<option value="all">once per contest</option></select></p>` +
-    `<label style="display:block"><input type="checkbox" id="custom-county"> Reset a dupe when my county changes</label>` +
-    `<label style="display:block"><input type="checkbox" id="custom-ft8"> Do not count FT8</label>` +
-    `<label style="display:block"><input type="checkbox" id="custom-ft4"> Do not count FT4</label>` +
-    `<label style="display:block"><input type="checkbox" id="custom-rover"> A rover in a new grid is a new contact</label>` +
-    `<p><button type="button" id="custom-save">Save custom rules</button></p>` +
-    `<p>N1MM .udc on this PC <input id="udc-path" size="42"> ` +
-    `<button type="button" id="udc-import">Read it</button></p>` +
+    `<option value="band+group">once per band for voice, CW, and digital separately</option>` +
+    `<option value="all">once per contest</option></select></label>${tipBtn(ADV_TIPS.dupeScope)}</p>` +
+    `<span class="advline"><label><input type="checkbox" id="custom-county" title="${escAttr(ADV_TIPS.dupeReset)}"> Reset a dupe when my county changes</label>${tipBtn(ADV_TIPS.dupeReset)}</span>` +
+    `<span class="advline"><label><input type="checkbox" id="custom-ft8" title="${escAttr(ADV_TIPS.banFt8)}"> Do not count FT8</label>${tipBtn(ADV_TIPS.banFt8)}</span>` +
+    `<span class="advline"><label><input type="checkbox" id="custom-ft4" title="${escAttr(ADV_TIPS.banFt4)}"> Do not count FT4</label>${tipBtn(ADV_TIPS.banFt4)}</span>` +
+    `<p class="advline">Mode groups ${tipBtn(ADV_TIPS.modeGroups)}</p>` +
+    `<p class="advline">Points ${tipBtn(ADV_TIPS.points)}</p>` +
+    `<p class="advline">Multipliers ${tipBtn(ADV_TIPS.multipliers)}</p>` +
+    `<span class="advline"><label><input type="checkbox" id="custom-rover" title="${escAttr(ADV_TIPS.rover)}"> A rover in a new grid is a new contact</label>${tipBtn(ADV_TIPS.rover)}</span>` +
+    `<p class="advline"><button type="button" id="custom-save" title="${escAttr(ADV_TIPS.saveCustom)}">Save custom rules</button>${tipBtn(ADV_TIPS.saveCustom)}</p>` +
+    `<p class="advline"><label>N1MM contest file on this computer <input id="udc-path" title="${escAttr(ADV_TIPS.udcPath)}" size="42"></label>${tipBtn(ADV_TIPS.udcPath)} ` +
+    `<button type="button" id="udc-import" title="${escAttr(ADV_TIPS.udcImport)}">Read it</button>${tipBtn(ADV_TIPS.udcImport)}</p>` +
     `<pre id="udc-out" style="white-space:pre-wrap"></pre>` +
-    `<p><button type="button" id="logs-check">Check logs</button> ` +
+    `<p class="advline"><button type="button" id="logs-check" title="${escAttr(ADV_TIPS.checkLogs)}">Check logs</button>${tipBtn(ADV_TIPS.checkLogs)} ` +
     `<span id="logs-check-progress" class="meta"></span></p>` +
     `<div id="logs-check-out"></div>`;
   box.dataset.ready = "1";
@@ -1066,7 +1269,7 @@ function renderLogCheckResult(out, report) {
     `<p><b>${esc(report.summary || "")}</b></p>` +
     sources + notes +
     `<details><summary>Show details</summary>` +
-    `<p><label>Filter <input data-logcheck-filter size="18"></label></p>` +
+    `<p><label>Filter <input data-logcheck-filter size="18" title="Show only contacts that match this text."></label></p>` +
     `<div data-logcheck-detail></div></details>`;
   const filt = out.querySelector("[data-logcheck-filter]");
   if (filt) {
@@ -1131,10 +1334,10 @@ function logCheckPager(name, page, total) {
   const from = page * LOG_CHECK_PAGE + 1;
   const to = Math.min(total, (page + 1) * LOG_CHECK_PAGE);
   const prev = page > 0
-    ? `<button type="button" data-group="${esc(name)}" data-page="${page - 1}">Previous</button> `
+    ? `<button type="button" data-group="${esc(name)}" data-page="${page - 1}" title="Previous page">Previous</button> `
     : "";
   const next = to < total
-    ? ` <button type="button" data-group="${esc(name)}" data-page="${page + 1}">Next</button>`
+    ? ` <button type="button" data-group="${esc(name)}" data-page="${page + 1}" title="Next page">Next</button>`
     : "";
   return `<p>${prev}${from}–${to} of ${total}${next}</p>`;
 }
@@ -2090,6 +2293,7 @@ function markNavActive() {
 }
 
 function connect() {
+  wireTipButtons();
   const tab = statusTabFromPath();
   if (tab) statusShowTab(tab);
   markNavActive();
