@@ -72,12 +72,21 @@ from wims.launcher.process_replace import (
 )
 from wims.launcher.tooltips import ToolTip
 from wims.launcher.update_check import (
+    DEFAULT_CHECK_INTERVAL_S,
+    INITIAL_CHECK_DELAY_S,
+    ReleaseEntry,
     UpdateInfo,
+    UpdateSnapshot,
     apply_git_update,
-    check_for_update,
+    apply_release,
+    clamp_check_interval,
     env_skip_update_check,
+    gather_updates,
+    rollback_release,
+    seconds_until_next_check,
     update_script_path,
 )
+from wims.launcher.updates_panel import UpdatesPanel
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _SRC = _REPO_ROOT / "src"
@@ -202,6 +211,8 @@ def _role_env() -> dict[str, str]:
     # Child prints must not die on Windows cp1252 consoles (arrows, etc.).
     env.setdefault("PYTHONIOENCODING", "utf-8")
     env.setdefault("PYTHONUTF8", "1")
+    # This window already appends the child's output to the shared log.
+    env["WIMS_CAPTURED_LOG"] = "1"
     return env
 
 
@@ -470,7 +481,7 @@ def linux_desktop_entry_text() -> str:
     """Freedesktop entry named WIMS. The program finds its own files."""
     icon = find_icon_path()
     icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
-    exe = _console_python()
+    script = _REPO_ROOT / "scripts" / "start-wims.sh"
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -478,7 +489,7 @@ def linux_desktop_entry_text() -> str:
         "Name=WIMS\n"
         "GenericName=WSJT-X Instance Management\n"
         "Comment=WIMS agents and site console\n"
-        f"Exec=env PYTHONPATH={_SRC} {exe} -m wims.launcher\n"
+        f"Exec=\"{script}\"\n"
         f"Path={_REPO_ROOT}\n"
         f"{icon_line}\n"
         "Terminal=false\n"
@@ -693,15 +704,20 @@ class LauncherApp:
         self.root.after(200, self._kick_site_discover)
         self.root.after(800, self._refresh_status)
         self.root.after(1000, self._poll_procs)
-        self.root.after(4000, self._kick_update_check)
-        # Mid-contest gentle re-check while launcher stays open (default 45 min).
+        # Look again every few hours (never faster than the floor). Check now
+        # does not wait. The first look is shortly after the window opens.
         try:
-            self._update_period_ms = int(
-                float(os.environ.get("WIMS_UPDATE_CHECK_S") or 45 * 60) * 1000
-            )
+            requested = float(os.environ.get("WIMS_UPDATE_CHECK_S") or DEFAULT_CHECK_INTERVAL_S)
         except ValueError:
-            self._update_period_ms = 45 * 60 * 1000
-        self.root.after(max(60_000, self._update_period_ms), self._kick_update_check_periodic)
+            requested = DEFAULT_CHECK_INTERVAL_S
+        self._update_interval_s = clamp_check_interval(requested)
+        self._check_after: str | None = None
+        self._check_running = False
+        self._rate_limit_wait_s = 0.0
+        self._seen_newer: set[str] = set()
+        self._seen_ready = False
+        if not env_skip_update_check():
+            self._schedule_update_check(INITIAL_CHECK_DELAY_S)
         self.root.after(4000, self._pulse_detect)
 
     def _apply_icon(self) -> None:
@@ -769,6 +785,14 @@ class LauncherApp:
             text="  Agents for apps on this PC — check a box to start",
             font=_ui_font(11), bg="#f4f4f4", fg="#555555",
         ).pack(side="left", pady=(2, 0))
+        self._update_mark = tk.Label(
+            head, text="", font=_ui_font(10), bg="#f4f4f4", fg="#9a6700",
+        )
+        self._update_mark.pack(side="right")
+        ToolTip(
+            self._update_mark,
+            "An update is available. Nothing is installed until you choose it.",
+        )
 
         # Banner row: message + action button side by side, so e.g. Update WIMS
         # sits next to the "Update available" text instead of below the fold.
@@ -813,6 +837,13 @@ class LauncherApp:
         )
         if is_wsjt_only_seat(self._current_intent()):
             self._home_panel.set_server_intent_visible(False)
+        self._updates = UpdatesPanel(
+            home,
+            tk=tk,
+            on_check=self._check_now,
+            on_install=self._install_selected_release,
+            on_rollback=self._rollback_release,
+        )
         self._refresh_key_ports()
         self._home_panel.show_key_device_row(
             bool(self._intent_vars[INTENT_SSB_CW].get()),
@@ -1200,23 +1231,173 @@ class LauncherApp:
         self._replace_done = True
         self._kick_detect()
 
+    def _schedule_update_check(self, delay_s: float) -> None:
+        if self._check_after is not None:
+            try:
+                self.root.after_cancel(self._check_after)
+            except Exception:
+                pass
+            self._check_after = None
+        ms = max(0, int(float(delay_s) * 1000))
+        self._check_after = self.root.after(ms, self._kick_update_check)
+
+    def _next_check_delay(self) -> float:
+        return seconds_until_next_check(
+            elapsed_s=0.0,
+            interval_s=self._update_interval_s,
+            rate_limit_wait_s=self._rate_limit_wait_s,
+            force=False,
+        )
+
+    def _finish_check_schedule(self) -> None:
+        self._check_running = False
+        if env_skip_update_check():
+            return
+        self._schedule_update_check(self._next_check_delay())
+
+    def _check_now(self) -> None:
+        """Operator asked. Look immediately. Do not install."""
+        if env_skip_update_check():
+            self._updates.set_notice("Update checks are turned off on this PC.")
+            return
+        if self._check_running:
+            self._updates.set_notice("Already looking.")
+            return
+        delay = seconds_until_next_check(
+            elapsed_s=0.0,
+            interval_s=self._update_interval_s,
+            rate_limit_wait_s=self._rate_limit_wait_s,
+            force=True,
+        )
+        self._updates.set_notice("Looking for updates…")
+        self._schedule_update_check(delay)
+
     def _kick_update_check(self) -> None:
         if env_skip_update_check():
             return
+        if self._check_running or self._updating:
+            # Do not drop the timer while a look or an install is in progress.
+            self._schedule_update_check(self._next_check_delay())
+            return
+        self._check_running = True
+        self._check_after = None
 
         def work() -> None:
             try:
-                info = check_for_update(_REPO_ROOT, fetch=True)
+                snap = gather_updates(_REPO_ROOT, fetch=True)
             except Exception as e:  # noqa: BLE001
-                self.root.after(0, self._append_log, f"(update check: {e})")
+                self.root.after(0, self._on_update_check_error, str(e))
                 return
-            self.root.after(0, self._on_update_check, info)
+            self.root.after(0, self._on_update_snapshot, snap)
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _kick_update_check_periodic(self) -> None:
-        self._kick_update_check()
-        self.root.after(max(60_000, self._update_period_ms), self._kick_update_check_periodic)
+    def _on_update_check_error(self, text: str) -> None:
+        self._updates.set_notice("Could not look for updates. Will try again later.")
+        self._append_log(f"Update check: {text}")
+        self._finish_check_schedule()
+
+    def _set_update_mark(self, on: bool) -> None:
+        self._update_mark.configure(text="update" if on else "")
+        try:
+            self._updates.set_mark("An update is available." if on else "")
+        except Exception:
+            pass
+
+    def _note_new_releases(self, releases: tuple[ReleaseEntry, ...] | list[ReleaseEntry]) -> None:
+        newer = {item.tag for item in releases if item.relation == "newer"}
+        fresh = newer - self._seen_newer
+        self._seen_newer |= newer
+        if fresh and self._seen_ready:
+            names = ", ".join(sorted(fresh))
+            self._append_log(
+                f"Update available: {names}. Nothing is installed until you choose it."
+            )
+        self._seen_ready = True
+
+    def _on_update_snapshot(self, snap: UpdateSnapshot) -> None:
+        self._rate_limit_wait_s = (
+            snap.retry_after_s if snap.notice == "rate_limit" else 0.0
+        )
+        if self._updating:
+            self._finish_check_schedule()
+            return
+        if snap.notice in ("offline", "rate_limit"):
+            self._updates.set_notice(snap.notice_text)
+            self._finish_check_schedule()
+            return
+        self._updates.set_releases(snap.releases)
+        self._note_new_releases(snap.releases)
+        newer = bool(snap.info.available) or any(
+            item.relation == "newer" for item in snap.releases
+        )
+        self._set_update_mark(newer)
+        if snap.notice == "empty":
+            self._updates.set_notice(snap.notice_text)
+        elif not newer:
+            self._updates.set_notice("This copy is up to date.")
+        else:
+            self._updates.set_notice("Nothing is installed until you choose it.")
+        self._on_update_check(snap.info)
+        self._finish_check_schedule()
+
+    def _install_selected_release(self) -> None:
+        if self._updating:
+            return
+        entry = self._updates.selected_entry()
+        if entry is None:
+            self._updates.set_notice("Select an update in the list first.")
+            return
+        if entry.relation == "current":
+            self._updates.set_notice("This copy is already that version.")
+            return
+        self._updating = True
+        self._updates.set_busy(True)
+        tag = entry.tag
+        url = entry.html_url
+
+        def progress(message: str) -> None:
+            self.root.after(0, self._updates.set_notice, message)
+
+        def work() -> None:
+            ok, msg = apply_release(_REPO_ROOT, tag, on_progress=progress)
+            self.root.after(0, self._on_release_applied, ok, msg, url, False)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _rollback_release(self) -> None:
+        if self._updating:
+            return
+        self._updating = True
+        self._updates.set_busy(True)
+
+        def progress(message: str) -> None:
+            self.root.after(0, self._updates.set_notice, message)
+
+        def work() -> None:
+            ok, msg = rollback_release(_REPO_ROOT, on_progress=progress)
+            self.root.after(0, self._on_release_applied, ok, msg, "", True)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_release_applied(self, ok: bool, msg: str, url: str, went_back: bool) -> None:
+        self._updates.set_notice(msg)
+        self._append_log(msg)
+        if not ok:
+            self._updating = False
+            self._updates.set_busy(False)
+            if url and "not installed from git" in msg:
+                try:
+                    webbrowser.open(url)
+                except Exception:
+                    pass
+            return
+        self._set_banner(
+            "ok",
+            "Restoring the WIMS window…" if went_back else "Restarting the WIMS window…",
+            "The window opens again on that copy.",
+        )
+        self.root.after(600, self._relaunch_self)
 
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
@@ -1224,10 +1405,6 @@ class LauncherApp:
             return
         if not info.available:
             self._show_update_button(False)
-            if info.detail and (
-                "fetch failed" in info.detail or "GitHub Releases:" in info.detail
-            ):
-                self._append_log(f"Update check: {info.detail}")
             return
         self._show_update_button(True)
         subj = f" — {info.remote_subject}" if info.remote_subject else ""
@@ -1245,9 +1422,12 @@ class LauncherApp:
             f"Update available — {info.local_label} → {info.remote_label}{subj}",
             how + " Site server stays up; seat agents restart after.",
         )
-        self._append_log(
-            f"Update available: {info.local_label} → {info.remote_label}{subj}"
-        )
+        identity = info.remote_sha or info.release_tag or info.remote_label
+        if identity and identity != getattr(self, "_logged_update_id", ""):
+            self._logged_update_id = identity
+            self._append_log(
+                f"Update available: {info.local_label} → {info.remote_label}{subj}"
+            )
         # Gentle OS toast once per remote SHA (no focus steal).
         try:
             from wims.launcher.update_notify import (

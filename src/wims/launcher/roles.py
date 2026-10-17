@@ -43,7 +43,12 @@ class Role:
 
 
 def _solo_argv(*, port: int = DEFAULT_SOLO_PORT, no_open: bool = False) -> list[str]:
-    argv = ["-m", "wims.solo", "--port", str(port), "--no-check"]
+    # Same module the Operate script runs. No extra flags on the default
+    # path, so the window and the script share the start routine.
+    from wims.launcher.startup import SOLO_MODULE
+    argv = ["-m", SOLO_MODULE]
+    if int(port) != DEFAULT_SOLO_PORT:
+        argv += ["--port", str(port)]
     if no_open:
         argv.append("--no-open")
     return argv

@@ -51,7 +51,7 @@ from wims.server import app as server  # noqa: E402
 from wims.launcher.app import open_wims_url  # noqa: E402
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         prog="python -m wims.solo",
         description="Run WIMS on this PC alongside your local WSJT-X + N1MM "
@@ -79,7 +79,28 @@ def main() -> None:
     ap.add_argument("--seat-profile", default=None, metavar="PATH",
                     help="seat-profile.json for H2 TX-capable marks "
                          "(default platform path; see docs/home_h2.md)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+
+    from wims.launcher.startup import (  # noqa: E402
+        guard_console,
+        log_startup,
+        operate_banner,
+        read_seat_sentence,
+        solo_iface,
+    )
+
+    # Same port check, messages, and browser as every other Operate start.
+    held = guard_console(args.http_port, open_browser=not args.no_open)
+    if held is not None:
+        return held
+
+    iface = solo_iface(args.iface)
+    log_startup(operate_banner(
+        http_port=args.http_port,
+        iface=iface,
+        seed=not args.no_seed,
+        seat=read_seat_sentence(),
+    ))
 
     # Friendly single-PC setup check first, so the tester sees "is my setup OK?"
     # in plain language before the server output scrolls past.
@@ -94,7 +115,7 @@ def main() -> None:
     # Translate to server args — solo = localhost, no fleet presence, one WSJT port.
     argv = [
         "--http-port", str(args.http_port),
-        "--iface", args.iface,
+        "--iface", iface,
         "--no-presence",
         "--ports", str(args.port),
     ]
@@ -120,7 +141,8 @@ def main() -> None:
 
     sys.argv = ["wims.server.app"] + argv
     server.main()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

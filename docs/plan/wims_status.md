@@ -14,11 +14,13 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 1. Put **WIMS** on the Desktop and in the Start menu (Linux: the app menu).
    Windows: double-click `scripts\Add WIMS to Desktop.bat`.
    Linux or Mac: `./scripts/add-wims-to-desktop.sh`.
-2. Double-click **WIMS**. The window opens. Start Operate or the site server
-   there. The browser opens at `http://localhost:8787/`. A second double-click,
+2. Double-click **WIMS**. That is the same window as `scripts/start-wims.sh`
+   and the Windows WIMS shortcut. Start Operate or the site server there.
+   The browser opens at `http://localhost:8787/`. A second double-click,
    when the console is already up, opens that page.
 3. On one PC with WSJT-X, **Start-Wims-Solo** (`scripts/start-wims-solo.sh` or
-   `scripts\windows\Start-Wims-Solo.cmd`) opens Operate and the browser.
+   `scripts\windows\Start-Wims-Solo.cmd`) uses that same Operate start and
+   opens the browser.
    In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP
    requests ON. Plane A is one port for all bands (decision 2026-09-05).
 4. First Windows install: double-click `scripts\windows\Install-Wims.cmd`.
@@ -240,6 +242,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-17** — **One start, and an Updates list on the WIMS window.** The
+  desktop icon, `scripts/start-wims.sh`, and the Windows shortcuts open the
+  same window (Update, Restart site server, Open site console stay). Operate
+  from that window and from Start-Wims-Solo share one start: port 8787 and
+  `/healthz`, seat reading, network default, log and rules, browser, messages,
+  and `scratch/launcher-details.log`. The window lists published releases
+  (version, date, notes). Check now and a look every few hours (not faster
+  than every 15 minutes) run in the background. Install and Go back are
+  buttons. Nothing installs by itself. Offline and GitHub rate limits stay
+  quiet. Design: [wims_design.md](wims_design.md) (Launch and updates).
 - **2026-10-17** — **Check logs is a summary, and it finishes.** Pairing had been
   every contact against every later contact: 1,000 contacts in two logs 0.08 s,
   5,000 in 1.9 s, 15,000 in 19.7 s, while reading a 15,000-contact file took

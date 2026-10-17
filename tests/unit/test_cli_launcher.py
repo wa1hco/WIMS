@@ -252,9 +252,10 @@ class SoloPortFlagTests(unittest.TestCase):
         def fake_server_main():
             captured["argv"] = list(sys.argv)
 
-        with mock.patch.object(solo.server, "main", side_effect=fake_server_main):
-            with mock.patch.object(sys, "argv", ["wims.solo", "--port", "2241", "--no-check", "--no-open"]):
-                solo.main()
+        with mock.patch("wims.launcher.startup.probe_console", return_value="free"):
+            with mock.patch.object(solo.server, "main", side_effect=fake_server_main):
+                with mock.patch.object(sys, "argv", ["wims.solo", "--port", "2241", "--no-check", "--no-open"]):
+                    solo.main()
         self.assertIn("--ports", captured["argv"])
         i = captured["argv"].index("--ports")
         self.assertEqual(captured["argv"][i + 1], "2241")

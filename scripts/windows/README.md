@@ -61,8 +61,13 @@ To verify the **needed-vs-dupe** roster: log a callsign in N1MM → its roster r
 | **`WIMS.cmd`** | Text **seat menu** (packs, Startup, firewall) — still available; not the primary Desktop icon. |
 | **`assets\wims.ico` / `wims-agent.ico`** | Icons for those shortcuts. |
 
-After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).  
-When a **GitHub Release** is newer than this tree (or `git fetch` shows `main` ahead), the launcher shows a yellow **Update available** banner — click **Update WIMS** (git pull, or open Releases if this is a ZIP). Site server is left running. Tag `v*` to publish a Release; push to `main` does not.
+After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / WSJT-X).
+That icon opens the same window as the other WIMS start files.
+When a release is newer, the window shows a small **update** mark and lists the
+release with its date. Hover a row for what changed. **Check now** looks again.
+**Update**, **Install this update**, and **Go back** are buttons. Nothing installs
+by itself. The site server is left running. A look also happens every few hours
+while the window is open. No network just leaves the list as it was.
 
 ### Install then update (short)
 
