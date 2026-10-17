@@ -244,7 +244,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   `127.0.0.1` could not reach another source: Linux errno 22, Windows 10051 /
   10049 / 10065). No route is a plain sentence. A Decode before the first
   Status stays off the roster (historical Band Activity). Expected send
-  failures no longer print `FAIL`.
+  failures no longer print `FAIL`. The ingest stale check no longer
+  subtracts 40s from a monotonic clock that can still be younger than that
+  (a fresh CI runner treated the stamp as "never heard").
 - **2026-10-17** — **Goal menu on Setup.** Contest / Award / Just operating /
   Custom, with a second menu. DXCC, Worked All States, and VUCC use the log as
   the already-have list. Just operating defaults to WSJT-X Colors; a checklist
