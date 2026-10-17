@@ -32,8 +32,7 @@ def _dispatch(role: str, role_argv: list[str]) -> int:
         # solo.main reads sys.argv
         sys.argv = ["wims.solo", *role_argv]
         from wims.solo import main as solo_main
-        solo_main()
-        return 0
+        return int(solo_main() or 0)
 
     if role == "server":
         sys.argv = ["wims.server.app", *role_argv]

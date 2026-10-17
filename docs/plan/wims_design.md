@@ -145,6 +145,39 @@ agent knows its serial port, assignment list, and dashboard; the log agent knows
 band pin + localhost N1MM delivery; the inhibit thread knows its UDP port and PTT line;
 the WSJT seat agent knows only that PC’s WSJT instances.
 
+### Launch and updates (2026-10-17)
+
+Double-clicking **WIMS**, the start file in `scripts/`, and the Windows shortcuts
+all open the **same WIMS window**. That window is the front door. It keeps
+**Update**, **Restart site server**, and **Open site console**.
+
+The desktop icon runs `scripts/start-wims.sh`. The script may set paths. The
+operator does not type them. The Windows shortcut runs the matching start file,
+which opens the same window.
+
+**Operate** (one PC, browser console) uses one start routine whether the window
+starts it or Start-Wims-Solo does. That routine:
+
+- chooses Python the same way on each operating system
+- checks port **8787** and `/healthz` (already open → show the console; something
+  else → say what to do next)
+- reads what this PC is (N1MM seat, WSJT-X seat, site server, or this PC)
+- uses the Operate network default (this PC) and the site server’s own default
+  when that role starts
+- loads the log and contest rules the same way
+- opens the browser the same way
+- writes the same log file the window’s Details pane uses
+
+**Updates** sit on that window, next to those buttons. The list shows published
+releases with version, date, and what changed (hover, and a short summary).
+**Check now** looks immediately. While the window is open, WIMS also looks every
+few hours, and not more often than every 15 minutes. The look runs in the
+background and does not freeze the window. No network, or GitHub asking us to
+wait, leaves the list as it was and says so in one quiet line. A small
+**update** mark appears when something newer exists. **Install this update**
+switches to the release you selected and remembers the previous copy. **Go back**
+returns to that copy. WIMS never installs by itself.
+
 ### Deployment context (current operation)
 
 A **fixed, unlimited multi-multi** entry in the **ARRL June & September VHF** contests —
