@@ -84,6 +84,7 @@ One **site server** per contest LAN. Top nav:
 - Needs: WSJT multicast + N1MM contest log (seed and/or live Contacts via agent).  
 - **Work** = answer that station. **CQ / run** = WSJT-X UI only.
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
+- **Message**, next to Calling, is the rest of that decode: a report such as R-12, a sign-off such as 73, a grid, or the leftover text of a QSY. Hover the cell for the whole line. A long line is shortened on the row.
 
 ### Overview · WSJT-X · Log · N1MM
 

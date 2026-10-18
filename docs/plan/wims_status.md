@@ -249,6 +249,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Operate Message column.** Roster shows the exchange after the callsigns (R-12, RR73, 73, a grid, or leftover QSY / free text) in Message, just after Calling. A saved column set gains it once. Hover the cell for the full decode. No transmit change.
 - **2026-10-18** — **Operate max age labels.** The pulldown reads 15 sec, 30 sec, 1 min, 2 min, 3 min, and 5 min (values unchanged) so “2 min” is not the 2M band checkbox.
 - **2026-10-18** — **Updates list, row tips, and a fitted window.** The Updates
   list merges published releases with version tags that have no release, newest

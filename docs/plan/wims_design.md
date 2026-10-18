@@ -479,7 +479,10 @@ SSB/CW or hand off to a 2nd op.
   only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
   operator’s* roster. Columns: **DX callsign · Calling** (who they address — `CQ` or the worked call)
-  **· Band · Mode · Grid · dB · Freq** (RF = instance dial + decode audio df) **· Az DX**
+  **· Message** (the exchange after the callsigns — a report such as `R-12`, a grid, `73` /
+  `RR73` / `RRR`, or the leftover text of a QSY or free-text line; hover shows the full
+  decode; a long line is shortened on the row) **· Band · Mode · Grid · dB · Freq**
+  (RF = instance dial + decode audio df) **· Az DX**
   (great-circle bearing **from our receiving instance’s `de_grid` to the DX grid**) **· km**
   (great-circle distance) **· Age · Op** (band manager — stubbed until §3.14) **· Score**.
   **UTC column dropped** from the default table (Age is enough; `ts` remains on the wire).
@@ -489,7 +492,8 @@ SSB/CW or hand off to a 2nd op.
   yet transmitting). Priority: calling-us > armed > mult. Later (M4 / §2.10): **Az ant**, **Δaz**,
   rotating font, optional point-on-Work. **Every header sorts**; need/band filters persist.
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
-  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`, scores. Geometry:
+  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`, `msg` /
+  `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live

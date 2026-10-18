@@ -186,6 +186,9 @@ class Decode(WsjtxMessage):
     dx_call: str | None = None    # the station of interest (CQer, or the caller)
     to_call: str | None = None    # who dx_call is calling ("CQ", or the addressed call)
     grid: str | None = None
+    # Exchange text after the callsigns (R-12, RR73, 73, FN42, QSY payload, …).
+    # None when the line has nothing after the stations. Older callers ignore it.
+    message_tail: str | None = None
     is_qsy: bool = False          # WSJT-X 2.7+ Message System QSY / canned msg
 
 
@@ -311,6 +314,10 @@ def decode_is_signoff(message: str | None) -> bool:
     return text.split()[-1].upper() in _SIGNOFF_TOKENS
 
 
+# SNR report as sent on the air: -12, +05, R-12, R+20. Not a callsign.
+_REPORT_RE = re.compile(r"^R?[+-]\d{1,3}$", re.IGNORECASE)
+
+
 def _looks_like_callsign(token: str | None) -> bool:
     """True if token is a plausible amateur call (not a CQ tag or grid).
 
@@ -331,6 +338,16 @@ def _looks_like_callsign(token: str | None) -> bool:
     has_letter = any(c.isalpha() for c in t)
     has_digit = any(c.isdigit() for c in t)
     return has_letter and has_digit
+
+
+def _is_station_token(token: str | None) -> bool:
+    """True for a callsign. Reports, grids, and sign-offs are not stations."""
+    if not _looks_like_callsign(token):
+        return False
+    t = token.strip().upper()
+    if t in _SIGNOFF_TOKENS:
+        return False
+    return _REPORT_RE.match(t) is None
 
 
 def reply_auto_tx_eligible(message: str | None) -> bool:
@@ -407,47 +424,98 @@ def _interpret_qsy_message(message: str) -> tuple[str, str] | None:
     return None
 
 
-def _interpret_decode(message: str | None) -> tuple[bool, str | None, str | None, str | None]:
-    """Best-effort (is_cq, dx_call, to_call, grid) from decode text.
+def _qsy_raw_tail(message: str) -> str | None:
+    """On-air text after the target call in a Message System line.
+
+    ``WA9BTV. EL 174`` → ``EL 174``. ``VE3KI.NOQSY`` → ``NOQSY``.
+    """
+    text = (message or "").strip()
+    m = re.match(r"^[A-Za-z0-9/]+\.\s*(.*)$", text)
+    if not m:
+        return text or None
+    rest = m.group(1).strip()
+    return rest or None
+
+
+def _tail_after(tokens: list[str], n: int) -> str | None:
+    """Tokens after the callsigns, joined. None when nothing remains."""
+    rest = " ".join(tokens[n:]).strip()
+    return rest or None
+
+
+def _calling_station(tokens: list[str]) -> tuple[str | None, int | None]:
+    """First real station after a CQ / QRZ / DE head, and its token index.
+
+    Directed tags (WEST, DX, POTA, …) and a leading grid are skipped. A report
+    or sign-off is not a station.
+    """
+    for i, t in enumerate(tokens[1:], start=1):
+        if _GRID_RE.match(t):
+            break
+        if _is_station_token(t):
+            return t.upper(), i
+    return None, None
+
+
+def _interpret_decode(
+    message: str | None,
+) -> tuple[bool, str | None, str | None, str | None, str | None]:
+    """Best-effort (is_cq, dx_call, to_call, grid, message_tail) from decode text.
 
     `dx_call` is the station of interest (the CQer, or the station transmitting an
     exchange); `to_call` is who it is addressing ("CQ", or the addressed callsign) —
-    the GridTracker-style "calling" column. Full WSJT-X message grammar is richer;
-    this covers CQ and standard exchanges well enough for the roster/decision engine
-    and is refined later (§3.5).
+    the GridTracker-style "calling" column. `message_tail` is the exchange text
+    after those callsigns: ``R-12``, ``R+20``, ``-12``, ``RR73``, ``RRR``, ``73``,
+    a grid (``FN31`` / ``FN42``), or the leftover words of a QSY / free-text line.
 
-    WSJT-X 2.7+ Message System QSY lines put the **target call** in ``dx_call`` and a
-    ``QSY …`` label in ``to_call`` (Calling column).
+    A grid is part of the tail when it is what followed the calls, including on
+    CQ. The Grid column is the station's locator and can stay after a later
+    report; Message is this decode's tail. The same rule is used for CQ and for
+    a two-call exchange so the column always means "text after the callsigns".
+
+    Only callsigns become stations. A report, grid, sign-off, or plain word is
+    never written into DX or Calling.
+
+    WSJT-X 2.7+ Message System QSY lines put the **target call** in ``dx_call``
+    and a ``QSY …`` label in ``to_call`` (Calling). The raw payload
+    (``EL 174``, ``NOQSY``) is the message tail. A free-text ``QSY 432`` has no
+    station; the whole line is the tail.
     """
+    if not message or not message.strip():
+        return False, None, None, None, None
     grid = extract_grid(message)
-    if not message:
-        return False, None, None, grid
     qsy = _interpret_qsy_message(message)
     if qsy:
         target, label = qsy
-        return False, target, label, None
-    # Free-text QSY macros (older habit): show the text in Calling.
+        return False, target, label, None, _qsy_raw_tail(message)
+    # Free-text QSY macros (older habit): show the text in Calling. No station.
     stripped = message.strip()
     if stripped.upper().startswith("QSY"):
-        return False, None, stripped, None
-    tokens = message.split()
-    if tokens and tokens[0].upper() == "CQ":
+        return False, None, stripped, None, stripped
+    tokens = stripped.split()
+    head = tokens[0].upper() if tokens else ""
+    if head in {"CQ", "QRZ", "DE"}:
         # CQ [directed...] CALL [GRID] — skip non-callsign tokens after CQ
         # (WEST, DX, NA, POTA, …) until the real callsign. Fixes roster DX column
-        # showing "WEST" for "CQ WEST AA1ON".
-        dx_call = None
-        for t in tokens[1:]:
-            if _GRID_RE.match(t):
-                break
-            if _looks_like_callsign(t):
-                dx_call = t.upper()
-                break
-        return True, dx_call, "CQ", grid
+        # showing "WEST" for "CQ WEST AA1ON". QRZ / DE use the same scan so a
+        # directed tag is not stored as a station. is_cq stays CQ-only.
+        dx_call, dx_at = _calling_station(tokens)
+        tail = _tail_after(tokens, (dx_at + 1) if dx_at is not None else 1)
+        return head == "CQ", dx_call, head, grid, tail
     # Standard exchange "<to> <from> <report/grid>": the caller of interest (the
     # station transmitting) is the 2nd token; the 1st is who it is addressing.
-    to_call = tokens[0] if tokens else None
-    dx_call = tokens[1] if len(tokens) >= 2 else None
-    return False, dx_call, to_call, grid
+    if (len(tokens) >= 2
+            and _is_station_token(tokens[0])
+            and _is_station_token(tokens[1])):
+        return (
+            False,
+            tokens[1].upper(),
+            tokens[0].upper(),
+            grid,
+            _tail_after(tokens, 2),
+        )
+    # Free text. Do not promote ordinary words into a roster station.
+    return False, None, None, grid, stripped
 
 
 # --------------------------------------------------------------------------- #
@@ -521,7 +589,9 @@ def parse(data: bytes) -> WsjtxMessage | None:
             low_confidence=r.boolean(),
             off_air=r.boolean() if not r.at_end() else False,
         )
-        msg.is_cq, msg.dx_call, msg.to_call, msg.grid = _interpret_decode(msg.message)
+        (
+            msg.is_cq, msg.dx_call, msg.to_call, msg.grid, msg.message_tail,
+        ) = _interpret_decode(msg.message)
         msg.is_qsy = bool(
             msg.to_call
             and str(msg.to_call).upper().startswith("QSY")

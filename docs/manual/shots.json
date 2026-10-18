@@ -1,7 +1,7 @@
 {
   "schema": 2,
   "image_dir": "images",
-  "note": "Canonical filenames for User-manual.md. Capture via launcher Screenshots… or tools/dev/capture-user-manual-shots.sh. URL query params set Operate context before grab (needed, bands, maxAge, cols). wait_ms lets SSE/JS settle. Suffix mode keeps dated variants without overwriting doc embeds.",
+  "note": "Canonical filenames for User-manual.md. Capture via launcher Screenshots… or tools/dev/capture-user-manual-shots.sh. URL query params set Operate context before grab (needed, bands, maxAge, cols). The default Operate columns include Message (msg) immediately after Calling (to_call). wait_ms lets SSE/JS settle. Suffix mode keeps dated variants without overwriting doc embeds.",
   "shots": [
     {
       "id": "site-operate",

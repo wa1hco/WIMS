@@ -260,6 +260,15 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
   vertical-align: middle;
   box-sizing: border-box;
 }
+/* Message: short on the row. The title is the full decode.
+   rosFitColumns measures this clamped width so a long line stays narrow. */
+#ros .ros-msg {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 #ros th.num, #ros td.num { padding-left: 6px; }
 #ros .badge { margin-left: 3px; padding: 0 4px; font-size: 10px; }
 #ros button.azbtn { padding: 0 3px; font-size: 11px; }

@@ -293,9 +293,14 @@ def test_livefleet_roster_lists_all_decodes():
     assert by["K1ABC"]["az"] is not None and 0 <= by["K1ABC"]["az"] < 360  # FN31 -> FN42
     assert by["K1ABC"]["distance_km"] is not None and by["K1ABC"]["distance_km"] > 0
     assert by["K1ABC"]["is_calling_us"] is False
+    assert by["K1ABC"]["msg"] == "FN42"
+    assert by["K1ABC"]["message_tail"] == "FN42"
+    assert by["K1ABC"]["message"] == "CQ K1ABC FN42"
     assert by["W2XYZ"]["is_cq"] is False and by["W2XYZ"]["to_call"] == "WA1HCO"
     assert by["W2XYZ"]["is_calling_us"] is True              # WA1HCO is de_call
     assert by["W2XYZ"]["is_armed"] is False
+    assert by["W2XYZ"]["msg"] == "FN20"
+    assert by["W2XYZ"]["message"] == "WA1HCO W2XYZ FN20"
 
 
 def test_calling_us_false_for_logged_dupe():
@@ -334,6 +339,8 @@ def test_calling_us_false_for_rr73_and_no_split_row():
     assert n2[0]["grid"] == "FN13"
     assert n2[0]["is_calling_us"] is False
     assert n2[0]["to_call"] == "W2SZ"
+    assert n2[0]["msg"] == "RR73"
+    assert n2[0]["message"] == "W2SZ N2MKT RR73"
 
 
 def test_second_radio_does_not_show_own_station_decodes():

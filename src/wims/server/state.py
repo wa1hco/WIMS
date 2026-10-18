@@ -240,6 +240,10 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
     Columns include **Az DX** (`az`), **Az ant** / **Δaz** when a rotator maps to the
     row's instance, **distance_km**, **is_calling_us**, **is_armed**. `rotators` is a
     `RotatorRegistry` (optional).
+
+    ``msg`` / ``message_tail`` is the exchange text after the callsigns (report,
+    grid, sign-off, or leftover QSY / free text). ``message`` is the original
+    decode line for the cell tooltip. Both are additive; older consoles ignore them.
     """
     cands = []
     for sc, e in scored_rows:
@@ -289,10 +293,17 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
                 rotator_moving = bool(rst.moving)
                 rotator_id = rst.id
         daz = _delta_az(az_ant, az_dx)
+        raw_tail = getattr(d, "message_tail", None)
+        tail = raw_tail.strip() if isinstance(raw_tail, str) else ""
+        raw_msg = getattr(d, "message", None)
+        full = raw_msg.strip() if isinstance(raw_msg, str) else ""
         cands.append({
             "id": f"{c.instance_id}|{c.call}|{c.grid or ''}",  # stable row id → click-to-work
             "call": c.call,
             "to_call": d.to_call,                  # "calling" column
+            "msg": tail,                           # Message column (exchange tail)
+            "message_tail": tail,                  # same text; named contract field
+            "message": full,                       # original decode, cell tooltip
             "is_qsy": is_qsy,
             "grid": c.grid,
             "band": c.band,

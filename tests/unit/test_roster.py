@@ -180,6 +180,36 @@ def test_grid_after_nongrid_promotes_single_row():
     assert rb.entry_for("SIM-2M|W1ZFG|FN42") is not None
 
 
+def test_free_text_and_qsy_do_not_invent_stations():
+    """QSY keeps the target call. Free text and a bare QSY add no DX row."""
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(_decode("SIM-6M", "WA9BTV. EL 174"), "6m", now=10.0)
+    rb.observe_decode(_decode("SIM-6M", "QSY 432"), "6m", now=10.0)
+    rb.observe_decode(_decode("SIM-6M", "TNX FOR THE QSO"), "6m", now=10.0)
+    rb.observe_decode(_decode("SIM-6M", "W1AW K1ABC R-12"), "6m", now=10.0)
+    rows, _ = rb.ranked(now=11.0)
+    calls = [s.candidate.call for s, _ in rows]
+    assert set(calls) == {"WA9BTV", "K1ABC"}
+    assert len(rows) == 2
+    by = {s.candidate.call: e.decode for s, e in rows}
+    assert by["WA9BTV"].dx_call == "WA9BTV"
+    assert by["WA9BTV"].to_call == "QSY 1296.174"
+    assert by["WA9BTV"].message_tail == "EL 174"
+    assert by["K1ABC"].message_tail == "R-12"
+    assert by["K1ABC"].message == "W1AW K1ABC R-12"
+    assert "432" not in calls
+
+
+def test_message_tail_on_parsed_decode_reaches_roster():
+    dec = _decode("SIM-6M", "W1AW K1ABC 73")
+    assert dec.message_tail == "73"
+    rb = RosterBuilder(log=None)
+    rb.observe_decode(dec, "6m", now=1.0)
+    rows, _ = rb.ranked(now=2.0)
+    assert len(rows) == 1
+    assert rows[0][1].decode.message_tail == "73"
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
