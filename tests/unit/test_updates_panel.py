@@ -21,15 +21,16 @@ from wims.launcher.update_check import ReleaseEntry  # noqa: E402
 from wims.launcher.updates_panel import UpdatesPanel  # noqa: E402
 
 
-def _entry(tag: str, body: str) -> ReleaseEntry:
+def _entry(tag: str, body: str, *, stamp: str = "") -> ReleaseEntry:
     return ReleaseEntry(
         tag=tag,
         name=tag,
-        published="2026-09-14",
+        published="2026-09-13" if stamp else "2026-09-14",
         body=body,
         html_url="",
         prerelease=False,
-        relation="older",
+        relation="current" if stamp else "older",
+        stamp=stamp,
     )
 
 
@@ -84,6 +85,18 @@ class HoverTests(unittest.TestCase):
         self.assertIn("v1.0.10", panel._list_tip.text)
         self.assertIn("September", panel._list_tip.text)
         self.assertNotIn("Halt stays live", panel._list_tip.text)
+
+    def test_hover_shows_the_local_time(self):
+        panel = self._panel()
+        panel._entries[0] = _entry(
+            "v1.0.16",
+            "Halt stays live after Work.",
+            stamp="2026-09-13 11:04 PM",
+        )
+        panel._on_list_motion(SimpleNamespace(y=5))
+        self.assertIn("2026-09-13 11:04 PM", panel._list_tip.text)
+        self.assertIn("v1.0.16", panel._list_tip.text)
+        self.assertNotIn("2026-09-14", panel._list_tip.text)
 
     def test_leaving_the_list_hides_the_tip(self):
         panel = self._panel()

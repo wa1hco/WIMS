@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone, tzinfo
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -579,11 +580,12 @@ class ReleaseEntry:
 
     tag: str
     name: str
-    published: str
+    published: str  # local calendar day (YYYY-MM-DD)
     body: str
     html_url: str
     prerelease: bool
     relation: str  # newer | current | older | other
+    stamp: str = ""  # local date and time for the row tip
 
     def line(self) -> str:
         mark = {
@@ -613,7 +615,7 @@ def summarize_notes(body: str, *, limit: int = 280) -> str:
 
 
 def notes_tooltip(entry: ReleaseEntry) -> str:
-    date = entry.published or "date not published"
+    date = (entry.stamp or entry.published or "").strip() or "date not published"
     return f"{entry.tag}  {date}\n\n{summarize_notes(entry.body, limit=700)}"
 
 
@@ -629,17 +631,78 @@ def release_relation(tag: str, local_version: str) -> str:
     return "older"
 
 
-def _published_day(raw: str) -> str:
-    text = (raw or "").strip()
+def _raw_day(raw: object) -> str:
+    """Date slice used when a stamp cannot be read. Never raises."""
+    try:
+        text = str(raw or "").strip()
+    except Exception:
+        return ""
     if "T" in text:
         text = text.split("T", 1)[0]
     return text[:10]
+
+
+def _parse_instant(raw: str) -> datetime | None:
+    """Timezone-aware instant from a GitHub ISO stamp, or None.
+
+    ``Z`` is UTC. Python 3.10's ``fromisoformat`` does not accept ``Z``.
+    Fractional seconds are dropped; the row shows the minute.
+    """
+    text = raw.strip()
+    if not text:
+        return None
+    if text[-1] in "Zz":
+        text = text[:-1] + "+00:00"
+    elif len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+        text = text[:-2] + ":" + text[-2:]
+    text = re.sub(r"\.\d+", "", text, count=1)
+    try:
+        parsed = datetime.fromisoformat(text)
+    except (ValueError, TypeError, OverflowError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _local_dates(raw: object, tz: tzinfo | None = None) -> tuple[str, str]:
+    """Local calendar day, and the row tip (day plus local time).
+
+    ``tz`` None is this PC's time zone. A date with no clock is left as
+    written. An unreadable stamp falls back to the raw date. This does
+    not raise.
+    """
+    try:
+        original = str(raw or "").strip()
+    except Exception:
+        return "", ""
+    fallback = _raw_day(original)
+    if not original or ("T" not in original and ":" not in original):
+        return fallback, fallback
+    try:
+        instant = _parse_instant(original)
+        if instant is None:
+            return fallback, fallback
+        local = instant.astimezone(tz)
+        day = local.strftime("%Y-%m-%d")
+        hour12 = local.hour % 12 or 12
+        ampm = "AM" if local.hour < 12 else "PM"
+        return day, f"{day} {hour12}:{local.minute:02d} {ampm}"
+    except Exception:
+        return fallback, fallback
+
+
+def _published_day(raw: object, tz: tzinfo | None = None) -> str:
+    """Local calendar day for an Updates row. Never raises."""
+    day, _stamp = _local_dates(raw, tz=tz)
+    return day
 
 
 def releases_from_payload(
     payload: object,
     *,
     local_version: str,
+    tz: tzinfo | None = None,
 ) -> tuple[ReleaseEntry, ...]:
     """Turn a GitHub releases JSON list into list rows, newest version first."""
     if not isinstance(payload, list):
@@ -651,14 +714,16 @@ def releases_from_payload(
         tag = str(item.get("tag_name") or "").strip()
         if not tag:
             continue
+        day, stamp = _local_dates(str(item.get("published_at") or ""), tz=tz)
         rows.append(ReleaseEntry(
             tag=tag,
             name=str(item.get("name") or tag).strip(),
-            published=_published_day(str(item.get("published_at") or "")),
+            published=day,
             body=str(item.get("body") or ""),
             html_url=str(item.get("html_url") or "").strip(),
             prerelease=bool(item.get("prerelease")),
             relation=release_relation(tag, local_version),
+            stamp=stamp,
         ))
 
     def sort_key(entry: ReleaseEntry) -> tuple:
@@ -675,7 +740,8 @@ _PAGE_SIZE = 100
 _MAX_PAGES = 10
 
 # Commit summaries for tags that have no Release. Kept for this process so
-# Check now does not repeat the compare calls.
+# Check now does not repeat the compare calls. The first value is the GitHub
+# timestamp (still UTC); the row converts it to this PC's local time.
 _TAG_SUMMARY_CACHE: dict[str, tuple[str, str]] = {}
 
 
@@ -850,7 +916,11 @@ def _compare_commits(gh: str, base: str, head: str) -> tuple[list | None, str]:
 
 
 def _commit_note(gh: str, ref: str) -> tuple[str, str, str]:
-    """``(day, summary, status)`` for one commit. Status ``""`` on success."""
+    """``(timestamp, summary, status)`` for one commit. Status ``""`` on success.
+
+    The timestamp stays the GitHub value. The list converts it to local
+    time when the row is built.
+    """
     result = github_get(
         f"https://api.github.com/repos/{gh}/commits/{quote(ref, safe='')}"
     )
@@ -859,7 +929,7 @@ def _commit_note(gh: str, ref: str) -> tuple[str, str, str]:
     if not isinstance(result.data, dict):
         return "", "", "offline"
     message, when = _commit_message_date(result.data)
-    return _published_day(when), notes_from_subjects([message]), ""
+    return when, notes_from_subjects([message]), ""
 
 
 def _cache_span_notes(
@@ -873,14 +943,14 @@ def _cache_span_notes(
     for name, sha in span:
         if name in matched:
             _TAG_SUMMARY_CACHE[name] = (
-                _published_day(dates.get(name) or ""),
+                dates.get(name) or "",
                 notes_from_subjects(subjects.get(name) or []),
             )
             continue
-        day, body, status = _commit_note(gh, sha or name)
+        when, body, status = _commit_note(gh, sha or name)
         if status:
             return False
-        _TAG_SUMMARY_CACHE[name] = (day, body)
+        _TAG_SUMMARY_CACHE[name] = (when, body)
     return True
 
 
@@ -905,10 +975,10 @@ def _fill_span(gh: str, base: str | None, span: list[tuple[str, str]]) -> bool:
                     return False
                 prev = name
                 continue
-        day, body, status = _commit_note(gh, sha or name)
+        when, body, status = _commit_note(gh, sha or name)
         if status:
             return False
-        _TAG_SUMMARY_CACHE[name] = (day, body)
+        _TAG_SUMMARY_CACHE[name] = (when, body)
         prev = name
     return True
 
@@ -930,13 +1000,15 @@ def _entries_with_tags(
     *,
     local_version: str,
     github: str,
+    tz: tzinfo | None = None,
 ) -> tuple[ReleaseEntry, ...]:
     """Releases plus version tags that have no Release, newest version first."""
     by_tag = {entry.tag: entry for entry in releases}
     for name, _sha in tag_rows:
         if name in by_tag:
             continue
-        published, body = _TAG_SUMMARY_CACHE.get(name, ("", ""))
+        when, body = _TAG_SUMMARY_CACHE.get(name, ("", ""))
+        published, stamp = _local_dates(when, tz=tz)
         key = _version_key(name)
         by_tag[name] = ReleaseEntry(
             tag=name,
@@ -946,6 +1018,7 @@ def _entries_with_tags(
             html_url=f"https://github.com/{github}/releases/tag/{name}",
             prerelease=bool(key is not None and key[3] < 2),
             relation=release_relation(name, local_version),
+            stamp=stamp,
         )
     rows = list(by_tag.values())
 
@@ -960,6 +1033,7 @@ def _entries_with_tags(
 def _list_versions(
     repo: Path | None,
     github: str | None,
+    tz: tzinfo | None = None,
 ) -> tuple[tuple[ReleaseEntry, ...], str, float]:
     root = Path(repo) if repo is not None else Path(__file__).resolve().parents[3]
     gh = (github or github_repo()).strip("/")
@@ -974,11 +1048,11 @@ def _list_versions(
     )
     if notice:
         return (), notice, wait
-    entries = releases_from_payload(releases_raw or [], local_version=local)
+    entries = releases_from_payload(releases_raw or [], local_version=local, tz=tz)
     tag_rows = _version_tags(tags_raw or [])
     _fill_tag_note_cache(gh, tag_rows, {entry.tag for entry in entries})
     merged = _entries_with_tags(
-        entries, tag_rows, local_version=local, github=gh,
+        entries, tag_rows, local_version=local, github=gh, tz=tz,
     )
     if not merged:
         return (), "empty", 0.0
@@ -989,6 +1063,7 @@ def list_github_releases(
     repo: Path | None = None,
     *,
     github: str | None = None,
+    tz: tzinfo | None = None,
 ) -> tuple[tuple[ReleaseEntry, ...], str, float]:
     """Releases and version tags, plus a quiet notice.
 
@@ -999,7 +1074,7 @@ def list_github_releases(
     Offline and rate limits return a result; they do not raise.
     """
     try:
-        return _list_versions(repo, github)
+        return _list_versions(repo, github, tz=tz)
     except Exception as exc:
         if isinstance(exc, (AssertionError, KeyboardInterrupt, SystemExit)):
             raise

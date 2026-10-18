@@ -171,7 +171,9 @@ starts it or Start-Wims-Solo does. That routine:
 **Updates** sit on that window, next to those buttons. The list shows every
 version, newest first: a published Release, and a version tag that has no
 Release (so `v1.0.11` through `v1.0.16` are not missing). Each row has the
-version, the date, and what changed. Hovering a row shows that row's summary.
+version, the date on this PC, and what changed. A GitHub time is UTC; the
+row shows the local calendar day, so a late evening stays that evening.
+Hovering a row shows that row's summary and the local time.
 A Release uses its notes. A tag with no notes uses the commits since the
 previous tag, in one short plain sentence. The window asks GitHub for the
 release list, the tag list, and those compares. It pages past the first

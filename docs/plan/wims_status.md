@@ -249,6 +249,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Updates list dates use this PC's local day.** A version tagged late in the evening shows that date, not the next UTC day. The row tip includes the local time.
 - **2026-10-18** — **Operate max age labels.** The pulldown reads 15 sec, 30 sec, 1 min, 2 min, 3 min, and 5 min (values unchanged) so “2 min” is not the 2M band checkbox.
 - **2026-10-18** — **Updates list, row tips, and a fitted window.** The Updates
   list merges published releases with version tags that have no release, newest

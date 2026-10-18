@@ -6,6 +6,8 @@
 """Updates list on the WIMS window, next to the existing buttons.
 
 Nothing here installs a release by itself. Check now only looks.
+Each row's date is this PC's local day. The hover tip adds the local
+time when GitHub sent a clock time.
 """
 
 from __future__ import annotations

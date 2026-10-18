@@ -7,9 +7,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
+import time
 import unittest
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from unittest import mock
 
@@ -24,7 +27,9 @@ from wims.launcher.update_check import (
     MIN_CHECK_INTERVAL_S,
     HttpResult,
     _bucket_commits,
+    _local_dates,
     _note_spans,
+    _published_day,
     apply_release,
     clamp_check_interval,
     clear_release_note_cache,
@@ -37,6 +42,12 @@ from wims.launcher.update_check import (
     seconds_until_next_check,
     summarize_notes,
 )
+
+
+def _local_day(iso: str) -> str:
+    """Calendar day in the process time zone, independent of the list code."""
+    text = iso[:-1] + "+00:00" if iso.endswith(("Z", "z")) else iso
+    return datetime.fromisoformat(text).astimezone().strftime("%Y-%m-%d")
 
 
 class ScheduleTests(unittest.TestCase):
@@ -155,12 +166,16 @@ class ReleaseListTests(unittest.TestCase):
         rows = releases_from_payload(payload, local_version="1.0.16")
         self.assertEqual(rows[0].tag, "v1.2.0")
         self.assertEqual(rows[0].relation, "newer")
-        self.assertEqual(rows[0].published, "2026-10-01")
+        self.assertEqual(rows[0].published, _local_day("2026-10-01T08:00:00Z"))
         self.assertIn("available", rows[0].line())
         self.assertIn("Fixed the roster", rows[0].summary())
-        self.assertIn("Fixed the roster", notes_tooltip(rows[0]))
+        tip = notes_tooltip(rows[0])
+        self.assertIn("Fixed the roster", tip)
+        self.assertIn(_local_day("2026-10-01T08:00:00Z"), tip)
+        self.assertTrue(tip.splitlines()[0].endswith(("AM", "PM")))
         self.assertEqual(rows[1].relation, "current")
         self.assertIn("this copy", rows[1].line())
+        self.assertIn(_local_day("2026-09-13T12:00:00Z"), rows[1].line())
 
     def test_empty_notes(self):
         self.assertIn("No notes", summarize_notes(""))
@@ -255,9 +270,13 @@ class ReleaseListTests(unittest.TestCase):
         self.assertEqual(tags, ["v1.0.16", "v1.0.15", "v1.0.10", "v1.0.0"])
         self.assertEqual(rows[0].relation, "current")
         self.assertIn("this copy", rows[0].line())
+        self.assertIn(_local_day("2026-09-14T03:04:22Z"), rows[0].line())
         self.assertIn("Halt stays live", rows[0].summary())
         self.assertIn("N1MM operator", rows[1].summary())
-        self.assertEqual(rows[0].published, "2026-09-14")
+        self.assertEqual(rows[0].published, _local_day("2026-09-14T03:04:22Z"))
+        tip = notes_tooltip(rows[0])
+        self.assertIn(_local_day("2026-09-14T03:04:22Z"), tip)
+        self.assertTrue(tip.splitlines()[0].endswith(("AM", "PM")))
         self.assertIn("Published notes", rows[2].summary())
         self.assertEqual(sum(1 for url in calls if "/compare/" in url), 1)
 
@@ -309,6 +328,135 @@ class ReleaseListTests(unittest.TestCase):
         self.assertEqual([name for name, _sha in spans[0][1]], ["v1.0.1"])
         self.assertEqual(spans[1][0], "v1.0.10")
         self.assertEqual([name for name, _sha in spans[1][1]], ["v1.0.16"])
+
+    def _expect_late_evening(self, tz: tzinfo | None) -> None:
+        """v1.0.16 at 2026-09-14 03:04 UTC is 2026-09-13 11:04 PM in UTC-4."""
+        late = "2026-09-14T03:04:00Z"
+        rows = releases_from_payload(
+            [{
+                "tag_name": "v1.0.16",
+                "name": "v1.0.16",
+                "published_at": late,
+                "body": "Halt stays live.",
+                "html_url": "https://example.test/1.0.16",
+                "prerelease": False,
+            }],
+            local_version="1.0.16",
+            tz=tz,
+        )
+        self.assertEqual(rows[0].published, "2026-09-13")
+        self.assertIn("2026-09-13", rows[0].line())
+        self.assertIn("this copy", rows[0].line())
+        self.assertIn("2026-09-13 11:04 PM", notes_tooltip(rows[0]))
+
+        def commit_only(url, timeout=8.0):
+            if "/releases?" in url:
+                return HttpResult(data=[])
+            if "/tags?" in url:
+                return HttpResult(data=[_tag("v1.0.16", "b" * 40)])
+            if "/commits/" in url:
+                return HttpResult(data=_commit(
+                    "b" * 40, "Release 1.0.16: Halt stays live.", late,
+                ))
+            return HttpResult(data=None, error="unexpected")
+
+        with mock.patch("wims.launcher.update_check._local_version", return_value="1.0.16"):
+            with mock.patch("wims.launcher.update_check.github_get", side_effect=commit_only):
+                tagged, notice, _wait = list_github_releases(ROOT, tz=tz)
+        self.assertEqual(notice, "")
+        self.assertEqual(tagged[0].tag, "v1.0.16")
+        self.assertEqual(tagged[0].published, "2026-09-13")
+        self.assertIn("this copy", tagged[0].line())
+        self.assertIn("2026-09-13 11:04 PM", notes_tooltip(tagged[0]))
+        clear_release_note_cache()
+
+        def compared(url, timeout=8.0):
+            if "/releases?" in url:
+                return HttpResult(data=[_release("v1.0.10", body="Shipped.")])
+            if "/tags?" in url:
+                return HttpResult(data=[
+                    _tag("v1.0.16", "b" * 40),
+                    _tag("v1.0.10", "d" * 40),
+                ])
+            if "/compare/" in url:
+                return HttpResult(data={
+                    "total_commits": 1,
+                    "commits": [
+                        _commit("b" * 40, "Release 1.0.16: Halt stays live.", late),
+                    ],
+                })
+            return HttpResult(data=None, error="unexpected")
+
+        with mock.patch("wims.launcher.update_check._local_version", return_value="1.0.16"):
+            with mock.patch("wims.launcher.update_check.github_get", side_effect=compared):
+                merged, notice, _wait = list_github_releases(ROOT, tz=tz)
+        self.assertEqual(notice, "")
+        self.assertEqual(merged[0].tag, "v1.0.16")
+        self.assertEqual(merged[0].published, "2026-09-13")
+        self.assertIn("this copy", merged[0].line())
+        self.assertIn("Halt stays live", merged[0].summary())
+        self.assertIn("2026-09-13 11:04 PM", notes_tooltip(merged[0]))
+
+    def test_late_evening_follows_the_process_time_zone(self):
+        if not hasattr(time, "tzset"):
+            self.skipTest("Windows has no time.tzset; the injected-zone test covers this")
+        if not Path("/usr/share/zoneinfo/America/New_York").is_file():
+            self.skipTest("America/New_York is not installed")
+        old = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        try:
+            shifted = datetime(2026, 9, 14, 3, 4, tzinfo=timezone.utc).astimezone()
+            self.assertEqual(shifted.strftime("%Y-%m-%d %H:%M"), "2026-09-13 23:04")
+            self._expect_late_evening(None)
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+
+    def test_late_evening_with_an_injected_zone(self):
+        self._expect_late_evening(timezone(timedelta(hours=-4)))
+
+    def test_a_date_with_no_clock_stays_that_day(self):
+        day, stamp = _local_dates("2026-09-14", tz=timezone(timedelta(hours=-4)))
+        self.assertEqual(day, "2026-09-14")
+        self.assertEqual(stamp, "2026-09-14")
+        self.assertNotIn("PM", stamp)
+        self.assertNotIn("AM", stamp)
+        self.assertEqual(
+            _published_day("2026-09-14T03:04:00Z", tz=timezone(timedelta(hours=-4))),
+            "2026-09-13",
+        )
+
+    def test_unreadable_date_falls_back_without_raising(self):
+        day, stamp = _local_dates("2026-09-14T99:99:99Z")
+        self.assertEqual(day, "2026-09-14")
+        self.assertEqual(stamp, "2026-09-14")
+        day, stamp = _local_dates("not-a-timestamp")
+        self.assertEqual(day, "not-a-time")
+        self.assertEqual(stamp, day)
+        fractional, frac_stamp = _local_dates(
+            "2026-09-14T03:04:22.000Z",
+            tz=timezone(timedelta(hours=-4)),
+        )
+        self.assertEqual(fractional, "2026-09-13")
+        self.assertEqual(frac_stamp, "2026-09-13 11:04 PM")
+
+        class Boom(tzinfo):
+            def utcoffset(self, dt):
+                raise RuntimeError("boom")
+
+            def dst(self, dt):
+                raise RuntimeError("boom")
+
+            def tzname(self, dt):
+                return "Boom"
+
+        day, stamp = _local_dates("2026-09-14T03:04:00Z", tz=Boom())
+        self.assertEqual(day, "2026-09-14")
+        self.assertEqual(stamp, "2026-09-14")
 
 
 class ApplyReleaseTests(unittest.TestCase):
