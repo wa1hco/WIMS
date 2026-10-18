@@ -773,6 +773,9 @@ class LauncherApp:
         if not env_skip_update_check():
             self._schedule_update_check(INITIAL_CHECK_DELAY_S)
         self.root.after(4000, self._pulse_detect)
+        # A second double-click may already be waiting. Service it once now,
+        # then keep looking while the window is open.
+        self._poll_raise_request()
 
     def _apply_icon(self) -> None:
         icon = find_window_icon_path()
@@ -1723,10 +1726,17 @@ class LauncherApp:
                     start_new_session=True,
                 )
         except Exception as e:
+            got = False
             try:
-                try_acquire_launcher_lock()
+                got = bool(try_acquire_launcher_lock())
             except Exception:
-                pass
+                got = False
+            if got:
+                try:
+                    from wims.launcher.handoff import start_raise_server
+                    start_raise_server()
+                except Exception:
+                    pass
             self._updating = False
             self._append_log(f"Relaunch failed: {e}")
             self._set_banner("err", "Updated but relaunch failed", str(e))
@@ -3031,6 +3041,19 @@ class LauncherApp:
             except Exception:
                 pass
 
+    def _poll_raise_request(self) -> None:
+        """Bring this window forward when another double-click asks."""
+        from wims.launcher.handoff import RAISE_POLL_MS, service_raise_requests
+
+        try:
+            service_raise_requests(self.root)
+        except Exception:
+            pass
+        try:
+            self.root.after(RAISE_POLL_MS, self._poll_raise_request)
+        except Exception:
+            pass
+
     def _poll_procs(self) -> None:
         for role_id in list(self._procs):
             self._update_card_state(role_id)
@@ -3065,22 +3088,51 @@ class LauncherApp:
             self._append_log(f"Shortcut failed: {e}")
 
 
-def announce_already_running() -> int:
-    """Second double-click: show the console that is already up."""
-    ok, base = probe_site_urls(None, timeout=0.6)
-    if ok:
-        url = base.rstrip("/") + "/"
+ALREADY_RUNNING_UNREACHABLE = (
+    "WIMS is already open on this PC, but the window did not come forward.\n"
+    "Click the WIMS window if you can see it.\n"
+    "If you cannot see it, close WIMS and double-click the icon again."
+)
+
+
+def show_operator_message(text: str) -> None:
+    """A dialog for a double-click. The same words are printed if it cannot open."""
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+
+        root = tk.Tk()
+    except Exception:
+        print(text, flush=True)
+        return
+    try:
+        root.withdraw()
         try:
-            open_wims_url(url)
+            root.attributes("-topmost", True)
         except Exception:
             pass
-        print(f"WIMS is already open. The console is {url}")
+        messagebox.showinfo("WIMS", text, parent=root)
+    except Exception:
+        print(text, flush=True)
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+
+
+def announce_already_running() -> int:
+    """Second double-click: bring the existing WIMS window forward.
+
+    Quiet exit when that window answers. A plain message when it does not.
+    Does not open the site console or any other window.
+    """
+    from wims.launcher.handoff import request_running_launcher
+
+    if request_running_launcher():
         return 0
-    print(
-        "WIMS is already open on this PC.\n"
-        "Use the WIMS window that is already on the screen."
-    )
-    return 0
+    show_operator_message(ALREADY_RUNNING_UNREACHABLE)
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -3103,9 +3155,16 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Created: {path}")
         return 0
 
+    from wims.launcher.handoff import start_raise_server
     from wims.launcher.singleton import try_acquire_launcher_lock
     if not try_acquire_launcher_lock():
         return announce_already_running()
+    # Publish the raise listener before the window exists so a second
+    # double-click during startup still reaches this process.
+    try:
+        start_raise_server()
+    except Exception:
+        pass
 
     try:
         import tkinter as tk

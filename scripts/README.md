@@ -14,7 +14,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `_resolve-python.sh` — Finds Python for the other Linux start files.
 - `install-linux.sh` — First-time Linux install (Python check and the desktop icon).
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
-- `start-wims.sh` — Open the WIMS window. The desktop icon runs this.
+- `start-wims.sh` — Open the WIMS window. The desktop icon runs this. If that window is already open, this brings it forward.
 - `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WIMS window uses.
 - `windows/Check-Logs.cmd` — See whether the logs on this PC agree.
 - `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
@@ -53,7 +53,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `windows/Start-WimsAtLogon.cmd` — What Windows runs at sign-in.
 - `windows/Start-WimsAtLogon.vbs` — Starts the sign-in launcher without a console flash.
 - `windows/Start-WimsConsole-Kiosk.cmd` — Open Operate in a compact browser window.
-- `windows/Start-WimsLauncher.cmd` — Open the WIMS window (the desktop icon runs this).
+- `windows/Start-WimsLauncher.cmd` — Open the WIMS window (the desktop icon runs this). If that window is already open, this brings it forward.
 - `windows/Start-WimsLauncher.vbs` — Starts the WIMS window without a console flash.
 - `windows/Start-WimsSeat.cmd` — Start the radio pack named in the seat config.
 - `windows/Start-WimsServer.cmd` — Start the site server.

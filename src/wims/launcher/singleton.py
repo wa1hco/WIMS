@@ -5,9 +5,11 @@
 
 """Single desktop launcher per user session.
 
-A second ``python -m wims.launcher`` must not open another window or call
-``replace_seat_agents`` (that would restart seat agents under a new parent).
-Uses an exclusive lock file under the user config dir.
+A second start must not open another window or call ``replace_seat_agents``
+(that would restart seat agents under a new parent). It asks the running
+window to come forward instead (see ``handoff``). Uses an exclusive lock
+file under the user config dir. The raise listener publishes
+``launcher.raise`` next to that lock.
 """
 
 from __future__ import annotations
@@ -108,8 +110,15 @@ def release_launcher_lock() -> None:
 
     ``_relaunch_self`` must call this *before* spawning the new process;
     otherwise the child sees the lock, exits, and the parent then quits —
-    Update WIMS looks like it never completed.
+    Update WIMS looks like it never completed. The raise listener stops
+    first so a double-click during the handoff is not acknowledged by a
+    window that is about to close.
     """
+    try:
+        from wims.launcher.handoff import stop_raise_server
+        stop_raise_server()
+    except Exception:
+        pass
     global _lock_fp
     fp = _lock_fp
     _lock_fp = None

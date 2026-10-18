@@ -151,34 +151,70 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         )
         self.assertIn("Check logs.lnk", shortcut)
 
-    def test_second_click_reopens_the_console(self):
+    def test_second_click_raises_the_window_and_stays_quiet(self):
         from wims.launcher.app import announce_already_running
 
+        def _forbidden(*_a, **_k):
+            raise AssertionError("second start opened the site console")
+
         with mock.patch(
-            "wims.launcher.app.probe_site_urls",
-            return_value=(True, "http://127.0.0.1:8787"),
-        ), mock.patch("wims.launcher.app.open_wims_url") as opened:
+            "wims.launcher.handoff.request_running_launcher", return_value=True,
+        ), mock.patch(
+            "wims.launcher.app.open_wims_url", side_effect=_forbidden,
+        ), mock.patch(
+            "wims.launcher.app.probe_site_urls", side_effect=_forbidden,
+        ), mock.patch(
+            "wims.launcher.app.show_operator_message",
+        ) as shown:
             buf = io.StringIO()
             with mock.patch("sys.stdout", buf):
                 rc = announce_already_running()
         self.assertEqual(rc, 0)
-        opened.assert_called_once_with("http://127.0.0.1:8787/")
-        self.assertIn("already open", buf.getvalue().lower())
-        self.assertEqual(_hits("already-running", buf.getvalue()), [])
+        shown.assert_not_called()
+        self.assertEqual(buf.getvalue(), "")
 
-    def test_second_click_without_a_console_names_the_window(self):
-        from wims.launcher.app import announce_already_running
+    def test_second_click_explains_when_the_window_does_not_answer(self):
+        from wims.launcher.app import (
+            ALREADY_RUNNING_UNREACHABLE,
+            announce_already_running,
+        )
+
+        def _forbidden(*_a, **_k):
+            raise AssertionError("second start opened the site console")
 
         with mock.patch(
-            "wims.launcher.app.probe_site_urls",
-            return_value=(False, ""),
-        ), mock.patch("wims.launcher.app.open_wims_url") as opened:
-            buf = io.StringIO()
+            "wims.launcher.handoff.request_running_launcher", return_value=False,
+        ), mock.patch(
+            "wims.launcher.app.open_wims_url", side_effect=_forbidden,
+        ), mock.patch(
+            "wims.launcher.app.probe_site_urls", side_effect=_forbidden,
+        ), mock.patch(
+            "wims.launcher.app.show_operator_message",
+        ) as shown:
+            rc = announce_already_running()
+        self.assertEqual(rc, 1)
+        shown.assert_called_once_with(ALREADY_RUNNING_UNREACHABLE)
+        self.assertIn("did not come forward", ALREADY_RUNNING_UNREACHABLE)
+        self.assertIn("double-click", ALREADY_RUNNING_UNREACHABLE)
+        self.assertEqual(_hits("already-running", ALREADY_RUNNING_UNREACHABLE), [])
+
+    def test_unreachable_message_prints_when_no_dialog(self):
+        import builtins
+
+        from wims.launcher.app import show_operator_message
+
+        real_import = builtins.__import__
+
+        def block_tk(name, *args, **kwargs):
+            if name == "tkinter" or name.startswith("tkinter."):
+                raise ImportError("no window library")
+            return real_import(name, *args, **kwargs)
+
+        buf = io.StringIO()
+        with mock.patch("builtins.__import__", side_effect=block_tk):
             with mock.patch("sys.stdout", buf):
-                rc = announce_already_running()
-        self.assertEqual(rc, 0)
-        opened.assert_not_called()
-        self.assertIn("already on the screen", buf.getvalue())
+                show_operator_message("Click the WIMS window if you can see it.")
+        self.assertIn("Click the WIMS window", buf.getvalue())
 
 
 class SoloLauncherPathTests(unittest.TestCase):

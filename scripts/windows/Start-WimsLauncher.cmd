@@ -6,6 +6,7 @@ REM
 REM SPDX-License-Identifier: GPL-3.0-or-later
 
 REM Desktop peer launcher (GUI). Double-click or use Desktop "WIMS" shortcut.
+REM If that window is already open, this brings it forward.
 
 setlocal EnableExtensions
 cd /d "%~dp0"
