@@ -68,7 +68,11 @@ class UpdatesPanel:
         )
         self._list.pack(fill="x", pady=(2, 4))
         self._list.bind("<<ListboxSelect>>", self._on_select)
-        self._list_tip = ToolTip(self._list, "Select an update to read what changed.")
+        self._hover_index: int | None = None
+        self._list_tip = ToolTip(self._list, "Hover a row to read what changed.")
+        self._list.bind("<Motion>", self._on_list_motion, add="+")
+        self._list.bind("<Enter>", self._on_list_motion, add="+")
+        self._list.bind("<Leave>", self._on_list_leave, add="+")
 
         self._summary = tk.Label(
             frame, text="No update list yet.",
@@ -129,13 +133,15 @@ class UpdatesPanel:
     def set_releases(self, entries: list[ReleaseEntry] | tuple[ReleaseEntry, ...]) -> None:
         previous = self.selected_tag()
         self._entries = list(entries)
+        self._hover_index = None
         self._list.delete(0, "end")
         for entry in self._entries:
             self._list.insert("end", entry.line())
         if not self._entries:
-            self._summary.configure(text="No published releases to show.")
-            self._list_tip.set_text("No published releases to show.")
+            self._summary.configure(text="No versions to show.")
+            self._list_tip.set_text("No versions to show.")
             return
+        self._list_tip.hide()
         pick = 0
         if previous:
             for i, entry in enumerate(self._entries):
@@ -174,5 +180,40 @@ class UpdatesPanel:
             self._show_entry(entry)
 
     def _show_entry(self, entry: ReleaseEntry) -> None:
+        """Selection drives the summary line and Install. Hover drives the tip."""
         self._summary.configure(text=entry.summary())
-        self._list_tip.set_text(notes_tooltip(entry))
+
+    def _row_at(self, y: int) -> int | None:
+        if not self._entries:
+            return None
+        try:
+            index = int(self._list.nearest(y))
+        except Exception:
+            return None
+        if index < 0 or index >= len(self._entries):
+            return None
+        try:
+            bbox = self._list.bbox(index)
+        except Exception:
+            bbox = None
+        if not bbox:
+            return None
+        top = int(bbox[1])
+        height = int(bbox[3])
+        if y < top or y >= top + height:
+            return None
+        return index
+
+    def _on_list_motion(self, event) -> None:
+        index = self._row_at(int(getattr(event, "y", 0) or 0))
+        if index is None:
+            self._on_list_leave()
+            return
+        if index == self._hover_index:
+            return
+        self._hover_index = index
+        self._list_tip.set_text(notes_tooltip(self._entries[index]))
+
+    def _on_list_leave(self, _event=None) -> None:
+        self._hover_index = None
+        self._list_tip.hide()

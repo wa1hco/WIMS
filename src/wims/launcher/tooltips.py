@@ -27,12 +27,18 @@ class ToolTip:
         widget.bind("<ButtonPress>", self._hide, add="+")
 
     def set_text(self, text: str) -> None:
-        self.text = text or ""
-        # If a tip is visible, rebuild so the operator sees fresh detail.
+        text = text or ""
+        # Same words while the tip is up: leave it. A later row still rebuilds.
+        if text == self.text and self._tip is not None:
+            return
+        self.text = text
         if self._tip is not None:
             self._hide()
             if self.text:
                 self._show()
+
+    def hide(self) -> None:
+        self._hide()
 
     def _schedule(self, _event=None) -> None:
         self._cancel()

@@ -23,10 +23,14 @@ from wims.launcher.update_check import (
     DEFAULT_CHECK_INTERVAL_S,
     MIN_CHECK_INTERVAL_S,
     HttpResult,
+    _bucket_commits,
+    _note_spans,
     apply_release,
     clamp_check_interval,
+    clear_release_note_cache,
     gather_updates,
     list_github_releases,
+    notes_from_subjects,
     notes_tooltip,
     releases_from_payload,
     rollback_release,
@@ -101,7 +105,34 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(snap.releases, ())
 
 
+def _release(tag: str, body: str = "Notes.", day: str = "2026-09-12T00:00:00Z") -> dict:
+    return {
+        "tag_name": tag,
+        "name": tag,
+        "published_at": day,
+        "body": body,
+        "html_url": f"https://example.test/{tag}",
+        "prerelease": False,
+    }
+
+
+def _tag(name: str, sha: str) -> dict:
+    return {"name": name, "commit": {"sha": sha}}
+
+
+def _commit(sha: str, message: str, day: str) -> dict:
+    return {
+        "sha": sha,
+        "commit": {
+            "message": message,
+            "committer": {"date": day},
+        },
+    }
+
+
 class ReleaseListTests(unittest.TestCase):
+    def tearDown(self):
+        clear_release_note_cache()
     def test_rows_show_version_date_and_notes(self):
         payload = [
             {
@@ -152,6 +183,132 @@ class ReleaseListTests(unittest.TestCase):
         self.assertEqual(notice, "rate_limit")
         self.assertEqual(wait, 90.0)
         self.assertNotIn("ERROR", notice)
+
+    def test_a_raised_lookup_stays_quiet(self):
+        with mock.patch(
+            "wims.launcher.update_check.github_get",
+            side_effect=OSError("network down"),
+        ):
+            rows, notice, wait = list_github_releases(ROOT)
+        self.assertEqual(rows, ())
+        self.assertEqual(notice, "offline")
+        self.assertEqual(wait, 0.0)
+
+    def test_pages_keep_versions_past_the_first_page(self):
+        page1 = [_release(f"v1.0.{i}") for i in range(100)]
+        page2 = [_release("v2.0.0", body="Newest."), _release("v0.9.0", body="Old.")]
+
+        def fake(url, timeout=8.0):
+            if "/tags?" in url:
+                return HttpResult(data=[])
+            if "&page=2" in url:
+                return HttpResult(data=page2)
+            if "&page=1" in url:
+                return HttpResult(data=page1)
+            return HttpResult(data=[])
+
+        with mock.patch("wims.launcher.update_check.github_get", side_effect=fake):
+            rows, notice, wait = list_github_releases(ROOT)
+        tags = [row.tag for row in rows]
+        self.assertEqual(notice, "")
+        self.assertEqual(wait, 0.0)
+        self.assertEqual(tags[0], "v2.0.0")
+        self.assertIn("v1.0.0", tags)
+        self.assertIn("v0.9.0", tags)
+        self.assertEqual(len(tags), 102)
+
+    def test_tags_without_a_release_join_the_list(self):
+        calls = []
+
+        def fake(url, timeout=8.0):
+            calls.append(url)
+            if "/releases?" in url:
+                return HttpResult(data=[
+                    _release("v1.0.10", body="Published notes for 1.0.10."),
+                    _release("v1.0.0", body="First release."),
+                ])
+            if "/tags?" in url:
+                return HttpResult(data=[
+                    _tag("v1.0.16", "b" * 40),
+                    _tag("v1.0.15", "c" * 40),
+                    _tag("v1.0.10", "d" * 40),
+                    _tag("v1.0.0", "e" * 40),
+                    _tag("not-a-version", "f" * 40),
+                ])
+            if "/compare/" in url:
+                self.assertIn("v1.0.10...v1.0.16", url)
+                return HttpResult(data={
+                    "total_commits": 3,
+                    "commits": [
+                        _commit("a" * 40, "Prep the next tag.\n\nDetail.", "2026-09-13T00:00:00Z"),
+                        _commit("c" * 40, "Release 1.0.15: N1MM operator.", "2026-09-13T12:00:00Z"),
+                        _commit("b" * 40, "Release 1.0.16: Halt stays live.", "2026-09-14T03:04:22Z"),
+                    ],
+                })
+            return HttpResult(data=None, error="unexpected")
+
+        with mock.patch("wims.launcher.update_check._local_version", return_value="1.0.16"):
+            with mock.patch("wims.launcher.update_check.github_get", side_effect=fake):
+                rows, notice, _wait = list_github_releases(ROOT)
+        self.assertEqual(notice, "")
+        tags = [row.tag for row in rows]
+        self.assertEqual(tags, ["v1.0.16", "v1.0.15", "v1.0.10", "v1.0.0"])
+        self.assertEqual(rows[0].relation, "current")
+        self.assertIn("this copy", rows[0].line())
+        self.assertIn("Halt stays live", rows[0].summary())
+        self.assertIn("N1MM operator", rows[1].summary())
+        self.assertEqual(rows[0].published, "2026-09-14")
+        self.assertIn("Published notes", rows[2].summary())
+        self.assertEqual(sum(1 for url in calls if "/compare/" in url), 1)
+
+        calls.clear()
+        with mock.patch("wims.launcher.update_check._local_version", return_value="1.0.16"):
+            with mock.patch("wims.launcher.update_check.github_get", side_effect=fake):
+                again, notice, _wait = list_github_releases(ROOT)
+        self.assertEqual(notice, "")
+        self.assertEqual([row.tag for row in again], tags)
+        self.assertFalse(any("/compare/" in url for url in calls))
+
+    def test_compare_offline_still_lists_the_tag(self):
+        def fake(url, timeout=8.0):
+            if "/releases?" in url:
+                return HttpResult(data=[_release("v1.0.10", body="Shipped.")])
+            if "/tags?" in url:
+                return HttpResult(data=[
+                    _tag("v1.0.16", "b" * 40),
+                    _tag("v1.0.10", "d" * 40),
+                ])
+            return HttpResult(data=None, error="timed out", status=0)
+
+        with mock.patch("wims.launcher.update_check._local_version", return_value="1.0.10"):
+            with mock.patch("wims.launcher.update_check.github_get", side_effect=fake):
+                rows, notice, _wait = list_github_releases(ROOT)
+        self.assertEqual(notice, "")
+        self.assertEqual([row.tag for row in rows], ["v1.0.16", "v1.0.10"])
+        self.assertIn("this copy", rows[1].line())
+        self.assertIn("No notes", rows[0].summary())
+
+    def test_commit_buckets_follow_the_tags(self):
+        span = [("v1.0.11", "aaa1111"), ("v1.0.12", "bbb2222")]
+        commits = [
+            _commit("1111111", "before\n\nmore", "2026-09-13T00:00:00Z"),
+            _commit("aaa1111", "Release 1.0.11: install", "2026-09-13T01:00:00Z"),
+            _commit("bbb2222", "Release 1.0.12: n1mm", "2026-09-14T00:00:00Z"),
+        ]
+        subjects, dates, matched = _bucket_commits(commits, span)
+        self.assertEqual(matched, {"v1.0.11", "v1.0.12"})
+        self.assertIn("before", notes_from_subjects(subjects["v1.0.11"]))
+        self.assertIn("install", notes_from_subjects(subjects["v1.0.11"]))
+        self.assertEqual(notes_from_subjects(subjects["v1.0.12"]), "Release 1.0.12: n1mm")
+        self.assertEqual(dates["v1.0.12"][:10], "2026-09-14")
+        spans = _note_spans(
+            [("v1.0.0", "a"), ("v1.0.1", "b"), ("v1.0.10", "c"), ("v1.0.16", "d")],
+            {"v1.0.0", "v1.0.10"},
+        )
+        self.assertEqual(spans[0][0], "v1.0.0")
+        self.assertEqual([name for name, _sha in spans[0][1]], ["v1.0.1"])
+        self.assertEqual(spans[1][0], "v1.0.10")
+        self.assertEqual([name for name, _sha in spans[1][1]], ["v1.0.16"])
 
 
 class ApplyReleaseTests(unittest.TestCase):
