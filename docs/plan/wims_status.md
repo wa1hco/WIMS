@@ -249,6 +249,15 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Restart needed when the site server is on older code.**
+  The site server records the git revision it loaded (`server_rev` on
+  `/healthz`, existing fields unchanged). The WIMS window re-reads the
+  checkout on each refresh and after an install, and marks **Restart site
+  server** when this PC’s server is stale. The window shows both revisions.
+  After Install, the Updates list says to restart the server to finish.
+  **Other tools…** stays put; the extra tools open below it and scroll, and
+  unchecking snaps the window back to the compact size.
+  Tests: `tests/unit/test_server_rev.py`.
 - **2026-10-17** — **Log page.** Log to use, the count-since presets, per-radio
   log warnings, the shared WSJT-X file, Check logs, and N1MM resync moved off
   Setup onto `/log`. The operator picks the log WIMS checks for needed and
