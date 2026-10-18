@@ -16,8 +16,8 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
    Linux or Mac: `./scripts/add-wims-to-desktop.sh`.
 2. Double-click **WIMS**. That is the same window as `scripts/start-wims.sh`
    and the Windows WIMS shortcut. Start Operate or the site server there.
-   The browser opens at `http://localhost:8787/`. A second double-click,
-   when the console is already up, opens that page.
+   The browser opens at `http://localhost:8787/`. A second double-click
+   brings the WIMS window that is already open to the front.
 3. On one PC with WSJT-X, **Start-Wims-Solo** (`scripts/start-wims-solo.sh` or
    `scripts\windows\Start-Wims-Solo.cmd`) uses that same Operate start and
    opens the browser.
@@ -249,6 +249,12 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Second double-click raises the WIMS window.** The desktop
+  icon, `scripts/start-wims.sh`, and the Windows shortcut share one start.
+  When the window is already open, another start brings it forward
+  (un-minimized, raised, and focused) and does not open the site console.
+  If that window does not answer, WIMS says what to do next.
+  Tests: `tests/unit/test_launcher_handoff.py`.
 - **2026-10-18** — **Updates list dates use this PC's local day.** A version tagged late in the evening shows that date, not the next UTC day. The row tip includes the local time.
 - **2026-10-18** — **Operate max age labels.** The pulldown reads 15 sec, 30 sec, 1 min, 2 min, 3 min, and 5 min (values unchanged) so “2 min” is not the 2M band checkbox.
 - **2026-10-18** — **Updates list, row tips, and a fitted window.** The Updates

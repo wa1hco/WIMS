@@ -9,7 +9,7 @@
 
 **Step 2.** Double-click **WIMS**.
 
-The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If WIMS is already running, double-clicking the icon opens that console.
+The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If that window is already open, double-clicking the icon brings it to the front.
 
 Every file you can double-click is listed in [scripts/README.md](scripts/README.md).
 

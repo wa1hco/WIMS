@@ -155,6 +155,11 @@ The desktop icon runs `scripts/start-wims.sh`. The script may set paths. The
 operator does not type them. The Windows shortcut runs the matching start file,
 which opens the same window.
 
+A second double-click, while that window is already open, brings the same
+window forward. It is un-minimized, raised, and focused. It does not open
+another window or the site console. If the window does not answer, WIMS
+says what to do next.
+
 **Operate** (one PC, browser console) uses one start routine whether the window
 starts it or Start-Wims-Solo does. That routine:
 
