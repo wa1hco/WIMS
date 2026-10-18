@@ -155,6 +155,11 @@ The desktop icon runs `scripts/start-wims.sh`. The script may set paths. The
 operator does not type them. The Windows shortcut runs the matching start file,
 which opens the same window.
 
+A second double-click, while that window is already open, brings the same
+window forward. It is un-minimized, raised, and focused. It does not open
+another window or the site console. If the window does not answer, WIMS
+says what to do next.
+
 **Operate** (one PC, browser console) uses one start routine whether the window
 starts it or Start-Wims-Solo does. That routine:
 
@@ -171,7 +176,9 @@ starts it or Start-Wims-Solo does. That routine:
 **Updates** sit on that window, next to those buttons. The list shows every
 version, newest first: a published Release, and a version tag that has no
 Release (so `v1.0.11` through `v1.0.16` are not missing). Each row has the
-version, the date, and what changed. Hovering a row shows that row's summary.
+version, the date on this PC, and what changed. A GitHub time is UTC; the
+row shows the local calendar day, so a late evening stays that evening.
+Hovering a row shows that row's summary and the local time.
 A Release uses its notes. A tag with no notes uses the commits since the
 previous tag, in one short plain sentence. The window asks GitHub for the
 release list, the tag list, and those compares. It pages past the first
