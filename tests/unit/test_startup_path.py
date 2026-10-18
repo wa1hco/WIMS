@@ -46,6 +46,13 @@ class EntryPointTests(unittest.TestCase):
         self.assertIn(f"-m {LAUNCHER_MODULE}", front)
         self.assertIn(f"-m {LAUNCHER_MODULE}", win)
         self.assertIn("Start-WimsLauncher.cmd", vbs)
+        self.assertIn("brings it forward", front)
+        self.assertIn("brings it forward", win)
+        for text in (front, win, vbs):
+            lowered = text.lower()
+            self.assertNotIn("xdg-open", lowered)
+            self.assertNotIn("webbrowser", lowered)
+            self.assertNotIn("start http", lowered)
         self.assertIn("_resolve-python.sh", front)
         self.assertIn("_resolve-python.cmd", win)
 
