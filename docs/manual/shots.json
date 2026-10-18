@@ -21,7 +21,7 @@
       "width": 1280,
       "height": 900,
       "wait_ms": 3000,
-      "context": "Operate: needed-only, max age 2m",
+      "context": "Operate: needed-only, max age 2 min",
       "caption": "Operate — needed stations only (screenshot context).",
       "section": "Site console",
       "status": "active"

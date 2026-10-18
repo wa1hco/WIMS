@@ -249,6 +249,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Operate max age labels.** The pulldown reads 15 sec, 30 sec, 1 min, 2 min, 3 min, and 5 min (values unchanged) so “2 min” is not the 2M band checkbox.
 - **2026-10-18** — **Restart needed when the site server is on older code.**
   The site server records the git revision it loaded (`server_rev` on
   `/healthz`, existing fields unchanged). The WIMS window re-reads the
