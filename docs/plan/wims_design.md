@@ -168,30 +168,46 @@ starts it or Start-Wims-Solo does. That routine:
 - opens the browser the same way
 - writes the same log file the window’s Details pane uses
 
-**Updates** sit on that window, next to those buttons. The list shows published
-releases with version, date, and what changed (hover, and a short summary).
-**Check now** looks immediately. While the window is open, WIMS also looks every
-few hours, and not more often than every 15 minutes. The look runs in the
-background and does not freeze the window. No network, or GitHub asking us to
-wait, leaves the list as it was and says so in one quiet line. A small
-**update** mark appears when something newer exists. **Install this update**
-switches to the release you selected and remembers the previous copy. **Go back**
-returns to that copy. WIMS never installs by itself.
+**Updates** sit on that window, next to those buttons. The list shows every
+version, newest first: a published Release, and a version tag that has no
+Release (so `v1.0.11` through `v1.0.16` are not missing). Each row has the
+version, the date, and what changed. Hovering a row shows that row's summary.
+A Release uses its notes. A tag with no notes uses the commits since the
+previous tag, in one short plain sentence. The window asks GitHub for the
+release list, the tag list, and those compares. It pages past the first
+batch so an older version is not dropped. It remembers tag summaries for
+the rest of the time the window is open. **Check now** looks immediately.
+While the window is open, WIMS also looks every few hours, and not more
+often than every 15 minutes. The look runs in the background and does not
+freeze the window. No network, or GitHub asking us to wait, leaves the list
+as it was and says so in one quiet line. A small **update** mark appears
+when something newer exists. **Install this update** switches to the version
+you selected and remembers the previous copy. **Go back** returns to that
+copy. WIMS never installs by itself.
 
 The site server records the git revision it loaded and reports it on `/healthz`
-(`server_rev`, plus `version`). The window shows that next to its own revision
-(`Server: v… (rev)`). While the window is open it re-reads the revision on
-disk (not the revision the window started with) and compares.
-When this PC is running the site server and the two revisions differ,
-**Restart site server** gains a **Restart needed** mark and the status line
-says the server is running older code. Matching revisions add nothing. A
-server that is down, or an older build that does not report `server_rev`,
-adds nothing either. After **Install this update**, if the local server is
-now stale, the list says **Restart server to finish the update**.
+(`server_rev`, plus `version`). The window title and the line under **WIMS**
+name both copies. **Launcher** is the code this window loaded when it opened.
+**Server** is the code the site server loaded at start. Each label has a
+short tip that says which is which. **Restart site server** says the revision
+the server is running and whether it matches the code on disk
+(`Up to date`, or the restart-needed wording). While the window is open it
+re-reads the revision on disk (not the revision the window started with) and
+compares. When this PC is running the site server and the two revisions
+differ, **Restart site server** gains a **Restart needed** mark and the
+status line says the server is running older code. Matching revisions add
+nothing extra on the status line. A server that is down, or an older build
+that does not report `server_rev`, adds nothing either. After **Install this
+update**, if the local server is now stale, the list says **Restart server
+to finish the update**.
 
-**Other tools…** stays where it is on the home. Checking it opens the extra
-tools below the checkbox; the window does not grow, and the extra tools scroll
-inside. Unchecking snaps the window back to the compact home size.
+**Other tools…** stays at the bottom of the home. With it unchecked, the
+window is exactly as tall as the content from the top through that checkbox,
+including the Updates list and the launcher/server line. Checking it opens
+the extra tools below the checkbox and the window grows to show them, up to
+the screen; past that, the extra tools scroll. Unchecking returns to the
+compact height. The window refits when the home content changes height (an
+update notice, the Restart needed mark, or a taller banner).
 
 ### Deployment context (current operation)
 
