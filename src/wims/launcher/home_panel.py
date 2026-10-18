@@ -265,6 +265,7 @@ class AgentHomePanel:
             command=(on_restart_server or (lambda: None)), padx=8, pady=4,
         )
         self._restart_tip = ToolTip(self.restart_server_btn, RESTART_PLAIN_TIP)
+        self._restart_detail = ""
         self.restart_needed_lbl = tk.Label(
             btns, text="", font=_ui_font(11, "bold"),
             bg="#fff3cd", fg="#7a5b00", padx=6, pady=2,
@@ -397,11 +398,22 @@ class AgentHomePanel:
         if self._key_cts_var is not None:
             self._key_cts_var.set(text)
 
+    def set_restart_tip(self, text: str) -> None:
+        """Revision sentence for Restart site server (running copy vs disk)."""
+        self._restart_detail = text or ""
+        if self._restart_detail:
+            self._restart_tip.set_text(self._restart_detail)
+
     def set_restart_needed(self, needed: bool) -> None:
         """Show or clear the Restart needed mark beside Restart site server."""
         needed = bool(needed)
-        tip = RESTART_NEEDED_TIP if needed else RESTART_PLAIN_TIP
-        self._restart_tip.set_text(tip)
+        detail = getattr(self, "_restart_detail", "") or ""
+        if detail:
+            self._restart_tip.set_text(detail)
+        else:
+            self._restart_tip.set_text(
+                RESTART_NEEDED_TIP if needed else RESTART_PLAIN_TIP
+            )
         self._restart_mark_tip.set_text(RESTART_NEEDED_TIP if needed else "")
         if needed:
             self.restart_needed_lbl.configure(text=RESTART_NEEDED_MARK)

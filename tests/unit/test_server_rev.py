@@ -24,16 +24,22 @@ if str(SRC) not in sys.path:
 
 from wims.launcher.app import (  # noqa: E402
     LauncherApp,
+    _HOME_FIT_PAD,
+    _SCREEN_FIT_MARGIN,
     _health_result,
     fetch_site_health,
     site_reachable,
 )
 from wims.launcher.home_panel import AgentHomePanel  # noqa: E402
 from wims.launcher.server_rev import (  # noqa: E402
+    LAUNCHER_REV_TIP,
     RESTART_NEEDED_MARK,
     RESTART_NEEDED_TIP,
     RESTART_PLAIN_TIP,
+    SERVER_REV_TIP,
     UPDATE_STALE_NOTICE,
+    launcher_rev_label,
+    restart_server_tip,
     server_restart_needed,
     server_rev_label,
     update_install_notice,
@@ -81,6 +87,49 @@ class CompareTests(unittest.TestCase):
 
     def test_label_without_a_version_still_shows_the_revision(self):
         self.assertEqual(server_rev_label("", "abc1234"), "Server: (abc1234)")
+
+    def test_launcher_label_names_the_window_copy(self):
+        self.assertEqual(
+            launcher_rev_label("1.0.16", _DISK),
+            f"Launcher: v1.0.16 ({_DISK})",
+        )
+        self.assertEqual(LAUNCHER_REV_TIP, "Launcher: the code this window loaded when it opened.")
+        self.assertEqual(SERVER_REV_TIP, "Server: the code the site server loaded at start.")
+        self.assertNotIn("python", LAUNCHER_REV_TIP.lower())
+        self.assertNotIn("python", SERVER_REV_TIP.lower())
+
+    def test_restart_tip_says_when_the_server_matches_disk(self):
+        tip = restart_server_tip(
+            server_version="1.0.16",
+            server_rev="abc1234 2026-10-18 12:00:00 +0000",
+            disk_rev="abc1234 2026-10-18 12:00:00 +0000",
+        )
+        self.assertEqual(
+            tip,
+            "Server running v1.0.16 (abc1234, 2026-10-18). "
+            "Installed code: abc1234. Up to date.",
+        )
+
+    def test_restart_tip_says_when_a_restart_is_needed(self):
+        tip = restart_server_tip(
+            server_version="1.0.15",
+            server_rev=_SERVER,
+            disk_rev=_DISK,
+        )
+        self.assertIn("Server running v1.0.15 (bbb2222, 2026-10-01).", tip)
+        self.assertIn("Installed code: aaa1111.", tip)
+        self.assertIn(RESTART_NEEDED_TIP, tip)
+        self.assertNotIn("python", tip.lower())
+
+    def test_restart_tip_stays_plain_when_the_server_did_not_report(self):
+        tip = restart_server_tip(
+            server_version="1.0.16",
+            server_rev="",
+            disk_rev=_DISK,
+        )
+        self.assertIn("did not report", tip)
+        self.assertIn("Installed code: aaa1111.", tip)
+        self.assertIn(RESTART_PLAIN_TIP, tip)
 
     def test_install_notice_only_when_the_local_server_is_stale(self):
         self.assertEqual(
@@ -258,14 +307,87 @@ class RestartMarkTests(unittest.TestCase):
         self.assertEqual(panel._restart_tip.text, RESTART_PLAIN_TIP)
         self.assertEqual(panel._restart_mark_tip.text, "")
 
+    def test_revision_sentence_stays_on_the_button(self):
+        panel = AgentHomePanel.__new__(AgentHomePanel)
+        panel.restart_needed_lbl = _Label()
+        panel._restart_tip = _Tip()
+        panel._restart_mark_tip = _Tip()
+        panel._restart_detail = ""
+        sentence = (
+            "Server running v1.0.16 (abc1234, 2026-10-18). "
+            "Installed code: abc1234. Up to date."
+        )
+        panel.set_restart_tip(sentence)
+        panel.set_restart_needed(False)
+        self.assertEqual(panel._restart_tip.text, sentence)
+        panel.set_restart_needed(True)
+        self.assertEqual(panel._restart_tip.text, sentence)
+        self.assertEqual(panel.restart_needed_lbl.text, "Restart needed")
+
+
+class _Var:
+    def __init__(self, value: str = "") -> None:
+        self.value = value
+
+    def set(self, value: str) -> None:
+        self.value = value
+
+    def get(self) -> str:
+        return self.value
+
+
+class _TitleRoot:
+    def __init__(self) -> None:
+        self.title_text = ""
+
+    def title(self, text: str) -> None:
+        self.title_text = text
+
+
+class LoadedRevTests(unittest.TestCase):
+    def test_title_and_labels_name_each_copy(self):
+        app = LauncherApp.__new__(LauncherApp)
+        app._rev = _DISK
+        app._launcher_rev_var = _Var()
+        app._server_rev_var = _Var()
+        app._server_rev_lbl = _Label()
+        app.root = _TitleRoot()
+        tips: list[str] = []
+
+        class _Panel:
+            def set_restart_tip(self, text: str) -> None:
+                tips.append(text)
+
+        app._home_panel = _Panel()
+        LauncherApp._show_loaded_revs(
+            app,
+            "1.0.16",
+            "abc1234 2026-10-18 12:00:00 +0000",
+            "abc1234 2026-10-18 12:00:00 +0000",
+        )
+        self.assertIn("Launcher:", app._launcher_rev_var.get())
+        self.assertIn("v1.0.16", app._launcher_rev_var.get())
+        self.assertIn(_DISK, app._launcher_rev_var.get())
+        self.assertIn("Server:", app._server_rev_var.get())
+        self.assertTrue(app._server_rev_lbl.packed)
+        self.assertIn("Launcher:", app.root.title_text)
+        self.assertIn("Server:", app.root.title_text)
+        self.assertIn("Up to date.", tips[-1])
+        self.assertIn("abc1234", tips[-1])
+
+        LauncherApp._show_loaded_revs(app, "", "", _DISK)
+        self.assertEqual(app._server_rev_var.get(), "")
+        self.assertFalse(app._server_rev_lbl.packed)
+        self.assertNotIn("Server:", app.root.title_text)
+
 
 class ToolsPanelTests(unittest.TestCase):
-    def test_open_packs_below_the_checkbox_and_does_not_resize(self):
+    def test_open_packs_below_the_checkbox_and_grows(self):
         app = _layout_app(advanced=True)
         LauncherApp._toggle_advanced(app)
         self.assertIsNotNone(app._adv_frame.kwargs)
         self.assertNotIn("before", app._adv_frame.kwargs)
-        self.assertEqual(app.fit_calls, 0)
+        self.assertEqual(app.fit_calls, 1)
         self.assertEqual(app._auto_fit_left, 0)
         self.assertFalse(app._adv_frame.forgotten)
 
@@ -277,66 +399,108 @@ class ToolsPanelTests(unittest.TestCase):
         self.assertEqual(app.fit_calls, 1)
         self.assertEqual(app.fit_left_seen, 4)
 
-    def test_fit_does_not_resize_while_tools_are_open(self):
+    def test_fit_grows_to_the_open_panel_and_stops_at_the_screen(self):
         app = _geometry_app(advanced=True)
         app._auto_fit_left = 4
         LauncherApp._fit_default_geometry(app, 3)
-        self.assertIsNone(app.root.spec)
-        self.assertEqual(app._auto_fit_left, 4)
+        self.assertEqual(app.root.spec, _spec(app._adv_frame))
+        self.assertEqual(app._auto_fit_left, 3)
+        app._adv_frame._h = 4000
+        app._auto_fit_left = 1
+        LauncherApp._fit_default_geometry(app)
+        cap = max(280, 1200 - _SCREEN_FIT_MARGIN)
+        self.assertEqual(app.root.spec, f"604x{cap}")
 
     def test_fit_sets_the_compact_height_when_tools_are_closed(self):
         app = _geometry_app(advanced=False)
         app._auto_fit_left = 4
         LauncherApp._fit_default_geometry(app)
-        self.assertEqual(app.root.spec, "604x408")
+        self.assertEqual(app.root.spec, _spec(app._tools))
         self.assertEqual(app._auto_fit_left, 3)
 
+    def test_fit_keeps_a_checkbox_that_still_fits_on_the_screen(self):
+        app = _geometry_app(advanced=False)
+        app._auto_fit_left = 1
+        app._tools._y = 1160
+        app._tools._h = 30
+        LauncherApp._fit_default_geometry(app)
+        # 1194 is under the 1200 screen and past the margin, so it is kept.
+        self.assertEqual(app.root.spec, "604x1194")
+
+    def test_fit_follows_a_taller_home(self):
+        app = _geometry_app(advanced=False)
+        app._auto_fit_left = 2
+        LauncherApp._fit_default_geometry(app)
+        first = app.root.spec
+        app._tools._y += 80
+        LauncherApp._fit_default_geometry(app)
+        self.assertEqual(app.root.spec, _spec(app._tools))
+        self.assertNotEqual(first, app.root.spec)
+
     @unittest.skipUnless(os.environ.get("DISPLAY"), "needs a display")
-    def test_real_window_keeps_the_checkbox_and_shrinks(self):
-        """Checkbox stays put; tools open below it; closing snaps the height back."""
+    def test_real_window_fits_the_checkbox_and_grows_for_tools(self):
+        """Closed height ends at Other tools…. Open grows, then scrolls."""
         try:
             import tkinter as tk
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"tkinter is not available ({exc})")
         root = tk.Tk()
         try:
-            inner = tk.Frame(root)
-            inner.pack(fill="both", expand=True)
-            spacer = tk.Frame(inner, height=200, width=400)
-            spacer.pack(fill="x")
-            spacer.pack_propagate(False)
-            btn = tk.Button(inner, text="Open site console")
-            btn.pack(fill="x")
-            tools = tk.Frame(inner)
-            tools.pack(fill="x")
-            tk.Checkbutton(tools, text="Other tools…").pack(side="left")
-            adv = tk.Frame(inner)
-            tk.Label(adv, text="Screenshots and the details log\n" * 12).pack()
-            root.geometry("700x900")
-            root.update_idletasks()
-            checkbox_y = tools.winfo_y()
-            app = LauncherApp.__new__(LauncherApp)
-            app.root = root
-            app._inner = inner
-            app._home_panel = type("P", (), {"btn_row": btn})()
-            app._adv_frame = adv
-            app._tools = tools
-            app._canvas = tk.Canvas(root)
-            app._auto_fit_left = 0
-            app._on_inner_configure = lambda *_a, **_k: None
+            app, tools, adv, banner = _real_fit_window(root, tk)
+            LauncherApp._fit_default_geometry(app)
+            root.update()
+            closed = root.winfo_height()
+            gap = _window_gap(root, tools)
+            self.assertGreaterEqual(gap, 0, gap)
+            self.assertLessEqual(gap, 16, gap)
+            self.assertFalse(LauncherApp._content_overflows(app))
+
             app._show_advanced = _Flag(True)
             LauncherApp._toggle_advanced(app)
-            root.update_idletasks()
-            slaves = inner.pack_slaves()
-            self.assertLess(slaves.index(tools), slaves.index(adv))
+            root.update()
             self.assertGreater(adv.winfo_y(), tools.winfo_y())
-            self.assertEqual(tools.winfo_y(), checkbox_y)
-            self.assertGreaterEqual(root.winfo_height(), 800)
+            self.assertGreater(root.winfo_height(), closed)
+            open_gap = _window_gap(root, adv)
+            self.assertGreaterEqual(open_gap, 0, open_gap)
+            self.assertLessEqual(open_gap, 16, open_gap)
+
             app._show_advanced = _Flag(False)
             LauncherApp._toggle_advanced(app)
+            root.update()
+            self.assertNotIn(adv, app._inner.pack_slaves())
+            self.assertEqual(root.winfo_height(), closed)
+            self.assertLessEqual(_window_gap(root, tools), 16)
+
+            banner.configure(
+                wraplength=420,
+                text="Restart needed. The server is running older code. " * 8,
+            )
             root.update_idletasks()
-            self.assertNotIn(adv, inner.pack_slaves())
-            self.assertLess(root.winfo_height(), 700)
+            LauncherApp._fit_default_geometry(app)
+            root.update()
+            self.assertGreater(root.winfo_height(), closed)
+            grown_gap = _window_gap(root, tools)
+            self.assertGreaterEqual(grown_gap, 0, grown_gap)
+            self.assertLessEqual(grown_gap, 16, grown_gap)
+
+            # Taller than the screen: the window stops, and the panel scrolls.
+            tall = tk.Frame(adv, height=root.winfo_screenheight() + 400, width=400)
+            tall.pack(fill="x")
+            tall.pack_propagate(False)
+            app._show_advanced = _Flag(True)
+            adv.pack(fill="x", expand=False, pady=(0, 4))
+            root.update_idletasks()
+            LauncherApp._fit_default_geometry(app)
+            root.update()
+            cap = max(280, root.winfo_screenheight() - _SCREEN_FIT_MARGIN)
+            self.assertLessEqual(root.winfo_height(), cap + 8)
+            self.assertGreaterEqual(root.winfo_height(), cap - 8)
+            LauncherApp._on_inner_configure(app)
+            self.assertGreater(
+                app._inner.winfo_reqheight(),
+                root.winfo_height(),
+            )
+            self.assertTrue(LauncherApp._content_overflows(app))
         finally:
             root.destroy()
 
@@ -441,6 +605,34 @@ class _Btn:
         return 300
 
 
+class _Box:
+    """A packed row with a known y and height inside the inner frame."""
+
+    def __init__(self, y: int, h: int, master) -> None:
+        self._y = y
+        self._h = h
+        self.master = master
+
+    def winfo_exists(self) -> bool:
+        return True
+
+    def winfo_height(self) -> int:
+        return self._h
+
+    def winfo_reqheight(self) -> int:
+        return self._h
+
+    def winfo_y(self) -> int:
+        return self._y
+
+
+def _spec(widget: _Box) -> str:
+    bottom = widget.winfo_height() + widget.winfo_y()
+    height = bottom + _HOME_FIT_PAD
+    cap = max(280, 1200 - _SCREEN_FIT_MARGIN)
+    return f"604x{min(height, cap)}"
+
+
 class _Inner:
     def winfo_reqheight(self) -> int:
         return 400
@@ -485,12 +677,67 @@ def _geometry_app(*, advanced: bool):
     btn = _Btn()
     btn.master = inner
     app._inner = inner
+    app._tools = _Box(500, 30, inner)
+    app._adv_frame = _Box(540, 300, inner)
     app._home_panel = type("P", (), {"btn_row": btn})()
     app.root = _GeoRoot()
     app._show_advanced = _Flag(advanced)
     app._auto_fit_left = 0
     app._on_inner_configure = lambda *_a, **_k: None
     return app
+
+
+def _window_gap(root, widget) -> int:
+    bottom = (widget.winfo_rooty() - root.winfo_rooty()) + widget.winfo_height()
+    return int(root.winfo_height()) - int(bottom)
+
+
+def _real_fit_window(root, tk):
+    """A short stand-in for the home column, on the real fit path."""
+    outer = tk.Frame(root, bg="#f4f4f4")
+    outer.pack(fill="both", expand=True)
+    outer.grid_rowconfigure(0, weight=1)
+    outer.grid_columnconfigure(0, weight=1)
+    canvas = tk.Canvas(outer, bg="#f4f4f4", highlightthickness=0, bd=0)
+    vsb = tk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    canvas.configure(yscrollcommand=vsb.set)
+    canvas.grid(row=0, column=0, sticky="nsew")
+    vsb.grid(row=0, column=1, sticky="ns")
+    vsb.grid_remove()
+    inner = tk.Frame(canvas, bg="#f4f4f4")
+    canvas.create_window((0, 0), window=inner, anchor="nw")
+    banner = tk.Label(inner, text="Checking…", font=("TkDefaultFont", 14, "bold"), anchor="w")
+    banner.pack(fill="x", padx=12, pady=4)
+    tk.Label(inner, text="Launcher: v1.0.16 (abc1234)", anchor="w").pack(fill="x", padx=12)
+    listing = tk.Listbox(inner, height=4)
+    listing.pack(fill="x", padx=12, pady=4)
+    for name in ("v1.0.16", "v1.0.15", "v1.0.10", "v1.0.0"):
+        listing.insert("end", name)
+    btn = tk.Button(inner, text="Open site console")
+    btn.pack(fill="x", padx=12, pady=4)
+    tools = tk.Frame(inner, bg="#f4f4f4")
+    tools.pack(fill="x", padx=12, pady=(2, 0))
+    tk.Checkbutton(tools, text="Other tools…").pack(side="left")
+    adv = tk.Frame(inner, bg="#f4f4f4")
+    tk.Label(adv, text="Screenshots, desktop shortcut, and the details log.").pack(
+        fill="x", padx=12, pady=4,
+    )
+    app = LauncherApp.__new__(LauncherApp)
+    app.root = root
+    app.tk = tk
+    app._inner = inner
+    app._canvas = canvas
+    app._vscroll = vsb
+    app._tools = tools
+    app._adv_frame = adv
+    app._home_panel = type("P", (), {"btn_row": btn})()
+    app._show_advanced = _Flag(False)
+    app._auto_fit_left = 4
+    app._fitted_inner_h = None
+    app._content_fit_queued = False
+    root.geometry("560x440")
+    root.update_idletasks()
+    return app, tools, adv, banner
 
 
 def _start(handler_cls):

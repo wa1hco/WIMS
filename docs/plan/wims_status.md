@@ -249,6 +249,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Updates list, row tips, and a fitted window.** The Updates
+  list merges published releases with version tags that have no release, newest
+  first, so v1.0.11–v1.0.16 (and the older unreleased tags) show up. A tag with
+  no notes uses the commits since the previous tag. Hovering a row shows that
+  row. Restart site server names the revision the server loaded and whether it
+  matches the installed code. The title and the line under WIMS label the
+  launcher (loaded when the window opened) and the server (loaded when the
+  server started). The window height fits through Other tools…; checking that
+  box grows the window up to the screen, then the extra tools scroll.
+  Unchecking returns to the compact height.
 - **2026-10-18** — **Restart needed when the site server is on older code.**
   The site server records the git revision it loaded (`server_rev` on
   `/healthz`, existing fields unchanged). The WIMS window re-reads the

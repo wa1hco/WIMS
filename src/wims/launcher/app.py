@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -29,7 +30,11 @@ from urllib.request import urlopen
 from wims import __version__
 from wims.gitinfo import git_stamp_fresh
 from wims.launcher.server_rev import (
+    LAUNCHER_REV_TIP,
+    SERVER_REV_TIP,
     STALE_STATUS_DETAIL,
+    launcher_rev_label,
+    restart_server_tip,
     server_restart_needed,
     server_rev_label,
     update_install_notice,
@@ -103,9 +108,11 @@ _ICON_PNG = _REPO_ROOT / "scripts" / "assets" / "wims.png"
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = "http://192.168.1.119:8787"
-# Auto-size cap: never stretch the launcher toward fullscreen on a 4K/1440p box.
-# Other tools… scrolls inside this instead of growing the window.
-_LAUNCHER_MAX_AUTO_H = 620
+# Pixels under the last fitted row so the checkbox border is not clipped.
+_HOME_FIT_PAD = 4
+# Other tools… may grow the window, then scroll. The margin stays small so
+# the home, through the checkbox, still fits on a short screen.
+_SCREEN_FIT_MARGIN = 24
 
 
 def _git_rev() -> str:
@@ -673,9 +680,11 @@ class LauncherApp:
         self.tk = tk
         self.root = root
         self._rev = _git_rev()
-        self.root.title(f"WIMS launcher  ·  v{__version__} ({self._rev})")
-        # Compact default; content scrolls if Other tools… or a short screen
-        # would otherwise clip Open / Start / Restart.
+        self.root.title(
+            f"WIMS launcher  ·  {launcher_rev_label(__version__, self._rev)}"
+        )
+        # Closed window fits through Other tools…. Checking that box may grow
+        # the window; a short screen scrolls the extra panel.
         self.root.minsize(540, 360)
         self.root.configure(bg="#f4f4f4")
 
@@ -790,7 +799,8 @@ class LauncherApp:
         tk = self.tk
         pad = {"padx": 12, "pady": 4}
 
-        # Scrollable body: window stays compact; Other tools… does not grow it.
+        # Scrollable body. The closed window ends at Other tools….
+        # The extra panel scrolls once it is taller than the screen.
         outer = tk.Frame(self.root, bg="#f4f4f4")
         outer.pack(fill="both", expand=True)
         outer.grid_rowconfigure(0, weight=1)
@@ -838,14 +848,27 @@ class LauncherApp:
             self._update_mark,
             "An update is available. Nothing is installed until you choose it.",
         )
-        # Launcher revision (code this window loaded) and, when the site
-        # server reports one, the revision that server loaded.
-        self._rev_line = tk.StringVar(value=f"v{__version__} ({self._rev})")
-        tk.Label(
-            home, textvariable=self._rev_line,
+        # Launcher: code this window loaded when it opened.
+        # Server: code the site server loaded at start (when /healthz says).
+        rev_row = tk.Frame(home, bg="#f4f4f4")
+        rev_row.pack(fill="x", pady=(0, 2))
+        self._launcher_rev_var = tk.StringVar(
+            value=launcher_rev_label(__version__, self._rev),
+        )
+        self._server_rev_var = tk.StringVar(value="")
+        self._launcher_rev_lbl = tk.Label(
+            rev_row, textvariable=self._launcher_rev_var,
             font=_ui_font(11), bg="#f4f4f4", fg="#555555",
-            anchor="w", justify="left", wraplength=520,
-        ).pack(fill="x", pady=(0, 2))
+            anchor="w", justify="left",
+        )
+        self._launcher_rev_lbl.pack(side="left")
+        ToolTip(self._launcher_rev_lbl, LAUNCHER_REV_TIP)
+        self._server_rev_lbl = tk.Label(
+            rev_row, textvariable=self._server_rev_var,
+            font=_ui_font(11), bg="#f4f4f4", fg="#555555",
+            anchor="w", justify="left",
+        )
+        ToolTip(self._server_rev_lbl, SERVER_REV_TIP)
 
         # Banner row: message + action button side by side, so e.g. Update WIMS
         # sits next to the "Update available" text instead of below the fold.
@@ -1011,7 +1034,7 @@ class LauncherApp:
 
         # Checkbox stays on the home. Other tools… opens below it.
         self._tools = tk.Frame(inner, bg="#f4f4f4")
-        self._tools.pack(fill="x", padx=12, pady=(2, 8))
+        self._tools.pack(fill="x", padx=12, pady=(2, 0))
         adv_toggle = tk.Checkbutton(
             self._tools,
             text="Other tools…",
@@ -1077,6 +1100,27 @@ class LauncherApp:
             self._update_scrollbar()
         except Exception:
             pass
+        self._schedule_content_fit()
+
+    def _schedule_content_fit(self) -> None:
+        """Refit when the home content got taller or shorter. One pass at a time."""
+        try:
+            content_h = int(self._inner.winfo_reqheight())
+        except Exception:
+            return
+        if content_h == getattr(self, "_fitted_inner_h", None):
+            return
+        if getattr(self, "_content_fit_queued", False):
+            return
+        self._content_fit_queued = True
+        try:
+            self.root.after_idle(self._run_content_fit)
+        except Exception:
+            self._content_fit_queued = False
+
+    def _run_content_fit(self) -> None:
+        self._content_fit_queued = False
+        self._fit_default_geometry()
 
     def _on_canvas_configure(self, event) -> None:
         try:
@@ -1154,45 +1198,78 @@ class LauncherApp:
         self._canvas.yview_scroll(-1 if event.num == 4 else 1, "units")
         return "break"
 
-    def _fit_default_geometry(self, _tries: int = 0) -> None:
-        """Size to home + launch buttons + Other tools; content scrolls if taller.
+    def _fit_target(self):
+        """Widget whose bottom edge is the window bottom.
 
-        Opening Other tools… must not stretch the window toward fullscreen —
-        role cards stay in the scroll pane.
+        Closed: the Other tools… row. Open: the extra panel under that row.
         """
-        # Other tools… is open: leave the window alone. A retry that was
-        # already scheduled must not grow the window to fit that panel.
         if self._show_advanced.get():
-            return
-        if _tries == 0 and self._auto_fit_left <= 0:
-            return
+            adv = getattr(self, "_adv_frame", None)
+            if adv is not None:
+                return adv
+        tools = getattr(self, "_tools", None)
+        if tools is not None:
+            return tools
+        return getattr(getattr(self, "_home_panel", None), "btn_row", None)
+
+    def _current_window_size(self) -> str:
+        try:
+            spec = str(self.root.geometry() or "")
+        except Exception:
+            return ""
+        match = re.match(r"(\d+)x(\d+)", spec)
+        if not match:
+            return ""
+        return f"{match.group(1)}x{match.group(2)}"
+
+    def _fit_default_geometry(self, _tries: int = 0) -> None:
+        """Fit through Other tools…, or through the open panel up to the screen.
+
+        Unchecking Other tools… returns to the checkbox. A banner, an update
+        notice, or the Restart needed mark changes the home height, and the
+        window follows. Past the screen, the extra panel scrolls.
+        """
         try:
             self.root.update_idletasks()
-            btn = getattr(self._home_panel, "btn_row", None)
-            if btn is None or not btn.winfo_exists():
+            target = self._fit_target()
+            if target is None:
                 return
-            btn_bottom = self._widget_bottom_in_root(btn)
-            if btn_bottom < 140 and _tries < 10:
+            bottom = self._widget_bottom_in_root(target)
+            if bottom < 140 and _tries < 10:
                 self.root.after(50, lambda t=_tries: self._fit_default_geometry(t + 1))
                 return
-            pad = 8
-            inner_h = int(self._inner.winfo_reqheight())
-            inner_w = int(self._inner.winfo_reqwidth())
-            need_min = max(280, btn_bottom + pad)
-            need_default = max(need_min, inner_h + pad)
             screen_h = int(self.root.winfo_screenheight())
             screen_w = int(self.root.winfo_screenwidth())
-            max_h = max(need_min, min(_LAUNCHER_MAX_AUTO_H, screen_h - 80))
-            height = min(need_default, max_h)
+            cap = max(280, screen_h - _SCREEN_FIT_MARGIN)
+            content_h = bottom + _HOME_FIT_PAD
+            # A row that fits on the screen is not shortened by the margin.
+            # Past the screen, stop and let the extra panel scroll.
+            height = content_h if content_h <= screen_h else cap
+            tools = getattr(self, "_tools", None)
+            if tools is not None and tools is not target:
+                compact = self._widget_bottom_in_root(tools) + _HOME_FIT_PAD
+            else:
+                compact = bottom + _HOME_FIT_PAD
+            # Minimum is the checkbox row, so the window can sit on that row
+            # and still shrink back to it after Other tools… closes.
+            min_h = compact if compact <= screen_h else cap
+            min_h = max(1, min_h)
+            inner_w = int(self._inner.winfo_reqwidth())
             width = min(
                 max(560, inner_w + 24),
                 max(560, screen_w - 40),
             )
-            self.root.geometry(f"{width}x{height}")
-            self.root.minsize(540, 360)
-            self.root.after_idle(self._on_inner_configure)
+            desired = f"{width}x{height}"
+            self.root.minsize(540, min_h)
+            if self._current_window_size() != desired:
+                self.root.geometry(desired)
+            try:
+                self._fitted_inner_h = int(self._inner.winfo_reqheight())
+            except Exception:
+                pass
             if self._auto_fit_left > 0:
                 self._auto_fit_left -= 1
+            self.root.after_idle(self._on_inner_configure)
         except Exception:
             pass
 
@@ -1200,9 +1277,10 @@ class LauncherApp:
         if self._show_advanced.get():
             # Below the checkbox. Packing with before=self._tools put the
             # panel above the checkbox and pushed the checkbox down.
-            # The window stays the size it has; the panel scrolls inside.
+            # The window grows to show the panel, up to the screen.
             self._adv_frame.pack(fill="x", expand=False, padx=0, pady=(0, 4))
             self.root.after_idle(self._on_inner_configure)
+            self._fit_default_geometry()
         else:
             self._adv_frame.pack_forget()
             try:
@@ -1210,8 +1288,8 @@ class LauncherApp:
             except Exception:
                 pass
             self.root.after_idle(self._on_inner_configure)
-            # The operator may have stretched the window while tools were
-            # open. Snap back to the compact home size.
+            # Snap back to the checkbox. The operator may have stretched
+            # the window while the extra tools were open.
             self._auto_fit_left = 4
             self._fit_default_geometry()
 
@@ -2531,21 +2609,56 @@ class LauncherApp:
         if self._auto_fit_left > 0 and not self._show_advanced.get():
             self.root.after_idle(self._fit_default_geometry)
 
-    def _show_loaded_revs(self, server_version: str, server_rev: str) -> None:
-        """Launcher revision, and the server's when /healthz reported one."""
-        launcher = f"v{__version__} ({self._rev})"
+    def _show_loaded_revs(
+        self,
+        server_version: str,
+        server_rev: str,
+        disk_rev: str,
+    ) -> None:
+        """Label the launcher copy and, when reported, the server copy.
+
+        The launcher stamp is the code this window loaded when it opened.
+        The server stamp is the code the site server loaded at start.
+        The Restart button tip compares the server with the code on disk.
+        """
+        launcher = launcher_rev_label(__version__, self._rev)
         server = server_rev_label(server_version, server_rev)
-        line = f"{launcher}    {server}" if server else launcher
-        var = getattr(self, "_rev_line", None)
+        var = getattr(self, "_launcher_rev_var", None)
         if var is not None:
             try:
-                var.set(line)
+                var.set(launcher)
             except Exception:
                 pass
+        svar = getattr(self, "_server_rev_var", None)
+        if svar is not None:
+            try:
+                svar.set(server)
+            except Exception:
+                pass
+        lbl = getattr(self, "_server_rev_lbl", None)
+        if lbl is not None:
+            try:
+                if server and not lbl.winfo_manager():
+                    lbl.pack(side="left", padx=(16, 0))
+                elif not server and lbl.winfo_manager():
+                    lbl.pack_forget()
+            except Exception:
+                pass
+        line = f"{launcher}    {server}" if server else launcher
         try:
             self.root.title(f"WIMS launcher  ·  {line}")
         except Exception:
             pass
+        hp = getattr(self, "_home_panel", None)
+        if hp is not None and hasattr(hp, "set_restart_tip"):
+            try:
+                hp.set_restart_tip(restart_server_tip(
+                    server_version=server_version,
+                    server_rev=server_rev,
+                    disk_rev=disk_rev,
+                ))
+            except Exception:
+                pass
 
     def _note_server_revision(
         self, *, ok_site: bool, base: str, health: dict | None,
@@ -2574,7 +2687,7 @@ class LauncherApp:
             raw_v = health.get("version")
             if isinstance(raw_v, str):
                 server_version = raw_v.strip()
-        self._show_loaded_revs(server_version, server_rev)
+        self._show_loaded_revs(server_version, server_rev, disk)
         local = bool(self._local_server_procs()) or (
             ok_site and self._site_url_is_local(base)
         )
@@ -3005,8 +3118,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     root = tk.Tk()
-    # Temporary size; LauncherApp._fit_default_geometry sizes to the launch
-    # buttons. Other tools… scrolls inside the window instead of growing it.
+    # Temporary size. _fit_default_geometry then fits through Other tools….
     root.geometry("560x440")
     LauncherApp(root)
     root.mainloop()
