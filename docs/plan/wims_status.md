@@ -249,6 +249,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-18** — **Version `1.0.17`**. `pyproject.toml` and `wims.__version__` are `1.0.17`. Release notes: [v1.0.17](../releases/v1.0.17.md). The git tag and GitHub Release are not cut yet.
 - **2026-10-18** — **Operate Message column.** Roster shows the exchange after the callsigns (R-12, RR73, 73, a grid, or leftover QSY / free text) in Message, just after Calling. A saved column set gains it once. Hover the cell for the full decode. No transmit change.
 - **2026-10-18** — **Second double-click raises the WIMS window.** The desktop
   icon, `scripts/start-wims.sh`, and the Windows shortcut share one start.
