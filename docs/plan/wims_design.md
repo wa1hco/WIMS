@@ -178,6 +178,21 @@ wait, leaves the list as it was and says so in one quiet line. A small
 switches to the release you selected and remembers the previous copy. **Go back**
 returns to that copy. WIMS never installs by itself.
 
+The site server records the git revision it loaded and reports it on `/healthz`
+(`server_rev`, plus `version`). The window shows that next to its own revision
+(`Server: v… (rev)`). While the window is open it re-reads the revision on
+disk (not the revision the window started with) and compares.
+When this PC is running the site server and the two revisions differ,
+**Restart site server** gains a **Restart needed** mark and the status line
+says the server is running older code. Matching revisions add nothing. A
+server that is down, or an older build that does not report `server_rev`,
+adds nothing either. After **Install this update**, if the local server is
+now stale, the list says **Restart server to finish the update**.
+
+**Other tools…** stays where it is on the home. Checking it opens the extra
+tools below the checkbox; the window does not grow, and the extra tools scroll
+inside. Unchecking snaps the window back to the compact home size.
+
 ### Deployment context (current operation)
 
 A **fixed, unlimited multi-multi** entry in the **ARRL June & September VHF** contests —

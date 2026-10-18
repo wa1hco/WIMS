@@ -27,6 +27,13 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from wims import __version__
+from wims.gitinfo import git_stamp_fresh
+from wims.launcher.server_rev import (
+    STALE_STATUS_DETAIL,
+    server_restart_needed,
+    server_rev_label,
+    update_install_notice,
+)
 from wims.launcher.roles import (
     BAND_PORTS,
     DEFAULT_HTTP_PORT,
@@ -232,23 +239,71 @@ def site_base_url() -> str:
     return resolve_site_url()
 
 
-def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool, str]:
-    """Probe one console base URL. Returns (ok, base_used)."""
-    base = (base or site_base_url()).rstrip("/")
+# /healthz carries the console URLs plus server_rev. 500 bytes truncates it
+# and then the JSON no longer parses, so the site looks down.
+_HEALTH_READ_LIMIT = 65536
+
+
+def fetch_site_health(base: str | None, timeout: float = 1.0) -> dict | None:
+    """GET one /healthz body, or None when it cannot be read."""
+    base = (base or "").strip().rstrip("/")
+    if not base:
+        return None
     url = f"{base}/healthz"
     try:
         with urlopen(url, timeout=timeout) as r:  # noqa: S310 — operator LAN URL
-            raw = r.read(500)
+            raw = r.read(_HEALTH_READ_LIMIT)
         data = json.loads(raw.decode("utf-8", errors="replace"))
-        if data.get("ok") and data.get("role") == "wims-site-server":
-            # Prefer the server's advertised console_base when present.
-            advertised = (data.get("console_base") or "").rstrip("/")
-            return True, advertised or base
-        if data.get("ok"):
-            return True, base
-        return False, base
     except (URLError, OSError, ValueError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _health_result(data: dict | None, base: str) -> tuple[bool, str]:
+    """(reachable, base to keep) from one health body."""
+    if not isinstance(data, dict):
         return False, base
+    if data.get("ok") and data.get("role") == "wims-site-server":
+        advertised = (data.get("console_base") or "").rstrip("/")
+        return True, advertised or base
+    if data.get("ok"):
+        return True, base
+    return False, base
+
+
+def site_reachable(base: str | None = None, timeout: float = 1.0) -> tuple[bool, str]:
+    """Probe one console base URL. Returns (ok, base_used)."""
+    base = (base or site_base_url()).rstrip("/")
+    return _health_result(fetch_site_health(base, timeout=timeout), base)
+
+
+def _site_candidates(preferred: str | None) -> list[str]:
+    candidates: list[str] = []
+    for raw in (
+        preferred,
+        f"http://127.0.0.1:{DEFAULT_HTTP_PORT}",
+        load_last_site_url(),
+        site_base_url(),
+        _DEFAULT_SITE,
+    ):
+        u = (raw or "").strip().rstrip("/")
+        if u and u not in candidates:
+            candidates.append(u)
+    return candidates
+
+
+def probe_site_with_health(
+    preferred: str | None = None,
+    *,
+    timeout: float = 0.8,
+) -> tuple[bool, str, dict | None]:
+    """Like :func:`probe_site_urls`, and keep the health body that answered."""
+    for base in _site_candidates(preferred):
+        data = fetch_site_health(base, timeout=timeout)
+        ok, used = _health_result(data, base)
+        if ok:
+            return True, used, data
+    return False, (preferred or site_base_url()).rstrip("/"), None
 
 
 def probe_site_urls(
@@ -261,18 +316,7 @@ def probe_site_urls(
     Avoids false “not found” when the console is up on 127.0.0.1 but the
     saved LAN URL briefly fails (or the reverse).
     """
-    candidates: list[str] = []
-    for raw in (
-        preferred,
-        f"http://127.0.0.1:{DEFAULT_HTTP_PORT}",
-        load_last_site_url(),
-        site_base_url(),
-        _DEFAULT_SITE,
-    ):
-        u = (raw or "").strip().rstrip("/")
-        if u and u not in candidates:
-            candidates.append(u)
-    for base in candidates:
+    for base in _site_candidates(preferred):
         ok, used = site_reachable(base, timeout=timeout)
         if ok:
             return True, used
@@ -647,6 +691,7 @@ class LauncherApp:
         self._last_wsjt_msg: str = ""
         self._site_ok = False
         self._site_external = False  # reachable but not owned by this launcher
+        self._server_code_stale = False
         self._server_start_blocked = False  # dual-primary / refuse restart spam
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
@@ -793,6 +838,14 @@ class LauncherApp:
             self._update_mark,
             "An update is available. Nothing is installed until you choose it.",
         )
+        # Launcher revision (code this window loaded) and, when the site
+        # server reports one, the revision that server loaded.
+        self._rev_line = tk.StringVar(value=f"v{__version__} ({self._rev})")
+        tk.Label(
+            home, textvariable=self._rev_line,
+            font=_ui_font(11), bg="#f4f4f4", fg="#555555",
+            anchor="w", justify="left", wraplength=520,
+        ).pack(fill="x", pady=(0, 2))
 
         # Banner row: message + action button side by side, so e.g. Update WIMS
         # sits next to the "Update available" text instead of below the fold.
@@ -956,7 +1009,7 @@ class LauncherApp:
         )
         self._log.pack(fill="x")
 
-        # Always packed on the home: launch buttons above, this checkbox below.
+        # Checkbox stays on the home. Other tools… opens below it.
         self._tools = tk.Frame(inner, bg="#f4f4f4")
         self._tools.pack(fill="x", padx=12, pady=(2, 8))
         adv_toggle = tk.Checkbutton(
@@ -1107,9 +1160,11 @@ class LauncherApp:
         Opening Other tools… must not stretch the window toward fullscreen —
         role cards stay in the scroll pane.
         """
-        if _tries == 0 and self._auto_fit_left <= 0:
+        # Other tools… is open: leave the window alone. A retry that was
+        # already scheduled must not grow the window to fit that panel.
+        if self._show_advanced.get():
             return
-        if self._show_advanced.get() and _tries == 0:
+        if _tries == 0 and self._auto_fit_left <= 0:
             return
         try:
             self.root.update_idletasks()
@@ -1143,10 +1198,10 @@ class LauncherApp:
 
     def _toggle_advanced(self) -> None:
         if self._show_advanced.get():
-            self._adv_frame.pack(
-                fill="x", expand=False, padx=0, pady=0, before=self._tools,
-            )
-            # Keep the current window size; scroll to the extra tools.
+            # Below the checkbox. Packing with before=self._tools put the
+            # panel above the checkbox and pushed the checkbox down.
+            # The window stays the size it has; the panel scrolls inside.
+            self._adv_frame.pack(fill="x", expand=False, padx=0, pady=(0, 4))
             self.root.after_idle(self._on_inner_configure)
         else:
             self._adv_frame.pack_forget()
@@ -1155,6 +1210,10 @@ class LauncherApp:
             except Exception:
                 pass
             self.root.after_idle(self._on_inner_configure)
+            # The operator may have stretched the window while tools were
+            # open. Snap back to the compact home size.
+            self._auto_fit_left = 4
+            self._fit_default_geometry()
 
     def _set_banner(self, level: str, title: str, fix: str) -> None:
         colors = {
@@ -1381,9 +1440,9 @@ class LauncherApp:
         threading.Thread(target=work, daemon=True).start()
 
     def _on_release_applied(self, ok: bool, msg: str, url: str, went_back: bool) -> None:
-        self._updates.set_notice(msg)
         self._append_log(msg)
         if not ok:
+            self._updates.set_notice(msg)
             self._updating = False
             self._updates.set_busy(False)
             if url and "not installed from git" in msg:
@@ -1392,10 +1451,15 @@ class LauncherApp:
                 except Exception:
                     pass
             return
+        notice = msg
+        finish = self._restart_notice_after_install(went_back=went_back)
+        if finish:
+            notice = finish
+        self._updates.set_notice(notice)
         self._set_banner(
             "ok",
             "Restoring the WIMS window…" if went_back else "Restarting the WIMS window…",
-            "The window opens again on that copy.",
+            finish or "The window opens again on that copy.",
         )
         self.root.after(600, self._relaunch_self)
 
@@ -2100,10 +2164,12 @@ class LauncherApp:
 
     def _refresh_status(self) -> None:
         base = self._site_var.get().strip() or site_base_url()
+        health: dict | None = None
         if self._site_ok:
-            ok_site, base = site_reachable(base, timeout=0.4)
+            health = fetch_site_health(base, timeout=0.4)
+            ok_site, base = _health_result(health, base)
         else:
-            ok_site, base = probe_site_urls(base, timeout=0.5)
+            ok_site, base, health = probe_site_with_health(base, timeout=0.5)
         self._site_ok = ok_site
         if ok_site:
             self._site_var.set(base)
@@ -2155,7 +2221,8 @@ class LauncherApp:
             key_on=bool(intent.get(INTENT_SSB_CW)),
             seat_up=n1mm_seat_up,
         )
-        self._sync_server_action_buttons(ok_site=ok_site, base=base)
+        stale = self._note_server_revision(ok_site=ok_site, base=base, health=health)
+        self._sync_server_action_buttons(ok_site=ok_site, base=base, stale=stale)
 
         if self._updating:
             # Keep "Updating WIMS…" / "Updated — restarting". The 4s status
@@ -2163,7 +2230,9 @@ class LauncherApp:
             self._schedule_status(4000)
             return
 
-        if not want_any:
+        if self._server_code_stale:
+            self._set_banner("warn", "Restart needed", STALE_STATUS_DETAIL)
+        elif not want_any:
             self._set_banner(
                 "busy",
                 "Set seat intent below",
@@ -2424,7 +2493,9 @@ class LauncherApp:
         self.root.after(1500, _start_after)
         self._schedule_status(800)
 
-    def _sync_server_action_buttons(self, *, ok_site: bool, base: str) -> None:
+    def _sync_server_action_buttons(
+        self, *, ok_site: bool, base: str, stale: bool = False,
+    ) -> None:
         """Show Start (none up) or Restart (local up); hide both for remote server."""
         hp = getattr(self, "_home_panel", None)
         if not hp:
@@ -2447,14 +2518,104 @@ class LauncherApp:
             restart_btn.pack_forget()
         except Exception:
             pass
+        if hasattr(hp, "set_restart_needed"):
+            hp.set_restart_needed(False)
         if is_wsjt_only_seat(intent):
             return
         if ok_site and local:
             restart_btn.pack(side="left", padx=(8, 0))
+            if stale and hasattr(hp, "set_restart_needed"):
+                hp.set_restart_needed(True)
         elif not ok_site and offer:
             start_btn.pack(side="left", padx=(8, 0))
         if self._auto_fit_left > 0 and not self._show_advanced.get():
             self.root.after_idle(self._fit_default_geometry)
+
+    def _show_loaded_revs(self, server_version: str, server_rev: str) -> None:
+        """Launcher revision, and the server's when /healthz reported one."""
+        launcher = f"v{__version__} ({self._rev})"
+        server = server_rev_label(server_version, server_rev)
+        line = f"{launcher}    {server}" if server else launcher
+        var = getattr(self, "_rev_line", None)
+        if var is not None:
+            try:
+                var.set(line)
+            except Exception:
+                pass
+        try:
+            self.root.title(f"WIMS launcher  ·  {line}")
+        except Exception:
+            pass
+
+    def _note_server_revision(
+        self, *, ok_site: bool, base: str, health: dict | None,
+    ) -> bool:
+        """Re-read disk HEAD and compare it to the server's recorded revision.
+
+        The launcher's own start-time stamp (``self._rev``) is what the window
+        title shows for this process. The comparison uses a fresh read so an
+        update or a branch change is visible before the window is restarted.
+        """
+        try:
+            disk = git_stamp_fresh(_REPO_ROOT)
+        except Exception:
+            disk = "?"
+        server_rev = ""
+        server_version = ""
+        site = (
+            ok_site
+            and isinstance(health, dict)
+            and health.get("role") == "wims-site-server"
+        )
+        if site and isinstance(health, dict):
+            raw = health.get("server_rev")
+            if isinstance(raw, str):
+                server_rev = raw.strip()
+            raw_v = health.get("version")
+            if isinstance(raw_v, str):
+                server_version = raw_v.strip()
+        self._show_loaded_revs(server_version, server_rev)
+        local = bool(self._local_server_procs()) or (
+            ok_site and self._site_url_is_local(base)
+        )
+        restart_shown = bool(
+            ok_site and local and not is_wsjt_only_seat(self._current_intent())
+        )
+        # No server_rev (older build, or the server is down) → not stale.
+        stale = bool(restart_shown and server_restart_needed(disk, server_rev))
+        self._server_code_stale = stale
+        return stale
+
+    def _restart_notice_after_install(self, *, went_back: bool) -> str:
+        """Updates-list sentence when Install left a local server on old code."""
+        try:
+            disk = git_stamp_fresh(_REPO_ROOT)
+        except Exception:
+            return ""
+        base = ""
+        try:
+            base = (self._site_var.get() or "").strip()
+        except Exception:
+            base = ""
+        ok, used, health = probe_site_with_health(base or None, timeout=0.6)
+        server_rev = ""
+        if (
+            ok
+            and isinstance(health, dict)
+            and health.get("role") == "wims-site-server"
+        ):
+            raw = health.get("server_rev")
+            if isinstance(raw, str):
+                server_rev = raw.strip()
+        local = bool(ok and (
+            self._local_server_procs() or self._site_url_is_local(used)
+        ))
+        return update_install_notice(
+            went_back=went_back,
+            disk_rev=disk,
+            server_rev=server_rev,
+            local_server=local,
+        )
 
     def _open_screenshots(self) -> None:
         """map144-style capture panel → docs/manual/images/."""

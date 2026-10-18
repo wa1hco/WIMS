@@ -17,6 +17,11 @@ from wims.launcher.assets import (
     INTENT_WSJT,
     AssetSnapshot,
 )
+from wims.launcher.server_rev import (
+    RESTART_NEEDED_MARK,
+    RESTART_NEEDED_TIP,
+    RESTART_PLAIN_TIP,
+)
 from wims.launcher.tooltips import ToolTip
 
 
@@ -259,14 +264,16 @@ class AgentHomePanel:
             btns, text="Restart site server", font=_ui_font(11),
             command=(on_restart_server or (lambda: None)), padx=8, pady=4,
         )
-        ToolTip(
-            self.restart_server_btn,
-            "Site server is on this PC — stop and start it again to load "
-            "the latest code after Update WIMS / git pull.",
+        self._restart_tip = ToolTip(self.restart_server_btn, RESTART_PLAIN_TIP)
+        self.restart_needed_lbl = tk.Label(
+            btns, text="", font=_ui_font(11, "bold"),
+            bg="#fff3cd", fg="#7a5b00", padx=6, pady=2,
         )
+        self._restart_mark_tip = ToolTip(self.restart_needed_lbl, "")
         # Shown/hidden by app.refresh based on local vs remote server state.
         self.start_server_btn.pack_forget()
         self.restart_server_btn.pack_forget()
+        self.restart_needed_lbl.pack_forget()
         # Update WIMS lives beside the launcher banner (next to the update
         # message), not down here — see app._show_update_button.
 
@@ -389,6 +396,21 @@ class AgentHomePanel:
     def set_key_cts_status(self, text: str) -> None:
         if self._key_cts_var is not None:
             self._key_cts_var.set(text)
+
+    def set_restart_needed(self, needed: bool) -> None:
+        """Show or clear the Restart needed mark beside Restart site server."""
+        needed = bool(needed)
+        tip = RESTART_NEEDED_TIP if needed else RESTART_PLAIN_TIP
+        self._restart_tip.set_text(tip)
+        self._restart_mark_tip.set_text(RESTART_NEEDED_TIP if needed else "")
+        if needed:
+            self.restart_needed_lbl.configure(text=RESTART_NEEDED_MARK)
+            if not self.restart_needed_lbl.winfo_manager():
+                self.restart_needed_lbl.pack(side="left", padx=(8, 0))
+        else:
+            self.restart_needed_lbl.configure(text="")
+            if self.restart_needed_lbl.winfo_manager():
+                self.restart_needed_lbl.pack_forget()
 
     def set_server_intent_visible(self, visible: bool) -> None:
         """Show or hide the Site server checkbox (never offered on WSJT-X seats)."""

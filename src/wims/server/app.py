@@ -77,6 +77,21 @@ from wims.server.state import (  # noqa: E402
     fleet_to_dict, interlock_to_dict, roster_to_dict, activity_to_dict,
     decodes_to_dict, n1mm_sync_to_dict, agents_to_dict, tx_to_dict,
     rotators_to_dict)
+from wims import __version__ as SERVER_VERSION  # noqa: E402
+from wims.gitinfo import git_stamp as _git_stamp_at_load  # noqa: E402
+
+
+def _server_rev_at_load() -> str:
+    """Git stamp of the code this process loaded. ``?`` if it cannot be read."""
+    try:
+        return _git_stamp_at_load()
+    except Exception:
+        return "?"
+
+
+# Recorded once, when this process loads the server. /healthz keeps reporting
+# it after the checkout on disk moves. Restarting the server picks up the new code.
+SERVER_REV = _server_rev_at_load()
 
 STATIC = Path(__file__).resolve().parent / "static"
 
@@ -2290,6 +2305,10 @@ def make_handler(live: LiveFleet, refresh: float):
                         "setup": f"{base}/setup",
                         "healthz": f"{base}/healthz",
                     },
+                    # Revision (and package version) of the code this process
+                    # loaded. Not a live re-read of the checkout.
+                    "server_rev": SERVER_REV,
+                    "version": SERVER_VERSION,
                 }
                 self._send_json(200, body)
             elif path == "/events":
