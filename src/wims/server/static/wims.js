@@ -1667,6 +1667,9 @@ function renderInterlock(il) {
 const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
+  {key:"msg",           label:"Message", cls:"",
+   hint:"Report, grid, 73, or other text after the callsigns. Hover a cell for the full decode.",
+   cell:rosMessage},
   {key:"band",          label:"Band",    cls:"",          cell:c=>fmtBand(c.band||"-")},
   {key:"instance",      label:"Source",  cls:"",          cell:rosSource},
   {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
@@ -1681,14 +1684,24 @@ const ROS_COLS = [
   {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
 ];
 // Compact default: hide Source/Mode/Freq/Az ant/Δaz/km until the operator enables them.
+// Message sits immediately after Calling.
 const ROS_COLS_DEFAULT = [
-  "call", "to_call", "band", "grid", "snr", "az", "age", "score",
+  "call", "to_call", "msg", "band", "grid", "snr", "az", "age", "score",
 ];
+// Visible Message text. Longer QSY / free text is cut here so rosFitColumns
+// measures a short cell; the title attribute keeps the full decode.
+const ROS_MSG_SHOW = 14;
 let _rosData = null;                              // latest roster payload
 let _rosSort = {key:"score", dir:-1};             // default: score, descending
 let _rosWired = false;
 const ROS_BANDS_KEY = "wims.ops.bands";
 const ROS_COLS_KEY = "wims.ops.cols";
+// 2: Message (msg) joined the default set, right after Calling.
+// A saved list from version 0/1 never contained msg, so it would hide the
+// column forever. The one-time merge below inserts it, then leaves later
+// unchecks alone.
+const ROS_COLS_VERSION = 2;
+const ROS_COLS_VERSION_KEY = "wims.ops.cols.v";
 const DASH_ID_KEY = "wims.ops.dashboardId";
 
 function dashboardId() {
@@ -1736,6 +1749,19 @@ function rosCalling(c) {
   }
   return esc(t || "-");
 }
+function rosMessage(c) {
+  const tail = String(c.msg != null && c.msg !== "" ? c.msg : (c.message_tail || "")).trim();
+  const full = String(c.message || "").trim();
+  const tip = full || tail;
+  if (!tail) {
+    if (!tip) return "-";
+    return `<span class="ros-msg" title="${escAttr(tip)}">-</span>`;
+  }
+  const short = tail.length > ROS_MSG_SHOW
+    ? tail.slice(0, ROS_MSG_SHOW - 1) + "…"
+    : tail;
+  return `<span class="ros-msg" title="${escAttr(tip)}">${esc(short)}</span>`;
+}
 /** Short Source label: rig-name only (drop redundant "WSJT-X - " prefix). */
 function rosSourceLabel(raw) {
   const t = (raw || "").trim();
@@ -1768,13 +1794,43 @@ function rosAzAnt(c) {
   return `<span class="${cls}" title="${c.rotator_moving ? "slewing…" : "settled"}">${c.az_ant}°</span>`;
 }
 
+function rosInsertNewCols(keys) {
+  // Saved sets from before Message existed omit msg. Put it right after Calling.
+  if (!keys || keys.indexOf("msg") >= 0) return keys;
+  const at = keys.indexOf("to_call");
+  if (at >= 0) return keys.slice(0, at + 1).concat(["msg"], keys.slice(at + 1));
+  return ["msg"].concat(keys);
+}
+
+function rosMigrateColPref(pref) {
+  let version = 0;
+  try {
+    version = Number(localStorage.getItem(ROS_COLS_VERSION_KEY) || "0") || 0;
+  } catch (_) {
+    return pref;
+  }
+  if (version >= ROS_COLS_VERSION) return pref;
+  let next = pref;
+  if (pref && pref.length && pref.indexOf("msg") < 0) {
+    next = rosInsertNewCols(pref);
+    rosSaveColPref(next);
+  }
+  try { localStorage.setItem(ROS_COLS_VERSION_KEY, String(ROS_COLS_VERSION)); }
+  catch (_) {}
+  return next;
+}
+
 function rosLoadColPref() {
+  let pref = null;
   try {
     const raw = localStorage.getItem(ROS_COLS_KEY);
-    if (!raw) return null;
+    if (!raw) return rosMigrateColPref(null);
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : null;
-  } catch (_) { return null; }
+    pref = Array.isArray(arr) ? arr : null;
+  } catch (_) {
+    return null;
+  }
+  return rosMigrateColPref(pref);
 }
 
 function rosSaveColPref(keys) {
@@ -1816,6 +1872,8 @@ function rosSyncColChecks() {
       cb.checked = true;
       cb.disabled = true;
       lab.title = "DX is always shown";
+    } else if (col.hint) {
+      lab.title = col.hint;
     }
     cb.addEventListener("change", () => {
       const keys = [...wrap.querySelectorAll('input[data-col]')]
@@ -1836,7 +1894,8 @@ function rosBuildHead() {
   head.innerHTML = cols.map(col => {
     const active = col.key === _rosSort.key;
     const arrow = active ? (_rosSort.dir < 0 ? " ▾" : " ▴") : "";
-    return `<th data-key="${col.key}" class="${col.cls}${active?' sort':''}">${col.label}${arrow}</th>`;
+    const hint = col.hint ? ` title="${escAttr(col.hint)}"` : "";
+    return `<th data-key="${col.key}" class="${col.cls}${active?' sort':''}"${hint}>${col.label}${arrow}</th>`;
   }).join("");
 }
 

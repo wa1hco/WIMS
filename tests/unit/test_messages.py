@@ -93,40 +93,48 @@ def test_decode_and_grid():
     assert msg.dx_call == "NJ1H"
     assert msg.to_call == "CQ"     # "calling" column: a CQ addresses CQ
     assert msg.grid == "FN42"  # the rover/mult-critical field
+    assert msg.message_tail == "FN42"  # same locator, as the text after the call
 
 
 def test_interpret_exchange_to_and_from():
-    is_cq, dx_call, to_call, grid = m._interpret_decode("WA1HCO K1ABC -05")
+    is_cq, dx_call, to_call, grid, tail = m._interpret_decode("WA1HCO K1ABC -05")
     assert is_cq is False
     assert dx_call == "K1ABC"      # station of interest (the one transmitting)
     assert to_call == "WA1HCO"     # who it is calling
+    assert grid is None
+    assert tail == "-05"
 
 
 def test_qsy_message_system_in_calling_column():
     """WSJT-X 2.7+ Message System QSY → target in DX, QSY label in Calling."""
-    is_cq, dx, to, grid = m._interpret_decode("WA9BTV. EL 174")
+    is_cq, dx, to, grid, tail = m._interpret_decode("WA9BTV. EL 174")
     assert is_cq is False
     assert dx == "WA9BTV"
     assert to == "QSY 1296.174"
     assert grid is None
+    assert tail == "EL 174"       # raw payload; Calling already says QSY 1296.174
 
-    is_cq, dx, to, _ = m._interpret_decode("W3SZ. D 550")
+    is_cq, dx, to, _, tail = m._interpret_decode("W3SZ. D 550")
     assert dx == "W3SZ" and to == "QSY 432.550"
+    assert tail == "D 550"
 
-    is_cq, dx, to, _ = m._interpret_decode("VE3KI.NOQSY")
+    is_cq, dx, to, _, tail = m._interpret_decode("VE3KI.NOQSY")
     assert dx == "VE3KI" and to == "NOQSY"
+    assert tail == "NOQSY"
 
-    is_cq, dx, to, _ = m._interpret_decode("QSY 432")
+    is_cq, dx, to, _, tail = m._interpret_decode("QSY 432")
     assert dx is None and to == "QSY 432"
+    assert tail == "QSY 432"      # no station invented from the free-text line
 
 
 def test_cq_directed_west_is_not_dx_call():
     """'CQ WEST AA1ON' — WEST is a directed CQ tag; DX column must be AA1ON."""
-    is_cq, dx_call, to_call, grid = m._interpret_decode("CQ WEST AA1ON")
+    is_cq, dx_call, to_call, grid, tail = m._interpret_decode("CQ WEST AA1ON")
     assert is_cq is True
     assert dx_call == "AA1ON"
     assert to_call == "CQ"
     assert grid is None
+    assert tail is None
 
 
 def test_cq_directed_variants():
@@ -138,11 +146,12 @@ def test_cq_directed_variants():
         ("CQ EAST N1MM", "N1MM", None),
     ]
     for msg, want_call, want_grid in cases:
-        is_cq, dx_call, to_call, grid = m._interpret_decode(msg)
+        is_cq, dx_call, to_call, grid, tail = m._interpret_decode(msg)
         assert is_cq is True, msg
         assert dx_call == want_call, msg
         assert to_call == "CQ", msg
         assert grid == want_grid, msg
+        assert tail == want_grid, msg  # grid exchange text follows the callsign
 
 
 def test_decode_is_signoff():
@@ -152,6 +161,65 @@ def test_decode_is_signoff():
     assert m.decode_is_signoff("W2SZ N2MKT FN13") is False
     assert m.decode_is_signoff("CQ K1ABC FN42") is False
     assert m.decode_is_signoff("") is False
+
+
+def test_message_tail_standard_exchange():
+    """Text after the two callsigns: reports, grids, and sign-offs."""
+    cases = [
+        ("W1AW K1ABC R-12", "K1ABC", "W1AW", None, "R-12"),
+        ("W1AW K1ABC R+20", "K1ABC", "W1AW", None, "R+20"),
+        ("W1AW K1ABC -12", "K1ABC", "W1AW", None, "-12"),
+        ("K1ABC W1AW FN31", "W1AW", "K1ABC", "FN31", "FN31"),
+        ("W1AW K1ABC 73", "K1ABC", "W1AW", None, "73"),
+        ("W1AW K1ABC RR73", "K1ABC", "W1AW", None, "RR73"),
+        ("W1AW K1ABC RRR", "K1ABC", "W1AW", None, "RRR"),
+        ("W1AW K1ABC/R FN42", "K1ABC/R", "W1AW", "FN42", "FN42"),
+    ]
+    for text, dx, to, grid, tail in cases:
+        got = m._interpret_decode(text)
+        assert got == (False, dx, to, grid, tail), (text, got)
+
+
+def test_message_tail_cq_includes_grid():
+    """CQ tail is the text after the CQer, including the grid (same rule as FN31)."""
+    assert m._interpret_decode("CQ K1ABC FN42") == (
+        True, "K1ABC", "CQ", "FN42", "FN42",
+    )
+    assert m._interpret_decode("CQ K1ABC") == (True, "K1ABC", "CQ", None, None)
+    assert m._interpret_decode("CQ DX K1ABC EM48bk") == (
+        True, "K1ABC", "CQ", "EM48BK", "EM48bk",
+    )
+
+
+def test_message_tail_qsy_and_free_text_do_not_invent_stations():
+    is_cq, dx, to, grid, tail = m._interpret_decode("TNX FOR THE QSO")
+    assert is_cq is False and dx is None and to is None and grid is None
+    assert tail == "TNX FOR THE QSO"
+
+    long = "PLEASE MOVE TO 144.174 NOW THANKS"
+    is_cq, dx, to, grid, tail = m._interpret_decode(long)
+    assert dx is None and to is None and tail == long
+
+    # A report is not a DX call.
+    is_cq, dx, to, grid, tail = m._interpret_decode("K1ABC -12")
+    assert dx is None and to is None
+    assert tail == "K1ABC -12"
+
+    # RR73 must not become a station when it is the second token.
+    is_cq, dx, to, grid, tail = m._interpret_decode("W1AW RR73")
+    assert dx is None and tail == "W1AW RR73"
+
+    # Plain words are not stations, even when a real call sits in the line.
+    is_cq, dx, to, _, tail = m._interpret_decode("HELLO WORLD")
+    assert dx is None and to is None and tail == "HELLO WORLD"
+
+    # QRZ keeps the real call and does not store the directed tag as DX.
+    is_cq, dx, to, grid, tail = m._interpret_decode("QRZ DX K1ABC FN42")
+    assert is_cq is False
+    assert dx == "K1ABC" and to == "QRZ" and grid == "FN42" and tail == "FN42"
+
+    assert m._interpret_decode(None) == (False, None, None, None, None)
+    assert m._interpret_decode("   ") == (False, None, None, None, None)
 
 
 def test_non_wsjtx_returns_none():
