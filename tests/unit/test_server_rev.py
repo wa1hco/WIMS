@@ -22,6 +22,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+from wims import __version__  # noqa: E402
 from wims.launcher.app import (  # noqa: E402
     LauncherApp,
     _HOME_FIT_PAD,
@@ -366,9 +367,10 @@ class LoadedRevTests(unittest.TestCase):
             "abc1234 2026-10-18 12:00:00 +0000",
         )
         self.assertIn("Launcher:", app._launcher_rev_var.get())
-        self.assertIn("v1.0.16", app._launcher_rev_var.get())
+        self.assertIn(f"v{__version__}", app._launcher_rev_var.get())
         self.assertIn(_DISK, app._launcher_rev_var.get())
         self.assertIn("Server:", app._server_rev_var.get())
+        self.assertIn("v1.0.16", app._server_rev_var.get())
         self.assertTrue(app._server_rev_lbl.packed)
         self.assertIn("Launcher:", app.root.title_text)
         self.assertIn("Server:", app.root.title_text)
