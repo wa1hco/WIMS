@@ -139,6 +139,9 @@ class LoggedQso:
     # "logged" when the QSO datagram carried a grid. "remembered" when WIMS
     # filled a blank grid from a decode. Never written back to the WSJT-X file.
     grid_source: str | None = None
+    cqz: str | None = None
+    ituz: str | None = None
+    cont: str | None = None
 
     @classmethod
     def _from_dict(cls, d: dict, source: str) -> "LoggedQso":
@@ -157,6 +160,9 @@ class LoggedQso:
             operator=(d.get("operator") or None),
             rover_location=(d.get("roverlocation") or None),
             source=source,
+            cqz=(str(d.get("cqz")).strip() if d.get("cqz") not in (None, "") else None),
+            ituz=(str(d.get("ituz")).strip() if d.get("ituz") not in (None, "") else None),
+            cont=(str(d.get("cont")).strip().upper() if d.get("cont") not in (None, "") else None),
         )
 
     @classmethod

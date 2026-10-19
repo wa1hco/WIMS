@@ -381,7 +381,7 @@ def test_n1mm_file_change_clears_mult_without_a_contact_packet():
     assert again["is_dupe"] is True and again["is_new_mult"] is False
 
 
-def test_colors_does_not_switch_logs_and_uses_the_selected_file():
+def test_just_operating_does_not_switch_logs_and_uses_the_selected_file():
     from wims.rules.choice import save_logs
     tmp = Path(tempfile.mkdtemp())
     home = tmp / "data"
@@ -417,10 +417,17 @@ def test_colors_does_not_switch_logs_and_uses_the_selected_file():
         assert _row(live, "K1ABC", now=1.4)["is_new_mult"] is True
         paths = [str(p) for p in live._adif_source.paths]
         opened = live.set_rules({
-            "action": "select", "goal": "operating", "goal_id": "wsjtx-colors",
+            "action": "select", "goal": "operating", "goal_id": "checklist",
         })
         assert opened["ok"] is True
-        assert live._log.rules.id == "wsjtx-colors"
+        live.set_rules({
+            "action": "checklist",
+            "items": [
+                {"kind": "grid", "enabled": True, "scope": "band"},
+                {"kind": "dxcc", "enabled": False, "scope": "overall"},
+            ],
+        })
+        assert live._log.rules.id == "checklist"
         assert [str(p) for p in live._adif_source.paths] == paths
         assert live._log.count() == 0
         still = _row(live, "K1ABC", now=1.8)
@@ -495,9 +502,17 @@ def _cx_file(path: Path, body: str) -> None:
 
 
 def _cx_colors(live):
-    from wims.engine.contest_rules import WsjtxColors, default_color_categories
-    cats, _note = default_color_categories(cty_ok=False)
-    live._log.rules = WsjtxColors(categories=cats, log_label=_CX_LOG)
+    """Grid and call, each per band — the checklist those color categories became."""
+    from wims.engine.goal_rules import ChecklistRules
+    live._log.rules = ChecklistRules(
+        {
+            "grid": {"enabled": True, "scope": "band"},
+            "call": {"enabled": True, "scope": "band"},
+            "dxcc": {"enabled": False, "scope": "overall"},
+        },
+        title="Checklist",
+        log_label=_CX_LOG,
+    )
     live._log.log_label = _CX_LOG
 
 
