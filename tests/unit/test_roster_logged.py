@@ -103,7 +103,10 @@ def test_band_tokens_keep_mhz_edges_and_meter_numbers():
     assert band("14") == "20m"
     assert band("50") == "6m"
     assert band("144") == "2m"
-    assert band("10") == "30m"
+    # 10 MHz is below the 30 m edge, so it stays on the MHz path (not 10 m).
+    assert band("10") == "40m"
+    assert band("10.1") == "30m"
+    assert band("28") == "10m"
     assert band("2") == "2m"
     assert band("6") == "6m"
     assert band("3,5") == "80m"
@@ -141,7 +144,7 @@ def test_n1mm_meter_band_and_empty_grid_clear_the_square():
     )
     row = live._log.con.execute("SELECT band, grid FROM qsos").fetchone()
     assert row["band"] == "2m"
-    assert row["grid"] == "FN31wa"
+    assert row["grid"] == "FN31WA"
     after = _row(live, "K1ABC", now=2.0)
     assert after["is_dupe"] is True and after["is_new_mult"] is False
 
