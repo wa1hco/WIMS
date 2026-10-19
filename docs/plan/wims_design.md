@@ -546,7 +546,16 @@ SSB/CW or hand off to a 2nd op.
   lock-in. The **JSON state contract (`server/state.py`) is the durable boundary** — the frontend
   is the only replaceable part.
 - **Console pages.** All pages share one SSE feed (`/events`) with a header nav:
-  **`/` Operate** = workable stations (call roster + interlock/overlap safety banner);
+  **`/` Operate** = workable stations (call roster). The TX-group block is display
+  only and stays off the page while every group has a single instance and nothing
+  is blocked, overlapping, or a refused Work. A conflict is one line
+  (`Overlap: …` while two transmitters share a group, including an overlap already
+  recorded this run; `Work blocked: … is transmitting` when Work is refused or one
+  of several instances in a group is transmitting). A closed **TX groups**
+  disclosure — its hover text is what a group is — is on the page whenever a group
+  has more than one instance, so a multi-op station can open the same table. The
+  list opens itself only while an overlap is in progress. Arbiter and Work gating
+  are unchanged.
   **`/overview` / `/wsjt` / `/log` / `/n1mm`** = live health split by concern — **Log** owns
   which file counts, the count-since window, and contest-file resync;
   **N1MM** lists several N1MM stations and stays hidden when fewer than two are heard;
