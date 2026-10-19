@@ -278,6 +278,8 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 
 /* --- TX control strip + click-to-work buttons (Operate) ------------------- */
 .txbar { display:flex; align-items:center; gap:10px; margin:4px 0 12px; flex-wrap:wrap; }
+/* Work/Halt note. The title is the method, address, port, and message. */
+#tx-meta[title]:not([title=""]) { cursor: help; }
 .txbtn { font-size:12px; padding:3px 10px; border:1px solid var(--line); border-radius:5px;
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
