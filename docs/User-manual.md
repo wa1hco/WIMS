@@ -86,6 +86,20 @@ One **site server** per contest LAN. Top nav:
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 - **Message**, next to Calling, is the rest of that decode: a report such as R-12, a sign-off such as 73, a grid, or the leftover text of a QSY. Hover the cell for the whole line. A long line is shortened on the row.
 
+**TX groups** (under the roster) stays off a simple station. A group is a set of WSJT-X instances that must not transmit at the same time. Hover the **TX groups** label for that sentence. WIMS still refuses Work when another instance in the group already holds TX — this block only changes what you see.
+
+What is on the page:
+
+| Situation | What you see |
+|-----------|----------------|
+| Each instance is in its own group, nothing is blocked, no overlap, Work has not been refused | Nothing. No heading, no banner, no table. A station with two bands and a second radio looks like this when those radios do not share a group. |
+| A group has more than one instance, and all of them are quiet | A closed **TX groups** line. Open it for the table (who is in the group, who is transmitting). |
+| Two transmitters in one group right now | A red line **Overlap: 20M** (the group name, written the same way as other band labels). **TX groups** opens so the table is on screen. You can close it; the red line stays. |
+| Work was refused, another instance in the group holds TX, or one of several instances in a group is transmitting | A red line **Work blocked: 20M is transmitting**. **TX groups** is there, closed, if you want the table. |
+| An overlap happened earlier and has stopped | The line stays as **Overlap: 20M** (amber, not flashing) until the site server is restarted, so it is not only inside a closed list. Open **TX groups** for how long ago and which instances. |
+
+A group with more than one instance is the multi-op case: the closed **TX groups** line is how you reach the table even when nothing is wrong.
+
 ### Overview · WSJT-X · Log · N1MM
 
 | Page | URL | Content |
@@ -195,6 +209,7 @@ Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you 
 
 | Date | Note |
 |------|------|
+| 2026-10-19 | Operate TX groups: hidden until a shared group or a conflict; one-line banner |
 | 2026-08-30 | Initial Markdown manual + screenshot manifest |
 | 2026-09-05 | N1MM agent Broadcast/Log/KEY; console Overview/WSJT/N1MM; link operator_setup |
 | 2026-09-05 | Screenshots panel (map144-style); overview/wsjt/n1mm embeds |

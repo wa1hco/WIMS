@@ -249,6 +249,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-19** — **Operate TX groups stay quiet until there is something to know.**
+  The paragraph under the roster is gone; the same meaning is the hover text on
+  **TX groups**. The heading, banner, counts, table, and empty line are hidden
+  while no instance is blocked, nothing overlaps, and Work has not been refused.
+  A conflict is one line: `Work blocked: 20M is transmitting` or `Overlap: 20M`,
+  with the table under **TX groups** (closed, except it opens while an overlap
+  is happening now). A group with more than one instance keeps that closed
+  **TX groups** line so a multi-op station can open the table. A past overlap
+  stays on the line until the site server restarts. Display only — the arbiter,
+  Work gating, and transmit behavior are unchanged.
 - **2026-10-18** — **Version `1.0.17`**. `pyproject.toml` and `wims.__version__` are `1.0.17`. Release notes: [v1.0.17](../releases/v1.0.17.md). The git tag and GitHub Release are not cut yet.
 - **2026-10-18** — **Operate Message column.** Roster shows the exchange after the callsigns (R-12, RR73, 73, a grid, or leftover QSY / free text) in Message, just after Calling. A saved column set gains it once. Hover the cell for the full decode. No transmit change.
 - **2026-10-18** — **Second double-click raises the WIMS window.** The desktop
