@@ -391,8 +391,8 @@ def _which_browser(candidate: str) -> str | None:
     return None
 
 
-def _browser_app_command(url: str) -> list[str] | None:
-    """Return a Chromium-family app-window command, when one is installed."""
+def _chromium_executable() -> str | None:
+    """Chrome, Chromium, or Edge on this PC, when one is installed."""
     configured = os.environ.get("WIMS_BROWSER", "").strip()
     configured_name = Path(configured).name.lower()
     candidates = [configured] if configured and "firefox" not in configured_name else []
@@ -401,12 +401,50 @@ def _browser_app_command(url: str) -> list[str] | None:
     elif sys.platform == "darwin":
         candidates += ["Google Chrome", "Microsoft Edge", "Chromium"]
     else:
-        candidates += ["chromium", "chromium-browser", "google-chrome", "microsoft-edge"]
+        candidates += [
+            "chromium",
+            "chromium-browser",
+            "google-chrome",
+            "google-chrome-stable",
+            "microsoft-edge",
+            "microsoft-edge-stable",
+        ]
     for candidate in candidates:
         executable = _which_browser(candidate)
         if executable:
-            return [executable, f"--app={url}"]
+            return executable
     return None
+
+
+def _browser_app_command(url: str) -> list[str] | None:
+    """Chromium app window with its own profile and the saved spot.
+
+    A separate profile is what keeps the URL out of the everyday browser.
+    Without it, Chromium prints "Opening in existing browser session." and
+    the new tab lands wherever that session chooses.
+    """
+    from wims.console.place import (
+        build_chromium_command,
+        clamp_geometry,
+        console_profile_dir,
+        load_geometry,
+        placed_console_url,
+        visible_screens,
+    )
+
+    executable = _chromium_executable()
+    if not executable:
+        return None
+    saved = load_geometry()
+    geometry = clamp_geometry(saved, visible_screens()) if saved else None
+    profile = console_profile_dir()
+    try:
+        profile.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+    return build_chromium_command(
+        executable, placed_console_url(url), str(profile), geometry,
+    )
 
 
 # Compact console window — same idea as Chrome --app= (not maximized).
@@ -500,7 +538,17 @@ def _firefox_kiosk_command(url: str) -> list[str] | None:
 
 
 def open_wims_url(url: str) -> str:
-    """Open a WIMS page without browser chrome when possible."""
+    """Open the site console on this PC, or reload the one already open.
+
+    A page on another PC is not "already open" here. Chrome, Chromium, and
+    Edge get an app window whose spot is saved. Anything else is today's
+    browser open; the caller says the window cannot be placed.
+    """
+    from wims.console.place import local_console_is_open, request_console_reload
+
+    if local_console_is_open(url):
+        request_console_reload(url)
+        return "reuse"
     configured = os.environ.get("WIMS_BROWSER", "").strip()
     # Honor an explicit Firefox choice before Chromium --app= (this PC).
     if configured and "firefox" in Path(configured).name.lower():
@@ -510,7 +558,9 @@ def open_wims_url(url: str) -> str:
             return "kiosk"
     command = _browser_app_command(url)
     if command:
-        subprocess.Popen(command)
+        subprocess.Popen(
+            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
         return "app"
     command = _firefox_kiosk_command(url)
     if command:
@@ -949,6 +999,16 @@ class LauncherApp:
             "Capture browser pages and this launcher window into "
             "docs/manual/images/ (standard name or dated suffix).",
         )
+        reset_btn = tk.Button(
+            tools_row, text="Reset console window", font=_ui_font(11),
+            command=self._reset_console_window, padx=10, pady=4,
+        )
+        reset_btn.pack(side="left", padx=(8, 0))
+        ToolTip(
+            reset_btn,
+            "Put the site console back at the default spot on this screen. "
+            "The next open uses that spot.",
+        )
         desk_btn = tk.Button(
             tools_row, text="Put WIMS on Desktop", font=_ui_font(11),
             command=self._install_shortcut, padx=10, pady=4,
@@ -1049,7 +1109,8 @@ class LauncherApp:
         adv_toggle.pack(side="left")
         ToolTip(
             adv_toggle,
-            "Screenshots, desktop shortcut, details log, site URL, Solo lab, role cards.",
+            "Screenshots, reset console window, desktop shortcut, details log, "
+            "site URL, Solo lab, role cards.",
         )
         # Block typing; allow Ctrl+C / Ctrl+A / navigation.
         self._log.bind("<Key>", self._details_key)
@@ -2244,6 +2305,11 @@ class LauncherApp:
         if key in self._browser_opened:
             return
         self._browser_opened.add(key)
+        # Site console (Operate / site server) keeps its window. The seat
+        # agent's local page stays in the usual browser.
+        if key in ("server", "solo"):
+            self._open_site_in_browser(url)
+            return
         self._append_log(f"Open {url}")
         try:
             webbrowser.open(url)
@@ -2457,13 +2523,19 @@ class LauncherApp:
 
         threading.Thread(target=_open, daemon=True).start()
 
-    def _open_url_force(self, url: str) -> None:
+    def _open_site_in_browser(self, url: str) -> None:
+        """Open this PC's site console, or reload the window already open."""
+        from wims.console.place import console_open_message
+
         self._append_log(f"Open {url}")
         try:
             mode = open_wims_url(url)
-            self._append_log(f"Opened WIMS app window ({mode}).")
+            self._append_log(console_open_message(mode))
         except Exception as e:
             self._append_log(f"Browser error: {e}")
+
+    def _open_url_force(self, url: str) -> None:
+        self._open_site_in_browser(url)
 
     def _site_url_is_local(self, base: str) -> bool:
         """True if console URL points at this machine (loopback or our LAN IP)."""
@@ -2561,6 +2633,14 @@ class LauncherApp:
             return
         self._append_log("Restarting local site server (load latest tree)…")
         self._server_start_blocked = False
+        was_open = False
+        try:
+            from wims.console.place import local_console_is_open
+            was_open = local_console_is_open(
+                base or f"http://127.0.0.1:{DEFAULT_HTTP_PORT}",
+            )
+        except Exception:
+            was_open = False
         # Stop launcher-owned child first, then any leftover local server.
         if self._proc_running("server"):
             self._stop_role("server")
@@ -2576,7 +2656,16 @@ class LauncherApp:
 
         def _start_after() -> None:
             self._server_start_blocked = False
-            self._start_agent(AGENT_SERVER, open_browser=True)
+            # An open console on this PC reconnects in the same window.
+            # Do not open a second one. A remote viewer's page is not this.
+            # If the window was closed, allow this restart to open it again.
+            if not was_open:
+                self._browser_opened.discard("server")
+            self._start_agent(AGENT_SERVER, open_browser=not was_open)
+            if was_open:
+                self._append_log(
+                    "Site console is already open. It will reconnect in the same window."
+                )
 
         self.root.after(1500, _start_after)
         self._schedule_status(800)
@@ -2739,6 +2828,40 @@ class LauncherApp:
             server_rev=server_rev,
             local_server=local,
         )
+
+    def _reset_console_window(self) -> None:
+        """Forget a bad spot and put the console back on this screen."""
+        from wims.console.place import (
+            default_geometry,
+            request_console_reset,
+            save_geometry,
+            visible_screens,
+        )
+
+        geom = default_geometry(visible_screens())
+        try:
+            save_geometry(geom)
+        except Exception as e:
+            self._append_log(f"Could not reset the console window. {e}")
+            return
+        base = ""
+        try:
+            base = (self._site_var.get() or "").strip()
+        except Exception:
+            base = ""
+        moved = False
+        try:
+            moved = request_console_reset(base or site_base_url(), geom)
+        except Exception:
+            moved = False
+        if moved:
+            self._append_log(
+                "Console window position reset. The open console moves to the default spot."
+            )
+        else:
+            self._append_log(
+                "Console window position reset. The next open uses the default spot."
+            )
 
     def _open_screenshots(self) -> None:
         """map144-style capture panel → docs/manual/images/."""

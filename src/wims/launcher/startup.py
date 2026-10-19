@@ -163,8 +163,10 @@ def guard_console(port: int, *, open_browser: bool) -> int | None:
     log_startup(message)
     if action == "reuse" and open_browser:
         try:
+            from wims.console.place import console_open_message
             from wims.launcher.app import open_wims_url
-            open_wims_url(f"http://localhost:{int(port)}/")
+            mode = open_wims_url(f"http://localhost:{int(port)}/")
+            log_startup(console_open_message(mode))
         except Exception:
             log_startup(
                 f"The console is already up at http://localhost:{int(port)}/ ."

@@ -173,6 +173,22 @@ starts it or Start-Wims-Solo does. That routine:
 - opens the browser the same way
 - writes the same log file the window’s Details pane uses
 
+**Console window on this PC (2026-10-19).** Open site console, Restart site
+server, and Operate open the console the same way. If a console page on
+**this** PC is already connected (its live update, or a ping in the last few
+seconds), WIMS does not open another window. It tells that page to reload, so
+the window stays where it is. A restart reconnects that same page. A browser
+on another PC is unchanged: it still opens the console URL, watches the
+WSJT-X instances, and uses Work and Halt under the same claim and interlock
+rules. A restart only drops and restores its live update, the way it does
+today. Its size and place are not saved over this PC’s. When this PC has
+Chrome, Chromium, or Edge, the console opens as its own window, separate
+from everyday browsing, and comes back at the size and place last used. The
+page reports that place; WIMS keeps it on a screen that is actually there.
+Without one of those browsers, the console opens as it does today and WIMS
+says the window cannot be placed. **Other tools… → Reset console window**
+puts the next open at the default spot.
+
 **Updates** sit on that window, next to those buttons. The list shows every
 version, newest first: a published Release, and a version tag that has no
 Release (so `v1.0.11` through `v1.0.16` are not missing). Each row has the
