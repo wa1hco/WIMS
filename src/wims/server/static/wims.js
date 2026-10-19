@@ -2699,11 +2699,32 @@ function txStatusLine(j, url) {
   return {text: txPlainFailure(j, url), title: full, prominent: true, fade: false};
 }
 
+function txTipWire(el) {
+  if (!el || el._txTipWired || typeof el.addEventListener !== "function") return;
+  el._txTipWired = true;
+  el.addEventListener("mouseenter", () => {
+    const tip = el.title || (el.dataset && el.dataset.tip) || "";
+    if (!tip || !el.dataset) return;
+    el.dataset.tip = tip;
+    el.title = "";
+  });
+  el.addEventListener("mouseleave", () => {
+    if (!el.dataset || !el.dataset.tip) return;
+    if (!el.textContent) {
+      el.dataset.tip = "";
+      return;
+    }
+    el.title = el.dataset.tip;
+  });
+}
+
 function txShowStatus(el, view) {
   if (!el || !view) return;
   txNoteCancel();
+  txTipWire(el);
   el.textContent = view.text || "";
   el.title = view.title || "";
+  if (el.dataset) el.dataset.tip = "";
   el.className = view.prominent ? "meta warn" : "meta";
   if (el.style) {
     el.style.transition = "none";
@@ -2720,6 +2741,7 @@ function txShowStatus(el, view) {
       if (!el.style || el.style.opacity === "0") {
         el.textContent = "";
         el.title = "";
+        if (el.dataset) el.dataset.tip = "";
       }
     }, TX_STATUS_FADE_OUT_MS);
   }, TX_STATUS_FADE_MS);
