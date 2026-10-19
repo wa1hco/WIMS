@@ -138,7 +138,7 @@ class OperatePlanTests(unittest.TestCase):
     def test_already_open_reuses_the_console(self):
         import wims.solo as solo
         with mock.patch("wims.launcher.startup.probe_console", return_value="wims"):
-            with mock.patch("wims.launcher.app.open_wims_url") as opened:
+            with mock.patch("wims.launcher.app.open_wims_url", return_value="reuse") as opened:
                 with mock.patch.object(solo.server, "main") as server:
                     code = solo.main(["--http-port", "8787"])
         self.assertEqual(code, 0)

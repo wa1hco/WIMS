@@ -82,6 +82,16 @@ from wims.server.state import (  # noqa: E402
     rotators_to_dict)
 from wims import __version__ as SERVER_VERSION  # noqa: E402
 from wims.gitinfo import git_stamp as _git_stamp_at_load  # noqa: E402
+from wims.console.place import (  # noqa: E402
+    attach_console_ctrl,
+    client_is_local,
+    geometry_settings_path,
+    get_hub,
+    handle_geometry_post,
+    handle_ping_post,
+    handle_reload_post,
+    handle_reset_post,
+)
 
 
 def _server_rev_at_load() -> str:
@@ -2691,6 +2701,9 @@ def make_handler(live: LiveFleet, refresh: float):
                 self._send_json(200, {"ok": True, **live.seat_profile_public()})
             elif path == "/api/logs/check":
                 self._send_json(200, live.check_logs(start=False))
+            elif path == "/api/console/presence":
+                # Local pages only. A remote viewer does not show up here.
+                self._send_json(200, get_hub().presence(time.monotonic()))
             elif path.lstrip("/") in {"wims.css", "wims.js"}:
                 self._serve_static(path.lstrip("/"))
             else:
@@ -2704,6 +2717,38 @@ def make_handler(live: LiveFleet, refresh: float):
                 body = json.loads(raw.decode("utf-8") or "{}")
             except json.JSONDecodeError:
                 self._send_json(400, {"ok": False, "error": "invalid JSON"})
+                return
+            if path == "/api/console/geometry":
+                # Placed window on this PC only. Remote reports are ignored.
+                result = handle_geometry_post(
+                    body,
+                    client_local=self._client_is_local(),
+                    settings=geometry_settings_path(),
+                    hub=get_hub(),
+                    now=time.monotonic(),
+                )
+                self._send_json(200, result)
+                return
+            if path == "/api/console/ping":
+                result = handle_ping_post(
+                    body,
+                    client_local=self._client_is_local(),
+                    hub=get_hub(),
+                    now=time.monotonic(),
+                )
+                self._send_json(200, result)
+                return
+            if path == "/api/console/reload":
+                ok, result = handle_reload_post(
+                    client_local=self._client_is_local(), hub=get_hub(),
+                )
+                self._send_json(200 if ok else 403, result)
+                return
+            if path == "/api/console/reset":
+                ok, result = handle_reset_post(
+                    body, client_local=self._client_is_local(), hub=get_hub(),
+                )
+                self._send_json(200 if ok else 403, result)
                 return
             if path == "/api/contests/select":
                 # Operator picked a human-listed contest (Status UI). No cryptic CLI.
@@ -2867,20 +2912,40 @@ def make_handler(live: LiveFleet, refresh: float):
             ctype = self.TYPES.get(f.suffix, "application/octet-stream")
             self._send(200, ctype, f.read_bytes())
 
-        def _stream_events(self):
-            self.send_response(200)
-            self.send_header("Content-Type", "text/event-stream")
-            self.send_header("Cache-Control", "no-cache")
-            self.send_header("Connection", "keep-alive")
-            self.end_headers()
+        def _client_is_local(self) -> bool:
             try:
+                ip = self.client_address[0] if self.client_address else ""
+            except Exception:
+                ip = ""
+            return client_is_local(str(ip or ""))
+
+        def _stream_events(self):
+            # Reload rides only on a local live update. A remote browser gets
+            # the same snapshot it does today, then reconnects on its own
+            # after a restart.
+            local = self._client_is_local()
+            hub = get_hub()
+            if local:
+                hub.sse_enter()
+            try:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.send_header("Connection", "keep-alive")
+                self.end_headers()
                 while True:
-                    payload = json.dumps(live.snapshot(time.time()))
+                    snap = live.snapshot(time.time())
+                    if local:
+                        snap = attach_console_ctrl(snap, hub.control())
+                    payload = json.dumps(snap)
                     self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                     self.wfile.flush()
                     time.sleep(refresh)
             except (BrokenPipeError, ConnectionResetError, OSError):
                 return   # browser disconnected
+            finally:
+                if local:
+                    hub.sse_exit()
 
     return Handler
 

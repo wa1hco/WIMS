@@ -2980,6 +2980,141 @@ function markNavActive() {
   }
 }
 
+// The window the launcher opened on this PC reports its spot and reloads
+// in place. A browser on another PC has no wims_place mark and never sees
+// console_ctrl, so it only reconnects the live update the way it always has.
+let _consoleCtrlReady = false;
+
+function consoleIsPlaced() {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.get("wims_place") === "1") sessionStorage.setItem("wims_place", "1");
+  } catch (_) {}
+  try { return sessionStorage.getItem("wims_place") === "1"; }
+  catch (_) { return false; }
+}
+
+function postConsole(path, body) {
+  const raw = JSON.stringify(body);
+  fetch(path, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: raw,
+  }).catch(() => {});
+}
+
+function sendConsoleGeometry(reason) {
+  const body = {
+    placed: true,
+    x: Math.round(window.screenX || 0),
+    y: Math.round(window.screenY || 0),
+    width: Math.round(window.outerWidth || 0),
+    height: Math.round(window.outerHeight || 0),
+    reason: reason || "",
+  };
+  if (reason === "unload") body.closed = true;
+  if (reason === "unload" && navigator.sendBeacon) {
+    try {
+      navigator.sendBeacon(
+        "/api/console/geometry",
+        new Blob([JSON.stringify(body)], {type: "application/json"}),
+      );
+    } catch (_) {}
+    return;
+  }
+  postConsole("/api/console/geometry", body);
+}
+
+function watchConsolePlace() {
+  if (!consoleIsPlaced()) return;
+  let timer = null;
+  let last = "";
+  const schedule = (reason) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      const key = [
+        window.screenX, window.screenY, window.outerWidth, window.outerHeight,
+      ].join(",");
+      if (key === last) return;
+      last = key;
+      sendConsoleGeometry(reason);
+    }, 400);
+  };
+  window.addEventListener("resize", () => schedule("resize"));
+  let px = window.screenX, py = window.screenY;
+  setInterval(() => {
+    if (window.screenX !== px || window.screenY !== py) {
+      px = window.screenX;
+      py = window.screenY;
+      schedule("move");
+    }
+  }, 300);
+  setInterval(() => postConsole("/api/console/ping", {placed: true}), 2000);
+  window.addEventListener("pagehide", () => sendConsoleGeometry("unload"));
+  schedule("open");
+}
+
+function moveConsoleTo(spot) {
+  const to = spot || {};
+  const x = Number(to.x), y = Number(to.y);
+  const w = Number(to.width), h = Number(to.height);
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    try { window.moveTo(x, y); } catch (_) {}
+  }
+  if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+    try { window.resizeTo(w, h); } catch (_) {}
+  }
+}
+
+function applyConsoleCtrl(ctrl) {
+  // Missing, or not marked local: leave this page alone (remote viewers).
+  if (!ctrl || ctrl.local !== true) return false;
+  const token = String(ctrl.boot || "") + ":" + String(ctrl.reload || 0);
+  const reset = String(ctrl.reset || 0);
+  let stored = null;
+  let storedReset = null;
+  try {
+    stored = sessionStorage.getItem("wims_ctrl");
+    storedReset = sessionStorage.getItem("wims_reset");
+  } catch (_) {}
+  if (!_consoleCtrlReady) {
+    _consoleCtrlReady = true;
+    if (stored && stored !== token) {
+      try {
+        sessionStorage.setItem("wims_ctrl", token);
+        sessionStorage.setItem("wims_reset", reset);
+      } catch (_) {}
+      location.reload();
+      return true;
+    }
+    try { sessionStorage.setItem("wims_ctrl", token); } catch (_) {}
+    // A reset that arrived while this document was loading still moves
+    // the window. A brand-new document (no stored reset) keeps the spot
+    // the launcher just opened.
+    if (storedReset !== null && storedReset !== reset) {
+      try { sessionStorage.setItem("wims_reset", reset); } catch (_) {}
+      moveConsoleTo(ctrl.reset_to);
+    } else {
+      try { sessionStorage.setItem("wims_reset", reset); } catch (_) {}
+    }
+    return false;
+  }
+  if (stored !== token) {
+    try {
+      sessionStorage.setItem("wims_ctrl", token);
+      sessionStorage.setItem("wims_reset", reset);
+    } catch (_) {}
+    location.reload();
+    return true;
+  }
+  if (storedReset !== reset) {
+    try { sessionStorage.setItem("wims_reset", reset); } catch (_) {}
+    moveConsoleTo(ctrl.reset_to);
+  }
+  return false;
+}
+
 function connect() {
   wireTipButtons();
   wireLogPage();
@@ -2987,9 +3122,14 @@ function connect() {
   if (tab) statusShowTab(tab);
   markNavActive();
   rosSyncNeedControl();
+  watchConsolePlace();
   const es = new EventSource("/events");
   es.onopen = () => { $("conn").textContent = "● live"; $("conn").className = "up"; };
-  es.onmessage = (e) => render(JSON.parse(e.data));
+  es.onmessage = (e) => {
+    const s = JSON.parse(e.data);
+    if (applyConsoleCtrl(s.console_ctrl)) return;
+    render(s);
+  };
   es.onerror = () => { $("conn").textContent = "● disconnected"; $("conn").className = "down"; };
 }
 connect();
