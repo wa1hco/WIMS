@@ -485,7 +485,9 @@ SSB/CW or hand off to a 2nd op.
   callsign, CQ or mid-exchange), scored via §3.5 with the score **kept as a sortable column** (not the
   only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
-  operator’s* roster. Columns: **DX callsign · Calling** (who they address — `CQ` or the worked call)
+  operator’s* roster. Columns: **DX callsign · Country** (DXCC entity name for the
+  call, blank when the prefix is unknown; hover adds continent and CQ zone when
+  known) **· Calling** (who they address — `CQ` or the worked call)
   **· Message** (the exchange after the callsigns — a report such as `R-12`, a grid, `73` /
   `RR73` / `RRR`, or the leftover text of a QSY or free-text line; hover shows the full
   decode; a long line is shortened on the row) **· Band · Mode · Grid · dB · Freq**
@@ -499,7 +501,8 @@ SSB/CW or hand off to a 2nd op.
   yet transmitting). Priority: calling-us > armed > mult. Later (M4 / §2.10): **Az ant**, **Δaz**,
   rotating font, optional point-on-Work. **Every header sorts**; need/band filters persist.
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
-  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`, `msg` /
+  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
+  `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last

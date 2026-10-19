@@ -486,26 +486,54 @@ function dlogDraw() {
   });
   const empty = $("dlog-empty");
   if (empty) empty.style.display = rows.length ? "none" : "block";
+  const showCountry = dlogEnsureCountry();
   body.innerHTML = "";
   for (const e of rows) {
     const tr = document.createElement("tr");
     if (e.is_cq) tr.className = "cqrow";
+    const country = showCountry ? dlogCountryCell(e) : "";
     if (opsCols) {
       tr.innerHTML =
         `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td>` +
         `<td title="WSJT-X --rig-name / UDP id">${esc(e.instance || "—")}</td>` +
         `<td>${esc(fmtBand(e.band || "—"))}</td>` +
         `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
+        country +
         `<td>${esc(e.message)}</td>`;
     } else {
       tr.innerHTML =
         `<td>${new Date(e.ts*1000).toLocaleTimeString()}</td>` +
         `<td title="WSJT-X --rig-name / UDP id">${esc(e.instance || "—")}</td>` +
         `<td class="num">${sgn(e.snr)}</td><td class="num">${e.df}</td>` +
+        country +
         `<td>${esc(e.message)}</td>`;
     }
     body.appendChild(tr);
   }
+}
+
+function dlogCountryCell(e) {
+  const name = String(e.country || "").trim();
+  if (!name) return "<td></td>";
+  const tip = rosCountryTip(e);
+  return `<td class="country"><span class="ros-country" title="${escAttr(tip)}">${esc(name)}</span></td>`;
+}
+
+function dlogEnsureCountry() {
+  const body = $("dlog-body");
+  if (!body) return false;
+  const table = body.closest("table");
+  const head = table && table.querySelector("thead tr");
+  if (!head) return false;
+  if (!head.querySelector("th[data-col='country']")) {
+    const th = document.createElement("th");
+    th.dataset.col = "country";
+    th.textContent = "Country";
+    th.title = "DXCC entity for the station in the message. Blank when the prefix is not known.";
+    if (head.lastElementChild) head.insertBefore(th, head.lastElementChild);
+    else head.appendChild(th);
+  }
+  return true;
 }
 
 function formatResync(rs) {
@@ -1800,6 +1828,9 @@ function renderInterlock(il, tx, holdRefusal) {
 // (localStorage) so the table can stay narrow on small screens.
 const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
+  {key:"country",       label:"Country", cls:"country",
+   hint:"DXCC entity for this call. Blank when the prefix is not known. Hover for the full name, and continent and CQ zone when WIMS has them.",
+   cell:rosCountry},
   {key:"to_call",       label:"Calling", cls:"",          cell:c=>rosCalling(c)},
   {key:"msg",           label:"Message", cls:"",
    hint:"Report, grid, 73, or other text after the callsigns. Hover a cell for the full decode.",
@@ -1820,7 +1851,7 @@ const ROS_COLS = [
 // Compact default: hide Source/Mode/Freq/Az ant/Δaz/km until the operator enables them.
 // Message sits immediately after Calling.
 const ROS_COLS_DEFAULT = [
-  "call", "to_call", "msg", "band", "grid", "snr", "az", "age", "score",
+  "call", "country", "to_call", "msg", "band", "grid", "snr", "az", "age", "score",
 ];
 // Visible Message text. Longer QSY / free text is cut here so rosFitColumns
 // measures a short cell; the title attribute keeps the full decode.
@@ -1831,10 +1862,11 @@ let _rosWired = false;
 const ROS_BANDS_KEY = "wims.ops.bands";
 const ROS_COLS_KEY = "wims.ops.cols";
 // 2: Message (msg) joined the default set, right after Calling.
-// A saved list from version 0/1 never contained msg, so it would hide the
-// column forever. The one-time merge below inserts it, then leaves later
-// unchecks alone.
-const ROS_COLS_VERSION = 2;
+// 3: Country joined the default set, right after DX.
+// A saved list from an older version never contained the new column, so it
+// would hide the column forever. The one-time merge below inserts it, then
+// leaves later unchecks alone.
+const ROS_COLS_VERSION = 3;
 const ROS_COLS_VERSION_KEY = "wims.ops.cols.v";
 const DASH_ID_KEY = "wims.ops.dashboardId";
 
@@ -1874,6 +1906,28 @@ function rosCall(c) {
     (c.is_new_mult ? '<span class="badge" title="' + escAttr(c.mult_reason || '') + '">mult</span>' : '') +
     (c.is_rover ? '<span class="badge rover">R</span>' : '');
   return `${esc(c.call)}${badges}`;
+}
+const CONTINENT_NAME = {
+  NA: "North America", SA: "South America", EU: "Europe",
+  AF: "Africa", AS: "Asia", OC: "Oceania", AN: "Antarctica",
+};
+function rosCountryTip(c) {
+  const name = String(c.country || "").trim();
+  if (!name) return "";
+  const bits = [name];
+  const raw = String(c.continent || c.continent_name || "").trim();
+  const cont = CONTINENT_NAME[raw.toUpperCase()] || raw;
+  if (cont && cont.toUpperCase() !== name.toUpperCase()) bits.push(cont);
+  const cq = (c.cq_zone != null && c.cq_zone !== "") ? c.cq_zone
+    : ((c.cqz != null && c.cqz !== "") ? c.cqz : "");
+  if (cq !== "") bits.push("CQ " + cq);
+  return bits.join(" · ");
+}
+function rosCountry(c) {
+  const name = String(c.country || "").trim();
+  if (!name) return "";
+  const tip = rosCountryTip(c);
+  return `<span class="ros-country" title="${escAttr(tip)}">${esc(name)}</span>`;
 }
 function rosCalling(c) {
   if (c.is_cq) return '<span class="cq">CQ</span>';
@@ -1936,6 +1990,14 @@ function rosInsertNewCols(keys) {
   return ["msg"].concat(keys);
 }
 
+function rosInsertCountry(keys) {
+  // Saved sets from before Country existed omit it. Put it right after DX.
+  if (!keys || keys.indexOf("country") >= 0) return keys;
+  const at = keys.indexOf("call");
+  if (at >= 0) return keys.slice(0, at + 1).concat(["country"], keys.slice(at + 1));
+  return ["country"].concat(keys);
+}
+
 function rosMigrateColPref(pref) {
   let version = 0;
   try {
@@ -1945,10 +2007,13 @@ function rosMigrateColPref(pref) {
   }
   if (version >= ROS_COLS_VERSION) return pref;
   let next = pref;
-  if (pref && pref.length && pref.indexOf("msg") < 0) {
-    next = rosInsertNewCols(pref);
-    rosSaveColPref(next);
+  if (version < 2 && next && next.length && next.indexOf("msg") < 0) {
+    next = rosInsertNewCols(next);
   }
+  if (version < 3 && next && next.length && next.indexOf("country") < 0) {
+    next = rosInsertCountry(next);
+  }
+  if (next !== pref) rosSaveColPref(next);
   try { localStorage.setItem(ROS_COLS_VERSION_KEY, String(ROS_COLS_VERSION)); }
   catch (_) {}
   return next;

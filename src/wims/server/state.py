@@ -26,11 +26,15 @@ contract — and everything behind it — stays put. Keep it additive and versio
 
 from __future__ import annotations
 
+from wims.engine.dxcc import country_fields as _country_fields
 from wims.engine.geo import (
     bearing as _bearing, distance_km as _distance_km, base_call as _base_call,
     delta_az as _delta_az,
 )
-from wims.udp.messages import decode_is_signoff as _decode_is_signoff
+from wims.udp.messages import (
+    _interpret_decode as _interpret_decode,
+    decode_is_signoff as _decode_is_signoff,
+)
 
 API_VERSION = 1
 
@@ -243,7 +247,10 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
 
     ``msg`` / ``message_tail`` is the exchange text after the callsigns (report,
     grid, sign-off, or leftover QSY / free text). ``message`` is the original
-    decode line for the cell tooltip. Both are additive; older consoles ignore them.
+    decode line for the cell tooltip. ``country`` is the DXCC entity name for
+    the call (blank when the prefix is unknown). ``continent`` and ``cq_zone``
+    are set when the entity table has them, for the cell hover. All of these
+    are additive; older consoles ignore them.
     """
     cands = []
     for sc, e in scored_rows:
@@ -297,9 +304,13 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         tail = raw_tail.strip() if isinstance(raw_tail, str) else ""
         raw_msg = getattr(d, "message", None)
         full = raw_msg.strip() if isinstance(raw_msg, str) else ""
+        place = _country_fields(c.call)
         cands.append({
             "id": f"{c.instance_id}|{c.call}|{c.grid or ''}",  # stable row id → click-to-work
             "call": c.call,
+            "country": place["country"],
+            "continent": place["continent"],
+            "cq_zone": place["cq_zone"],
             "to_call": d.to_call,                  # "calling" column
             "msg": tail,                           # Message column (exchange tail)
             "message_tail": tail,                  # same text; named contract field
@@ -469,6 +480,10 @@ def decodes_to_dict(buffer, now: float, limit: int = 120,
         if counts.get(inst, 0) >= cap:
             continue
         counts[inst] = counts.get(inst, 0) + 1
+        dx = e.get("dx_call") or ""
+        if not dx:
+            _cq, dx, _to, _grid, _tail = _interpret_decode(e.get("message"))
+        place = _country_fields(dx)
         out.append({
             "ts": e["ts"],
             "instance": e["instance"],
@@ -477,6 +492,10 @@ def decodes_to_dict(buffer, now: float, limit: int = 120,
             "df": e["df"],
             "message": e["message"],
             "is_cq": e["is_cq"],
+            "dx_call": dx or "",
+            "country": place["country"],
+            "continent": place["continent"],
+            "cq_zone": place["cq_zone"],
         })
         if len(out) >= limit:
             break
