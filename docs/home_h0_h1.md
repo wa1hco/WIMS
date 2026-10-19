@@ -18,7 +18,7 @@ You want WIMS to **filter and rank decodes** and **click-to-Work** (Reply) — n
 | Browser | `http://localhost:8787/` → **Operate** |
 | Optional N1MM log | Auto-seed needed vs dupe; or `--no-seed` (all look needed) |
 
-Operate: filters (**needed only**, max age, band) + **click a row = Work**. **Halt TX** stops that Work. Call CQ stays in WSJT-X.
+Operate: filters (**show** menu: Needed, Needed and CQ, Needed and CQ or 73, All; max age; band) + **click a row = Work**. **Halt TX** stops that Work. Call CQ stays in WSJT-X.
 
 Nothing else is required for this minimum.
 

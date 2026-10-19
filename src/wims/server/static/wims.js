@@ -1783,8 +1783,8 @@ function renderInterlock(il, tx, holdRefusal) {
 }
 
 // GridTracker-style call roster: one row per station heard, with the score kept as a
-// column. Rows filter by need (from the N1MM log copy) and band checkboxes; every
-// header sorts. Click the *line* to Work (no Work button). Columns are selectable
+// column. The show menu filters by need, CQ, and 73; band checkboxes narrow further.
+// Every header sorts. Click the *line* to Work (no Work button). Columns are selectable
 // (localStorage) so the table can stay narrow on small screens.
 const ROS_COLS = [
   {key:"call",          label:"DX",      cls:"",          locked:1, cell:rosCall},
@@ -1856,6 +1856,7 @@ function myTxBands(tx) {
   return [...new Set(myTxClaims(tx).map(c => c.band).filter(Boolean))].sort();
 }
 const ROS_AGE_KEY = "wims.ops.maxAgeSec";
+const ROS_NEED_KEY = "wims.ops.needed";
 const ROS_AGE_DEFAULT = 120; // match GridTracker-ish “last ~2 minutes” feel
 let _rosColsBuilt = false;
 
@@ -1909,7 +1910,7 @@ function rosGrid(c) {
   return esc(c.grid);
 }
 function rosMessage(c) {
-  const tail = String(c.msg != null && c.msg !== "" ? c.msg : (c.message_tail || "")).trim();
+  const tail = rosExchangeTail(c);
   const full = String(c.message || "").trim();
   const tip = full || tail;
   if (!tail) {
@@ -2222,6 +2223,138 @@ function rosSyncMaxAgeControl() {
   });
 }
 
+// Show menu. Same rule as wims.engine.roster_filter, on the Message-column
+// fields (is_cq and the exchange tail). Not a second decode parser.
+// A saved checked checkbox (true / "1") is Needed; unchecked (false / "0") is All.
+function rosNormalizeNeed(saved) {
+  if (saved == null || saved === "") return "needed";
+  const s = String(saved).trim().toLowerCase();
+  if (s === "needed" || s === "needed-cq" || s === "needed-73" || s === "all") return s;
+  if (s === "true" || s === "1" || s === "yes" || s === "on" || s === "checked") return "needed";
+  if (s === "false" || s === "0" || s === "no" || s === "off" || s === "unchecked") return "all";
+  return "needed";
+}
+
+function rosExchangeTail(c) {
+  return String(c.msg != null && c.msg !== "" ? c.msg : (c.message_tail || "")).trim();
+}
+
+function rosTailIsFreeSignoff(tail) {
+  const parts = String(tail || "").trim().toUpperCase().split(/\s+/);
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === "73" || parts[i] === "RR73") return true;
+  }
+  return false;
+}
+
+function rosKeepCandidate(c, mode) {
+  const m = rosNormalizeNeed(mode);
+  if (m === "all") return true;
+  if (!c || !c.is_needed) return false;
+  if (m === "needed") return true;
+  if (m === "needed-cq") return !!c.is_cq;
+  if (m === "needed-73") return !!c.is_cq || rosTailIsFreeSignoff(rosExchangeTail(c));
+  return true;
+}
+
+function rosSaveNeed(mode) {
+  try { localStorage.setItem(ROS_NEED_KEY, rosNormalizeNeed(mode)); }
+  catch (_) {}
+}
+
+function rosLoadNeed() {
+  try {
+    const raw = localStorage.getItem(ROS_NEED_KEY);
+    const mode = rosNormalizeNeed(raw);
+    if (raw != null && String(raw) !== mode) rosSaveNeed(mode);
+    return mode;
+  } catch (_) {
+    return "needed";
+  }
+}
+
+function rosNeedButtons() {
+  const menu = $("ros-needed");
+  if (!menu) return [];
+  return [...menu.querySelectorAll('button[role="option"]')];
+}
+
+function rosSetNeed(mode, save) {
+  const menu = $("ros-needed");
+  const btn = $("ros-needed-btn");
+  if (!menu) return;
+  const m = rosNormalizeNeed(mode);
+  const opts = rosNeedButtons();
+  let pick = null;
+  for (const o of opts) {
+    if (o.dataset.value === m) pick = o;
+  }
+  if (!pick && opts.length) pick = opts[0];
+  if (!pick) return;
+  menu.dataset.value = pick.dataset.value;
+  for (const o of opts) {
+    o.setAttribute("aria-selected", o === pick ? "true" : "false");
+  }
+  if (btn) {
+    btn.textContent = pick.textContent;
+    btn.title = pick.title || "";
+  }
+  if (save) rosSaveNeed(menu.dataset.value);
+}
+
+function rosCloseNeed() {
+  const menu = $("ros-needed");
+  const btn = $("ros-needed-btn");
+  if (menu) menu.hidden = true;
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function rosOpenNeed() {
+  const menu = $("ros-needed");
+  const btn = $("ros-needed-btn");
+  if (!menu || !btn) return;
+  const cols = document.querySelector("details.ros-cols-menu");
+  if (cols) cols.open = false;
+  menu.hidden = false;
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function rosToggleNeed() {
+  const menu = $("ros-needed");
+  if (!menu) return;
+  if (menu.hidden) rosOpenNeed();
+  else rosCloseNeed();
+}
+
+function rosSyncNeedControl() {
+  const menu = $("ros-needed");
+  const btn = $("ros-needed-btn");
+  if (!menu || !btn || menu.dataset.wired) return;
+  menu.dataset.wired = "1";
+  rosSetNeed(rosLoadNeed(), false);
+  btn.addEventListener("click", () => rosToggleNeed());
+  for (const o of rosNeedButtons()) {
+    o.addEventListener("click", () => {
+      rosSetNeed(o.dataset.value, true);
+      rosCloseNeed();
+      rosDraw();
+    });
+  }
+  document.addEventListener("click", (e) => {
+    const wrap = $("ros-needed-wrap");
+    if (!menu.hidden && wrap && !wrap.contains(e.target)) rosCloseNeed();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") rosCloseNeed();
+  });
+}
+
+function rosNeedMode() {
+  const menu = $("ros-needed");
+  if (!menu) return "all";
+  return rosNormalizeNeed(menu.dataset.value || "needed");
+}
+
 function rosWire() {
   if (_rosWired) return;
   _rosWired = true;
@@ -2232,8 +2365,7 @@ function rosWire() {
     else _rosSort = {key, dir: (ROS_COLS.find(c=>c.key===key)||{}).num ? -1 : 1};
     rosDraw();
   });
-  const needed = $("ros-needed");
-  if (needed) needed.addEventListener("change", rosDraw);
+  rosSyncNeedControl();
   rosSyncMaxAgeControl();
   applyOperateShotContext();
   // Ctrl+/- zoom and window resize: remeasure column widths.
@@ -2259,8 +2391,8 @@ function applyOperateShotContext() {
   catch (_) { return; }
   if (![...q.keys()].length) return;
   if (q.has("needed")) {
-    const needed = $("ros-needed");
-    if (needed) needed.checked = !["0", "false", "no"].includes(String(q.get("needed")).toLowerCase());
+    // needed=1 is the old checked box (Needed). needed=0 is the old unchecked box (All).
+    rosSetNeed(q.get("needed"), false);
   }
   if (q.has("maxAge")) {
     const sel = $("ros-max-age");
@@ -2332,6 +2464,7 @@ function operateOfferedBands(s) {
 function rosDraw() {
   const r = _rosData; if (!r) return;
   rosSyncMaxAgeControl();
+  rosSyncNeedControl();
   const bands = _rosOffered.length
     ? _rosOffered
     : (Array.isArray(r.live_bands)
@@ -2339,10 +2472,10 @@ function rosDraw() {
       : [...new Set((r.candidates || []).map(c => c.band).filter(Boolean))].sort());
   rosSyncBandChecks(bands);
   const selected = rosSelectedBands();
-  const neededOnly = $("ros-needed") ? $("ros-needed").checked : false;
+  const needMode = rosNeedMode();
   const maxAge = rosMaxAgeSec();
   let rows = r.candidates.filter(c => {
-    if (neededOnly && !c.is_needed) return false;
+    if (!rosKeepCandidate(c, needMode)) return false;
     if (selected && selected.size) {
       const hitBand = c.band && c.band !== "?" && selected.has(c.band);
       const hitInst = c.instance && selected.has(c.instance);
@@ -2673,6 +2806,7 @@ function connect() {
   const tab = statusTabFromPath();
   if (tab) statusShowTab(tab);
   markNavActive();
+  rosSyncNeedControl();
   const es = new EventSource("/events");
   es.onopen = () => { $("conn").textContent = "● live"; $("conn").className = "up"; };
   es.onmessage = (e) => render(JSON.parse(e.data));

@@ -500,6 +500,12 @@ SSB/CW or hand off to a 2nd op.
   red) and **armed** (green edge — Status `tx_enabled` and `dx_call` match this row, even if not
   yet transmitting). Priority: calling-us > armed > mult. Later (M4 / §2.10): **Az ant**, **Δaz**,
   rotating font, optional point-on-Work. **Every header sorts**; need/band filters persist.
+  The Operate show menu is **Needed**, **Needed and CQ**, **Needed and CQ or 73**, or **All**.
+  Needed is a saved checked "needed only" box (stations marked needed). All is a saved
+  unchecked box. Needed and CQ keeps a needed station whose latest decode is a CQ,
+  including CQ NA or CQ DX. Needed and CQ or 73 also keeps 73 or RR73, including RR73
+  with a grid: stations that are free to call. The choice is saved in the browser.
+  CQ and the sign-off come from the Message-column parse (`is_cq` and `message_tail`).
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
   `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
   `country`, `continent`, `cq_zone`, `msg` /
