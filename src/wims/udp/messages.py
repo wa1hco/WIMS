@@ -303,6 +303,42 @@ def extract_grid(message: str | None) -> str | None:
     return last.upper() if _GRID_RE.match(last) else None
 
 
+def standard_station_grid(message: str | None) -> tuple[str, str] | None:
+    """``(dx_call, grid)`` from a standard CQ or ``CALL CALL GRID`` message.
+
+    Free text, QSY, and any line with extra words are not a grid source.
+    ``RR73`` is a sign-off, not a grid. The grid is the transmitting station's.
+    """
+    text = (message or "").strip()
+    if not text:
+        return None
+    if _interpret_qsy_message(text) or text.upper().startswith("QSY"):
+        return None
+    tokens = text.split()
+    if not tokens or tokens[-1].upper() == "RR73":
+        return None
+    head = tokens[0].upper()
+    if head in {"CQ", "QRZ", "DE"}:
+        dx_call, dx_at = _calling_station(tokens)
+        if not dx_call or dx_at is None:
+            return None
+        rest = tokens[dx_at + 1:]
+        if len(rest) != 1:
+            return None
+        grid = rest[0].upper()
+        if not _GRID_RE.match(grid) or grid == "RR73":
+            return None
+        return dx_call, grid
+    if (len(tokens) == 3
+            and _is_station_token(tokens[0])
+            and _is_station_token(tokens[1])):
+        grid = tokens[2].upper()
+        if not _GRID_RE.match(grid) or grid == "RR73":
+            return None
+        return tokens[1].upper(), grid
+    return None
+
+
 _SIGNOFF_TOKENS = frozenset({"73", "RR73", "RRR"})
 
 

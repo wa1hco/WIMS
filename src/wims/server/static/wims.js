@@ -1673,7 +1673,7 @@ const ROS_COLS = [
   {key:"band",          label:"Band",    cls:"",          cell:c=>fmtBand(c.band||"-")},
   {key:"instance",      label:"Source",  cls:"",          cell:rosSource},
   {key:"mode",          label:"Mode",    cls:"",          cell:c=>c.mode||"-"},
-  {key:"grid",          label:"Grid",    cls:"",          cell:c=>c.grid||"-"},
+  {key:"grid",          label:"Grid",    cls:"",          cell:rosGrid},
   {key:"snr",           label:"dB",      cls:"num", num:1, cell:c=>sgn(c.snr)},
   {key:"freq_hz",       label:"Freq",    cls:"num", num:1, cell:c=>c.freq_hz?(c.freq_hz/1e6).toFixed(4):"-"},
   {key:"az",            label:"Az DX",   cls:"num", num:1, cell:rosAzDx},
@@ -1748,6 +1748,17 @@ function rosCalling(c) {
     return `<span class="qsy" title="WSJT-X Message System / QSY">${esc(t || "QSY")}</span>`;
   }
   return esc(t || "-");
+}
+function rosGrid(c) {
+  // Italic: the square is remembered from an earlier decode, not this message.
+  const tip = c.grid_tip || "";
+  const title = tip ? ` title="${escAttr(tip)}"` : "";
+  if (c.grid_stale) return `<span class="grid-stale"${title}>-</span>`;
+  if (!c.grid) return "-";
+  if (c.grid_remembered) {
+    return `<span class="grid-remembered"${title}>${esc(c.grid)}</span>`;
+  }
+  return esc(c.grid);
 }
 function rosMessage(c) {
   const tail = String(c.msg != null && c.msg !== "" ? c.msg : (c.message_tail || "")).trim();

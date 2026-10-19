@@ -85,6 +85,7 @@ One **site server** per contest LAN. Top nav:
 - **Work** = answer that station. **CQ / run** = WSJT-X UI only.
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 - **Message**, next to Calling, is the rest of that decode: a report such as R-12, a sign-off such as 73, a grid, or the leftover text of a QSY. Hover the cell for the whole line. A long line is shortened on the row.
+- A tail-end often has no grid, as in `W1XX CX4BAN R-10`. WIMS remembers the last grid it heard for that station and shows it on the roster in italics. Hover the grid for when and on what band it was heard. When that contact is logged with a blank grid, the record WIMS keeps and the record it sends to the logger include the remembered grid. The WSJT-X log may still show the grid blank. WIMS does not change the WSJT-X log file. A rover's grid is filled only when it was heard in the last 30 minutes; otherwise the cell stays blank and the hover says why.
 
 ### Overview · WSJT-X · Log · N1MM
 
@@ -117,7 +118,7 @@ In the WIMS window, check **N1MM** and **SSB/CW KEY**.
 
 | Section | Job |
 |---------|-----|
-| **Log** | Fleet digi Logged QSOs (`224.0.0.73:2237`) → local N1MM (`:52001` / `:2333`) |
+| **Log** | Fleet digi Logged QSOs (`224.0.0.73:2237`) → local N1MM (`:52001` / `:2333`). A blank grid is filled from the last grid WIMS heard, and the comment says the grid was remembered. The WSJT-X log can still show it blank. |
 | **Broadcast** | Hear N1MM **Broadcast Data** on `127.0.0.1:12060` → site `/api/n1mm/broadcast` |
 | **KEY** | Keyline CTS → same-band type-18 holds |
 

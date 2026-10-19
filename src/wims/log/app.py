@@ -625,6 +625,28 @@ class LogState:
         self.check_severity = "busy"
         self.site_url = (os.environ.get("WIMS_SERVER") or "").rstrip("/") or None
         self.broadcast_fwd = None  # BroadcastForwarder | None
+        # Empty until main() attaches the JSON file. Tests do not read the
+        # operator's heard-grid file.
+        from wims.state.heard_grids import HeardGrids
+        self.heard = HeardGrids()
+        self._band_by_id: dict[str, str] = {}
+
+    def use_saved_heard_grids(self) -> None:
+        from wims.state.heard_grids import HeardGrids, default_path
+        self.heard = HeardGrids(default_path())
+
+    def note_wsjt_for_grid(self, msg) -> None:
+        """Remember a standard-message grid, and the instance band from Status."""
+        if isinstance(msg, M.Status):
+            band = band_label(
+                getattr(msg, "dial_frequency", 0) or 0,
+                instance=getattr(msg, "id", None),
+            )
+            self._band_by_id[getattr(msg, "id", None) or ""] = band or "?"
+            return
+        if isinstance(msg, M.Decode):
+            band = self._band_by_id.get(getattr(msg, "id", None) or "", "?")
+            self.heard.note_decode(msg, band, time.time())
 
     def snapshot(self) -> dict:
         with self._lock:
@@ -1426,10 +1448,15 @@ def _forward_loop(state: LogState, args: argparse.Namespace, stop: threading.Eve
             if msg is None:
                 continue
             state.last_wsjt_mono = time.monotonic()
+            state.note_wsjt_for_grid(msg)
             rec = qso_record(msg)
             if rec is None:
                 continue
             adif, call, qband = rec
+            from wims.state.heard_grids import qso_time_unix
+            adif, _grid_source = state.heard.fill_blank_adif(
+                adif or "", call or "", qso_time_unix(msg),
+            )
             apply_logged_qso(
                 state,
                 instance=msg.id or "?",
@@ -1513,6 +1540,7 @@ def main(argv: list[str] | None = None) -> int:
     expect = (args.expect_band or os.environ.get("WIMS_BAND") or "").strip() or None
 
     state = LogState()
+    state.use_saved_heard_grids()
     state.expect_band = expect
     state.radio_port = args.radio_port
     state.radio_group = (args.radio_group or "").strip() or None

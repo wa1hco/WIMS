@@ -306,6 +306,11 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "message": full,                       # original decode, cell tooltip
             "is_qsy": is_qsy,
             "grid": c.grid,
+            # Remembered: this decode had no grid. The square is the last one
+            # heard for the call. Stale: a rover square too old to show.
+            "grid_remembered": bool(getattr(e, "grid_remembered", False)),
+            "grid_tip": getattr(e, "grid_tip", "") or "",
+            "grid_stale": bool(getattr(e, "grid_stale", False)),
             "band": c.band,
             "mode": d.mode,
             "instance": c.instance_id,

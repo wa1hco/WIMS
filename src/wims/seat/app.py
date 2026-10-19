@@ -322,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
 
     expect = (args.expect_band or os.environ.get("WIMS_BAND") or "").strip() or None
     state = LogState()
+    state.use_saved_heard_grids()
     state.expect_band = expect
     state.radio_port = args.radio_port
     state.radio_group = (args.radio_group or "").strip() or None

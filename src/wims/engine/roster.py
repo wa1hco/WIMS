@@ -61,6 +61,9 @@ class _Entry:
     dial_hz: int = 0      # instance dial at receipt -> RF freq = dial + decode df
     de_grid: str | None = None   # instance's own grid -> azimuth reference
     grid: str | None = None      # last known Maidenhead; kept across no-grid reports
+    grid_remembered: bool = False  # grid is from memory, not this decode
+    grid_tip: str = ""             # hover: when and on what band
+    grid_stale: bool = False       # rover square too old to use
 
 
 class RosterBuilder:
@@ -72,12 +75,19 @@ class RosterBuilder:
 
     def observe_decode(self, decode, band: str, now: float,
                        *, dial_hz: int = 0, de_grid: str | None = None,
-                       own_calls: Iterable[str] | None = None) -> None:
+                       own_calls: Iterable[str] | None = None,
+                       heard_grid: str | None = None,
+                       heard_tip: str = "",
+                       heard_stale: bool = False) -> None:
         """Retain a decoded station as a roster row. Every decode carrying a callsign
         is kept (CQ or mid-exchange) so the console can show all activity and filter by
         need; a decode with no resolvable call is dropped.
 
         Own-station TX (the other radio on this band hearing us) is not a DX row.
+
+        ``heard_grid`` is a square remembered from an earlier decode when this
+        message has none. ``heard_stale`` leaves the cell blank: a rover square
+        that is too old to guess.
         """
         if not decode.dx_call:
             return
@@ -85,13 +95,28 @@ class RosterBuilder:
             return
         inst = decode.id or "?"
         call = (decode.dx_call or "").upper()
-        grid = (decode.grid or "").strip().upper()
+        decode_grid = (decode.grid or "").strip().upper()
+        grid = decode_grid
+        from_memory = False
+        tip = heard_tip or ""
+        stale = False
+        if not decode_grid and heard_stale:
+            stale = True
+            grid = ""
+        elif not decode_grid and heard_grid:
+            grid = heard_grid.strip().upper()
+            from_memory = True
         if grid:
             # A grid is now known: drop the placeholder empty-grid row if we had one.
             empty_key = (inst, call, "")
             if empty_key in self._entries:
                 del self._entries[empty_key]
             key = (inst, call, grid)
+        elif stale:
+            # Do not keep an older square on a line we are refusing to guess.
+            for k in [k for k in self._entries if k[0] == inst and k[1] == call]:
+                del self._entries[k]
+            key = (inst, call, "")
         else:
             # RR73 / R-10 / 73 carry no grid — fold into the latest row for this
             # instance+call (rover with two grids: the most recently heard one).
@@ -99,10 +124,18 @@ class RosterBuilder:
             key = (max(existing, key=lambda k: self._entries[k].last_seen)
                    if existing else (inst, call, ""))
         prev = self._entries.get(key)
-        keep_grid = grid or (prev.grid if prev else "") or None
+        keep_grid = None if stale else (grid or (prev.grid if prev else "") or None)
+        remembered = bool(
+            not decode_grid and not stale and (from_memory or keep_grid)
+        )
+        if decode_grid:
+            tip = ""
         self._entries[key] = _Entry(
             decode=decode, band=band, last_seen=now,
             dial_hz=dial_hz, de_grid=de_grid, grid=keep_grid,
+            grid_remembered=remembered,
+            grid_tip=tip if remembered or stale else "",
+            grid_stale=stale,
         )
 
     def drop_own_station(self, own_calls: Iterable[str] | None) -> int:

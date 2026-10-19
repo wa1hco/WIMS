@@ -262,6 +262,14 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 }
 /* Message: short on the row. The title is the full decode.
    rosFitColumns measures this clamped width so a long line stays narrow. */
+/* Remembered grid: heard earlier, not in this decode. Hover says when and band. */
+#ros .grid-remembered {
+  font-style: italic;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  cursor: help;
+}
+#ros .grid-stale { cursor: help; }
 #ros .ros-msg {
   display: inline-block;
   max-width: 16ch;
