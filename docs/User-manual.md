@@ -85,6 +85,7 @@ One **site server** per contest LAN. Top nav:
 - **Work** = answer that station. **CQ / run** = WSJT-X UI only.
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 - **Message**, next to Calling, is the rest of that decode: a report such as R-12, a sign-off such as 73, a grid, or the leftover text of a QSY. Hover the cell for the whole line. A long line is shortened on the row.
+- **Show** is Needed, Needed and CQ, Needed and CQ or 73, or All. Hover an item for what it keeps. The choice stays in this browser.
 - A tail-end often has no grid, as in `W1XX CX4BAN R-10`. WIMS remembers the last grid it heard for that station and shows it on the roster in italics. Hover the grid for when and on what band it was heard. When that contact is logged with a blank grid, the record WIMS keeps and the record it sends to the logger include the remembered grid. The WSJT-X log may still show the grid blank. WIMS does not change the WSJT-X log file. A rover's grid is filled only when it was heard in the last 30 minutes; otherwise the cell stays blank and the hover says why.
 
 **TX groups** (under the roster) stays off a simple station. A group is a set of WSJT-X instances that must not transmit at the same time. Hover the **TX groups** label for that sentence. WIMS still refuses Work when another instance in the group already holds TX — this block only changes what you see.

@@ -54,7 +54,16 @@
   <h2>Call roster</h2>
   <p id="ros-rules" class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0"></p>
   <div id="ros-controls" class="controls">
-    <label><input type="checkbox" id="ros-needed" checked> needed only</label>
+    <span class="band-label">show</span>
+    <span class="ros-need" id="ros-needed-wrap">
+      <button type="button" class="ros-need-btn" id="ros-needed-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="ros-needed">Needed</button>
+      <span id="ros-needed" class="ros-need-list" role="listbox" data-value="needed" hidden>
+        <button type="button" role="option" data-value="needed" title="Only stations marked needed." aria-selected="true">Needed</button>
+        <button type="button" role="option" data-value="needed-cq" title="Needed stations calling CQ, including CQ NA and CQ DX.">Needed and CQ</button>
+        <button type="button" role="option" data-value="needed-73" title="Needed stations calling CQ, or sending 73 or RR73. Free to call.">Needed and CQ or 73</button>
+        <button type="button" role="option" data-value="all" title="No filter. Show every station heard.">All</button>
+      </span>
+    </span>
     <label title="Hide calls older than this (display filter; server still keeps ~5 min)">max age
       <select id="ros-max-age">
         <option value="15">15 sec</option>
