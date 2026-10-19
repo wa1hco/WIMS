@@ -91,6 +91,21 @@ def _log_name(store) -> str:
     return (getattr(store, "log_label", "") or "").strip() or "the log"
 
 
+def _blank_grid_note(store, call: str, band: str, log_name: str) -> str:
+    """The log has this call on this band, and that line has no square."""
+    call_u = _upper(call)
+    if not call_u:
+        return ""
+    for row in store.cached_rows():
+        if _upper(row.get("call")) != call_u:
+            continue
+        if (row.get("band") or "") != (band or ""):
+            continue
+        if not _grid4(row.get("grid")):
+            return f" {call_u} is in {log_name} on {band} with no grid."
+    return ""
+
+
 def _window_clause(store) -> str:
     """Plain reminder when count-since / count-until hides older contacts."""
     since = getattr(store, "count_since", "") or ""
@@ -261,6 +276,8 @@ class FileRules:
         points, _why = self.qso_points(band, mode)
         banned = self.excluded_name(mode)
         new_mult, mult_reason = self._new_mult(store, band, grid, exchange)
+        if new_mult and mult_reason:
+            mult_reason += _blank_grid_note(store, call, band, _log_name(store))
         if banned:
             return Verdict(
                 is_dupe=True,
@@ -278,10 +295,18 @@ class FileRules:
         if worked:
             group = _GROUP_WORD.get(self.mode_group(mode), "")
             where = f"{band} {group}".strip()
+            square = ""
+            want = _grid4(grid)
+            name = _log_name(store)
+            if want:
+                for row in store.cached_rows():
+                    if (row.get("band") or "") == (band or "") and _grid4(row.get("grid")) == want:
+                        square = f" Grid {want} on {band} is in {name}."
+                        break
             return Verdict(
                 is_dupe=True,
                 is_new_mult=bool(new_mult),
-                need_reason=f"Already worked: {call} on {where}.",
+                need_reason=f"Already worked: {call} on {where}.{square}",
                 mult_reason=mult_reason if new_mult else "",
                 points=points,
             )
@@ -581,14 +606,19 @@ class WsjtxColors:
             elif key in {"new_dxcc", "new_dxcc_band"}:
                 mult_reason = f"New mult: {COLOR_LABELS[key]}."
             if mult_reason:
+                mult_reason += _blank_grid_note(store, call_u, band, self.log_label)
                 mult_reason += _window_clause(store)
             return Verdict(False, mult, need_reason=reason, mult_reason=mult_reason, points=1)
         shown_mode = f" {mode_u}" if mode_u else ""
+        grid_note = ""
+        if g and (g, band) in idx["grids_band"]:
+            grid_note = f" Grid {g} on {band} is in that log."
         return Verdict(
             True,
             False,
             need_reason=(
-                f"Not needed: {call_u} on {band}{shown_mode} matches no enabled WSJT-X color."
+                f"Worked: {call_u} on {band}{shown_mode} is already in {self.log_label}."
+                f"{grid_note}"
             ),
             points=1,
         )

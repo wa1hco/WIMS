@@ -477,6 +477,135 @@ def test_wsjtx_aggregate_accepts_the_instance_file():
             os.environ["XDG_DATA_HOME"] = prev
 
 
+_CX_LOG = "WSJT-X - IC7300/wsjtx_log.adi"
+_CX_OLD = (
+    "<call:6>CX4BAN <gridsquare:4>GF15 <mode:3>FT8 "
+    "<qso_date:8>20210202 <time_on:6>154500 <band:3>40m <eor>"
+)
+_CX_NEW = (
+    "<call:6>CX4BAN <gridsquare:0> <mode:3>FT8 <rst_sent:3>-09 <rst_rcvd:3>-08 "
+    "<qso_date:8>20261019 <time_on:6>022845 <band:3>20m <freq:9>14.074738 "
+    "<station_callsign:6>WA1HCO <eor>"
+)
+
+
+def _cx_file(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("WSJT-X\n<eoh>\n" + body + "\n", encoding="utf-8")
+
+
+def _cx_colors(live):
+    from wims.engine.contest_rules import WsjtxColors, default_color_categories
+    cats, _note = default_color_categories(cty_ok=False)
+    live._log.rules = WsjtxColors(categories=cats, log_label=_CX_LOG)
+    live._log.log_label = _CX_LOG
+
+
+def _hear_cx(live, now=1.0, message="CQ DX CX4BAN GF15"):
+    live.observe_wsjtx(
+        M.parse(E.build_status(
+            "IC7300", 14_074_738, mode="FT8", decoding=True, de_call="WA1HCO",
+        )),
+        now=now, src_ip="10.0.0.8",
+    )
+    live.observe_wsjtx(
+        M.parse(E.build_decode(
+            "IC7300", time_ms=0, snr=-8, delta_time=0.2,
+            delta_frequency=800, mode="FT8", message=message,
+        )),
+        now=now + 0.1, src_ip="10.0.0.8",
+    )
+
+
+def _stored_grids(live):
+    return {
+        (row["band"], row["grid"] or "")
+        for row in live._log.con.execute("SELECT band, grid FROM qsos")
+    }
+
+
+def test_cx4ban_empty_grid_credits_the_heard_square():
+    """The shared IC7300 log, the 2021 40 m GF15 line, and the new blank 20 m line.
+
+    WSJT-X writes <gridsquare:0> when the exchange never sent a grid. The CQ
+    WIMS heard was 'CQ DX CX4BAN GF15'. That square is on 20 m, so the 40 m
+    record does not clear it. Once the 20 m line is in the selected log, the
+    heard square is credited and the station is worked, not a mult.
+    """
+    tmp = Path(tempfile.mkdtemp())
+    adi = tmp / "WSJT-X - IC7300" / "wsjtx_log.adi"
+    _cx_file(adi, _CX_OLD)
+    live = LiveFleet()
+    _choose_adif(live, adi, _CX_LOG, kind="wsjtx")
+    _cx_colors(live)
+    _hear_cx(live)
+    before = _row(live, "CX4BAN", now=1.5)
+    assert before["band"] == "20m"
+    assert before["is_needed"] is True and before["is_new_mult"] is True
+    assert before["grid"] == "GF15"
+    assert "GF15" in before["mult_reason"] and "20m" in before["mult_reason"]
+    assert _CX_LOG in before["mult_reason"]
+    assert ("40m", "GF15") in _stored_grids(live)
+    assert ("20m", "GF15") not in _stored_grids(live)
+
+    _cx_file(adi, _CX_OLD + "\n" + _CX_NEW)
+    _touch_ahead(adi)
+    live._adif_poll_mono = 0.0
+    after = _row(live, "CX4BAN", now=2.5)
+    assert after["is_needed"] is False and after["is_dupe"] is True
+    assert after["is_new_mult"] is False
+    assert "GF15" in after["need_reason"] and "20m" in after["need_reason"]
+    assert _CX_LOG in after["need_reason"]
+    assert ("20m", "GF15") in _stored_grids(live)
+
+    # The file was already read, with a blank grid, before the CQ was scored.
+    # A later push still credits GF15 without waiting for the file to change.
+    adi2 = tmp / "already-read.adi"
+    _cx_file(adi2, _CX_OLD + "\n" + _CX_NEW)
+    live2 = LiveFleet()
+    _choose_adif(live2, adi2, _CX_LOG, kind="adif")
+    _cx_colors(live2)
+    assert live2.snapshot(1.0)["roster"]["count"] == 0
+    assert ("20m", "") in _stored_grids(live2)
+    assert ("20m", "GF15") not in _stored_grids(live2)
+    live2._adif_source.poll_changed = lambda: False
+    _hear_cx(live2, now=2.0)
+    later = _row(live2, "CX4BAN", now=2.5)
+    assert later["is_needed"] is False and later["is_new_mult"] is False
+    assert ("20m", "GF15") in _stored_grids(live2)
+    assert "already in" in later["need_reason"]
+    assert "GF15" in later["need_reason"]
+
+    # No grid on the decode: the 20 m line is still worked, and there is no
+    # square to mark as a new mult.
+    adi3 = tmp / "no-grid-decode.adi"
+    _cx_file(adi3, _CX_OLD + "\n" + _CX_NEW)
+    live3 = LiveFleet()
+    _choose_adif(live3, adi3, _CX_LOG, kind="adif")
+    _cx_colors(live3)
+    live3.snapshot(1.0)
+    _hear_cx(live3, now=2.0, message="CQ DX CX4BAN")
+    plain = _row(live3, "CX4BAN", now=2.5)
+    assert plain["is_needed"] is False and plain["is_dupe"] is True
+    assert plain["is_new_mult"] is False
+
+    # Same records under ARRL VHF. 40 m GF15 does not clear 20 m until the
+    # blank 20 m line takes the square from the CQ.
+    adi4 = tmp / "arrl.adi"
+    _cx_file(adi4, _CX_OLD + "\n" + _CX_NEW)
+    live4 = LiveFleet()
+    _choose_adif(live4, adi4, _CX_LOG, kind="adif")
+    assert live4._log.rules.id == "arrl-vhf"
+    live4.snapshot(1.0)
+    live4._adif_source.poll_changed = lambda: False
+    _hear_cx(live4, now=2.0)
+    arrl = _row(live4, "CX4BAN", now=2.5)
+    assert arrl["is_needed"] is False and arrl["is_new_mult"] is False
+    assert "Already worked" in arrl["need_reason"]
+    assert "GF15" in arrl["need_reason"] and "20m" in arrl["need_reason"]
+    assert ("20m", "GF15") in _stored_grids(live4)
+
+
 def test_mult_badge_names_the_reason():
     js = (ROOT / "src" / "wims" / "server" / "static" / "wims.js").read_text(
         encoding="utf-8",

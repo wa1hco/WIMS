@@ -146,6 +146,28 @@ class RosterBuilder:
                 fallback = entry.grid
         return best or fallback
 
+    def grid_on_band(self, call: str, band: str | None) -> str | None:
+        """Grid heard for this call on this band.
+
+        A roster row whose band is still unknown can fill a log line. A grid
+        heard on a different band cannot: a 40 m square does not credit 20 m.
+        """
+        call_u = (call or "").upper()
+        if not call_u:
+            return None
+        best = None
+        best_ts = -1.0
+        for key, entry in self._entries.items():
+            if key[1] != call_u or not entry.grid:
+                continue
+            heard = entry.band or ""
+            if band and heard not in {band, "?", ""}:
+                continue
+            if entry.last_seen >= best_ts:
+                best_ts = entry.last_seen
+                best = entry.grid
+        return best
+
     def entry_for(self, row_id: str) -> "_Entry | None":
         """Look up a retained row by its `instance|call|grid` id (see `roster_to_dict`).
 

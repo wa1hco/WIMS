@@ -1810,6 +1810,10 @@ class LiveFleet:
             # Refresh the selected log before the roster is scored, so this
             # push already shows a contact that just landed in the file.
             self._maybe_poll_log_locked()
+            # A log line with no grid still counts once the roster heard the
+            # square on that band. Do this even when the file did not change,
+            # so a CQ that arrives after the read still clears Mult.
+            self._credit_empty_grids_locked()
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
             d["interlock"] = interlock_to_dict(
                 self._overlap, self.group_of, self._grouping,
@@ -1886,6 +1890,21 @@ class LiveFleet:
         active = self._active_contest or {}
         seed = self._seed or {}
         return str(active.get("db_path") or seed.get("db_path") or "")
+
+    def _credit_empty_grids_locked(self) -> None:
+        """Copy a heard square onto a logged contact that has no grid."""
+        try:
+            rows = self._log.con.execute(
+                "SELECT id, call, band, grid FROM qsos"
+            ).fetchall()
+        except Exception:
+            return
+        for row in rows:
+            if (row["grid"] or "").strip():
+                continue
+            grid = self._roster.grid_on_band(row["call"], row["band"])
+            if grid:
+                self._log.fill_empty_grid(row["id"], grid)
 
     def _fill_grid_from_roster(self, qso) -> None:
         """N1MM often logs an empty grid. The decode is the square just worked."""
