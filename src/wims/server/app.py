@@ -68,6 +68,9 @@ from wims.engine import scoring as S  # noqa: E402
 from wims.engine.roster import RosterBuilder, is_own_tx_decode  # noqa: E402
 from wims.engine.geo import base_call as _base_call  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
+from wims.state.heard_grids import (  # noqa: E402
+    HeardGrids, default_path as heard_grids_path, qso_time_unix, stamp_unix,
+)
 from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.logsource import N1mmLogSource  # noqa: E402
 from wims.config.seat_profile import (  # noqa: E402
@@ -218,6 +221,9 @@ class LiveFleet:
         self._n1mm_mtime: float | None = None
         self._contest_names: list[str] = []
         self._roster = RosterBuilder(log=self._log)
+        # In-memory until main() attaches the JSON file. Tests stay off the
+        # operator's heard-grid file.
+        self._heard = HeardGrids()
         self._maps: dict[str, ActivityMap] = {}    # per-instance decode-activity map
         self._decodes: deque = deque(maxlen=300)   # rolling fleet-wide decode log
         self._condition = condition
@@ -1621,16 +1627,21 @@ class LiveFleet:
                     rec = None
                 if rec is not None:
                     adif, call, qband = rec
+                    source = ""
                     if call:
                         node = self._tracker.nodes.get(mid)
                         if (not qband or qband == "?") and node and node.band:
                             qband = node.band
+                        adif, source = self._heard.fill_blank_adif(
+                            adif, call, qso_time_unix(msg),
+                        )
                         self._logged_qsos.append({
                             "ts": now,
                             "instance": mid,
                             "call": call,
                             "band": qband,
                             "adif": adif,
+                            "grid_source": source,
                         })
                 self._fold_logged_udp(msg)
             # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
@@ -1710,11 +1721,25 @@ class LiveFleet:
                             if t >= cut
                         }
                     if not burst_dup:
+                        self._heard.note_decode(msg, band, now)
+                        heard_grid = None
+                        heard_tip = ""
+                        heard_stale = False
+                        if not (getattr(msg, "grid", None) or "").strip():
+                            found = self._heard.lookup(msg.dx_call, now)
+                            heard_tip = found.tip
+                            if found.stale:
+                                heard_stale = True
+                            elif found.grid:
+                                heard_grid = found.grid
                         self._roster.observe_decode(
                             msg, band, now,
                             dial_hz=(node.dial_hz if node else 0),
                             de_grid=(node.de_grid if node else None),
-                            own_calls=own)
+                            own_calls=own,
+                            heard_grid=heard_grid,
+                            heard_tip=heard_tip,
+                            heard_stale=heard_stale)
                         self._maps[mid].add(msg)
                         self._decodes.append({
                             "ts": now, "instance": mid, "snr": msg.snr,
@@ -1908,24 +1933,56 @@ class LiveFleet:
         """Copy a heard square onto a logged contact that has no grid."""
         try:
             rows = self._log.con.execute(
-                "SELECT id, call, band, grid FROM qsos"
+                "SELECT id, call, band, grid, timestamp, qso_date, time_on FROM qsos"
             ).fetchall()
         except Exception:
             return
         for row in rows:
             if (row["grid"] or "").strip():
                 continue
-            grid = self._roster.grid_on_band(row["call"], row["band"])
+            when = stamp_unix(
+                row["timestamp"] if "timestamp" in row.keys() else None,
+                row["qso_date"] if "qso_date" in row.keys() else None,
+                row["time_on"] if "time_on" in row.keys() else None,
+            )
+            grid = self._square_for_blank(row["call"], row["band"], when)
             if grid:
                 self._log.fill_empty_grid(row["id"], grid)
 
     def _fill_grid_from_roster(self, qso) -> None:
-        """N1MM often logs an empty grid. The decode is the square just worked."""
-        if qso is None or (qso.grid or "").strip():
+        """A blank logged grid takes the newest heard square, then the roster.
+
+        Heard-grid memory is the newest square, including a rover that moved.
+        A rover square older than the memory window is left blank. When memory
+        has nothing, the same-band roster square still credits the line. A
+        grid the log already carried is marked logged and left as written.
+        """
+        if qso is None:
             return
-        grid = self._roster.last_grid(qso.call, qso.band)
+        if (qso.grid or "").strip():
+            if not qso.grid_source:
+                qso.grid_source = "logged"
+            return
+        when = stamp_unix(qso.timestamp, qso.qso_date, qso.time_on)
+        grid = self._square_for_blank(qso.call, qso.band, when)
         if grid:
             qso.grid = grid
+            qso.grid_source = "remembered"
+
+    def _square_for_blank(self, call: str, band: str, when: float) -> str | None:
+        """Square for a logged line that arrived with no grid.
+
+        The heard-grid memory is the newest square, including a rover that
+        moved. A stale rover square is not replaced with an older roster row.
+        When memory has nothing, the same-band decode still credits the line
+        the way a blank logged grid already did.
+        """
+        found = self._heard.lookup(call, when)
+        if found.stale:
+            return None
+        if found.grid:
+            return found.grid
+        return self._roster.grid_on_band(call, band) or self._roster.last_grid(call, band)
 
     def _remember_live(self, qso) -> None:
         if qso is not None and (qso.source or "") == "live" and qso.id:
@@ -1963,6 +2020,10 @@ class LiveFleet:
             my_county=cell("my_county"),
             dxcc=cell("dxcc"),
             contest_id=cell("contest_id"),
+            grid_source=cell("grid_source"),
+            cqz=cell("cqz"),
+            ituz=cell("ituz"),
+            cont=cell("cont"),
         )
 
     def _preserve_grids(self, qsos):
@@ -1973,10 +2034,11 @@ class LiveFleet:
             row = None
             if qso.id:
                 row = self._log.con.execute(
-                    "SELECT grid FROM qsos WHERE id=?", (qso.id,)
+                    "SELECT grid, grid_source FROM qsos WHERE id=?", (qso.id,)
                 ).fetchone()
             if row is not None and (row["grid"] or "").strip():
                 qso.grid = row["grid"]
+                qso.grid_source = row["grid_source"] or qso.grid_source or "remembered"
                 continue
             self._fill_grid_from_roster(qso)
         return qsos
@@ -2219,7 +2281,7 @@ class LiveFleet:
                     return {"ok": False, "error": "unknown_row",
                             "detail": "Roster row gone — pick a fresh line."}
                 inst = getattr(entry.decode, "id", None) or "?"
-                grid = getattr(entry.decode, "grid", None)
+                grid = getattr(entry, "grid", None) or getattr(entry.decode, "grid", None)
                 az_dx = bearing(entry.de_grid, grid)
                 if az_dx is None:
                     return {"ok": False, "error": "no_bearing",
@@ -2994,6 +3056,7 @@ def main() -> None:
     live = LiveFleet(grouping=args.group_by, condition=args.condition,
                      tx_controller=tx_controller,
                      enable_cq_freetext=args.enable_cq_freetext)
+    live._heard = HeardGrids(heard_grids_path())
     if args.seat_profile:
         live.set_seat_profile_path(args.seat_profile)
     else:

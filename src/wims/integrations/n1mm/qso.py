@@ -136,6 +136,9 @@ class LoggedQso:
     my_county: str | None = None
     dxcc: str | None = None
     contest_id: str | None = None
+    # "logged" when the QSO datagram carried a grid. "remembered" when WIMS
+    # filled a blank grid from a decode. Never written back to the WSJT-X file.
+    grid_source: str | None = None
     cqz: str | None = None
     ituz: str | None = None
     cont: str | None = None

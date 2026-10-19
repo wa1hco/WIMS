@@ -659,7 +659,7 @@ scoring as the "wanted" engine.
 | # | Feature | Contest form | Src | Prio |
 |---|---------|--------------|-----|------|
 | D1 | **Authoritative call→grid memory** (accumulate across all decodes) | load-bearing — mult = grid×band; WSJT-X often lacks grid in a decode | D/G | **H** |
-| D2 | **Supply remembered grid to WSJT-X for logging** | correct grid in log → correct N1MM mult (mechanism TBD, Open questions) | D | **H** |
+| D2 | **Supply remembered grid to WSJT-X for logging** | No log-only UDP write. WIMS and the N1MM forward carry the remembered grid. The WSJT-X log may stay blank. | D | **H** |
 | D3 | Dupe shown greyed (with context) vs hidden | GT keeps B4 rows visible; WIMS excludes — reconsider | G | M |
 
 **E. Filtering & subscription**
@@ -1877,11 +1877,17 @@ Candidate situations worth covering — rename, add, or cut freely:
   `lookupinfo` is callbook-only/greyed). WIMS subscribes to N1MM `<contactinfo>` as a log feed and
   self-computes dupe + new-mult (grid×band) using WSJT-X-sourced grid, calibrated by N1MM
   `ismultiplier`.
-- **Grid → WSJT-X for logging** — WIMS's `call→grid` memory (§3.5) frequently knows a station's grid
-  when the live WSJT-X decode doesn't (GridTracker retains grids better). To get the right grid into
-  the log (→ correct N1MM mult), can WIMS push a grid to WSJT-X over UDP — there is no obvious "set
-  DX grid" message, **verify against the protocol header** — or must the grid reach the log another
-  way (enriched feed / logger-side fill)? Resolve the mechanism.
+- **Grid → WSJT-X for logging — RESOLVED.** Checked against `NetworkMessage.hpp`.
+  **Configure** (inbound type 15) is the only message with a DX Grid the server can send.
+  An empty string means no change; a non-empty DX Grid is applied to the main-window box,
+  and Generate Messages rebuilds the transmit texts. That is the live QSO setup, not a
+  correction of the log line. **Reply** (type 4) has no grid field; a tail-end with no grid
+  in the text does not fill DX Grid. **Location** (type 11) sets our own grid.
+  **QSO Logged** (type 5) and **Logged ADIF** (type 12) are outbound, sent only after the
+  operator presses OK on Log QSO. Nothing in the header edits that dialog or the ADIF
+  WSJT-X writes. WIMS therefore does not push a grid into WSJT-X. It keeps a heard-grid
+  memory and puts that square on its own record and on the record it forwards. The
+  WSJT-X log may still show the grid blank.
 - Choose dashboard tech stack. *(Resolved: stdlib HTTP + SSE + static HTML — §2.4.)*
 - **EME pointing hardware** *(open)* — primary path is Yaesu/K3NG az; elevation + moon-tracking
   only if K3NG build + hardware support el, else separate path (§1.4, §3.8). Resolve before EME
