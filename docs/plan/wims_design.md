@@ -224,6 +224,17 @@ that does not report `server_rev`, adds nothing either. After **Install this
 update**, if the local server is now stale, the list says **Restart server
 to finish the update**.
 
+**Restart site server** restarts a server on this PC only. The process has
+to answer `/healthz` as the WIMS site server, and its process id has to be
+local: the pid file the server writes in the WIMS state directory, or the
+process listening on the console port. A process that is not WIMS is left
+alone. A site server on another PC is left alone. The window keeps
+**Restart needed** and names that PC, and says to restart it there. A
+restart this window does perform waits until `/healthz` reports the
+installed revision, then says **Restarted on** that revision. One
+announcing site server per LAN, the Operate port check, and the
+second-click handoff are unchanged. Remote browsers reconnect.
+
 **Other tools…** stays at the bottom of the home. With it unchecked, the
 window is exactly as tall as the content from the top through that checkbox,
 including the Updates list and the launcher/server line. Checking it opens

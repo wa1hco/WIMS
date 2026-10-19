@@ -39,6 +39,11 @@ from wims.launcher.server_rev import (
     server_rev_label,
     update_install_notice,
 )
+from wims.launcher.site_restart import (
+    banner_for_restart,
+    other_pc_message,
+    perform_site_restart,
+)
 from wims.launcher.roles import (
     BAND_PORTS,
     DEFAULT_HTTP_PORT,
@@ -752,6 +757,10 @@ class LauncherApp:
         self._site_external = False  # reachable but not owned by this launcher
         self._server_code_stale = False
         self._server_start_blocked = False  # dual-primary / refuse restart spam
+        self._restart_in_progress = False
+        self._restart_report = None  # sentence from the last Restart click
+        self._restart_report_ok = False
+        self._restart_console_was_open = False
         self._browser_opened: set[str] = set()  # role_id → open at most once/session
         self._status_after: str | None = None
         # Don't block window creation on tasklist/PowerShell (seconds on Win11)
@@ -2376,7 +2385,17 @@ class LauncherApp:
             seat_up=n1mm_seat_up,
         )
         stale = self._note_server_revision(ok_site=ok_site, base=base, health=health)
-        self._sync_server_action_buttons(ok_site=ok_site, base=base, stale=stale)
+        report = getattr(self, "_restart_report", None)
+        report_ok = bool(getattr(self, "_restart_report_ok", False))
+        if report and report_ok and stale:
+            # The checkout moved again after a restart that had matched.
+            self._restart_report = None
+            report = None
+            report_ok = False
+        in_restart = bool(getattr(self, "_restart_in_progress", False))
+        self._sync_server_action_buttons(
+            ok_site=ok_site, base=base, stale=False if in_restart else stale,
+        )
 
         if self._updating:
             # Keep "Updating WIMS…" / "Updated — restarting". The 4s status
@@ -2384,7 +2403,16 @@ class LauncherApp:
             self._schedule_status(4000)
             return
 
-        if self._server_code_stale:
+        owned = banner_for_restart(
+            in_progress=in_restart,
+            message=report,
+            ok=report_ok,
+            stale=stale,
+        )
+        if owned:
+            level, title, detail = owned
+            self._set_banner(level, title, detail)
+        elif self._server_code_stale:
             self._set_banner("warn", "Restart needed", STALE_STATUS_DETAIL)
         elif not want_any:
             self._set_banner(
@@ -2618,21 +2646,38 @@ class LauncherApp:
         self._start_agent(AGENT_SERVER, open_browser=True)
 
     def _restart_local_site_server(self) -> None:
-        """Stop local site server and start again (load latest code after pull)."""
-        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        """Restart the site server when it is the one on this PC.
+
+        A server on another PC is left running. Plane E, the Operate port
+        check, and the second-launcher handoff are not changed. An open
+        console on this PC reconnects in the same window.
+        """
         if is_wsjt_only_seat(self._current_intent()):
-            self._append_log("Restart refused — WSJT-X seat does not host the site server.")
-            return
-        local = bool(self._local_server_procs()) or (
-            ok and self._site_url_is_local(base)
-        )
-        if not local:
             self._append_log(
-                "Restart refused — site server does not appear to be on this PC."
+                "Restart refused — WSJT-X seat does not host the site server."
             )
             return
-        self._append_log("Restarting local site server (load latest tree)…")
-        self._server_start_blocked = False
+        ok, base = probe_site_urls(self._site_var.get().strip() or None)
+        health = fetch_site_health(base, timeout=0.8) if ok else None
+        # The URL this window settled on is the server it would restart.
+        # Another PC is refused whether or not that server just answered.
+        # A local URL, including one that went down between the click and
+        # this check, is restarted on this PC.
+        if not self._site_url_is_local(base):
+            host = ""
+            if isinstance(health, dict):
+                raw = health.get("hostname")
+                if isinstance(raw, str):
+                    host = raw.strip()
+            if not host:
+                try:
+                    from urllib.parse import urlparse
+                    host = (urlparse(base or "").hostname or "").strip()
+                except Exception:
+                    host = ""
+            message = other_pc_message(host)
+            self._note_restart_result(message, ok=False)
+            return
         was_open = False
         try:
             from wims.console.place import local_console_is_open
@@ -2641,34 +2686,113 @@ class LauncherApp:
             )
         except Exception:
             was_open = False
-        # Stop launcher-owned child first, then any leftover local server.
-        if self._proc_running("server"):
-            self._stop_role("server")
-        for p in self._local_server_procs():
-            self._append_log(f"Stopping local site server pid={p.pid}…")
+        self._restart_console_was_open = was_open
+        self._restart_in_progress = True
+        self._restart_report = None
+        self._restart_report_ok = False
+        self._append_log("Restarting the site server on this PC.")
+        self._set_banner(
+            "busy", "Restarting site server",
+            "Stopping the copy on this PC, then starting the installed one.",
+        )
+        hp = getattr(self, "_home_panel", None)
+        if hp is not None and hasattr(hp, "set_restart_needed"):
             try:
-                stop_pid(p.pid)
-            except Exception as e:
-                self._append_log(f"Stop pid {p.pid} failed: {e}")
-        self._intent_vars[INTENT_SERVER].set(True)
-        self._persist_intent()
+                hp.set_restart_needed(False)
+            except Exception:
+                pass
+        threading.Thread(
+            target=self._restart_site_server_worker, daemon=True,
+        ).start()
+
+    def _note_restart_result(self, message: str, *, ok: bool) -> None:
+        self._restart_in_progress = False
+        self._restart_report = message
+        self._restart_report_ok = bool(ok)
+        self._append_log(message)
+        self._refresh_status()
+
+    def _restart_site_server_worker(self) -> None:
+        try:
+            disk = git_stamp_fresh(_REPO_ROOT)
+        except Exception:
+            disk = "?"
+        port = DEFAULT_HTTP_PORT
+
+        def fetch() -> dict | None:
+            return fetch_site_health(f"http://127.0.0.1:{port}", timeout=0.8)
+
+        def start() -> None:
+            done = threading.Event()
+
+            def ui() -> None:
+                try:
+                    self._begin_site_server_after_stop()
+                finally:
+                    done.set()
+
+            try:
+                self.root.after(0, ui)
+            except Exception:
+                done.set()
+            done.wait(15)
+
+        try:
+            outcome = perform_site_restart(
+                port=port,
+                disk_rev=disk,
+                fetch_health=fetch,
+                start_server=start,
+                on_log=lambda text: self.root.after(0, self._append_log, text),
+                on_this_pc=True,
+            )
+        except Exception as exc:
+            from wims.launcher.site_restart import RestartOutcome
+            outcome = RestartOutcome(
+                False,
+                "The site server could not be restarted.",
+            )
+            try:
+                self.root.after(0, self._append_log, f"Restart stopped early: {exc}")
+            except Exception:
+                pass
+        message = outcome.message
+        succeeded = bool(outcome.ok)
+        try:
+            self.root.after(
+                0,
+                lambda: self._note_restart_result(message, ok=succeeded),
+            )
+        except Exception:
+            pass
+
+    def _begin_site_server_after_stop(self) -> None:
+        """Start the site server the usual way, after the local one is down.
+
+        ``_start_agent`` still refuses to open a second server when one is
+        already reachable, including one on another PC. An open console on
+        this PC reconnects in the same window.
+        """
+        self._server_start_blocked = False
         self._site_external = False
-
-        def _start_after() -> None:
-            self._server_start_blocked = False
-            # An open console on this PC reconnects in the same window.
-            # Do not open a second one. A remote viewer's page is not this.
-            # If the window was closed, allow this restart to open it again.
-            if not was_open:
-                self._browser_opened.discard("server")
-            self._start_agent(AGENT_SERVER, open_browser=not was_open)
-            if was_open:
-                self._append_log(
-                    "Site console is already open. It will reconnect in the same window."
-                )
-
-        self.root.after(1500, _start_after)
-        self._schedule_status(800)
+        proc = self._procs.get("server")
+        if proc is not None and proc.poll() is not None:
+            self._procs.pop("server", None)
+        try:
+            self._intent_vars[INTENT_SERVER].set(True)
+            self._persist_intent()
+        except Exception:
+            pass
+        was_open = bool(getattr(self, "_restart_console_was_open", False))
+        # If the window was closed, allow this restart to open it again.
+        # A remote viewer's page is not this.
+        if not was_open:
+            self._browser_opened.discard("server")
+        self._start_agent(AGENT_SERVER, open_browser=not was_open)
+        if was_open:
+            self._append_log(
+                "Site console is already open. It will reconnect in the same window."
+            )
 
     def _sync_server_action_buttons(
         self, *, ok_site: bool, base: str, stale: bool = False,
@@ -3108,24 +3232,30 @@ class LauncherApp:
         role = role_by_id(role_id)
         title = role.title if role else role_id
         if role_id == "server" and code not in (None, 0):
-            # Dual-primary refuse (exit 2) or other fail — adopt existing server,
-            # do not restart-spam.
-            self._server_start_blocked = True
-            ok, base = probe_site_urls(self._site_var.get().strip() or None)
-            if ok:
-                self._site_ok = True
-                self._site_external = True
-                self._site_var.set(base)
-                os.environ["WIMS_SERVER"] = base
-                save_last_site_url(base)
-                self._append_log(
-                    f"{title} did not stay up (code {code}); "
-                    f"using existing site server at {base}."
-                )
+            if getattr(self, "_restart_in_progress", False):
+                # This window stopped the process so it can start the new one.
+                # A failed start that is not a restart still adopts the server
+                # that is already up.
+                self._append_log(f"{title} stopped for restart (code {code}).")
             else:
-                self._append_log(f"{title} exited with code {code}.")
-                self._intent_vars[INTENT_SERVER].set(False)
-                self._persist_intent()
+                # Dual-primary refuse (exit 2) or other fail — adopt existing server,
+                # do not restart-spam.
+                self._server_start_blocked = True
+                ok, base = probe_site_urls(self._site_var.get().strip() or None)
+                if ok:
+                    self._site_ok = True
+                    self._site_external = True
+                    self._site_var.set(base)
+                    os.environ["WIMS_SERVER"] = base
+                    save_last_site_url(base)
+                    self._append_log(
+                        f"{title} did not stay up (code {code}); "
+                        f"using existing site server at {base}."
+                    )
+                else:
+                    self._append_log(f"{title} exited with code {code}.")
+                    self._intent_vars[INTENT_SERVER].set(False)
+                    self._persist_intent()
         elif role_id in ("log", "n1mm_seat"):
             self._set_banner(
                 "err",
