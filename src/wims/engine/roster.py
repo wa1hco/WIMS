@@ -121,6 +121,31 @@ class RosterBuilder:
         for k in dead:
             del self._entries[k]
 
+    def last_grid(self, call: str, band: str | None = None) -> str | None:
+        """Last Maidenhead heard for this call, preferring the same band.
+
+        N1MM often logs a contact with an empty grid. The decode on the roster
+        is the grid the operator just worked, so the multiplier can clear.
+        """
+        call_u = (call or "").upper()
+        if not call_u:
+            return None
+        best = None
+        best_ts = -1.0
+        fallback = None
+        fallback_ts = -1.0
+        for key, entry in self._entries.items():
+            if key[1] != call_u or not entry.grid:
+                continue
+            if band and entry.band == band:
+                if entry.last_seen >= best_ts:
+                    best_ts = entry.last_seen
+                    best = entry.grid
+            elif entry.last_seen >= fallback_ts:
+                fallback_ts = entry.last_seen
+                fallback = entry.grid
+        return best or fallback
+
     def entry_for(self, row_id: str) -> "_Entry | None":
         """Look up a retained row by its `instance|call|grid` id (see `roster_to_dict`).
 

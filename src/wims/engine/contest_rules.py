@@ -79,6 +79,33 @@ def _upper(value) -> str:
     return (value or "").strip().upper()
 
 
+def _grid4(grid: str | None) -> str | None:
+    """Four-character Maidenhead square. A subsquare is the same square."""
+    g = _upper(grid)
+    if len(g) >= 4 and g[0].isalpha() and g[1].isalpha() and g[2].isdigit() and g[3].isdigit():
+        return g[:4]
+    return None
+
+
+def _log_name(store) -> str:
+    return (getattr(store, "log_label", "") or "").strip() or "the log"
+
+
+def _window_clause(store) -> str:
+    """Plain reminder when count-since / count-until hides older contacts."""
+    since = getattr(store, "count_since", "") or ""
+    until = getattr(store, "count_until", "") or ""
+    if not since and not until:
+        return ""
+    from wims.rules.log_use import pretty_time
+    bits = []
+    if since:
+        bits.append("since " + pretty_time(since))
+    if until:
+        bits.append("through " + pretty_time(until))
+    return " Counting contacts " + " ".join(bits) + "."
+
+
 def load_file(path: str | Path) -> dict:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or not data.get("id"):
@@ -182,7 +209,11 @@ class FileRules:
         if self.data.get("rover_grid") and "/R" in _upper(call):
             if not grid:
                 return True
-            return _upper(row.get("grid")) == _upper(grid)
+            logged = _grid4(row.get("grid")) or _upper(row.get("grid"))
+            want = _grid4(grid) or _upper(grid)
+            if not want:
+                return True
+            return logged == want
         return True
 
     def qso_points(self, band: str, mode: str | None) -> tuple[int, str]:
@@ -208,13 +239,17 @@ class FileRules:
             )
         for mult in mults:
             if mult.get("type") == "grid" and mult.get("per") == "band":
-                if not grid:
+                want = _grid4(grid)
+                name = _log_name(store)
+                if not want:
                     return False, "No grid, so this is not a grid multiplier."
-                want = _upper(grid)
                 for row in store.cached_rows():
-                    if (row.get("band") or "") == band and _upper(row.get("grid")) == want:
-                        return False, f"Grid {want} is already worked on {band}."
-                return True, f"New mult: grid {want} on {band}."
+                    if (row.get("band") or "") == band and _grid4(row.get("grid")) == want:
+                        return False, f"Grid {want} is already worked on {band} in {name}."
+                return True, (
+                    f"Mult: grid {want} not yet worked on {band} in {name}."
+                    + _window_clause(store)
+                )
         if exchange:
             return False, "This rules file has no multiplier WIMS can mark yet."
         return False, ""
@@ -250,13 +285,18 @@ class FileRules:
                 mult_reason=mult_reason if new_mult else "",
                 points=points,
             )
+        name = _log_name(store)
         group = _GROUP_WORD.get(self.mode_group(mode), "")
         if (self.data.get("dupe_scope") or "") == "band+group" and group:
-            need = f"Needed: {call} is not in the log on {band} {group}."
+            need = f"Needed: {call} is not in {name} on {band} {group}."
         elif call:
-            need = f"Needed: {call} is not in the log on {band}."
+            need = f"Needed: {call} is not in {name} on {band}."
         else:
             need = ""
+        note = self._suffix_note(store, call, band)
+        if note:
+            need = (need + " " + note).strip()
+        need += _window_clause(store)
         return Verdict(
             is_dupe=False,
             is_new_mult=bool(new_mult),
@@ -264,6 +304,32 @@ class FileRules:
             mult_reason=mult_reason if new_mult else "",
             points=points,
         )
+
+    def _suffix_note(self, store, call: str, band: str) -> str:
+        """Say when the log has this station under a different suffix.
+
+        ``K1ABC`` and ``K1ABC/P`` are different calls. ``/R`` is a rover and
+        can be worked again in a new grid. The note names the logged call so
+        the roster can say why this one is still needed.
+        """
+        from wims.engine.geo import base_call
+        want = _upper(call)
+        base = base_call(want)
+        if len(base) < 3:
+            return ""
+        scope = self.data.get("dupe_scope") or "band"
+        for row in store.cached_rows():
+            other = _upper(row.get("call"))
+            if not other or other == want or base_call(other) != base:
+                continue
+            if scope != "all" and (row.get("band") or "") != (band or ""):
+                continue
+            where = band or "this band"
+            return (
+                f"{other} is in the log on {where}. "
+                f"{want} is a different call, so this one is still needed."
+            )
+        return ""
 
     def plain_summary(self) -> str:
         parts = [self.summary.strip()] if self.summary.strip() else []
@@ -507,11 +573,15 @@ class WsjtxColors:
             mult = key in {"new_dxcc", "new_dxcc_band", "new_grid", "new_grid_band"}
             mult_reason = ""
             if key == "new_grid":
-                mult_reason = f"New mult: grid {g}."
+                mult_reason = f"Mult: grid {g} not yet worked in {self.log_label}."
             elif key == "new_grid_band":
-                mult_reason = f"New mult: grid {g} on {band}."
+                mult_reason = (
+                    f"Mult: grid {g} not yet worked on {band} in {self.log_label}."
+                )
             elif key in {"new_dxcc", "new_dxcc_band"}:
                 mult_reason = f"New mult: {COLOR_LABELS[key]}."
+            if mult_reason:
+                mult_reason += _window_clause(store)
             return Verdict(False, mult, need_reason=reason, mult_reason=mult_reason, points=1)
         shown_mode = f" {mode_u}" if mode_u else ""
         return Verdict(

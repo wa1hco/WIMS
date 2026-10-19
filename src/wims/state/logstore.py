@@ -104,6 +104,8 @@ class LogStore:
         # The lookup itself drops contacts outside the window.
         self.count_since = ""
         self.count_until = ""
+        # Name of the log Log to use selected. Reasons name it. Empty is "the log".
+        self.log_label = ""
         self._gen = 0
         self._row_cache = None
         self._row_gen = -1
