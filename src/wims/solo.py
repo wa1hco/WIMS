@@ -135,9 +135,18 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.no_open:
         url = f"http://localhost:{args.http_port}/"
-        # Give the server a moment to bind before launching the browser.
-        threading.Thread(target=lambda: (time.sleep(1.5), open_wims_url(url)),
-                         daemon=True).start()
+
+        def _open_later() -> None:
+            # Give the server a moment to bind before launching the browser.
+            time.sleep(1.5)
+            try:
+                from wims.console.place import console_open_message
+                mode = open_wims_url(url)
+                log_startup(console_open_message(mode))
+            except Exception as exc:
+                log_startup(f"Could not open the console. {exc}")
+
+        threading.Thread(target=_open_later, daemon=True).start()
 
     sys.argv = ["wims.server.app"] + argv
     server.main()

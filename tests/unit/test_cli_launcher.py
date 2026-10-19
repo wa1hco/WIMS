@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -280,10 +281,13 @@ class BrowserOpenTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             profile = Path(td) / "kiosk-profile"
             with mock.patch.dict(os.environ, {"WIMS_BROWSER": ff}, clear=False):
-                with mock.patch("wims.launcher.app._kiosk_profile_dir", return_value=profile):
-                    with mock.patch("wims.launcher.app._which_browser", side_effect=fake_which):
-                        with mock.patch("wims.launcher.app.subprocess.Popen") as popen:
-                            mode = open_wims_url("http://127.0.0.1:8787/")
+                with mock.patch(
+                    "wims.console.place.local_console_is_open", return_value=False,
+                ):
+                    with mock.patch("wims.launcher.app._kiosk_profile_dir", return_value=profile):
+                        with mock.patch("wims.launcher.app._which_browser", side_effect=fake_which):
+                            with mock.patch("wims.launcher.app.subprocess.Popen") as popen:
+                                mode = open_wims_url("http://127.0.0.1:8787/")
             self.assertEqual(mode, "kiosk")
             args = popen.call_args[0][0]
             self.assertEqual(args[0], ff)
@@ -297,6 +301,55 @@ class BrowserOpenTests(unittest.TestCase):
             self.assertEqual(args[args.index("-height") + 1], "640")
             self.assertTrue((profile / "user.js").is_file())
             self.assertTrue((profile / "chrome" / "userChrome.css").is_file())
+
+    def test_open_wims_url_reloads_a_console_already_open_here(self):
+        from wims.launcher.app import open_wims_url
+
+        with mock.patch(
+            "wims.console.place.local_console_is_open", return_value=True,
+        ), mock.patch(
+            "wims.console.place.request_console_reload", return_value=True,
+        ) as reload, mock.patch(
+            "wims.launcher.app.subprocess.Popen",
+        ) as popen:
+            mode = open_wims_url("http://127.0.0.1:8787/")
+        self.assertEqual(mode, "reuse")
+        reload.assert_called_once()
+        popen.assert_not_called()
+
+    def test_open_wims_url_chromium_app_window_uses_saved_spot(self):
+        from wims.console.place import Screen
+        from wims.launcher.app import open_wims_url
+
+        geom = {"x": 12, "y": 34, "width": 800, "height": 600}
+        with tempfile.TemporaryDirectory() as td:
+            profile = Path(td) / "console-browser"
+            with mock.patch.dict(os.environ, {"WIMS_BROWSER": ""}, clear=False):
+                with mock.patch(
+                    "wims.console.place.local_console_is_open", return_value=False,
+                ), mock.patch(
+                    "wims.launcher.app._chromium_executable",
+                    return_value="/usr/bin/chromium",
+                ), mock.patch(
+                    "wims.console.place.load_geometry", return_value=geom,
+                ), mock.patch(
+                    "wims.console.place.visible_screens",
+                    return_value=[Screen(0, 0, 1920, 1080)],
+                ), mock.patch(
+                    "wims.console.place.console_profile_dir", return_value=profile,
+                ), mock.patch(
+                    "wims.launcher.app.subprocess.Popen",
+                ) as popen:
+                    mode = open_wims_url("http://127.0.0.1:8787/")
+        self.assertEqual(mode, "app")
+        args = popen.call_args[0][0]
+        self.assertEqual(args[0], "/usr/bin/chromium")
+        self.assertIn("--app=http://127.0.0.1:8787/?wims_place=1", args)
+        self.assertIn(f"--user-data-dir={profile}", args)
+        self.assertIn("--window-size=800,600", args)
+        self.assertIn("--window-position=12,34", args)
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.kwargs.get("stdout"), subprocess.DEVNULL)
 
 
 if __name__ == "__main__":

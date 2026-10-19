@@ -241,9 +241,8 @@ class AgentHomePanel:
         open_btn.pack(side="left")
         ToolTip(
             open_btn,
-            "Fleet Operate / Status / Setup — opens a compact chrome-free "
-            "console window from the launcher (browsers do not offer kiosk "
-            "on the tab right-click menu).",
+            "Opens the site console on this PC. If that window is already "
+            "open, it reloads and stays where you put it.",
         )
         self.local_btn = tk.Button(
             btns, text="Open local status", font=_ui_font(12),
