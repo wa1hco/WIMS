@@ -116,7 +116,8 @@ def test_wsjtx_colors_highlight_by_mode_and_grid_mult():
     store.upsert(_qso("K1ABC", "6m", "FN20", "FT8"))
     worked = store.classify("K1ABC", "6m", "FN20", "FT8")
     assert worked.is_dupe is True
-    assert "matches no enabled" in worked.need_reason
+    assert "already in" in worked.need_reason
+    assert "FN20" in worked.need_reason
     other_mode = store.classify("K1ABC", "6m", "FN20", "FT4")
     assert other_mode.is_dupe is False
     assert "New Call on Band" in other_mode.need_reason

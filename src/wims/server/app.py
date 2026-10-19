@@ -107,6 +107,9 @@ _STATUS_PROBE_GRACE_S = 45.0
 # After we do send Replay (quiet radio, still no Status), ignore Decode
 # datagrams from that instance — they are historical Band Activity.
 _REPLAY_DECODE_HOLD_S = 2.0
+# A contact that just arrived on UDP may not be in the file yet. Keep that
+# row across a file re-read so the roster does not flip back to Mult.
+_LIVE_LOG_GRACE_S = 15.0
 
 
 def _normalize_dashboard_id(raw) -> str | None:
@@ -208,6 +211,9 @@ class LiveFleet:
         }
         self._adif_poll_mono = 0.0
         self._log_access_mono = 0.0
+        # Live QSOs kept across a file poll until the selected log contains them.
+        self._live_grace: dict[str, float] = {}
+        self._n1mm_mtime: float | None = None
         self._contest_names: list[str] = []
         self._roster = RosterBuilder(log=self._log)
         self._maps: dict[str, ActivityMap] = {}    # per-instance decode-activity map
@@ -430,6 +436,10 @@ class LiveFleet:
             self._seed_db_hint = db_path
             self._n1mm_authoritative = True
             self._adif_source = None
+            try:
+                self._n1mm_mtime = Path(db_path).stat().st_mtime
+            except OSError:
+                self._n1mm_mtime = None
         if remember and active is not None:
             last_log_pref.save({
                 "db_path": db_path,
@@ -719,8 +729,15 @@ class LiveFleet:
                     "selection": "log_to_use",
                 }
                 self._seed_db_hint = chosen["path"]
+                try:
+                    self._n1mm_mtime = Path(chosen["path"]).stat().st_mtime
+                except OSError:
+                    self._n1mm_mtime = None
+                self._log.log_label = (chosen.get("label") or "").strip()
                 return
             self._n1mm_authoritative = False
+            self._n1mm_mtime = None
+            self._log.log_label = ((chosen or {}).get("label") or "").strip()
             self._active_contest = None
             paths = [p for p in ((chosen or {}).get("paths") or []) if p]
             if kind in {"wsjtx", "adif", "gridtracker"} and paths and problem is None:
@@ -1581,6 +1598,9 @@ class LiveFleet:
                     old_band_here = (n_prev.band_by_host or {}).get(src_ip)
             self._tracker.observe(msg, now, src_ip=src_ip, src_port=src_port)
             if isinstance(msg, (M.QSOLogged, M.LoggedADIF)):
+                # The relay record needs the log-agent module. That import can
+                # fail (no tkinter) without dropping the log-copy update.
+                rec = None
                 try:
                     from wims.log.app import qso_record
                     rec = qso_record(msg)
@@ -1599,7 +1619,7 @@ class LiveFleet:
                             "band": qband,
                             "adif": adif,
                         })
-                    self._fold_logged_udp(msg)
+                self._fold_logged_udp(msg)
             # Empty decode-activity tile as soon as the instance is heard (Heartbeat/
             # Status), not only after the first Decode — quiet bands still get a frame.
             self._maps.setdefault(mid, ActivityMap(mid))
@@ -1746,7 +1766,9 @@ class LiveFleet:
                             return
                     if not self._retain([q]):
                         return
+                    self._fill_grid_from_roster(q)
                     self._log.upsert(q)
+                    self._remember_live(q)
                     self._last_qso = {"call": q.call, "band": q.band, "ts": now}
             except Exception:
                 pass
@@ -1785,6 +1807,13 @@ class LiveFleet:
                 # Heard WSJT before, then nothing — Operate will empty; not "quiet band".
                 "stale": bool(last_wsjt > 0.0 and wsjt_age is not None and wsjt_age > 15.0),
             }
+            # Refresh the selected log before the roster is scored, so this
+            # push already shows a contact that just landed in the file.
+            self._maybe_poll_log_locked()
+            # A log line with no grid still counts once the roster heard the
+            # square on that band. Do this even when the file did not change,
+            # so a CQ that arrives after the read still clears Mult.
+            self._credit_empty_grids_locked()
             tx_ids = {n.id for n in self._tracker.nodes.values() if n.transmitting}
             d["interlock"] = interlock_to_dict(
                 self._overlap, self.group_of, self._grouping,
@@ -1851,15 +1880,179 @@ class LiveFleet:
                 iid = cand.get("instance") or ""
                 cand["tx_capable"] = prof.tx_capable(iid)
             d["seat_profile"] = prof.to_public_dict(live_ids=marked_ids)
-            self._maybe_poll_adif_locked()
             self._maybe_refresh_access_locked()
             d["rules"] = self._rules_meta
             d["log_access"] = list(self._log_access_rows)
             d["log_in_use"] = dict(self._log_in_use)
             return d
 
+    def _n1mm_db_path(self) -> str:
+        active = self._active_contest or {}
+        seed = self._seed or {}
+        return str(active.get("db_path") or seed.get("db_path") or "")
+
+    def _credit_empty_grids_locked(self) -> None:
+        """Copy a heard square onto a logged contact that has no grid."""
+        try:
+            rows = self._log.con.execute(
+                "SELECT id, call, band, grid FROM qsos"
+            ).fetchall()
+        except Exception:
+            return
+        for row in rows:
+            if (row["grid"] or "").strip():
+                continue
+            grid = self._roster.grid_on_band(row["call"], row["band"])
+            if grid:
+                self._log.fill_empty_grid(row["id"], grid)
+
+    def _fill_grid_from_roster(self, qso) -> None:
+        """N1MM often logs an empty grid. The decode is the square just worked."""
+        if qso is None or (qso.grid or "").strip():
+            return
+        grid = self._roster.last_grid(qso.call, qso.band)
+        if grid:
+            qso.grid = grid
+
+    def _remember_live(self, qso) -> None:
+        if qso is not None and (qso.source or "") == "live" and qso.id:
+            self._live_grace[qso.id] = time.monotonic()
+
+    def _qso_from_row(self, row):
+        from wims.integrations.n1mm.qso import LoggedQso
+
+        def cell(name, default=None):
+            try:
+                value = row[name]
+            except (KeyError, IndexError):
+                return default
+            return default if value is None else value
+
+        return LoggedQso(
+            id=str(cell("id") or ""),
+            call=str(cell("call") or ""),
+            band=str(cell("band") or "?"),
+            grid=cell("grid"),
+            mode=cell("mode"),
+            points=int(cell("points") or 0),
+            is_mult=bool(cell("is_mult")),
+            contest=cell("contest"),
+            timestamp=cell("timestamp"),
+            operator=cell("operator"),
+            rover_location=cell("rover"),
+            source=str(cell("source") or "seed"),
+            submode=cell("submode"),
+            qso_date=cell("qso_date"),
+            time_on=cell("time_on"),
+            exchange=cell("exchange"),
+            state=cell("state"),
+            my_state=cell("my_state"),
+            my_county=cell("my_county"),
+            dxcc=cell("dxcc"),
+            contest_id=cell("contest_id"),
+        )
+
+    def _preserve_grids(self, qsos):
+        """A file row with no grid keeps a grid WIMS already learned for that id."""
+        for qso in qsos:
+            if qso is None or (qso.grid or "").strip():
+                continue
+            row = None
+            if qso.id:
+                row = self._log.con.execute(
+                    "SELECT grid FROM qsos WHERE id=?", (qso.id,)
+                ).fetchone()
+            if row is not None and (row["grid"] or "").strip():
+                qso.grid = row["grid"]
+                continue
+            self._fill_grid_from_roster(qso)
+        return qsos
+
+    def _same_contact(self, left, right) -> bool:
+        from wims.engine.contest_rules import _grid4
+        if (left.call or "").upper() != (right.call or "").upper():
+            return False
+        if (left.band or "") != (right.band or ""):
+            return False
+        lg = _grid4(left.grid)
+        rg = _grid4(right.grid)
+        if lg and rg:
+            return lg == rg
+        return not lg and not rg
+
+    def _keep_recent_live(self, incoming):
+        """Keep a just-logged row until the selected file contains that contact."""
+        incoming = list(incoming)
+        ids = {q.id for q in incoming if q and q.id}
+        now = time.monotonic()
+        extra = []
+        drop = []
+        for qid, seen in list(self._live_grace.items()):
+            if now - seen > _LIVE_LOG_GRACE_S or qid in ids:
+                drop.append(qid)
+                continue
+            row = self._log.con.execute(
+                "SELECT * FROM qsos WHERE id=?", (qid,)
+            ).fetchone()
+            if row is None:
+                drop.append(qid)
+                continue
+            qso = self._qso_from_row(row)
+            if (qso.source or "") != "live":
+                drop.append(qid)
+                continue
+            if any(self._same_contact(qso, other) for other in incoming):
+                drop.append(qid)
+                continue
+            if not self._retain([qso]):
+                drop.append(qid)
+                continue
+            extra.append(qso)
+        for qid in drop:
+            self._live_grace.pop(qid, None)
+        return incoming + extra
+
+    def _merge_polled(self, qsos):
+        return self._keep_recent_live(self._retain(self._preserve_grids(list(qsos))))
+
+    def _adif_targets(self) -> list[str]:
+        src = self._adif_source
+        if src is None:
+            return []
+        out = []
+        for path in getattr(src, "paths", []) or []:
+            try:
+                out.append(str(Path(path).resolve()))
+            except OSError:
+                out.append(str(path))
+        return out
+
+    def _accept_logged_path(self, real: str) -> str | None:
+        """Store a UDP-logged QSO only when it belongs to the selected log.
+
+        The aggregate WSJT-X choice may add a newly heard instance file.
+        A specifically chosen file does not absorb a QSO from a different log.
+        """
+        try:
+            resolved = str(Path(real).resolve())
+        except OSError:
+            resolved = str(real)
+        targets = self._adif_targets()
+        if resolved in targets or str(real) in targets:
+            return resolved
+        kind = ((self._seed or {}).get("source") or "")
+        src = self._adif_source
+        if kind == "wsjtx" and src is not None:
+            src.paths = list(src.paths) + [Path(resolved)]
+            return resolved
+        return None
+
     def _fold_logged_udp(self, msg) -> None:
-        """Same id as the ADIF row, so a QSO logged while WIMS is up is one row."""
+        """Same id as the ADIF row, so a QSO logged while WIMS is up is one row.
+
+        Runs even when the log-agent import fails. A QSO for a different file
+        than Log to use does not change needed or mult.
+        """
         if self._adif_source is None or self._n1mm_authoritative:
             return
         from wims.adif import qt_datetime_to_adif, read_text, to_logged_qso
@@ -1870,45 +2063,118 @@ class LiveFleet:
             real = str(adi_path(mid).resolve())
         except OSError:
             real = str(adi_path(mid))
+        accepted = self._accept_logged_path(real)
+        if accepted is None:
+            return
         try:
             if isinstance(msg, M.LoggedADIF) and msg.adif:
                 text = msg.adif
                 if "<eor>" not in text.lower():
                     text = text + "<eor>"
                 for rec in read_text(text):
-                    qso = to_logged_qso(rec, realpath=real, source="live")
-                    if qso is not None and self._retain([qso]):
-                        self._log.upsert(qso)
+                    qso = to_logged_qso(rec, realpath=accepted, source="live")
+                    self._finish_logged(qso, mid)
                 return
             if isinstance(msg, M.QSOLogged):
                 qdate, qtime = qt_datetime_to_adif(msg.datetime_off or msg.datetime_on)
+                band = band_label(msg.tx_frequency or 0, instance=mid)
+                if not band or band == "?":
+                    node = self._tracker.nodes.get(mid)
+                    if node is not None and node.band and node.band != "?":
+                        band = node.band
                 fields = {
                     "call": msg.dx_call or "",
                     "gridsquare": msg.dx_grid or "",
                     "mode": msg.mode or "",
-                    "band": band_label(msg.tx_frequency or 0, instance=mid),
+                    "band": band or "?",
                     "qso_date": qdate,
                     "time_on": qtime,
                 }
-                qso = to_logged_qso(fields, realpath=real, source="live")
-                if qso is not None and self._retain([qso]):
-                    self._log.upsert(qso)
+                qso = to_logged_qso(fields, realpath=accepted, source="live")
+                self._finish_logged(qso, mid)
         except Exception:
             return
 
-    def _maybe_poll_adif_locked(self) -> None:
+    def _finish_logged(self, qso, mid: str) -> None:
+        if qso is None:
+            return
+        if not qso.band or qso.band == "?":
+            node = self._tracker.nodes.get(mid)
+            if node is not None and node.band and node.band != "?":
+                qso.band = node.band
+        self._fill_grid_from_roster(qso)
+        if self._retain([qso]):
+            self._log.upsert(qso)
+            self._remember_live(qso)
+
+    def _maybe_poll_log_locked(self) -> None:
+        """Re-read the selected log before the roster is scored.
+
+        A locked or unreadable file is left alone. The copy is not wiped.
+        """
+        try:
+            n1mm_file = (
+                self._log_choice_active
+                and self._n1mm_authoritative
+                and bool(self._n1mm_db_path())
+            )
+            adif = self._adif_source is not None and not self._n1mm_authoritative
+            if not n1mm_file and not adif:
+                return
+            now = time.monotonic()
+            if now - self._adif_poll_mono < 1.0:
+                return
+            self._adif_poll_mono = now
+            if n1mm_file:
+                self._poll_n1mm_file_locked()
+            else:
+                self._poll_adif_locked()
+        except Exception:
+            return
+
+    def _poll_n1mm_file_locked(self) -> None:
+        path = self._n1mm_db_path()
+        if not path:
+            return
+        try:
+            mtime = Path(path).stat().st_mtime
+        except OSError:
+            return
+        if self._n1mm_mtime is not None and mtime == self._n1mm_mtime:
+            return
+        try:
+            qsos = list(self._log_source.resync())
+            err = (self._log_source.status() or {}).get("error")
+        except Exception:
+            return
+        if err:
+            return
+        self._log.reconcile(self._merge_polled(qsos))
+        self._n1mm_mtime = mtime
+
+    def _poll_adif_locked(self) -> None:
         src = self._adif_source
         if src is None or self._n1mm_authoritative:
             return
-        now = time.monotonic()
-        if now - self._adif_poll_mono < 1.0:
-            return
-        self._adif_poll_mono = now
+        prev = dict(getattr(src, "_mtime", {}) or {})
         try:
-            if src.poll_changed():
-                self._log.reconcile(self._retain(src.seed()))
+            if not src.poll_changed():
+                return
+            qsos = list(src.seed())
+            err = (src.status() or {}).get("error")
         except Exception:
+            try:
+                src._mtime = prev
+            except Exception:
+                pass
             return
+        if err:
+            try:
+                src._mtime = prev
+            except Exception:
+                pass
+            return
+        self._log.reconcile(self._merge_polled(qsos))
 
     def _maybe_refresh_access_locked(self) -> None:
         if not self._rules_attached:

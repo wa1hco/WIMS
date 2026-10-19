@@ -725,7 +725,9 @@ class LogState:
                 if p["call"] != call_u:
                     continue
                 if band_n and p.get("band") and p["band"] != band_n:
-                    # N1MM <band>2</band> parses as 160m; still ack a VHF pending.
+                    # A different VHF band is a different contact. A non-VHF
+                    # token still confirms the pending row: older copies
+                    # stored a 2 m QSO under 160 m.
                     vhf = {
                         "6m", "2m", "1.25m", "70cm", "33cm", "23cm",
                         "13cm", "9cm", "6cm", "3cm", "1.2cm",
