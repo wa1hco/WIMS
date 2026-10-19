@@ -2699,6 +2699,28 @@ function txStatusLine(j, url) {
   return {text: txPlainFailure(j, url), title: full, prominent: true, fade: false};
 }
 
+function txTipLine(el) {
+  if (!el) return "";
+  const box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+  const full = el.textContent || "";
+  if (!box) return full;
+  const extra = box.textContent || "";
+  return extra && full.endsWith(extra) ? full.slice(0, -extra.length) : full;
+}
+
+function txTipBox(el, text) {
+  if (!el || typeof el.appendChild !== "function" || typeof document === "undefined") return null;
+  let box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+  if (!box) {
+    box = document.createElement("span");
+    box.className = "tx-tip";
+    box.hidden = true;
+    el.appendChild(box);
+  }
+  if (text != null) box.textContent = text;
+  return box;
+}
+
 function txTipWire(el) {
   if (!el || el._txTipWired || typeof el.addEventListener !== "function") return;
   el._txTipWired = true;
@@ -2707,10 +2729,14 @@ function txTipWire(el) {
     if (!tip || !el.dataset) return;
     el.dataset.tip = tip;
     el.title = "";
+    const box = txTipBox(el, tip);
+    if (box) box.hidden = false;
   });
   el.addEventListener("mouseleave", () => {
+    const box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+    if (box) box.hidden = true;
     if (!el.dataset || !el.dataset.tip) return;
-    if (!el.textContent) {
+    if (!txTipLine(el)) {
       el.dataset.tip = "";
       return;
     }

@@ -279,16 +279,12 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 /* --- TX control strip + click-to-work buttons (Operate) ------------------- */
 .txbar { display:flex; align-items:center; gap:10px; margin:4px 0 12px; flex-wrap:wrap; }
 /* Work/Halt note. Hover shows the method, address, port, and message.
-   The title is cleared while the pointer is over the line so the page
-   tooltip is the only one. */
+   The title is cleared while the pointer is over the line so this box
+   is the only tooltip. */
+#tx-meta { position: relative; display: inline-block; }
 #tx-meta[title]:not([title=""]) { cursor: help; }
-#tx-meta[data-tip]:not([data-tip=""]) {
-  position: relative;
-  display: inline-block;
-  cursor: help;
-}
-#tx-meta[data-tip]:not([data-tip=""]):hover::after {
-  content: attr(data-tip);
+#tx-meta .tx-tip {
+  display: block;
   position: absolute;
   z-index: 40;
   left: 0;
@@ -305,6 +301,7 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
   box-shadow: 0 4px 16px rgba(31, 35, 40, .28);
   pointer-events: none;
 }
+#tx-meta .tx-tip[hidden] { display: none; }
 .txbtn { font-size:12px; padding:3px 10px; border:1px solid var(--line); border-radius:5px;
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
