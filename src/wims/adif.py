@@ -222,6 +222,9 @@ def to_logged_qso(
         my_county=(fields.get("my_county") or fields.get("my_cnty") or "").strip().upper() or None,
         dxcc=dxcc,
         contest_id=(fields.get("contest_id") or "").strip() or None,
+        cqz=(fields.get("cqz") or "").strip() or None,
+        ituz=(fields.get("ituz") or "").strip() or None,
+        cont=(fields.get("cont") or "").strip().upper() or None,
     )
 
 

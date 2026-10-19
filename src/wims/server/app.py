@@ -171,9 +171,11 @@ class LiveFleet:
             extra={
                 "choice": {
                     "contest": None,
+                    "goal": "operating",
+                    "goal_id": "checklist",
                     "explicit": False,
                     "suggested": False,
-                    "fallback": "wsjtx-colors",
+                    "fallback": "",
                     "station_state": "",
                     "station_county": "",
                 },
@@ -539,10 +541,32 @@ class LiveFleet:
         return {"ok": True, "seeded": summary["total"],
                 "files": [str(p) for p in files]}
 
+    def _country_index(self):
+        """The WSJT-X country file, or None when this computer does not have one."""
+        from wims.rules.cty import CtyIndex, find_cty_dat
+        path = find_cty_dat()
+        if path is None:
+            self._cty_index = None
+            self._cty_key = None
+            return None
+        try:
+            key = (str(path), path.stat().st_mtime)
+        except OSError:
+            self._cty_index = None
+            self._cty_key = None
+            return None
+        if getattr(self, "_cty_key", None) == key:
+            return self._cty_index
+        try:
+            self._cty_index = CtyIndex.load(path)
+        except OSError:
+            self._cty_index = None
+        self._cty_key = key
+        return self._cty_index
+
     def attach_rules(self, *, n1mm_authoritative: bool | None = None) -> dict:
-        """Load the contest dropdown (and Colors fallback). Not called from __init__."""
+        """Load the goal. Not called from __init__."""
         from wims.engine.contest_rules import resolve
-        from wims.integrations.wsjtx_logs import ini_path
         from wims.rules.choice import load_choice, load_custom, needs_migration, save_choice
         if n1mm_authoritative is not None:
             self._n1mm_authoritative = bool(n1mm_authoritative)
@@ -563,10 +587,9 @@ class LiveFleet:
             choice,
             n1mm=self._n1mm_authoritative,
             contest_names=names,
-            ini_path=ini_path("WSJT-X"),
-            cty_ok=False,
             custom_data=custom,
             log_label=log_name,
+            cty=self._country_index(),
         )
         if resolved.suggested and resolved.contest and not choice.get("explicit"):
             choice = dict(resolved.choice)
@@ -878,16 +901,6 @@ class LiveFleet:
                 choice["station_state"] = str(body.get("station_state") or "").strip()
             if "station_county" in body:
                 choice["station_county"] = str(body.get("station_county") or "").strip()
-            save_choice(choice)
-        elif action == "colors":
-            choice["wsjtx_override"] = {
-                "categories": body.get("categories") or {},
-                "highlight_by_mode": bool(body.get("highlight_by_mode")),
-                "only_fields_sought": bool(body.get("only_fields_sought")),
-            }
-            save_choice(choice)
-        elif action == "colors_reset":
-            choice["wsjtx_override"] = None
             save_choice(choice)
         elif action == "checklist":
             choice["checklist"] = body.get("items")

@@ -155,7 +155,7 @@ def test_casual_goal_suggests_wsjtx_not_a_leftover_n1mm_file():
         _wsjtx("/tmp/wsjtx_log.adi", 12),
     ]
     got = resolve_use(
-        _logs(), goal="operating", goal_id="wsjtx-colors", catalog=catalog,
+        _logs(), goal="operating", goal_id="checklist", catalog=catalog,
     )
     assert got["explicit"] is False
     assert got["chosen"]["id"] == "wsjtx"
@@ -373,11 +373,12 @@ def test_changing_the_log_reloads_and_the_window_changes_dupes():
         assert "6m" in view["line"]
         assert live._log.is_dupe("K1OLD", "6m") is False
         assert live._log.is_dupe("N1NEW", "6m") is True
-        # Goal stays a contest. The saved log is still the 6m file.
-        live.set_rules({"action": "select", "goal": "operating", "goal_id": "wsjtx-colors"})
+        # Just operating does not pick a different log. The 6m file stays.
+        live.set_rules({"action": "select", "goal": "operating", "goal_id": "checklist"})
         disk = load_logs(logs_path)
         assert disk["explicit"] is True
         assert disk["selection"]["path"] == str(six / "wsjtx_log.adi")
+        assert live._log.rules.id == "checklist"
         assert live._log.is_dupe("N1NEW", "6m") is True
         live.attach_rules()
         # Back to the contest rule so per-band is the check, on the same log.

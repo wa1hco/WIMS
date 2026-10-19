@@ -107,7 +107,9 @@ One **site server** per contest LAN. Top nav:
 
 ![Site console — Setup](manual/images/site-setup.png)
 
-*Setup — goal and install diagnostics (networking, seat configs). The log is on **Log**.*
+*Setup — Goal and install diagnostics (networking, seat configs). The log is on **Log**.*
+
+**Goal** is Contest, Award, Just operating, or Custom. Just operating uses **Checklist**. Tick what is worth working. Each line counts the first time, on each band, or on each mode. Continent, CQ zone, and ITU zone use the country list WSJT-X already keeps. When that list is not on this computer, those three lines stay off and the tip says so. County and callsign prefix stay off. A choice saved earlier as WSJT-X Colors is turned into the matching checklist lines the next time WIMS starts, and that list is what Setup shows after that. The log under **Log to use** is the only log those lines read.
 
 ---
 

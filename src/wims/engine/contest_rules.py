@@ -16,11 +16,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Contest rules: one JSON file per contest, plus the WSJT-X Colors fallback.
+"""Contest rules: one JSON file per contest.
 
-Rules decide dupe, multiplier, and QSO points. Rank weights stay in
-``scoring.py``. Files under ``wims/rules/`` are original GPL-3.0 summaries
-that cite the sponsor's rules page. This module does not write logs.
+Just operating uses the checklist in ``goal_rules``. Rules decide dupe,
+multiplier, and QSO points. Rank weights stay in ``scoring.py``. Files under
+``wims/rules/`` are original GPL-3.0 summaries that cite the sponsor's rules
+page. This module does not write logs.
 """
 
 from __future__ import annotations
@@ -33,35 +34,6 @@ from pathlib import Path
 from wims.engine.scoring import band_points
 
 _RULES_DIR = Path(__file__).resolve().parents[1] / "rules"
-
-# Colors-tab order for the six categories this needed-rule uses.
-COLOR_ORDER = (
-    "new_dxcc",
-    "new_dxcc_band",
-    "new_grid",
-    "new_grid_band",
-    "new_call",
-    "new_call_band",
-)
-
-COLOR_LABELS = {
-    "new_dxcc": "New DXCC",
-    "new_dxcc_band": "New DXCC on Band",
-    "new_grid": "New Grid",
-    "new_grid_band": "New Grid on Band",
-    "new_call": "New Call",
-    "new_call_band": "New Call on Band",
-}
-
-# WSJT-X DecodeHighlightingModel factory defaults (DXCC on, the rest off).
-FACTORY_CATEGORIES = {
-    "new_dxcc": True,
-    "new_dxcc_band": True,
-    "new_grid": False,
-    "new_grid_band": False,
-    "new_call": False,
-    "new_call_band": False,
-}
 
 _GROUP_WORD = {"PH": "phone", "CW": "CW", "DIG": "digital"}
 
@@ -396,37 +368,6 @@ class FileRules:
         return out
 
 
-def default_color_categories(*, cty_ok: bool) -> tuple[dict, str]:
-    """Categories until the DecodeHighlighting blob can be parsed.
-
-    Factory defaults (New DXCC and New DXCC on Band) apply when ``cty.dat``
-    can name an entity. Without it those two categories cannot match, so the
-    four call/grid categories start on and Setup says why.
-    """
-    if cty_ok:
-        return dict(FACTORY_CATEGORIES), (
-            "WIMS could not read the Colors list from WSJT-X.ini. "
-            "Showing WSJT-X’s default categories. You can edit them here."
-        )
-    cats = {key: False for key in COLOR_ORDER}
-    for key in ("new_grid", "new_grid_band", "new_call", "new_call_band"):
-        cats[key] = True
-    return cats, (
-        "WIMS could not read the Colors list from WSJT-X.ini, and cty.dat was not found, "
-        "so DXCC highlighting is off. Showing New Call, New Call on Band, New Grid, "
-        "and New Grid on Band. You can edit them here."
-    )
-
-
-def _grid_key(grid: str | None, fields_only: bool) -> str | None:
-    g = _upper(grid)
-    if not g:
-        return None
-    if fields_only:
-        return g[:2]
-    return g[:4] if len(g) >= 4 else g
-
-
 def _entity(call: str, dxcc: str | None, lookup) -> str | None:
     num = (dxcc or "").strip()
     if num:
@@ -440,246 +381,6 @@ def _entity(call: str, dxcc: str | None, lookup) -> str | None:
     if not name:
         return None
     return f"name:{name}"
-
-
-class WsjtxColors:
-    """Needed when any enabled Colors category misses the ADIF log."""
-
-    id = "wsjtx-colors"
-    title = "WSJT-X Colors"
-
-    def __init__(
-        self,
-        *,
-        categories: dict | None = None,
-        highlight_by_mode: bool = False,
-        only_fields_sought: bool = False,
-        log_label: str = "wsjtx_log.adi",
-        dxcc_lookup=None,
-        note: str = "",
-        source_label: str = "WSJT-X Colors",
-    ):
-        base = {key: False for key in COLOR_ORDER}
-        for key, val in (categories or {}).items():
-            if key in base:
-                base[key] = bool(val)
-        self.categories = base
-        self.highlight_by_mode = bool(highlight_by_mode)
-        self.only_fields_sought = bool(only_fields_sought)
-        self.log_label = log_label or "wsjtx_log.adi"
-        self.dxcc_lookup = dxcc_lookup
-        self.note = note
-        self.source_label = source_label
-
-    def plain_summary(self) -> str:
-        enabled = [COLOR_LABELS[k] for k in COLOR_ORDER if self.categories.get(k)]
-        if not enabled:
-            line = "No color category is enabled, so no CQ will show as needed."
-        else:
-            line = "Needed when a CQ matches " + ", ".join(enabled) + "."
-        if self.highlight_by_mode:
-            line += " Worked-before is per mode."
-        if self.only_fields_sought:
-            line += " Grid compare uses the field (first two characters)."
-        if self.note:
-            line += " " + self.note
-        return line
-
-    def _worked_index(self, store) -> dict:
-        gen = store.generation()
-        cache = getattr(self, "_worked_cache", None)
-        if cache and cache[0] == gen and cache[1] is store:
-            return cache[2]
-        calls: set = set()
-        calls_band: set = set()
-        calls_mode: set = set()
-        calls_band_mode: set = set()
-        grids: set = set()
-        grids_band: set = set()
-        dxcc: set = set()
-        dxcc_band: set = set()
-        for row in store.cached_rows():
-            call = _upper(row.get("call"))
-            if not call:
-                continue
-            band = row.get("band") or ""
-            mode = _upper(row.get("submode")) or _upper(row.get("mode"))
-            if self.highlight_by_mode:
-                if mode:
-                    calls_mode.add((call, mode))
-                    if band:
-                        calls_band_mode.add((call, band, mode))
-            else:
-                calls.add(call)
-                if band:
-                    calls_band.add((call, band))
-            g = _grid_key(row.get("grid"), self.only_fields_sought)
-            if g:
-                grids.add(g)
-                if band:
-                    grids_band.add((g, band))
-            ent = _entity(call, row.get("dxcc"), self.dxcc_lookup)
-            if ent:
-                dxcc.add(ent)
-                if band:
-                    dxcc_band.add((ent, band))
-        built = {
-            "calls": calls,
-            "calls_band": calls_band,
-            "calls_mode": calls_mode,
-            "calls_band_mode": calls_band_mode,
-            "grids": grids,
-            "grids_band": grids_band,
-            "dxcc": dxcc,
-            "dxcc_band": dxcc_band,
-        }
-        self._worked_cache = (gen, store, built)
-        return built
-
-    def classify(self, store, call: str, band: str, mode: str | None, grid: str | None,
-                 *, exchange: str | None = None, my_county: str | None = None,
-                 state: str | None = None) -> Verdict:
-        del exchange, my_county, state
-        call_u = _upper(call)
-        mode_u = _upper(mode)
-        idx = self._worked_index(store)
-        if not any(self.categories.values()):
-            return Verdict(
-                True, False,
-                need_reason="No color category is enabled, so no CQ will show as needed.",
-                points=1,
-            )
-        ent = _entity(call_u, None, self.dxcc_lookup)
-        g = _grid_key(grid, self.only_fields_sought)
-        hits: list[tuple[str, str]] = []
-
-        def _mode_ok() -> bool:
-            return (not self.highlight_by_mode) or bool(mode_u)
-
-        if self.categories["new_dxcc"] and ent and ent not in idx["dxcc"]:
-            hits.append(("new_dxcc", f"Needed: New DXCC — {call_u} is not in {self.log_label}."))
-        if self.categories["new_dxcc_band"] and ent and (ent, band) not in idx["dxcc_band"]:
-            hits.append((
-                "new_dxcc_band",
-                f"Needed: New DXCC on Band — {call_u} on {band} is not in {self.log_label}.",
-            ))
-        if self.categories["new_grid"] and g and g not in idx["grids"]:
-            hits.append((
-                "new_grid",
-                f"Needed: New Grid — {g} is not in {self.log_label}.",
-            ))
-        if self.categories["new_grid_band"] and g and (g, band) not in idx["grids_band"]:
-            hits.append((
-                "new_grid_band",
-                f"Needed: New Grid on Band — {g} on {band} is not in {self.log_label}.",
-            ))
-        if self.categories["new_call"] and call_u and _mode_ok():
-            worked = (
-                (call_u, mode_u) in idx["calls_mode"]
-                if self.highlight_by_mode else call_u in idx["calls"]
-            )
-            if not worked:
-                hits.append((
-                    "new_call",
-                    f"Needed: New Call — {call_u} is not in {self.log_label}.",
-                ))
-        if self.categories["new_call_band"] and call_u and band and _mode_ok():
-            worked = (
-                (call_u, band, mode_u) in idx["calls_band_mode"]
-                if self.highlight_by_mode else (call_u, band) in idx["calls_band"]
-            )
-            if not worked:
-                hits.append((
-                    "new_call_band",
-                    f"Needed: New Call on Band — {call_u} on {band} is not in {self.log_label}.",
-                ))
-        if hits:
-            key, reason = hits[0]
-            mult = key in {"new_dxcc", "new_dxcc_band", "new_grid", "new_grid_band"}
-            mult_reason = ""
-            if key == "new_grid":
-                mult_reason = f"Mult: grid {g} not yet worked in {self.log_label}."
-            elif key == "new_grid_band":
-                mult_reason = (
-                    f"Mult: grid {g} not yet worked on {band} in {self.log_label}."
-                )
-            elif key in {"new_dxcc", "new_dxcc_band"}:
-                mult_reason = f"New mult: {COLOR_LABELS[key]}."
-            if mult_reason:
-                mult_reason += _blank_grid_note(store, call_u, band, self.log_label)
-                mult_reason += _window_clause(store)
-            return Verdict(False, mult, need_reason=reason, mult_reason=mult_reason, points=1)
-        shown_mode = f" {mode_u}" if mode_u else ""
-        grid_note = ""
-        if g and (g, band) in idx["grids_band"]:
-            grid_note = f" Grid {g} on {band} is in that log."
-        return Verdict(
-            True,
-            False,
-            need_reason=(
-                f"Worked: {call_u} on {band}{shown_mode} is already in {self.log_label}."
-                f"{grid_note}"
-            ),
-            points=1,
-        )
-
-    def public(self, *, source_label: str | None = None, n1mm: bool = False,
-               extra: dict | None = None) -> dict:
-        out = {
-            "id": self.id,
-            "title": self.title,
-            "source_label": source_label or self.source_label,
-            "n1mm_authoritative": bool(n1mm),
-            "summary": self.plain_summary(),
-            "rules_url": "",
-            "rules_version": "",
-            "catalog": catalog(),
-            "colors": {
-                "categories": dict(self.categories),
-                "labels": dict(COLOR_LABELS),
-                "highlight_by_mode": self.highlight_by_mode,
-                "only_fields_sought": self.only_fields_sought,
-                "note": self.note,
-            },
-        }
-        if extra:
-            out.update(extra)
-        return out
-
-
-def read_colors_ini(path: str | Path | None) -> dict:
-    """Plain bools from WSJT-X.ini. The DecodeHighlighting blob is not parsed."""
-    out = {
-        "found": False,
-        "path": str(path or ""),
-        "highlight_by_mode": None,
-        "only_fields_sought": None,
-        "include_wae": None,
-    }
-    if not path:
-        return out
-    p = Path(path)
-    try:
-        text = p.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return out
-    out["found"] = True
-    for line in text.splitlines():
-        raw = line.strip()
-        if not raw or raw.startswith("[") or raw.startswith("#") or raw.startswith(";"):
-            continue
-        if "=" not in raw:
-            continue
-        key, val = raw.split("=", 1)
-        flag = val.strip().lower() in {"true", "1", "yes"}
-        name = key.strip()
-        if name == "HighlightByMode":
-            out["highlight_by_mode"] = flag
-        elif name == "OnlyFieldsSought":
-            out["only_fields_sought"] = flag
-        elif name == "IncludeWAEEntities":
-            out["include_wae"] = flag
-    return out
 
 
 def suggest_contest(names: list[str], today: date | None = None) -> tuple[str | None, str]:
@@ -814,13 +515,16 @@ def resolve(
     n1mm: bool,
     contest_names: list[str] | None = None,
     today: date | None = None,
-    ini_path: str | Path | None = None,
-    cty_ok: bool = False,
     dxcc_lookup=None,
     custom_data: dict | None = None,
     log_label: str = "wsjtx_log.adi",
+    cty=None,
 ) -> Resolved:
-    """Pick the active rule. Does not override an explicit goal choice."""
+    """Pick the active rule. Does not override an explicit goal choice.
+
+    Just operating uses the checklist. The log named by Log to use is the
+    only log these rules read. ``cty`` is the country file when it was found.
+    """
     from wims.engine.goal_rules import (
         AwardRules,
         ChecklistRules,
@@ -843,7 +547,7 @@ def resolve(
     if (
         not explicit
         and goal == "operating"
-        and goal_id == "wsjtx-colors"
+        and goal_id == "checklist"
     ):
         sid, how = suggest_contest(contest_names or [], today)
         if sid:
@@ -852,8 +556,10 @@ def resolve(
             suggested_from = how
     rules_obj: object
     label: str
-    note = ""
     contest: str | None = legacy_contest(goal, goal_id)
+    lookup = dxcc_lookup
+    if lookup is None and cty is not None:
+        lookup = cty.entity_name
     if goal == "contest":
         try:
             rules_obj = load_builtin(str(goal_id))
@@ -864,7 +570,7 @@ def resolve(
         label = rules_obj.title
     elif goal == "award":
         rules_obj = AwardRules(
-            goal_id, dxcc_lookup=dxcc_lookup, log_label=log_label,
+            goal_id, dxcc_lookup=lookup, log_label=log_label,
         )
         label = rules_obj.title
         contest = None
@@ -872,23 +578,17 @@ def resolve(
         rules_obj = FileRules(custom_data)
         label = "Custom rules"
         contest = "custom"
-    elif goal == "custom" or goal_id == "checklist":
+    else:
+        # Just operating, or a custom checklist. The selected log is unchanged.
         title = "Custom checklist" if goal == "custom" else "Checklist"
         rules_obj = ChecklistRules(
             choice.get("checklist"),
             title=title,
-            dxcc_lookup=dxcc_lookup,
+            dxcc_lookup=lookup,
             log_label=log_label,
+            cty=cty,
         )
         label = rules_obj.title
-        contest = None
-    else:
-        # Just operating. WSJT-X Colors is a rule, checked against whichever
-        # log the operator selected. The log does not switch this rule.
-        rules_obj, label, note = _colors_from_choice(
-            choice, ini_path=ini_path, cty_ok=cty_ok,
-            dxcc_lookup=dxcc_lookup, log_label=log_label,
-        )
         contest = None
     choice["goal"] = goal
     choice["goal_id"] = goal_id
@@ -901,13 +601,16 @@ def resolve(
             "goal_id": goal_id,
             "explicit": explicit,
             "suggested": suggested and not explicit,
-            "fallback": choice.get("fallback") or "wsjtx-colors",
+            "fallback": "",
             "station_state": choice.get("station_state") or "",
             "station_county": choice.get("station_county") or "",
         },
         "custom_available": bool(custom_data),
-        "colors_note": note,
-        "goal": goal_menu(menu_choice, custom_available=bool(custom_data)),
+        "goal": goal_menu(
+            menu_choice,
+            custom_available=bool(custom_data),
+            cty_ok=cty is not None,
+        ),
     }
     if suggested and not explicit and suggested_from:
         wrong = "Choose Just operating (not a contest) if that is wrong."
@@ -935,38 +638,3 @@ def resolve(
         suggested_from=suggested_from,
         choice=choice,
     )
-
-
-def _colors_from_choice(choice, *, ini_path, cty_ok, dxcc_lookup, log_label):
-    ini = read_colors_ini(ini_path)
-    override = choice.get("wsjtx_override")
-    if isinstance(override, dict) and isinstance(override.get("categories"), dict):
-        cats = override["categories"]
-        note = ""
-        label = "WSJT-X Colors · edited in WIMS"
-        highlight = bool(override.get("highlight_by_mode"))
-        fields = bool(override.get("only_fields_sought"))
-    else:
-        cats, note = default_color_categories(cty_ok=cty_ok)
-        highlight = bool(ini["highlight_by_mode"]) if ini["highlight_by_mode"] is not None else False
-        fields = bool(ini["only_fields_sought"]) if ini["only_fields_sought"] is not None else False
-        if ini["found"]:
-            name = Path(ini["path"]).name or "WSJT-X.ini"
-            label = f"WSJT-X Colors · {name}"
-        else:
-            label = "WSJT-X Colors"
-    if (choice.get("fallback") or "wsjtx-colors") == "gridtracker":
-        note = (
-            (note + " " if note else "")
-            + "GridTracker settings are not readable. Needed is using WSJT-X Colors until this file opens."
-        ).strip()
-    rules = WsjtxColors(
-        categories=cats,
-        highlight_by_mode=highlight,
-        only_fields_sought=fields,
-        log_label=log_label,
-        dxcc_lookup=dxcc_lookup,
-        note=note,
-        source_label=label,
-    )
-    return rules, label, note

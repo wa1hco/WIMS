@@ -959,17 +959,19 @@ function renderGoalChecklist(goal) {
   _checklistSig = sig;
   const scopeTip = goal.scope_tip || "";
   const body = rows.map(row => {
-    const soon = row.coming_soon || row.available === false;
     const tip = row.tip || "";
     const scopeHtml = scopes.map(sc =>
       `<option value="${esc(sc.id)}"${sc.id === row.scope ? " selected" : ""}>${esc(sc.label)}</option>`
     ).join("");
+    const soon = !!row.coming_soon;
+    const locked = soon || row.available === false;
     const label = soon ? `${row.label} (coming soon)` : row.label;
+    const checked = !locked && !!row.enabled;
     return `<div class="goal-row advline">` +
-      `<label class="${soon ? "goal-soon" : ""}" title="${escAttr(tip)}">` +
-      `<input type="checkbox" data-kind="${esc(row.kind)}"${row.enabled ? " checked" : ""}` +
-      `${soon ? " disabled" : ""} title="${escAttr(tip)}"> ${esc(label)}</label>` +
-      `<select data-scope="${esc(row.kind)}" title="${escAttr(scopeTip)}"${soon ? " disabled" : ""}>` +
+      `<label class="${locked ? "goal-soon" : ""}" title="${escAttr(tip)}">` +
+      `<input type="checkbox" data-kind="${esc(row.kind)}"${checked ? " checked" : ""}` +
+      `${locked ? " disabled" : ""} title="${escAttr(tip)}"> ${esc(label)}</label>` +
+      `<select data-scope="${esc(row.kind)}" title="${escAttr(scopeTip)}"${locked ? " disabled" : ""}>` +
       scopeHtml + `</select>` +
       goalTip(tip) +
       `</div>`;
@@ -983,10 +985,12 @@ function renderGoalChecklist(goal) {
     const items = rows.map(row => {
       const boxEl = box.querySelector(`input[data-kind="${row.kind}"]`);
       const scopeEl = box.querySelector(`select[data-scope="${row.kind}"]`);
-      const soon = row.coming_soon || row.available === false;
+      const soon = !!row.coming_soon;
+      const locked = soon || row.available === false;
+      const kept = row.stored != null ? !!row.stored : !!row.enabled;
       return {
         kind: row.kind,
-        enabled: !soon && !!(boxEl && boxEl.checked),
+        enabled: locked ? kept : !!(boxEl && boxEl.checked),
         scope: (scopeEl && scopeEl.value) || row.scope || "overall",
       };
     });
@@ -1167,18 +1171,6 @@ function renderContestRules(s) {
 // Casual operators: no commands, no file-format names, no setting keys.
 const ADV_TIPS = {
   summary: "Extra choices. Leave this closed when the Goal menus already look right.",
-  colors: "These boxes are used for Just operating with WSJT-X Colors. A checked box means that kind of new station looks needed.",
-  colorGeneric: "Mark a station as new when this color matches your log.",
-  new_dxcc: "Mark a station as new when its country is not already in your log.",
-  new_dxcc_band: "Mark a station as new when you have not worked that country on this band.",
-  new_grid: "Mark a station as new when its grid square is not already in your log.",
-  new_grid_band: "Mark a station as new when you have not worked that grid square on this band.",
-  new_call: "Mark a station as new when that call sign is not already in your log.",
-  new_call_band: "Mark a station as new when you have not worked that call sign on this band.",
-  highlightByMode: "The same station on FT8 and on FT4 counts as two different contacts. Uncheck this to treat every mode as the same contact.",
-  onlyFields: "Compare only the first two letters of a grid, such as FN, instead of the full square, such as FN42.",
-  saveColors: "Keep these color boxes in WIMS. They stay as you set them until you choose to copy WSJT-X again.",
-  resetColors: "Forget the color boxes saved here and copy the Colors choices from WSJT-X again.",
   stationState: "The state you are operating from, such as NY. Leave this blank when the contest does not care.",
   stationCounty: "The county you are operating from. In a county contest, a later change here can let the same station count again.",
   saveStation: "Remember this state and county on this computer.",
@@ -1230,30 +1222,11 @@ function renderContestAdvanced(s) {
   if (!box || !s || !s.rules) return;
   if (box.contains(document.activeElement)) return;
   const rules = s.rules;
-  const colors = rules.colors || {};
   const choice = rules.choice || {};
-  const labels = colors.labels || {
-    new_dxcc: "New DXCC", new_dxcc_band: "New DXCC on Band",
-    new_grid: "New Grid", new_grid_band: "New Grid on Band",
-    new_call: "New Call", new_call_band: "New Call on Band",
-  };
-  const cats = colors.categories || {};
-  const sig = JSON.stringify({cats, note: rules.colors_note || "", choice});
+  const sig = JSON.stringify({choice});
   if (sig === _contestAdvSig && box.dataset.ready === "1") return;
   _contestAdvSig = sig;
-  const checks = Object.keys(labels).map(k => {
-    const tip = ADV_TIPS[k] || ADV_TIPS.colorGeneric;
-    const t = escAttr(tip);
-    return `<span class="advline"><label><input type="checkbox" data-color="${esc(k)}" title="${t}"${cats[k] ? " checked" : ""}> ${esc(labels[k])}</label>${tipBtn(tip)}</span>`;
-  }).join("");
   box.innerHTML =
-    `<p class="advline">WSJT-X Colors ${tipBtn(ADV_TIPS.colors)}</p>` +
-    `<p>${esc(rules.colors_note || (colors.note || ""))}</p>` +
-    checks +
-    `<span class="advline"><label><input type="checkbox" id="color-by-mode" title="${escAttr(ADV_TIPS.highlightByMode)}"${colors.highlight_by_mode ? " checked" : ""}> Highlight by mode</label>${tipBtn(ADV_TIPS.highlightByMode)}</span>` +
-    `<span class="advline"><label><input type="checkbox" id="color-fields" title="${escAttr(ADV_TIPS.onlyFields)}"${colors.only_fields_sought ? " checked" : ""}> Only grid fields sought</label>${tipBtn(ADV_TIPS.onlyFields)}</span>` +
-    `<p class="advline"><button type="button" id="color-save" title="${escAttr(ADV_TIPS.saveColors)}">Save color checkboxes</button>${tipBtn(ADV_TIPS.saveColors)} ` +
-    `<button type="button" id="color-reset" title="${escAttr(ADV_TIPS.resetColors)}">Use WSJT-X.ini again</button>${tipBtn(ADV_TIPS.resetColors)}</p>` +
     `<p class="advline"><label>Station state <input id="st-state" title="${escAttr(ADV_TIPS.stationState)}" value="${escAttr(choice.station_state || "")}" size="6"></label>${tipBtn(ADV_TIPS.stationState)} ` +
     `<label>county <input id="st-county" title="${escAttr(ADV_TIPS.stationCounty)}" value="${escAttr(choice.station_county || "")}" size="12"></label>${tipBtn(ADV_TIPS.stationCounty)} ` +
     `<button type="button" id="st-save" title="${escAttr(ADV_TIPS.saveStation)}">Save station</button>${tipBtn(ADV_TIPS.saveStation)}</p>` +
@@ -1279,19 +1252,6 @@ function renderContestAdvanced(s) {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify(body),
   });
-  $("color-save").onclick = () => {
-    const categories = {};
-    box.querySelectorAll("[data-color]").forEach(el => {
-      categories[el.getAttribute("data-color")] = el.checked;
-    });
-    post({
-      action: "colors",
-      categories,
-      highlight_by_mode: $("color-by-mode").checked,
-      only_fields_sought: $("color-fields").checked,
-    }).catch(() => {});
-  };
-  $("color-reset").onclick = () => post({action: "colors_reset"}).catch(() => {});
   $("st-save").onclick = () => post({
     action: "station",
     station_state: $("st-state").value,

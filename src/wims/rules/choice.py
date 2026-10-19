@@ -25,9 +25,9 @@ exist so tests can point at a temp file. Operator docs do not mention them.
 count-since time, and an optional count-until time. The goal does not pick
 the log. A saved choice wins over a suggestion.
 
-Schema 4 stores a goal (contest, award, just operating, or custom) plus the
+Schema 5 stores a goal (contest, award, just operating, or custom) plus the
 second-menu id. Older files only had ``contest``; loading them keeps that
-choice.
+choice. A saved ``wsjtx-colors`` goal is rewritten once as checklist lines.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ from pathlib import Path
 
 from wims.state.last_log import default_path as last_log_path
 
-SCHEMA = 4
+SCHEMA = 5
 
 
 def config_dir() -> Path:
@@ -69,11 +69,11 @@ def default_choice() -> dict:
     return {
         "schema": SCHEMA,
         "goal": "operating",
-        "goal_id": "wsjtx-colors",
+        "goal_id": "checklist",
         "contest": None,
         "explicit": False,
         "suggested": False,
-        "fallback": "wsjtx-colors",
+        "fallback": "",
         "wsjtx_override": None,
         "gridtracker_path": "",
         "station_state": "",
@@ -94,7 +94,7 @@ def load_choice(path: Path | str | None = None) -> dict:
 
 
 def needs_migration(path: Path | str | None = None) -> bool:
-    """True when a saved file is still the old contest-only shape."""
+    """True when a saved file is older than the checklist goal, or still Colors."""
     p = Path(path) if path is not None else choice_path()
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
@@ -103,6 +103,8 @@ def needs_migration(path: Path | str | None = None) -> bool:
     if not isinstance(data, dict):
         return False
     schema = int(data.get("schema") or 0)
+    if str(data.get("goal_id") or "") == "wsjtx-colors":
+        return True
     return schema < SCHEMA or "goal" not in data
 
 

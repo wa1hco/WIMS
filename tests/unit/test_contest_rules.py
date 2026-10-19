@@ -16,7 +16,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Rules engine: NYQP, ARRL VHF (unchanged verdicts), WSJT-X Colors fallback."""
+"""Rules engine: NYQP and ARRL VHF verdicts, checklist for just operating."""
 
 import sys
 from pathlib import Path
@@ -24,11 +24,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.engine.contest_rules import (  # noqa: E402
-    WsjtxColors,
-    default_color_categories,
     load_builtin,
     resolve,
     suggest_contest,
+)
+from wims.engine.goal_rules import (  # noqa: E402
+    ChecklistRules,
+    DEFAULT_COLOR_CATEGORIES,
+    colors_to_checklist,
 )
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
@@ -99,10 +102,10 @@ def test_nyqp_ft8_is_banned_and_county_change_resets():
     assert store.is_new_mult("FN20", "6m", call="N2NEW", mode="SSB") is False
 
 
-def test_wsjtx_colors_highlight_by_mode_and_grid_mult():
-    store = LogStore(":memory:")
-    store.rules = WsjtxColors(
-        categories={
+def test_checklist_call_per_mode_and_grid_per_band():
+    """A saved Colors list with Highlight by mode becomes call per mode, grid per band."""
+    lines = colors_to_checklist(
+        {
             "new_call": False,
             "new_call_band": True,
             "new_grid": False,
@@ -111,8 +114,12 @@ def test_wsjtx_colors_highlight_by_mode_and_grid_mult():
             "new_dxcc_band": False,
         },
         highlight_by_mode=True,
-        log_label="wsjtx_log.adi",
     )
+    assert lines["call"] == {"enabled": True, "scope": "mode"}
+    assert lines["grid"] == {"enabled": True, "scope": "band"}
+    assert lines["dxcc"]["enabled"] is False
+    store = LogStore(":memory:")
+    store.rules = ChecklistRules(lines, title="Checklist", log_label="wsjtx_log.adi")
     store.upsert(_qso("K1ABC", "6m", "FN20", "FT8"))
     worked = store.classify("K1ABC", "6m", "FN20", "FT8")
     assert worked.is_dupe is True
@@ -120,38 +127,37 @@ def test_wsjtx_colors_highlight_by_mode_and_grid_mult():
     assert "FN20" in worked.need_reason
     other_mode = store.classify("K1ABC", "6m", "FN20", "FT4")
     assert other_mode.is_dupe is False
-    assert "New Call on Band" in other_mode.need_reason
+    assert "new call" in other_mode.need_reason
+    assert "FT4" in other_mode.need_reason
     fresh = store.classify("N1NEW", "6m", "FN31", "FT8")
     assert fresh.is_dupe is False
     assert fresh.is_new_mult is True
-    assert "New Grid on Band" in fresh.need_reason
-    call_only = WsjtxColors(categories={
-        "new_call": True, "new_call_band": False, "new_grid": False,
-        "new_grid_band": False, "new_dxcc": False, "new_dxcc_band": False,
-    })
+    assert "new grid" in fresh.need_reason
+    assert "FN31" in fresh.need_reason and "6m" in fresh.need_reason
+    call_only = ChecklistRules(
+        {"call": {"enabled": True, "scope": "overall"}},
+        title="Checklist",
+    )
     store.rules = call_only
     needed = store.classify("N1NEW", "6m", "FN31", "FT8")
     assert needed.is_dupe is False and needed.is_new_mult is False
 
 
-def test_colors_fallback_without_cty_enables_call_and_grid():
-    cats, note = default_color_categories(cty_ok=False)
-    assert cats["new_dxcc"] is False
-    assert cats["new_call"] is True and cats["new_grid_band"] is True
-    assert "cty.dat was not found" in note
-    factory, factory_note = default_color_categories(cty_ok=True)
-    assert factory["new_dxcc"] is True and factory["new_call"] is False
-    assert "default categories" in factory_note
+def test_factory_colors_migrate_to_dxcc_per_band():
+    lines = colors_to_checklist(DEFAULT_COLOR_CATEGORIES, highlight_by_mode=False)
+    assert lines["dxcc"] == {"enabled": True, "scope": "band"}
+    assert lines["call"]["enabled"] is False
+    assert lines["grid"]["enabled"] is False
 
 
-def test_just_operating_stays_colors_on_any_log():
-    # The log does not switch the rule. Colors is checked against the chosen log.
-    n1mm = resolve({"contest": None, "explicit": True}, n1mm=True, cty_ok=False)
-    assert n1mm.rules.id == "wsjtx-colors"
+def test_just_operating_stays_checklist_on_any_log():
+    # The log does not switch the rule. The checklist reads the chosen log.
+    n1mm = resolve({"contest": None, "explicit": True}, n1mm=True)
+    assert n1mm.rules.id == "checklist"
     assert n1mm.public["n1mm_authoritative"] is True
     assert "ARRL VHF" not in (n1mm.public.get("n1mm_line") or "")
-    solo = resolve({"contest": None, "explicit": True}, n1mm=False, cty_ok=False)
-    assert solo.rules.id == "wsjtx-colors"
+    solo = resolve({"contest": None, "explicit": True}, n1mm=False)
+    assert solo.rules.id == "checklist"
     picked = resolve({"contest": "nyqp", "explicit": True}, n1mm=False)
     assert picked.rules.id == "nyqp"
     assert "once per band per mode group" in picked.public["summary"]
@@ -169,7 +175,7 @@ def test_suggestion_uses_alias_and_does_not_invent_a_date():
         n1mm=True,
         contest_names=["NYQP"],
     )
-    assert kept.rules.id == "wsjtx-colors"
+    assert kept.rules.id == "checklist"
 
 
 if __name__ == "__main__":
