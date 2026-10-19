@@ -1737,7 +1737,7 @@ function rosCall(c) {
   const badges =
     (c.is_calling_us ? '<span class="badge callus">us</span>' : '') +
     (c.is_armed ? '<span class="badge armed">TX</span>' : '') +
-    (c.is_new_mult ? '<span class="badge">mult</span>' : '') +
+    (c.is_new_mult ? '<span class="badge" title="' + escAttr(c.mult_reason || '') + '">mult</span>' : '') +
     (c.is_rover ? '<span class="badge rover">R</span>' : '');
   return `${esc(c.call)}${badges}`;
 }
@@ -2237,6 +2237,9 @@ function rosDraw() {
     }
     if (c.need_reason) {
       tr.title = (tr.title ? tr.title + " — " : "") + c.need_reason;
+    }
+    if (c.mult_reason && c.mult_reason !== c.need_reason) {
+      tr.title = (tr.title ? tr.title + " — " : "") + c.mult_reason;
     }
     tr.innerHTML = vis.map(col =>
       `<td class="${col.cls}">${col.cell(c)}</td>`).join("");

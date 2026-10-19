@@ -104,6 +104,8 @@ class LogStore:
         # The lookup itself drops contacts outside the window.
         self.count_since = ""
         self.count_until = ""
+        # Name of the log Log to use selected. Reasons name it. Empty is "the log".
+        self.log_label = ""
         self._gen = 0
         self._row_cache = None
         self._row_gen = -1
@@ -167,6 +169,26 @@ class LogStore:
         )
         self._touch()
         self.con.commit()
+
+    def fill_empty_grid(self, qso_id: str, grid: str) -> bool:
+        """Store a square on a logged contact whose grid was left blank.
+
+        WSJT-X writes ``<gridsquare:0>`` when the exchange never sent a grid.
+        The roster still has the square from the CQ. Only an empty grid is
+        filled; a grid the log already has is left as written.
+        """
+        square = (grid or "").strip().upper()
+        if not qso_id or not square:
+            return False
+        row = self.con.execute(
+            "SELECT grid FROM qsos WHERE id=?", (qso_id,)
+        ).fetchone()
+        if row is None or (row["grid"] or "").strip():
+            return False
+        self.con.execute("UPDATE qsos SET grid=? WHERE id=?", (square, qso_id))
+        self._touch()
+        self.con.commit()
+        return True
 
     def delete(self, qso_id: str) -> None:
         self.con.execute("DELETE FROM qsos WHERE id=?", (qso_id,))

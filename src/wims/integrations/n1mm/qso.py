@@ -50,9 +50,47 @@ def _grid(v) -> str | None:
     return s or None
 
 
-def _band(v) -> str:
+# N1MM's documented band tag is the band edge in MHz ("144", "50", "3.5", "3,5").
+# A bare meter number is also seen on the wire ("2" for 2 meters). Those integers
+# are not MHz edges, so reading them as MHz stores a 2 m QSO as 160 m and the
+# roster keeps the station as a new multiplier.
+_METER_BANDS = {
+    "160": "160m",
+    "80": "80m",
+    "40": "40m",
+    "30": "30m",
+    "20": "20m",
+    "17": "17m",
+    "15": "15m",
+    "12": "12m",
+    "6": "6m",
+    "2": "2m",
+    "1.25": "1.25m",
+}
+
+
+def _band(v, freq=None) -> str:
+    """Band label from N1MM's ``<band>`` and, when present, tx/rx frequency.
+
+    Frequency is N1MM's 10 Hz units (or kHz in a database column). It wins
+    when it lands in a ham band, so ``<band>2</band>`` plus a 144 MHz frequency
+    is 2 m. A label such as ``2M`` or ``70cm`` is used as written. A comma
+    decimal (``3,5``) is 3.5 MHz.
+    """
+    label = (str(v) if v is not None else "").strip()
+    low = label.lower().replace(" ", "")
+    if low.endswith("cm") or low.endswith("m"):
+        return low
+    if freq not in (None, ""):
+        from wims.core.bands import band_label, in_ham_band, n1mm_raw_to_hz
+        hz = n1mm_raw_to_hz(freq)
+        if hz and in_ham_band(hz):
+            return band_label(hz, apply_if=False)
+    token = label.replace(",", ".").strip()
+    if token in _METER_BANDS:
+        return _METER_BANDS[token]
     try:
-        return band_label_mhz(float(v))
+        return band_label_mhz(float(token))
     except (TypeError, ValueError):
         return "?"
 
@@ -105,7 +143,7 @@ class LoggedQso:
         return cls(
             id=str(d.get("id") or "").strip(),
             call=(d.get("call") or "").strip().upper(),
-            band=_band(d.get("band")),
+            band=_band(d.get("band"), d.get("txfreq") or d.get("rxfreq") or d.get("freq")),
             grid=_grid(d.get("gridsquare")),
             mode=(d.get("mode") or None),
             points=int(float(d.get("points") or 0)),
