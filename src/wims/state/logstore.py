@@ -62,7 +62,10 @@ CREATE TABLE IF NOT EXISTS qsos (
     my_state  TEXT,
     my_county TEXT,
     dxcc      TEXT,
-    contest_id TEXT
+    contest_id TEXT,
+    cqz       TEXT,
+    ituz      TEXT,
+    cont      TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_qsos_cbg  ON qsos (call, band, grid);
 CREATE INDEX IF NOT EXISTS ix_qsos_grid ON qsos (band, grid);
@@ -79,6 +82,9 @@ _EXTRA_COLUMNS = (
     ("my_county", "TEXT"),
     ("dxcc", "TEXT"),
     ("contest_id", "TEXT"),
+    ("cqz", "TEXT"),
+    ("ituz", "TEXT"),
+    ("cont", "TEXT"),
 )
 
 
@@ -149,8 +155,8 @@ class LogStore:
                  (id, call, band, grid, mode, points, is_mult, contest,
                   timestamp, operator, rover, source,
                   submode, qso_date, time_on, exchange, state, my_state,
-                  my_county, dxcc, contest_id)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  my_county, dxcc, contest_id, cqz, ituz, cont)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  call=excluded.call, band=excluded.band, grid=excluded.grid,
                  mode=excluded.mode, points=excluded.points,
@@ -161,11 +167,12 @@ class LogStore:
                  time_on=excluded.time_on, exchange=excluded.exchange,
                  state=excluded.state, my_state=excluded.my_state,
                  my_county=excluded.my_county, dxcc=excluded.dxcc,
-                 contest_id=excluded.contest_id""",
+                 contest_id=excluded.contest_id, cqz=excluded.cqz,
+                 ituz=excluded.ituz, cont=excluded.cont""",
             (q.id, q.call, q.band, q.grid, q.mode, q.points, int(q.is_mult),
              q.contest, q.timestamp, q.operator, q.rover_location, q.source,
              q.submode, q.qso_date, q.time_on, q.exchange, q.state, q.my_state,
-             q.my_county, q.dxcc, q.contest_id),
+             q.my_county, q.dxcc, q.contest_id, q.cqz, q.ituz, q.cont),
         )
         self._touch()
         self.con.commit()

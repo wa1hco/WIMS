@@ -163,38 +163,41 @@ WSJT-X’s logged ADIF does not store a contest name or an exchange. When that l
 
 ## 3. Contest rules
 
+**Update (2026-10-19).** WSJT-X Colors is retired. Several WSJT-X instances
+(`--rig-name` flex, IC9700, each with its own ini) do not share one color
+list, and WIMS never parsed the DecodeHighlighting categories. Just operating
+is the checklist. A saved `wsjtx-colors` choice is rewritten once into the
+matching checklist lines (see §3.8). Sections 3.6 and 3.7 below describe the
+retired path; they are not what Setup does now.
+
 **Update (2026-10-17).** The casual control is no longer one Contest menu with
-an empty “None” row. It is a Goal menu plus a second menu. See §3.8. Sections
-3.0–3.7 still describe how a contest file, N1MM, and WSJT-X Colors behave.
-Where they say “dropdown None”, read “Just operating (not a contest)” with
-Worth working set to WSJT-X Colors.
+an empty “None” row. It is a Goal menu plus a second menu. See §3.8. Where
+older sentences say “dropdown None”, read “Just operating (not a contest)”
+with Worth working set to Checklist.
 
 Dupe, multiplier, and QSO points are a **rules** object. Rank weights (`snr`, `cq`, `rover`, condition open/marginal/dead) stay in `ScoringStrategy`. The two axes are independent: rules decide “is this contact worth points / a mult, or already worked?”; the strategy decides how to rank the stations that are still worth working.
 
 ### 3.0 Which rule is active
 
-The log and the rule are separate. Needed and dupe are always computed from the log chosen under **Log to use** (§2.5). The Goal only decides what counts against that log. WSJT-X Colors is the fallback rule for Just operating. It is evaluated against the selected log, including when that log is an N1MM file. Choosing N1MM does not switch the rule to ARRL VHF.
+The log and the rule are separate. Needed and dupe are always computed from the log chosen under **Log to use** (§2.5). The Goal only decides what counts against that log. Just operating uses the checklist. It is evaluated against the selected log, including when that log is an N1MM file. Choosing N1MM does not switch the rule to ARRL VHF.
 
 **Rule, in order:**
 
 | Step | When | Rule |
 |------|------|------|
 | (a) | Goal is a named contest | That contest’s rules file (section 3.2), against the log chosen in §2.5 |
-| (b) | Dropdown is Custom (an Advanced rules file was saved) | That file |
-| (c) | Dropdown is None | Fallback source (section 3.6 or 3.7) |
+| (b) | Goal is Custom and an Advanced rules file was saved | That file |
+| (c) | Goal is Just operating, or Custom → My checklist | The checklist (section 3.8) |
 
-A named contest wins over a custom file. Custom is not on the casual path: it appears in the dropdown only after Advanced saves one. None is the WSJT-X Colors fallback, not a fake contest.
+A named contest wins over a custom file. Custom is not on the casual path: it appears in the dropdown only after Advanced saves one.
 
-The active source is always visible: on Setup, at the top of **Contest rules**, and as one line on the Operate roster (`rules.source_label` in the state contract). Examples:
+The active source is always visible: on Setup, as the plain sentence under Goal, and as one line on the Operate roster (`rules.source_label` in the state contract). Examples:
 
 | Situation | Label |
 |-----------|--------|
-| Just operating, any selected log | `WSJT-X Colors · …` |
-| Dropdown is NY QSO Party | `NY QSO Party` |
-| Dropdown is Custom | `Custom rules` |
-| Dropdown None, ini read succeeded | `WSJT-X Colors · WSJT-X.ini` |
-| Dropdown None, colors edited in WIMS | `WSJT-X Colors · edited in WIMS` |
-| Dropdown None, GridTracker chosen under Advanced | `GridTracker roster` |
+| Just operating | `Checklist` |
+| Goal is NY QSO Party | `NY QSO Party` |
+| Goal is Custom, saved contest rules | `Custom rules` |
 
 ### 3.1 Interface
 
@@ -372,6 +375,8 @@ State-contract key `rules`:
 
 ### 3.5 Setup, for a casual operator
 
+The screen operators see now is §3.8 (Goal, then Checklist). The bullets below are the 2026-10-15 dropdown. They are not the current Setup page.
+
 This is part of the design, not polish to do later. The casual screen auto-detects what it can and asks for almost nothing.
 
 Auto, with no extra questions: WSJT-X log locations (section 4), band and mode from UDP, IF-reporting seats (already on Setup), WSJT-X Colors settings (section 3.6). Where a contest is known, suggest it. Do not require it.
@@ -399,6 +404,8 @@ The dropdown moves to that contest and the sentence says it is a suggestion: “
 No new command-line arguments. `python -m wims solo` is unchanged. Operate shows `source_label` and each row’s `need_reason`. It does not grow a contest form. The log is chosen on `/log`. `/n1mm` lists several N1MM stations when more than one is on the network.
 
 ### 3.6 WSJT-X style needed rule
+
+Retired 2026-10-19. Setup does not read a Colors ini. The behavior below is how that rule used to work, kept so the migration in §3.8 has something to map from.
 
 Step (c), when the Contest dropdown is None and N1MM is not the log. It answers “needed?” for a **CQ** the way WSJT-X colors a decoded CQ. The scoring strategy still excludes non-CQ rows (“not calling CQ”).
 
@@ -485,7 +492,7 @@ Alternative for step (c) only. The operator sets `fallback` to `gridtracker`. WI
 - Whether GT’s “new grid” is a four-character square or a two-letter field.
 - Which ADIF files GT has loaded when several are configured.
 
-If the chosen file cannot be read, Setup says “GridTracker settings are not readable ({path}). Needed is using WSJT-X Colors until this file opens.” Step (c) falls back to section 3.6 rather than marking every station needed.
+If the chosen file cannot be read, needed stays on the checklist (section 3.8). GridTracker is still a log you can pick under Log to use. It is not a second rules source.
 
 ### 3.8 Goal menu (2026-10-17)
 
@@ -495,30 +502,37 @@ The Setup control is two menus. The first is the goal. The second depends on tha
 |------|-------------|---------------------|
 | Contest | NY QSO Party, ARRL VHF, and any later rules file | That file (section 3.2), against the log |
 | Award | DXCC, Worked All States, VUCC (grid squares), County hunting | A station is new when that place is not already in the log |
-| Just operating (not a contest) | WSJT-X Colors (the default), or Checklist | Colors: section 3.6. Checklist: the ticked lines below |
+| Just operating (not a contest) | Checklist | The ticked lines below |
 | Custom | My checklist, and Saved contest rules when Advanced has saved one | The ticked lines, or the saved custom file (section 3.3) |
 
-“Just operating (not a contest)” is the old empty Contest row. The saved file still uses `contest: null` for that choice so an older build keeps the same meaning. A named contest id is unchanged.
+“Just operating (not a contest)” is the old empty Contest row. The saved file still uses `contest: null` for that choice. A named contest id is unchanged. A saved `goal_id` of `wsjtx-colors` (including that old empty menu) is converted once, the first time the file is read, into checklist lines, then saved. WIMS does not read a WSJT-X.ini to do that.
 
 **Awards.** Logged contacts are the already-have list. DXCC matches a country number stored on the contact, and a callsign country only when a lookup is available. Without that lookup the summary says a station counts only when the log stores a country number. Worked All States is the fifty US states; a province does not count, and a station with no state is not marked new. VUCC is the four-character grid square. County hunting is shown and disabled: WIMS does not have a county list.
 
-**Checklist** (Just operating → Checklist, or Custom → My checklist). Each line is overall, per band, or per mode. New DXCC entity starts ticked, overall. Also available: new grid, new state or province, new call. New county and new callsign prefix are on the list and cannot be ticked. The short prefix table used for N1MM inserts is not a prefix list, and it is not used here.
+**Checklist** (Just operating → Checklist, or Custom → My checklist). Each line is overall, per band, or per mode. One scope per line. New DXCC entity starts ticked, overall. Also available: new continent, new CQ zone, new ITU zone, new grid, new state or province, new call. Continent and the two zone lines need the country file (`cty.dat`) WSJT-X already keeps. When that file is missing they stay on the list, unchecked on screen, with a tip, and a saved tick is kept for the next time the file is found. New county and new callsign prefix are on the list and cannot be ticked. The short prefix table used for N1MM inserts is not a prefix list, and it is not used here.
 
-**Log.** The Goal does not choose the log. The Log page → **Log to use** does (§2.5). An explicit contest, award, checklist, or Just operating reads that same log. WSJT-X Colors, when that is the rule, is checked against it.
+Zones use the country-file number when the entity is one zone. A prefix written as `prefix(cq)[itu]` uses that number. United States, Canada, Russia, Australia, and China span more than one CQ zone; those plus Brazil span more than one ITU zone. For those, the zone comes from the grid when the square sits inside one zone box (`rules/zones.py`, approximating the CQ WAZ map and the EI8IC ITU map). A missing grid, a two-character field, or a square the boxes will not call is **zone uncertain**. That station is not marked needed for the zone. A logged contact with an uncertain zone does not count as that zone already worked. ADIF `CQZ`, `ITUZ`, and `CONT` on a logged contact win over the derivation.
+
+**Colors migration.** `new_dxcc` → DXCC overall, `new_dxcc_band` → DXCC per band, and the same for grid and call. Both on → per band. Highlight by mode, only when it was saved in WIMS, changes the call line to per mode (a new band in a mode already worked is then not marked; the checklist keeps one scope). DXCC and grid are not changed by that flag. Only grid fields sought is not migrated; grid stays four characters. No saved category list → the factory pair, New DXCC and New DXCC on Band, which is one line: DXCC per band. A contest goal that still has a leftover color edit keeps the contest and does not copy those categories onto its checklist.
+
+**Log.** The Goal does not choose the log. The Log page → **Log to use** does (§2.5). An explicit contest, award, checklist, or Just operating reads that same log. Nothing in the goal selects a different file.
 
 **Suggestion.** A date or contest name in the log may still move an unset menu to a contest. The sentence says it is a suggestion and tells the operator to choose Just operating if that is wrong. An explicit goal is not overwritten.
 
-**Saved file.** Schema 4, same path as before, beside `last_log.json`. On startup a schema 3 file is rewritten. `contest` is kept in sync for a contest id and for saved contest rules. Awards and Just operating leave `contest` empty.
+**Saved file.** Schema 5, same path as before, beside `last_log.json`. On startup an older file is rewritten once. `contest` is kept in sync for a contest id and for saved contest rules. Awards and Just operating leave `contest` empty. `fallback` is cleared. `wsjtx_override` is cleared after the Colors lines have been copied onto the checklist.
 
 ```json
 {
-  "schema": 4,
+  "schema": 5,
   "goal": "operating",
-  "goal_id": "wsjtx-colors",
+  "goal_id": "checklist",
   "contest": null,
   "explicit": true,
   "checklist": {
     "dxcc": {"enabled": true, "scope": "overall"},
+    "continent": {"enabled": false, "scope": "overall"},
+    "cq": {"enabled": false, "scope": "overall"},
+    "itu": {"enabled": false, "scope": "overall"},
     "grid": {"enabled": false, "scope": "overall"},
     "state": {"enabled": false, "scope": "overall"},
     "county": {"enabled": false, "scope": "overall"},
@@ -528,7 +542,7 @@ The Setup control is two menus. The first is the goal. The second depends on tha
 }
 ```
 
-`goal_id` for a contest is the rules-file id (`nyqp`, `arrl-vhf`). For an award it is `dxcc`, `was`, `vucc`, or `county`. For Just operating it is `wsjtx-colors` or `checklist`. For Custom it is `checklist` or `custom-file`.
+`goal_id` for a contest is the rules-file id (`nyqp`, `arrl-vhf`). For an award it is `dxcc`, `was`, `vucc`, or `county`. For Just operating it is `checklist`. For Custom it is `checklist` or `custom-file`.
 
 A heard station counts as a new state only when its state is already known (a state on the logged contact, or the exchange). A decode with no state is not invented from the callsign or from the grid. The summary says so.
 
@@ -724,7 +738,7 @@ JSON outline: `{summary, sources, window, matched, matched_count, only, missing,
 
 | Risk | What we do about it |
 |------|---------------------|
-| Extracting rules changes fleet VHF verdicts | L1’s only in-code preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. Just operating uses WSJT-X Colors against whichever log is selected (§2.5). The log does not switch that rule. |
+| Extracting rules changes fleet VHF verdicts | L1’s only in-code preset is `arrl-vhf`, delegated from today’s `is_dupe` / `is_new_mult`. Existing scoring tests must pass unchanged. Just operating uses the checklist against whichever log is selected (§2.5). The log does not switch that rule. |
 | Shipping someone else’s contest definition | Rules files are original GPL-3.0 summaries with `rules_url`. No N1MM `.udc` gallery and no DXLog `.txt` in the repo. Importer reads only a path the operator picks on their machine. |
 | NYQP multiplier scope guessed wrong | `per` stays `unverified`. New-mult stays off until the rules page is checked. Dupe and points still follow the verified table. |
 | Shared file plus per-instance files double-count in `LogStore` | Primary reads one or the other (section 4.2). Audit may read both and labels those pairs as the same contact. |
@@ -738,15 +752,15 @@ JSON outline: `{summary, sources, window, matched, matched_count, only, missing,
 | `Path.resolve()` on Linux does not see a Windows junction made elsewhere | Compare resolved paths on the machine that holds the file. Document that the shared-drive check runs on the WSJT-X PC. |
 | Audit time window pairs the wrong QSO when a station is worked twice in 3 minutes | Rare on FT8. The report shows both times. A later milestone can tighten the window; 3 minutes is the first cut. |
 | Reading Log4OM SQLite while it is open | Out of scope until the survey spike. ADIF export only. |
-| `DecodeHighlighting` is a Qt binary list | Plain bools (`HighlightByMode`, `OnlyFieldsSought`) are readable now. The category list needs a spike. Until it parses, show factory defaults and say the ini list was not read. |
-| Mirroring GridTracker writes or guesses its config | Read-only open. No write, no UDP. Unknown filename or LevelDB ⇒ operator-supplied export, and WSJT-X Colors until that file reads. |
-| WSJT-X Colors and a contest rule both apply | Section 3.0 picks one source. The roster label is that source. |
+| `DecodeHighlighting` is a Qt binary list | Closed 2026-10-19. WIMS does not read a Colors ini. A saved color list, if the operator edited one in WIMS, is converted once to checklist lines (§3.8). |
+| Mirroring GridTracker writes or guesses its config | Read-only open. No write, no UDP. GridTracker stays a selectable log. It is not a rules source. Needed stays on the checklist when no other goal is chosen. |
+| Two rules both apply | Section 3.0 picks one source. The roster label is that source. |
 
 ---
 
 ## 7. Open questions
 
-1. **Solo default — resolved (2026-10-15), UX revised the same day, Goal menu 2026-10-17.** Just operating ⇒ WSJT-X Colors. A suggested contest (date or `CONTEST_ID`) may move the Goal menu to that contest, and the sentence says it is a suggestion. An explicit choice sticks. N1MM as the log of record stays on the contest file, or `arrl-vhf` when the goal is still just operating. Awards and the checklist, when chosen, read that same log. See §3.8.
+1. **Solo default — resolved (2026-10-15), UX revised the same day, Goal menu 2026-10-17, Colors retired 2026-10-19.** Just operating ⇒ Checklist. A saved WSJT-X Colors choice is rewritten once as checklist lines. A suggested contest (date or `CONTEST_ID`) may move an unset menu to that contest, and the sentence says it is a suggestion. An explicit choice sticks. The log under Log to use is the only log, including when that log is N1MM. Choosing N1MM does not switch the rule to `arrl-vhf`. See §3.8.
 2. **GridTracker filename.** Confirm on a real GT2 install (Windows and Linux) before `--gridtracker-auto` looks for a log name, and before the fallback reader looks for a settings file (section 3.7). Until then the operator passes a path.
 3. **File lock.** Does WSJT-X on Windows allow a second process to read `wsjtx_log.adi` while the program is open? The locked-file warning depends on the answer.
 4. **Suggest vs auto-switch** when N1MM `ContestName` maps to a preset. This proposal suggests only. Auto-switch would surprise someone who set Custom.

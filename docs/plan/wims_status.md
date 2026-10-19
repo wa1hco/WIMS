@@ -133,7 +133,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). Reply socket is unbound (OS picks the route; no path → plain sentence). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
 | 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
-| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (WSJT-X Colors or a checklist), or custom. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. Log to use is the log; Just operating uses WSJT-X Colors against that log. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
+| 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (Checklist), or custom. Checklist adds continent, CQ zone, and ITU zone (overall, per band, or per mode) when `cty.dat` is present; a missing file leaves those three off with a tip. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. Log to use is the only log. A saved WSJT-X Colors choice is rewritten once as checklist lines. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, persistent grid memory, grid→WSJT-X for logging, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
 | 3.6 | Logger interface (N1MM) | `[~]` | Log to use on the Log page: the operator’s log, or a Goal suggestion (contest → newest matching N1MM; otherwise WSJT-X). Count-since / count-until change the needed/dupe lookup. N1MM seed + live contact UDP + resync when that contest file is the log. The selected file is re-read about once a second, before the roster is scored, and a locked read does not wipe the copy. A logged contact clears needed and Mult on the next push. The mult badge names the square, the band, and the log. Per-instance `wsjtx_log.adi` discovery and Log-page warnings. **Check logs** is on the Log page (summary first; shared files count once). The N1MM tab lists several stations and stays hidden when fewer than two are heard. Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), challenge pace UI, **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
 | 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
@@ -205,19 +205,21 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (schema 3) beside `last_log.json`. Setup → Contest. Advanced stays collapsed.
   Each Advanced control has a plain-language tip (hover and a keyboard ?).
   No new CLI flag. Alias suggestion does not override an explicit Just operating
-  choice. Just operating stays WSJT-X Colors on whatever log is selected.
-  Superseded in the UI by L10; the saved file still migrates.
+  choice. Just operating stayed on WSJT-X Colors on whatever log was selected.
+  Superseded in the UI by L10; the saved file still migrates. Colors itself
+  was retired 2026-10-19 (see the build log): Just operating is the checklist.
 - [x] **L10 — Goal menu.** Setup → Goal, then a second menu (contest, award,
   worth working, or your list). “Just operating (not a contest)” replaces the
-  old empty Contest choice and still uses WSJT-X Colors. Awards: DXCC, Worked
-  All States, VUCC. Checklist adds state or province and call, each overall /
+  old empty Contest choice. As of 2026-10-19 that choice is the checklist,
+  not WSJT-X Colors. Awards: DXCC, Worked All States, VUCC. Checklist adds
+  continent, CQ zone, ITU zone, state or province, and call, each overall /
   per band / per mode. County and callsign prefix show as coming soon. Schema 3
   `contest_rules.json` keeps the saved contest. Advanced stays collapsed.
-- [x] **L3 — Rules files, NY QSO Party first, Colors fallback.** `nyqp.json` from
+- [x] **L3 — Rules files, NY QSO Party first.** `nyqp.json` from
   the published v1.1 rules (2026-09-25). FT8/FT4 banned. County change resets.
-  `per: unverified` does not mark new mults. Colors ini bools are read;
-  `DecodeHighlighting` is not. Without `cty.dat`, the four call/grid categories
-  start on (see the design note in §3.6).
+  `per: unverified` does not mark new mults. The Colors ini reader was removed
+  2026-10-19; a saved color list migrates to the checklist. Contest files are
+  unchanged.
 - [x] **L4 — WSJT-X log discovery + “log not accessible” warning.** Per-instance
   data dirs, shared path, Log page **Each radio’s log** lines, solo check **Logs** section.
 - [x] **L5 — `WsjtxAdifLogSource` seeds the log copy.** Used when that log is
@@ -241,17 +243,18 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   page log-access poll is still not on that timer.
 - [~] **L8 — Further log readers.** Any logger’s ADIF export is `--adif PATH`.
   No Log4OM / DXKeeper / CQRLOG native database.
-- [~] **L9 — GridTracker roster fallback.** If Advanced sets the fallback to
-  GridTracker and the settings file is not a plain JSON we can read, needed
-  uses WSJT-X Colors and says so. LevelDB filters are not read. No writes.
+- [~] **L9 — GridTracker roster fallback.** Retired as a rules source
+  2026-10-19. GridTracker remains a log you can pick. LevelDB filters are not
+  read. No writes. Needed stays on the checklist when that is the goal.
 
 ---
 
 ## Build log
 
+- **2026-10-19** — **Checklist replaces WSJT-X Colors.** Setup → Just operating is Checklist only. Advanced no longer edits color checks. A saved `wsjtx-colors` choice (or the older empty Contest menu) is rewritten once into checklist lines: New DXCC / grid / call, overall or per band; Highlight by mode, when it was saved in WIMS, makes the call line per mode. No saved list becomes DXCC per band, which is the factory pair. The contest suggestion uses that same checklist window. Log to use stays the only log. Continent, CQ zone, and ITU zone are new checklist lines (overall, per band, per mode). They use the `cty.dat` WSJT-X already keeps. Multi-zone entities take the zone from the grid when the square is inside one published zone box; otherwise the roster says zone uncertain and does not mark the station needed. ADIF CQZ, ITUZ, and CONT on a logged contact win. A missing country file leaves those three lines off, with a tip, and keeps a saved tick. County and prefix stay coming soon. Contest files are unchanged. Tests: `tests/unit/test_checklist_zones.py`, `tests/unit/test_goal_rules.py`.
 - **2026-10-19** — **Country on the Operate roster.** The call roster shows each station's DXCC entity (Uruguay for CX4BAN, United States for a W1 call). A portable suffix stays with the home entity. A prefix before or after the slash (W1AW/CX) uses the place they are operating from. An unknown prefix is left blank. Hover names the entity and, when WIMS has them, the continent and CQ zone. The same name is on a per-decode table that shows callsigns. Tests: `tests/unit/test_dxcc.py`.
 - **2026-10-19** — **CX4BAN stayed a Mult with a blank grid.** WSJT-X wrote `<gridsquare:0>` on the new 20 m line. The 2021 GF15 contact is on 40 m, so it does not clear 20 m. The CQ `CQ DX CX4BAN GF15` is the square. The next roster push copies that square onto the blank log line, and the station is worked rather than a mult. Hover names the square, the band, and the log. Tests: `tests/unit/test_roster_logged.py`.
-- **2026-10-19** — **Roster Mult after a logged contact.** Logging a contact updates needed and Mult on the next roster push (the page refresh, about one second). Log to use is the only log that counts. A contact in a different file stays a multiplier, and WSJT-X Colors does not switch logs. N1MM's meter band `2` is 2 m, an empty N1MM grid is taken from the decode, and a 6-character grid matches the 4-character square. The mult badge tip names the square, the band, and the log. A contact on another band, a portable suffix, or a contact before Start now still shows Mult, and the tip says why. Tests: `tests/unit/test_roster_logged.py`.
+- **2026-10-19** — **Roster Mult after a logged contact.** Logging a contact updates needed and Mult on the next roster push (the page refresh, about one second). Log to use is the only log that counts. A contact in a different file stays a multiplier, and changing the goal does not switch logs. N1MM's meter band `2` is 2 m, an empty N1MM grid is taken from the decode, and a 6-character grid matches the 4-character square. The mult badge tip names the square, the band, and the log. A contact on another band, a portable suffix, or a contact before Start now still shows Mult, and the tip says why. Tests: `tests/unit/test_roster_logged.py`.
 - **2026-10-19** — **Operate TX groups stay quiet until there is something to know.**
   The paragraph under the roster is gone; the same meaning is the hover text on
   **TX groups**. The heading, banner, counts, table, and empty line are hidden
@@ -338,15 +341,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   (a fresh CI runner treated the stamp as "never heard").
 - **2026-10-17** — **Goal menu on Setup.** Contest / Award / Just operating /
   Custom, with a second menu. DXCC, Worked All States, and VUCC use the log as
-  the already-have list. Just operating defaults to WSJT-X Colors; a checklist
-  covers DXCC, grid, state or province, and call (overall, per band, or per
-  mode). County and callsign prefix stay off — no list is shipped. Saved
-  schema 3 contest choices migrate. Design: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
+  the already-have list. Just operating then defaulted to WSJT-X Colors.
+  Colors was retired 2026-10-19; Just operating is the checklist.
+  Design: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **2026-10-17** — **Setup Advanced tooltips.** Every control under Setup →
   Advanced has a short plain-language tip: a native hover title and a
   keyboard-focusable ?. Covers contest rules, how often a station counts,
   county reset, mode groups, modes that do not count, points, multipliers,
-  log path, Check logs, and WSJT-X Colors when Just operating uses them.
+  log path, and Check logs. The color-check tips were removed 2026-10-19.
 - **2026-10-16** — **Zero-knowledge start and launcher path.** Desktop and Start
   menu icon named WIMS (`scripts/Add WIMS to Desktop.bat`,
   `scripts/add-wims-to-desktop.sh`). Second double-click reopens the console.

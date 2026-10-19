@@ -84,14 +84,17 @@ def test_schema3_contest_migrates_and_keeps_the_selection():
         "wsjtx_override": {"categories": {"new_call": True}},
     }
     got = shape_choice(old)
-    assert got["schema"] == 4
+    assert got["schema"] == 5
     assert got["goal"] == "contest"
     assert got["goal_id"] == "nyqp"
     assert got["contest"] == "nyqp"
     assert got["explicit"] is True
     assert got["station_state"] == "NY"
     assert got["station_county"] == "ALBA"
-    assert got["wsjtx_override"]["categories"]["new_call"] is True
+    # A leftover Colors edit on a contest choice is dropped. The contest stays.
+    assert got["wsjtx_override"] is None
+    assert got["fallback"] == ""
+    assert got["checklist"]["call"]["enabled"] is False
     kept = resolve(old, n1mm=False)
     assert kept.rules.id == "nyqp"
     assert "once per band per mode group" in kept.public["summary"]
@@ -100,12 +103,16 @@ def test_schema3_contest_migrates_and_keeps_the_selection():
 def test_schema3_empty_menu_becomes_just_operating():
     got = shape_choice({"schema": 3, "contest": None, "explicit": True})
     assert got["goal"] == "operating"
-    assert got["goal_id"] == "wsjtx-colors"
+    assert got["goal_id"] == "checklist"
     assert got["contest"] is None
-    solo = resolve(got, n1mm=False, cty_ok=False)
-    assert solo.rules.id == "wsjtx-colors"
-    n1mm = resolve(got, n1mm=True, cty_ok=False)
-    assert n1mm.rules.id == "wsjtx-colors"
+    # No saved color list: the factory pair is New DXCC and New DXCC on Band.
+    assert got["checklist"]["dxcc"] == {"enabled": True, "scope": "band"}
+    assert got["checklist"]["call"]["enabled"] is False
+    assert got["checklist"]["grid"]["enabled"] is False
+    solo = resolve(got, n1mm=False)
+    assert solo.rules.id == "checklist"
+    n1mm = resolve(got, n1mm=True)
+    assert n1mm.rules.id == "checklist"
     assert "ARRL VHF" not in (n1mm.public.get("n1mm_line") or "")
 
 
@@ -132,7 +139,7 @@ def test_saved_file_is_rewritten_as_schema4(tmp_path=None):
         save_choice(loaded, path)
         assert needs_migration(path) is False
         disk = json.loads(path.read_text(encoding="utf-8"))
-        assert disk["schema"] == 4
+        assert disk["schema"] == 5
         assert disk["goal"] == "contest"
         assert disk["goal_id"] == "arrl-vhf"
         assert disk["contest"] == "arrl-vhf"
@@ -143,7 +150,9 @@ def test_saved_file_is_rewritten_as_schema4(tmp_path=None):
 def test_explicit_just_operating_is_not_replaced_by_a_suggestion():
     choice = {"goal": "operating", "goal_id": "wsjtx-colors", "explicit": True, "schema": 4}
     kept = resolve(choice, n1mm=False, contest_names=["NYQP"])
-    assert kept.rules.id == "wsjtx-colors"
+    assert kept.rules.id == "checklist"
+    assert kept.choice["goal_id"] == "checklist"
+    assert kept.choice["explicit"] is True
     assert kept.suggested is False
 
 
@@ -279,7 +288,7 @@ def test_set_rules_migrates_then_selects_an_award():
         live.attach_rules(n1mm_authoritative=False)
         assert live._log.rules.id == "nyqp"
         disk = json.loads(path.read_text(encoding="utf-8"))
-        assert disk["schema"] == 4 and disk["goal_id"] == "nyqp"
+        assert disk["schema"] == 5 and disk["goal_id"] == "nyqp"
         res = live.set_rules({"action": "select", "goal": "award", "goal_id": "vucc"})
         assert res["ok"] is True
         assert live._log.rules.id == "award-vucc"
@@ -311,20 +320,34 @@ def test_setup_page_uses_positive_goal_wording():
     js = (ROOT / "src" / "wims" / "server" / "static" / "wims.js").read_text(encoding="utf-8")
     assert "goal_id" in js
     assert "coming soon" in js
+    assert "WSJT-X Colors" not in page
+    assert "color-save" not in js and "colors_reset" not in js
+    assert "row.stored" in js
     menu = goal_menu(
         shape_choice({"schema": 3, "contest": None, "explicit": True}),
         custom_available=False,
+        cty_ok=False,
     )
     titles = [row["title"] for row in menu["types"]]
     assert titles[2] == "Just operating (not a contest)"
     assert all(row["tip"] for row in menu["types"])
     assert menu["type"] == "operating"
     assert menu["detail_label"] == "Worth working"
+    op_ids = [row["id"] for row in menu["menus"]["operating"]["options"]]
+    assert op_ids == ["checklist"]
     checks = {row["kind"]: row for row in menu["checklist"]["rows"]}
     assert checks["county"]["coming_soon"] is True
     assert checks["prefix"]["coming_soon"] is True
     assert checks["county"]["enabled"] is False
     assert checks["dxcc"]["enabled"] is True
+    assert checks["dxcc"]["scope"] == "band"
+    for kind in ("continent", "cq", "itu"):
+        row = checks[kind]
+        assert row["available"] is False
+        assert row["coming_soon"] is False
+        assert row["enabled"] is False
+        assert "country list" in row["tip"]
+        assert "coming soon" not in row["tip"].lower()
 
 
 if __name__ == "__main__":

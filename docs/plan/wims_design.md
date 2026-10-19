@@ -1896,9 +1896,11 @@ Candidate situations worth covering — rename, add, or cut freely:
   config. One original GPL-3.0 JSON file per contest (first file: NY QSO Party, from the
   published rules). Casual Setup is a Goal menu (contest, award, just operating, or custom)
   plus one menu that depends on that goal, and a plain sentence. Just operating uses
-  WSJT-X Colors unless the operator picks the checklist. When N1MM is the log and the goal
-  is still just operating, needed stays on `arrl-vhf`. Date or `CONTEST_ID` may suggest a
-  contest. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing
+  the checklist (DXCC overall on a fresh install; continent, CQ zone, and ITU zone when
+  `cty.dat` is present). A saved WSJT-X Colors choice is rewritten once as those lines.
+  The log under Log to use is the only log. Choosing N1MM does not switch the rule to
+  `arrl-vhf`. Date or `CONTEST_ID` may suggest a contest when the goal was not an explicit
+  pick. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing
   stay off until a list exists. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must

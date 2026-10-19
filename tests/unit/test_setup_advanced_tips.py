@@ -14,12 +14,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "src" / "wims" / "server" / "static"
 
-# id on the control → key in ADV_TIPS. The six color boxes share one template.
+# id on the control → key in ADV_TIPS.
 _CONTROLS = {
-    "color-by-mode": "highlightByMode",
-    "color-fields": "onlyFields",
-    "color-save": "saveColors",
-    "color-reset": "resetColors",
     "st-state": "stationState",
     "st-county": "stationCounty",
     "st-save": "saveStation",
@@ -36,17 +32,7 @@ _CONTROLS = {
     "logs-check": "checkLogs",
 }
 
-_COLOR_KEYS = (
-    "new_dxcc",
-    "new_dxcc_band",
-    "new_grid",
-    "new_grid_band",
-    "new_call",
-    "new_call_band",
-)
-
 _TOPICS = (
-    "WSJT-X Colors ${tipBtn(ADV_TIPS.colors)}",
     "Contest rules ${tipBtn(ADV_TIPS.rules)}",
     "Mode groups ${tipBtn(ADV_TIPS.modeGroups)}",
     "Points ${tipBtn(ADV_TIPS.points)}",
@@ -138,13 +124,9 @@ class AdvancedTooltipTests(unittest.TestCase):
             self.assertIn(f"tipBtn(ADV_TIPS.{key})", window, cid)
             self.assertIn(key, self.tips, cid)
 
-        # The six WSJT-X color boxes are one template. Each named color has a tip.
-        color = self.fn[self.fn.find("data-color=") - 180:self.fn.find("data-color=") + 420]
-        self.assertIn('title="${t}"', color)
-        self.assertIn("tipBtn(tip)", color)
-        self.assertIn("ADV_TIPS[k]", self.fn)
-        for key in _COLOR_KEYS:
-            self.assertIn(key, self.tips, key)
+        self.assertNotIn("data-color=", self.fn)
+        self.assertNotIn("WSJT-X Colors", self.fn)
+        self.assertNotIn("color-save", self.fn)
 
         for snippet in _TOPICS:
             self.assertIn(snippet, self.fn, snippet)
@@ -176,7 +158,7 @@ class AdvancedTooltipTests(unittest.TestCase):
         self.assertNotIn('tabindex="-1"', block)
 
     def test_tips_are_short_plain_language(self):
-        self.assertGreaterEqual(len(self.tips), len(_CONTROLS) + len(_COLOR_KEYS) + 5)
+        self.assertGreaterEqual(len(self.tips), len(_CONTROLS) + 1)
         for key, text in self.tips.items():
             self.assertTrue(text.strip(), key)
             self.assertGreaterEqual(_sentences(text), 1, key)

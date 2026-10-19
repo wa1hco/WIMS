@@ -18,15 +18,20 @@
 
 """Goal selector: contest, award, just operating, or a custom checklist.
 
-Awards and the checklist use logged contacts as the already-have list.
+Just operating is the checklist. A saved WSJT-X Colors choice is converted
+once into the matching checklist lines. Awards and the checklist use the
+log chosen under Log to use as the already-have list.
+
 County and callsign prefix stay off: WIMS does not ship a county list or a
 prefix list. ``log/pfx.py`` is a short zone table for N1MM inserts, not a
-prefix award.
+prefix award. Continent, CQ zone, and ITU zone need the country file
+(``cty.dat``). When that file is missing those three stay off.
 """
 
 from __future__ import annotations
 
 from wims.engine.contest_rules import Verdict, _entity, _upper, catalog
+from wims.rules.cty import continent_name
 from wims.rules.places import (
     canonical_place,
     is_us_state,
@@ -55,8 +60,8 @@ GOAL_TYPES = (
         "id": "operating",
         "title": "Just operating (not a contest)",
         "tip": (
-            "Not a contest. WSJT-X Colors follows the color settings. "
-            "Checklist is a short list of what is worth working."
+            "Not a contest. Checklist is the list of what is worth working. "
+            "Each line can count the first time, on each band, or on each mode."
         ),
     },
     {
@@ -86,7 +91,7 @@ DETAIL_TIPS = {
         "Which award. A station is new when that place is not already in the log."
     ),
     "operating": (
-        "WSJT-X Colors follows the color settings. Checklist lets you tick what is worth working."
+        "Checklist is what is worth working. Each line counts the first time, on each band, or on each mode."
     ),
     "custom": (
         "My checklist is yours to edit. Saved contest rules are the ones from Advanced."
@@ -141,12 +146,34 @@ AWARD_IDS = frozenset(row["id"] for row in AWARDS)
 AWARD_BY_ID = {row["id"]: row for row in AWARDS}
 
 # Checklist kinds. County and prefix are shown and not selectable.
+# Continent and the two zone lines need cty.dat. They stay on the list either way.
 CHECKLIST_KINDS = (
     {
         "id": "dxcc",
         "label": "New DXCC entity",
         "available": True,
         "tip": "A country or DXCC entity you do not already have in the log.",
+    },
+    {
+        "id": "continent",
+        "label": "New continent",
+        "available": True,
+        "needs_cty": True,
+        "tip": "A continent you do not already have in the log.",
+    },
+    {
+        "id": "cq",
+        "label": "New CQ zone",
+        "available": True,
+        "needs_cty": True,
+        "tip": "A CQ zone you do not already have in the log.",
+    },
+    {
+        "id": "itu",
+        "label": "New ITU zone",
+        "available": True,
+        "needs_cty": True,
+        "tip": "An ITU zone you do not already have in the log.",
     },
     {
         "id": "grid",
@@ -196,18 +223,38 @@ SCOPE_TIP = (
 
 OPERATING_OPTIONS = (
     {
-        "id": "wsjtx-colors",
-        "title": "WSJT-X Colors",
-        "enabled": True,
-        "tip": "Follow the WSJT-X color settings. You can change those under Advanced.",
-    },
-    {
         "id": "checklist",
         "title": "Checklist",
         "enabled": True,
         "tip": "Tick what is worth working. Each line can count overall, per band, or per mode.",
     },
 )
+
+# WSJT-X factory color categories, used only when a saved Colors choice has
+# no edited list. New DXCC and New DXCC on Band are the factory pair.
+# Highlight by mode was never read from an ini here: several WSJT-X instances
+# do not share one ini. It is kept only when the operator saved it in WIMS.
+_COLOR_KEYS = (
+    "new_dxcc",
+    "new_dxcc_band",
+    "new_grid",
+    "new_grid_band",
+    "new_call",
+    "new_call_band",
+)
+DEFAULT_COLOR_CATEGORIES = {
+    "new_dxcc": True,
+    "new_dxcc_band": True,
+    "new_grid": False,
+    "new_grid_band": False,
+    "new_call": False,
+    "new_call_band": False,
+}
+_CTY_MISSING_TIP = (
+    "WIMS could not find the country list (cty.dat) that WSJT-X keeps, so this stays off."
+)
+_PLACE_KINDS = ("dxcc", "continent", "cq", "itu", "grid", "state", "call")
+_MULT_KINDS = frozenset({"dxcc", "continent", "cq", "itu", "grid", "state"})
 
 
 def kind_available(kind: str) -> bool:
@@ -220,8 +267,63 @@ def award_available(award_id: str) -> bool:
     return bool(row and row["available"])
 
 
+def colors_to_checklist(categories, highlight_by_mode: bool = False) -> dict:
+    """Colors categories → one checklist line per kind.
+
+    ``new_dxcc`` is DXCC overall, ``new_dxcc_band`` is DXCC per band, and the
+    same pattern maps grid and call. When both the overall and the per-band
+    category are on, the line is per band: that still marks the first one
+    and also marks a new band.
+
+    Highlight by mode applies to call only. That is the category the Colors
+    rule treated as per mode. A call line then becomes per mode, including
+    a "new call on band" line. Per mode still marks a new mode on the same
+    band. A new band in a mode already worked is not marked; the checklist
+    stores one scope, and the saved flag asked for mode.
+
+    Only grid fields sought is not a checklist scope. Grid stays the
+    four-character square.
+    """
+    flags = {key: False for key in _COLOR_KEYS}
+    for key, val in (categories or {}).items():
+        if key in flags:
+            flags[key] = bool(val)
+    requested: dict[str, set[str]] = {"dxcc": set(), "grid": set(), "call": set()}
+    pairs = (
+        ("new_dxcc", "dxcc", "overall"),
+        ("new_dxcc_band", "dxcc", "band"),
+        ("new_grid", "grid", "overall"),
+        ("new_grid_band", "grid", "band"),
+        ("new_call", "call", "overall"),
+        ("new_call_band", "call", "band"),
+    )
+    for cat, kind, scope in pairs:
+        if not flags.get(cat):
+            continue
+        if highlight_by_mode and kind == "call":
+            requested[kind].add("mode")
+        else:
+            requested[kind].add(scope)
+    out = {}
+    for kind in KIND_ORDER:
+        out[kind] = {"enabled": False, "scope": "overall"}
+    for kind, scopes in requested.items():
+        if not scopes:
+            continue
+        if "mode" in scopes:
+            # Highlight by mode asked for this. It replaces overall and band
+            # on the call line, because the checklist keeps one scope.
+            scope = "mode"
+        elif "band" in scopes:
+            scope = "band"
+        else:
+            scope = "overall"
+        out[kind] = {"enabled": True, "scope": scope}
+    return out
+
+
 def default_checklist() -> dict:
-    """DXCC overall starts on. County and prefix stay off."""
+    """DXCC overall starts on. County, prefix, continent, and zones start off."""
     out = {}
     for kind in KIND_ORDER:
         out[kind] = {
@@ -262,7 +364,11 @@ def normalize_checklist(raw) -> dict:
 
 
 def goal_from_legacy(contest) -> tuple[str, str]:
-    """Schema 3 ``contest`` value → (goal, goal_id)."""
+    """Schema 3 ``contest`` value → (goal, goal_id).
+
+    An empty menu was the Colors fallback. ``shape_choice`` turns that into
+    checklist lines before anything is saved.
+    """
     if contest in (None, "", "none", "None"):
         return "operating", "wsjtx-colors"
     if contest == "custom":
@@ -271,7 +377,7 @@ def goal_from_legacy(contest) -> tuple[str, str]:
 
 
 def legacy_contest(goal: str, goal_id: str):
-    """Value older code still understands. Awards and Colors stay empty."""
+    """Value older code still understands. Awards and the checklist stay empty."""
     if goal == "contest" and goal_id:
         return goal_id
     if goal == "custom" and goal_id == "custom-file":
@@ -279,9 +385,25 @@ def legacy_contest(goal: str, goal_id: str):
     return None
 
 
+def _colors_checklist(data: dict) -> dict:
+    """Saved Colors categories, or the factory defaults when none were saved."""
+    override = data.get("wsjtx_override")
+    if isinstance(override, dict) and isinstance(override.get("categories"), dict):
+        cats = override["categories"]
+    else:
+        cats = DEFAULT_COLOR_CATEGORIES
+    highlight = bool(override.get("highlight_by_mode")) if isinstance(override, dict) else False
+    return colors_to_checklist(cats, highlight)
+
+
 def shape_choice(data: dict | None) -> dict:
-    """Schema-4 choice. A saved contest id is kept. Awards are not dropped."""
-    from wims.rules.choice import default_choice
+    """Current choice. A saved contest id is kept. Awards are not dropped.
+
+    ``goal_id`` ``wsjtx-colors`` (and the older empty Contest menu, which
+    meant the same thing) is converted once into checklist lines. The log
+    is not part of this file.
+    """
+    from wims.rules.choice import SCHEMA, default_choice
 
     base = default_choice()
     if not isinstance(data, dict):
@@ -303,20 +425,26 @@ def shape_choice(data: dict | None) -> dict:
         goal_id = str(data["goal_id"])
     else:
         goal, goal_id = goal_from_legacy(contest)
-    checklist_raw = data.get("checklist") if "checklist" in data else None
+    if goal_id == "wsjtx-colors":
+        goal = "operating"
+        goal_id = "checklist"
+        checklist = _colors_checklist(data)
+    else:
+        checklist_raw = data.get("checklist") if "checklist" in data else None
+        checklist = normalize_checklist(checklist_raw)
     base.update({
-        "schema": 4,
+        "schema": SCHEMA,
         "goal": goal,
         "goal_id": goal_id,
         "contest": legacy_contest(goal, goal_id),
         "explicit": bool(data.get("explicit")),
         "suggested": bool(data.get("suggested")),
-        "fallback": data.get("fallback") or "wsjtx-colors",
-        "wsjtx_override": data.get("wsjtx_override"),
+        "fallback": "",
+        "wsjtx_override": None,
         "gridtracker_path": data.get("gridtracker_path") or "",
         "station_state": data.get("station_state") or "",
         "station_county": data.get("station_county") or "",
-        "checklist": normalize_checklist(checklist_raw),
+        "checklist": checklist,
     })
     return base
 
@@ -339,8 +467,7 @@ def sanitize_selection(goal: str, goal_id: str, *, custom_available: bool) -> tu
         elif goal_id not in {"checklist", "custom-file"}:
             goal_id = "checklist"
     else:
-        if goal_id not in {"wsjtx-colors", "checklist"}:
-            goal_id = "wsjtx-colors"
+        goal_id = "checklist"
     return goal, goal_id
 
 
@@ -357,10 +484,10 @@ def _option(row: dict, *, enabled: bool | None = None) -> dict:
     }
 
 
-def goal_menu(choice: dict, *, custom_available: bool) -> dict:
+def goal_menu(choice: dict, *, custom_available: bool, cty_ok: bool = False) -> dict:
     """Dropdowns and the checklist for Setup. Plain-language tips included."""
     goal = choice.get("goal") or "operating"
-    goal_id = choice.get("goal_id") or "wsjtx-colors"
+    goal_id = choice.get("goal_id") or "checklist"
     contests = []
     for row in catalog():
         contests.append({
@@ -423,24 +550,31 @@ def goal_menu(choice: dict, *, custom_available: bool) -> dict:
         "options": current["options"],
         "menus": menus,
         "show_checklist": show,
-        "checklist": _checklist_public(choice.get("checklist")),
+        "checklist": _checklist_public(choice.get("checklist"), cty_ok=cty_ok),
         "scope_tip": SCOPE_TIP,
     }
 
 
-def _checklist_public(raw) -> dict:
+def _checklist_public(raw, *, cty_ok: bool = False) -> dict:
     items = normalize_checklist(raw)
     rows = []
     for kind in CHECKLIST_KINDS:
         saved = items[kind["id"]]
+        needs_cty = bool(kind.get("needs_cty"))
+        runnable = bool(kind["available"]) and (cty_ok or not needs_cty)
+        if needs_cty and not cty_ok:
+            tip = _CTY_MISSING_TIP
+        else:
+            tip = kind["tip"]
         rows.append({
             "kind": kind["id"],
             "label": kind["label"],
-            "enabled": bool(saved["enabled"]) and kind["available"],
+            "enabled": bool(saved["enabled"]) and runnable,
+            "stored": bool(saved["enabled"]),
             "scope": saved["scope"],
-            "available": kind["available"],
+            "available": runnable,
             "coming_soon": not kind["available"],
-            "tip": kind["tip"],
+            "tip": tip,
         })
     return {"rows": rows, "scopes": [dict(row) for row in SCOPES]}
 
@@ -625,18 +759,34 @@ class AwardRules:
 class ChecklistRules:
     """Just-operating or custom checklist. First matching line wins."""
 
-    def __init__(self, items, *, title: str, dxcc_lookup=None, log_label: str = "the log"):
+    def __init__(self, items, *, title: str, dxcc_lookup=None, log_label: str = "the log",
+                 cty=None):
         self.items = normalize_checklist(items)
         self.title = title or "Checklist"
         self.id = "custom-checklist" if "Custom" in self.title else "checklist"
+        self.cty = cty
+        if dxcc_lookup is None and cty is not None:
+            dxcc_lookup = cty.entity_name
         self.dxcc_lookup = dxcc_lookup
         self.log_label = log_label or "the log"
 
+    def _line_on(self, kind: str) -> bool:
+        row = self.items.get(kind) or {}
+        if not row.get("enabled") or not kind_available(kind):
+            return False
+        if KIND_BY_ID[kind].get("needs_cty") and self.cty is None:
+            return False
+        return True
+
     def plain_summary(self) -> str:
         parts = []
+        held = []
         for kind in KIND_ORDER:
             row = self.items[kind]
             if not row["enabled"] or not kind_available(kind):
+                continue
+            if KIND_BY_ID[kind].get("needs_cty") and self.cty is None:
+                held.append(KIND_BY_ID[kind]["label"])
                 continue
             scope_label = next(
                 (s["label"] for s in SCOPES if s["id"] == row["scope"]), row["scope"],
@@ -648,6 +798,10 @@ class ChecklistRules:
             line = "Needed when a station matches " + ", ".join(parts) + "."
         if self.items["dxcc"]["enabled"] and self.dxcc_lookup is None:
             line += " DXCC uses country numbers stored in the log."
+        if held:
+            line += " " + ", ".join(held) + " is off because the country list was not found."
+            if len(held) > 1:
+                line = line.replace(" is off because", " are off because", 1)
         return line
 
     def _index(self, store) -> dict:
@@ -655,44 +809,47 @@ class ChecklistRules:
         cache = getattr(self, "_cache", None)
         if cache and cache[0] == gen and cache[1] is store:
             return cache[2]
-        built = {
-            "dxcc": set(), "dxcc_band": set(), "dxcc_mode": set(),
-            "grid": set(), "grid_band": set(), "grid_mode": set(),
-            "state": set(), "state_band": set(), "state_mode": set(),
-            "call": set(), "call_band": set(), "call_mode": set(),
-        }
+        built = {}
+        for kind in _PLACE_KINDS:
+            built[kind] = set()
+            built[f"{kind}_band"] = set()
+            built[f"{kind}_mode"] = set()
         for row in store.cached_rows():
             band = row.get("band") or ""
             mode = _row_mode(row)
             call = _upper(row.get("call"))
             if call:
-                built["call"].add(call)
-                if band:
-                    built["call_band"].add((call, band))
-                if mode:
-                    built["call_mode"].add((call, mode))
+                _remember(built, "call", call, band, mode)
             g = _grid4(row.get("grid"))
             if g:
-                built["grid"].add(g)
-                if band:
-                    built["grid_band"].add((g, band))
-                if mode:
-                    built["grid_mode"].add((g, mode))
+                _remember(built, "grid", g, band, mode)
             st = _row_state(row)
             if st:
-                built["state"].add(st)
-                if band:
-                    built["state_band"].add((st, band))
-                if mode:
-                    built["state_mode"].add((st, mode))
+                _remember(built, "state", st, band, mode)
             for key in _entity_keys(row.get("call") or "", row.get("dxcc"), self.dxcc_lookup):
-                built["dxcc"].add(key)
-                if band:
-                    built["dxcc_band"].add((key, band))
-                if mode:
-                    built["dxcc_mode"].add((key, mode))
+                _remember(built, "dxcc", key, band, mode)
+            place = self._describe(
+                row.get("call") or "",
+                row.get("grid"),
+                cqz=row.get("cqz"),
+                ituz=row.get("ituz"),
+                cont=row.get("cont"),
+            )
+            if place is None:
+                continue
+            if place.continent:
+                _remember(built, "continent", place.continent, band, mode)
+            if place.cq is not None and not place.cq_uncertain:
+                _remember(built, "cq", place.cq, band, mode)
+            if place.itu is not None and not place.itu_uncertain:
+                _remember(built, "itu", place.itu, band, mode)
         self._cache = (gen, store, built)
         return built
+
+    def _describe(self, call, grid, *, cqz=None, ituz=None, cont=None):
+        if self.cty is None:
+            return None
+        return self.cty.describe(call, grid, cqz=cqz, ituz=ituz, cont=cont)
 
     def classify(self, store, call: str, band: str, mode: str | None, grid: str | None,
                  *, exchange: str | None = None, my_county: str | None = None,
@@ -701,28 +858,44 @@ class ChecklistRules:
         idx = self._index(store)
         call_u = _upper(call)
         mode_u = _upper(mode)
+        place = self._describe(call_u, grid)
         unknowns: list[str] = []
+        worked_notes: list[str] = []
+        uncertain: list[str] = []
         checked = 0
+        first = None
         for kind in KIND_ORDER:
-            row = self.items[kind]
-            if not row["enabled"] or not kind_available(kind):
+            if not self._line_on(kind):
                 continue
             checked += 1
-            scope = row["scope"]
+            scope = self.items[kind]["scope"]
             hit = self._hit(
-                kind, scope, idx, call_u, band, mode_u, grid, state, exchange, unknowns,
+                kind, scope, idx, call_u, band, mode_u, grid, state, exchange, place,
             )
-            if hit is None:
-                continue
-            if hit[0]:
-                mult = kind in {"dxcc", "grid", "state"}
+            tag = hit[0]
+            if tag == "need" and first is None:
+                first = (kind, hit[1], hit[2])
+            elif tag == "worked":
+                worked_notes.append(hit[1])
+            elif tag == "unknown":
+                unknowns.append(hit[1])
+            elif tag == "uncertain":
+                uncertain.append(hit[1])
+        if first is not None:
+            kind, reason, mult_reason = first
+            return Verdict(
+                False, kind in _MULT_KINDS,
+                need_reason=_with_uncertain(reason, uncertain),
+                mult_reason=mult_reason if kind in _MULT_KINDS else "",
+                points=1,
+            )
+        if checked and not worked_notes and len(unknowns) + len(uncertain) >= checked:
+            if uncertain:
                 return Verdict(
-                    False, mult,
-                    need_reason=hit[1],
-                    mult_reason=hit[2] if mult else "",
+                    True, False,
+                    need_reason=_uncertain_sentence(uncertain),
                     points=1,
                 )
-        if checked and unknowns and len(unknowns) >= checked:
             return Verdict(
                 True, False,
                 need_reason="WIMS cannot tell yet: " + ", ".join(unknowns) + ".",
@@ -734,67 +907,70 @@ class ChecklistRules:
                 need_reason="Nothing is checked, so no station will show as needed.",
                 points=1,
             )
+        if worked_notes:
+            note = "Not needed: " + "; ".join(worked_notes) + "."
+        else:
+            note = f"Not needed: nothing checked is new in {self.log_label}."
         return Verdict(
             True, False,
-            need_reason=f"Not needed: nothing checked is new in {self.log_label}.",
+            need_reason=_with_uncertain(note, uncertain),
             points=1,
         )
 
-    def _hit(self, kind, scope, idx, call, band, mode, grid, state, exchange, unknowns):
-        """Return (needed, reason, mult_reason) or None when this line does not match.
+    def _hit(self, kind, scope, idx, call, band, mode, grid, state, exchange, place):
+        """``(tag, text, mult_reason)``.
 
-        None means the line was known and already worked, or it was skipped.
-        Unknown values are recorded and the line does not count as needed.
+        ``need`` marks the station needed. ``worked`` names what is already in
+        the log. ``unknown`` and ``uncertain`` do not claim needed.
+        ``uncertain`` is the zone-uncertain case: the country is known and the
+        zone is not.
         """
         label = self.log_label
+        where = _where(scope, band, mode)
         if kind == "call":
             if not call:
-                unknowns.append("callsign")
-                return None
+                return ("unknown", "callsign", "")
             worked = _scoped(idx, "call", scope, call, band, mode)
             if worked is None:
-                unknowns.append("callsign")
-                return None
+                return ("unknown", "callsign", "")
             if worked:
-                return None
-            return True, _need("call", call, scope, band, mode, label), ""
+                return ("worked", f"call {call}{where} is already in {label}", "")
+            return ("need", _need("call", call, scope, band, mode, label), "")
         if kind == "grid":
             g = _grid4(grid)
             if not g:
-                unknowns.append("grid")
-                return None
+                return ("unknown", "grid", "")
             worked = _scoped(idx, "grid", scope, g, band, mode)
             if worked is None:
-                unknowns.append("grid")
-                return None
+                return ("unknown", "grid", "")
             if worked:
-                return None
+                return ("worked", f"grid {g}{where} is already in {label}", "")
             return (
-                True,
+                "need",
                 _need("grid", g, scope, band, mode, label),
-                f"New mult: grid {g}.",
+                f"New mult: grid {g}{where} in {label}.",
             )
         if kind == "state":
             abbr = canonical_place(state) or canonical_place(exchange)
             if not abbr:
-                unknowns.append("state")
-                return None
+                return ("unknown", "state", "")
             worked = _scoped(idx, "state", scope, abbr, band, mode)
             if worked is None:
-                unknowns.append("state")
-                return None
+                return ("unknown", "state", "")
             if worked:
-                return None
+                name = place_name(abbr)
+                return ("worked", f"{name}{where} is already in {label}", "")
             name = place_name(abbr)
             return (
-                True,
+                "need",
                 _need("state", name, scope, band, mode, label),
-                f"New mult: {name}.",
+                f"New mult: {name}{where} in {label}.",
             )
+        if kind in {"continent", "cq", "itu"}:
+            return self._place_hit(kind, scope, idx, band, mode, place)
         keys = _entity_keys(call, None, self.dxcc_lookup)
         if not keys:
-            unknowns.append("DXCC entity")
-            return None
+            return ("unknown", "DXCC entity", "")
         worked = False
         known = False
         for key in keys:
@@ -804,16 +980,54 @@ class ChecklistRules:
             known = True
             worked = worked or flag
         if not known:
-            unknowns.append("DXCC entity")
-            return None
-        if worked:
-            return None
+            return ("unknown", "DXCC entity", "")
         shown = _pretty_entity(keys)
+        if worked:
+            return ("worked", f"DXCC entity {shown}{where} is already in {label}", "")
         return (
-            True,
+            "need",
             _need("dxcc", shown, scope, band, mode, label),
-            f"New mult: DXCC entity {shown}.",
+            f"New mult: DXCC entity {shown}{where} in {label}.",
         )
+
+    def _place_hit(self, kind, scope, idx, band, mode, place):
+        label = self.log_label
+        where = _where(scope, band, mode)
+        if place is None:
+            return ("unknown", _place_word(kind), "")
+        if kind == "continent":
+            code = place.continent
+            if not code:
+                return ("unknown", "continent", "")
+            shown = continent_name(code)
+            key = code
+            need = f"Need: continent {shown}{where} in {label}."
+            mult = f"New mult: continent {shown}{where} in {label}."
+            have = f"continent {shown}{where} is already in {label}"
+        elif kind == "cq":
+            if place.cq_uncertain:
+                return ("uncertain", "CQ zone uncertain", "")
+            if place.cq is None:
+                return ("unknown", "CQ zone", "")
+            key = place.cq
+            need = f"Need: CQ zone {key}{where} in {label}."
+            mult = f"New mult: CQ zone {key}{where} in {label}."
+            have = f"CQ zone {key}{where} is already in {label}"
+        else:
+            if place.itu_uncertain:
+                return ("uncertain", "ITU zone uncertain", "")
+            if place.itu is None:
+                return ("unknown", "ITU zone", "")
+            key = place.itu
+            need = f"Need: ITU zone {key}{where} in {label}."
+            mult = f"New mult: ITU zone {key}{where} in {label}."
+            have = f"ITU zone {key}{where} is already in {label}"
+        worked = _scoped(idx, kind, scope, key, band, mode)
+        if worked is None:
+            return ("unknown", _place_word(kind), "")
+        if worked:
+            return ("worked", have, "")
+        return ("need", need, mult)
 
     def public(self, *, source_label: str | None = None, n1mm: bool = False,
                extra: dict | None = None) -> dict:
@@ -830,6 +1044,47 @@ class ChecklistRules:
         if extra:
             out.update(extra)
         return out
+
+
+def _remember(built: dict, kind: str, key, band: str, mode: str) -> None:
+    built[kind].add(key)
+    if band:
+        built[f"{kind}_band"].add((key, band))
+    if mode:
+        built[f"{kind}_mode"].add((key, mode))
+
+
+def _where(scope: str, band: str, mode: str) -> str:
+    if scope == "band" and band:
+        return f" on {band}"
+    if scope == "mode" and mode:
+        return f" on {mode}"
+    return ""
+
+
+def _place_word(kind: str) -> str:
+    if kind == "cq":
+        return "CQ zone"
+    if kind == "itu":
+        return "ITU zone"
+    return "continent"
+
+
+def _uncertain_sentence(notes: list[str]) -> str:
+    """Hover text. The words ``zone uncertain`` are the conservative mark."""
+    return ". ".join(notes) + "."
+
+
+def _with_uncertain(reason: str, notes: list[str]) -> str:
+    if not notes:
+        return reason
+    extra = _uncertain_sentence(notes)
+    if "zone uncertain" in reason:
+        return reason
+    text = reason.rstrip()
+    if text.endswith("."):
+        return text + " " + extra
+    return text + ". " + extra
 
 
 def _entity_keys(call: str, dxcc, lookup) -> set[str]:
