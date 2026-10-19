@@ -278,6 +278,15 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
   text-overflow: ellipsis;
   vertical-align: bottom;
 }
+/* Country: full short names (United States) stay visible. Longer entity
+   names ellipsize; the title is the full name plus continent and CQ zone. */
+#ros .ros-country, .ros-country {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 #ros th.num, #ros td.num { padding-left: 6px; }
 #ros .badge { margin-left: 3px; padding: 0 4px; font-size: 10px; }
 #ros button.azbtn { padding: 0 3px; font-size: 11px; }
