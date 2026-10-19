@@ -24,7 +24,7 @@
 // no-ops when its container is absent. The frontend is the disposable part; the
 // state contract (server/state.py) is the durable boundary.
 //
-//   Operate  — roster + interlock (work the contest)
+//   Operate  — roster; TX groups banner only when a group conflicts
 //   Status   — overview / WSJT / N1MM (N1MM owns contest log pick/resync)
 //   Setup    — install diagnostics: networking checklist, host app configs
 
@@ -1619,19 +1619,153 @@ function renderSeatMarks(s) {
 
 // -- operating page --------------------------------------------------------- //
 
-function renderInterlock(il) {
-  if (!il || !$("il-banner")) return;
-  const banner = $("il-banner"), meta = $("il-meta");
-  if (il.overlap_now) {
-    banner.className = "banner alarm";
-    banner.textContent = "⚠ TX OVERLAP — two transmitters in one group";
-  } else if (il.tx_now.length) {
-    banner.className = "banner tx";
-    banner.textContent = `▲ ${il.tx_now.length} transmitting · no overlap`;
-  } else {
-    banner.className = "banner ok";
-    banner.textContent = "✓ no overlap · all RX";
+// What a "group" is. Shown as a hover title on the TX groups label (and the
+// banner), not as a paragraph on the page.
+const IL_GROUP_TIP =
+  "A group is a set of WSJT-X instances that must not transmit at the same time " +
+  "(shared PA, antenna, or band policy). WIMS refuses Work when another instance " +
+  "in the same group already holds TX.";
+
+// Display rule (does not grant, refuse, or halt):
+//   * Hide the whole block while every group has one instance, nothing is
+//     blocked, no overlap has been seen, and Work has not been refused.
+//   * A group with more than one instance keeps a closed "TX groups" list so
+//     a multi-op station can open the table.
+//   * Overlap now, a recorded overlap, a refused Work, or one transmitter in
+//     a shared group shows a one-line banner. The list opens itself only
+//     while an overlap is in progress.
+let _ilLast = null;
+let _ilRefused = null;       // {holder, misses, seen} after group_busy
+let _ilOverlapLatched = false;
+
+function interlockGroupOf(il, tx, holder) {
+  if (!holder) return "";
+  const holders = (tx && tx.holders) || {};
+  const keys = Object.keys(holders);
+  for (let i = 0; i < keys.length; i++) {
+    if (holders[keys[i]] === holder) return keys[i];
   }
+  const groups = (il && il.groups) || [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const ids = g.instances || [];
+    const txing = g.transmitting || [];
+    if (ids.indexOf(holder) >= 0 || txing.indexOf(holder) >= 0) return g.group;
+  }
+  return holder;
+}
+
+function interlockHolderLive(il, tx, holder) {
+  if (!holder) return false;
+  const holders = (tx && tx.holders) || {};
+  const keys = Object.keys(holders);
+  for (let i = 0; i < keys.length; i++) {
+    if (holders[keys[i]] === holder) return true;
+  }
+  const groups = (il && il.groups) || [];
+  for (let i = 0; i < groups.length; i++) {
+    if ((groups[i].transmitting || []).indexOf(holder) >= 0) return true;
+  }
+  return false;
+}
+
+function interlockView(il, tx, refusedHolder) {
+  const groups = (il && il.groups) || [];
+  const holders = (tx && tx.holders) || {};
+  const multi = groups.some(g => (g.instances || []).length > 1);
+  const overlapNames = [];
+  for (let i = 0; i < groups.length; i++) {
+    const txing = groups[i].transmitting || [];
+    // Two transmitters in one group is an overlap even if a flag was missed.
+    if (groups[i].overlap || txing.length > 1) overlapNames.push(groups[i].group);
+  }
+  const overlapNow = !!(il && il.overlap_now) || overlapNames.length > 0;
+  if (overlapNow) {
+    if (!overlapNames.length && il && il.last_violation && il.last_violation.group)
+      overlapNames.push(il.last_violation.group);
+    const label = overlapNames.length ? fmtBands(overlapNames) : "group";
+    return {
+      section: true, banner: true, level: "alarm", open: true, multi: true,
+      text: "Overlap: " + label,
+    };
+  }
+  const blocked = [];
+  for (let i = 0; i < groups.length; i++) {
+    const g = groups[i];
+    const ids = g.instances || [];
+    if (ids.length < 2) continue;
+    const txing = g.transmitting || [];
+    const holder = holders[g.group];
+    const othersBlocked = !!(holder && ids.some(id => id !== holder));
+    if ((txing.length === 1 || othersBlocked) && blocked.indexOf(g.group) < 0)
+      blocked.push(g.group);
+  }
+  // null/undefined = no refusal. A string (even empty) means Work just came
+  // back group_busy and the snapshot may not list the holder yet.
+  if (refusedHolder != null) {
+    const g = refusedHolder ? interlockGroupOf(il, tx, refusedHolder) : "";
+    const name = g || "group";
+    if (blocked.indexOf(name) < 0) blocked.push(name);
+  }
+  if (blocked.length) {
+    const verb = blocked.length > 1 ? "are" : "is";
+    return {
+      section: true, banner: true, level: "alarm", open: false, multi: multi,
+      text: "Work blocked: " + fmtBands(blocked) + " " + verb + " transmitting",
+    };
+  }
+  if (il && il.violation_count) {
+    const g = (il.last_violation && il.last_violation.group) || "group";
+    return {
+      section: true, banner: true, level: "tx", open: false, multi: multi,
+      text: "Overlap: " + fmtBand(g),
+    };
+  }
+  return {
+    section: multi, banner: false, level: "ok", open: false, multi: multi, text: "",
+  };
+}
+
+function renderInterlock(il, tx, holdRefusal) {
+  if (!il || !$("il-banner")) return;
+  _ilLast = il;
+  const txState = tx || _txState;
+  if (!holdRefusal && _ilRefused) {
+    if (interlockHolderLive(il, txState, _ilRefused.holder)) {
+      _ilRefused.seen = true;
+      _ilRefused.misses = 0;
+    } else if (_ilRefused.seen) {
+      _ilRefused = null;
+    } else {
+      _ilRefused.misses = (_ilRefused.misses || 0) + 1;
+      if (_ilRefused.misses >= 2) _ilRefused = null;
+    }
+  }
+  const refused = _ilRefused ? (_ilRefused.holder || "") : null;
+  const view = interlockView(il, txState, refused);
+  const section = $("il-section");
+  const banner = $("il-banner");
+  const details = $("il-details");
+  const summary = $("il-summary");
+  if (summary) summary.title = IL_GROUP_TIP;
+  banner.title = IL_GROUP_TIP;
+  if (section) section.hidden = !view.section;
+  if (view.section && view.banner) {
+    banner.hidden = false;
+    banner.className = "banner " + view.level;
+    banner.textContent = view.text;
+  } else {
+    banner.hidden = true;
+    banner.textContent = "";
+  }
+  if (details) {
+    if (view.open && !_ilOverlapLatched) {
+      details.open = true;
+      _ilOverlapLatched = true;
+    }
+    if (!view.open) _ilOverlapLatched = false;
+  }
+  const meta = $("il-meta");
   let m = `groups: by ${il.grouping}`;
   if (il.violation_count) {
     const lv = il.last_violation;
@@ -2300,6 +2434,12 @@ function txFlash(j, url) {
     const isHalt = url && String(url).indexOf("/halt") >= 0;
     m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")
       + (j.detail || hint || err);
+    // Display only: a refused Work is a conflict the Operate page must show
+    // even before the next live snapshot lists the holder.
+    if (!isHalt && err === "group_busy") {
+      _ilRefused = {holder: j.holder || "", misses: 0, seen: false};
+      if (_ilLast) renderInterlock(_ilLast, _txState, true);
+    }
   }
 }
 
@@ -2438,7 +2578,7 @@ function render(s) {
   renderAgents(s);
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
   renderRotators(s.rotators);
-  renderInterlock(s.interlock);
+  renderInterlock(s.interlock, s.tx);
   _rosOffered = operateOfferedBands(s);
   renderRoster(s.roster);
   renderInstances(s);

@@ -251,6 +251,16 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 - **2026-10-19** — **CX4BAN stayed a Mult with a blank grid.** WSJT-X wrote `<gridsquare:0>` on the new 20 m line. The 2021 GF15 contact is on 40 m, so it does not clear 20 m. The CQ `CQ DX CX4BAN GF15` is the square. The next roster push copies that square onto the blank log line, and the station is worked rather than a mult. Hover names the square, the band, and the log. Tests: `tests/unit/test_roster_logged.py`.
 - **2026-10-19** — **Roster Mult after a logged contact.** Logging a contact updates needed and Mult on the next roster push (the page refresh, about one second). Log to use is the only log that counts. A contact in a different file stays a multiplier, and WSJT-X Colors does not switch logs. N1MM's meter band `2` is 2 m, an empty N1MM grid is taken from the decode, and a 6-character grid matches the 4-character square. The mult badge tip names the square, the band, and the log. A contact on another band, a portable suffix, or a contact before Start now still shows Mult, and the tip says why. Tests: `tests/unit/test_roster_logged.py`.
+- **2026-10-19** — **Operate TX groups stay quiet until there is something to know.**
+  The paragraph under the roster is gone; the same meaning is the hover text on
+  **TX groups**. The heading, banner, counts, table, and empty line are hidden
+  while no instance is blocked, nothing overlaps, and Work has not been refused.
+  A conflict is one line: `Work blocked: 20M is transmitting` or `Overlap: 20M`,
+  with the table under **TX groups** (closed, except it opens while an overlap
+  is happening now). A group with more than one instance keeps that closed
+  **TX groups** line so a multi-op station can open the table. A past overlap
+  stays on the line until the site server restarts. Display only — the arbiter,
+  Work gating, and transmit behavior are unchanged.
 - **2026-10-18** — **Version `1.0.17`**. `pyproject.toml` and `wims.__version__` are `1.0.17`. Release notes: [v1.0.17](../releases/v1.0.17.md). The git tag and GitHub Release are not cut yet.
 - **2026-10-18** — **Operate Message column.** Roster shows the exchange after the callsigns (R-12, RR73, 73, a grid, or leftover QSY / free text) in Message, just after Calling. A saved column set gains it once. Hover the cell for the full decode. No transmit change.
 - **2026-10-18** — **Second double-click raises the WIMS window.** The desktop

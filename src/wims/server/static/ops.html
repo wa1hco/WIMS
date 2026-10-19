@@ -80,22 +80,26 @@
   </table>
   <div id="ros-empty" class="empty">no decodes yet…</div>
 
-  <h2>TX groups</h2>
-  <p class="hint">
-    A <b>group</b> is a set of WSJT-X instances that must not transmit at the same time
-    (shared PA, antenna, or band policy). WIMS refuses Work when another instance in the
-    same group already holds TX. Rows appear here when something is transmitting, or when
-    a group has more than one instance.
-  </p>
-  <div id="il-banner" class="banner ok">✓ no overlap</div>
-  <div id="il-meta" class="meta" style="margin:6px 0 8px"></div>
-  <table id="il">
-    <thead><tr>
-      <th>Group</th><th>Instances</th><th>Transmitting</th><th>Status</th>
-    </tr></thead>
-    <tbody id="il-body"></tbody>
-  </table>
-  <div id="il-empty" class="empty">no TX contention — all RX</div>
+  <!--
+    TX groups is display-only. Hidden while every group has one instance and
+    nothing is blocked, overlapping, or refused. The summary title is the
+    explanation that used to be a paragraph. JS shows the banner and this
+    block; it does not grant or refuse TX.
+  -->
+  <section id="il-section" hidden>
+    <div id="il-banner" class="banner alarm" hidden></div>
+    <details id="il-details">
+      <summary id="il-summary" title="A group is a set of WSJT-X instances that must not transmit at the same time (shared PA, antenna, or band policy). WIMS refuses Work when another instance in the same group already holds TX.">TX groups</summary>
+      <div id="il-meta" class="meta" style="margin:6px 0 8px"></div>
+      <table id="il">
+        <thead><tr>
+          <th>Group</th><th>Instances</th><th>Transmitting</th><th>Status</th>
+        </tr></thead>
+        <tbody id="il-body"></tbody>
+      </table>
+      <div id="il-empty" class="empty">no TX contention — all RX</div>
+    </details>
+  </section>
 
   <div id="rot-section" style="display:none">
     <h2>Rotators</h2>
