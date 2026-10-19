@@ -485,7 +485,9 @@ SSB/CW or hand off to a 2nd op.
   callsign, CQ or mid-exchange), scored via §3.5 with the score **kept as a sortable column** (not the
   only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
-  operator’s* roster. Columns: **DX callsign · Calling** (who they address — `CQ` or the worked call)
+  operator’s* roster. Columns: **DX callsign · Country** (DXCC entity name for the
+  call, blank when the prefix is unknown; hover adds continent and CQ zone when
+  known) **· Calling** (who they address — `CQ` or the worked call)
   **· Message** (the exchange after the callsigns — a report such as `R-12`, a grid, `73` /
   `RR73` / `RRR`, or the leftover text of a QSY or free-text line; hover shows the full
   decode; a long line is shortened on the row) **· Band · Mode · Grid · dB · Freq**
@@ -499,7 +501,8 @@ SSB/CW or hand off to a 2nd op.
   yet transmitting). Priority: calling-us > armed > mult. Later (M4 / §2.10): **Az ant**, **Δaz**,
   rotating font, optional point-on-Work. **Every header sorts**; need/band filters persist.
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
-  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`, `msg` /
+  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
+  `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
@@ -546,7 +549,16 @@ SSB/CW or hand off to a 2nd op.
   lock-in. The **JSON state contract (`server/state.py`) is the durable boundary** — the frontend
   is the only replaceable part.
 - **Console pages.** All pages share one SSE feed (`/events`) with a header nav:
-  **`/` Operate** = workable stations (call roster + interlock/overlap safety banner);
+  **`/` Operate** = workable stations (call roster). The TX-group block is display
+  only and stays off the page while every group has a single instance and nothing
+  is blocked, overlapping, or a refused Work. A conflict is one line
+  (`Overlap: …` while two transmitters share a group, including an overlap already
+  recorded this run; `Work blocked: … is transmitting` when Work is refused or one
+  of several instances in a group is transmitting). A closed **TX groups**
+  disclosure — its hover text is what a group is — is on the page whenever a group
+  has more than one instance, so a multi-op station can open the same table. The
+  list opens itself only while an overlap is in progress. Arbiter and Work gating
+  are unchanged.
   **`/overview` / `/wsjt` / `/log` / `/n1mm`** = live health split by concern — **Log** owns
   which file counts, the count-since window, and contest-file resync;
   **N1MM** lists several N1MM stations and stays hidden when fewer than two are heard;

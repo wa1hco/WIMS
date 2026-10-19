@@ -74,7 +74,7 @@ def test_message_cell_tooltip_is_full_decode_and_stays_short():
 def test_saved_column_set_gains_message_once():
     js = _js()
     assert INSERT in js
-    assert 'const ROS_COLS_VERSION = 2' in js
+    assert 'const ROS_COLS_VERSION = 3' in js
     assert 'const ROS_COLS_VERSION_KEY = "wims.ops.cols.v"' in js
     assert "rosMigrateColPref" in js
     assert "wims.ops.cols" in js

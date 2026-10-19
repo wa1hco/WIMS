@@ -123,6 +123,15 @@ tr.decode-only.workable { cursor: default; }
 .col-check { color:var(--text); font-size:12px; display:inline-flex; align-items:center; gap:4px;
              white-space:nowrap; }
 .hint { font-size:12px; color:var(--dim); margin:0 0 8px 0; max-width:72rem; }
+/* Operate TX groups: one-line banner, then a closed disclosure for the table. */
+#il-section { margin-top:12px; }
+#il-section > #il-banner:not([hidden]) { display:block; margin:0 0 6px; }
+#il-details > summary {
+  cursor:pointer; width:max-content;
+  font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--dim);
+  margin:0 0 4px;
+}
+#il-details > summary:hover { color:var(--text); }
 /* Setup tips: native title plus a keyboard-focusable ? */
 .advline { display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin:3px 0; }
 .advtip { position:relative; display:inline-flex; align-items:center; }
@@ -271,6 +280,15 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 }
 #ros .grid-stale { cursor: help; }
 #ros .ros-msg {
+  display: inline-block;
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+/* Country: full short names (United States) stay visible. Longer entity
+   names ellipsize; the title is the full name plus continent and CQ zone. */
+#ros .ros-country, .ros-country {
   display: inline-block;
   max-width: 16ch;
   overflow: hidden;
