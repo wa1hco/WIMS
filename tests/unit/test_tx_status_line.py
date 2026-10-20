@@ -159,6 +159,10 @@ out.success = txStatusLine(work, "/api/tx/work");
 out.successLoose = txStatusLine(Object.assign({}, work, {instance: "WSJT-X flex"}), "/api/tx/work");
 out.successBare = txStatusLine(Object.assign({}, work, {instance: "flex"}), "/api/tx/work");
 out.successReply = txStatusLine(Object.assign({}, work, {sent: "reply"}), "/api/tx/work");
+out.successGrid = txStatusLine(Object.assign({}, work, {
+  sent: "reply+grid",
+  detail: "Work PY3FSN on id='WSJT-X - flex' via reply+grid → [127.0.0.1:34669]. Grid assumed. GF15, heard on 6m at 18:02 UTC.",
+}), "/api/tx/work");
 out.halt = txStatusLine({
   ok: true,
   halted: ["WSJT-X - flex"],
@@ -273,6 +277,11 @@ def test_success_is_the_short_rig_name():
     assert reply["text"] == "Working PY3FSN on flex"
     assert "(reply)" not in reply["title"]
     assert "→ 127.0.0.1:34669" in reply["title"]
+    assumed = _views()["successGrid"]
+    assert assumed["text"] == "Working PY3FSN on flex"
+    assert "GF15" not in assumed["text"]
+    assert "grid assumed" in assumed["title"].lower()
+    assert "GF15" in assumed["title"]
 
 
 def test_halt_uses_the_short_rig_name():
