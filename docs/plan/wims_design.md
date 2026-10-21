@@ -1953,7 +1953,10 @@ Candidate situations worth covering — rename, add, or cut freely:
   pick. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing
   stay off until a list exists. A worked place that is not confirmed still counts as needed
   for an award or a checklist line, unless Setup turns that off. The same station already
-  worked for that place does not. Contest dupes ignore confirmation. WIMS does not download
+  worked for that place does not, using that line's scope: overall is any band or mode,
+  per band is that band, per mode is that mode. A station worked before with no confirmed
+  contact is not chased for confirmation; a new place can still be needed. Contest dupes
+  ignore confirmation. WIMS does not download
   LoTW. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must

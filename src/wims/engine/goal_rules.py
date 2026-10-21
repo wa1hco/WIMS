@@ -636,12 +636,13 @@ class AwardRules:
         cache = getattr(self, "_cache", None)
         if cache and cache[0] == gen and cache[1] is store:
             return cache[2]
-        built: dict = {}
+        built: dict = {"_worked_calls": set(), "_confirmed_calls": set()}
         for name in ("dxcc", "states", "grids"):
             _blank_buckets(built, name, scopes=False)
         for row in store.cached_rows():
             call = row.get("call") or ""
             confirmed = _row_confirmed(row)
+            _note_station(built, call, confirmed)
             for key in _entity_keys(call, row.get("dxcc"), self.dxcc_lookup):
                 _remember(built, "dxcc", key, "", "", call, confirmed)
             st = _row_state(row)
@@ -686,6 +687,7 @@ class AwardRules:
                 have=f"Already have: {shown} is in {label}.",
                 mult=f"New mult: DXCC entity {shown}.",
                 open_text=f"DXCC entity {shown} is worked but not confirmed.",
+                nonconfirmer=_known_nonconfirmer(idx, call),
             )
         if self.award_id == "vucc":
             g = _grid4(grid)
@@ -703,6 +705,7 @@ class AwardRules:
                 have=f"Already have: grid {g} is in {label}.",
                 mult=f"New mult: grid {g}.",
                 open_text=f"Grid {g} is worked but not confirmed.",
+                nonconfirmer=_known_nonconfirmer(idx, call),
             )
         abbr = canonical_place(state) or canonical_place(exchange)
         if not abbr:
@@ -731,10 +734,16 @@ class AwardRules:
             have=f"Already have: {name} is in {label}.",
             mult=f"New mult: {name}.",
             open_text=f"{name} is worked but not confirmed.",
+            nonconfirmer=_known_nonconfirmer(idx, call),
         )
 
-    def _from_mark(self, mark, *, need, have, mult, open_text) -> Verdict:
-        """New stays needed. Confirmed, or the same station, stays not needed."""
+    def _from_mark(self, mark, *, need, have, mult, open_text,
+                   nonconfirmer: bool = False) -> Verdict:
+        """New stays needed. Confirmed, or the same station, stays not needed.
+
+        A station who has never confirmed any contact is not chased just to
+        confirm a place. A place that is actually new is still needed.
+        """
         if mark == "new":
             return Verdict(
                 False, True,
@@ -742,6 +751,12 @@ class AwardRules:
                 mult_reason=mult,
                 points=1,
                 chase="needed",
+            )
+        if mark == "unconfirmed" and nonconfirmer:
+            return Verdict(
+                True, False,
+                need_reason=_NEVER_CONFIRMED,
+                points=1,
             )
         if mark == "unconfirmed":
             include = bool(self.count_unconfirmed)
@@ -751,6 +766,8 @@ class AwardRules:
                 points=1,
                 chase="unconfirmed",
             )
+        if mark == "same" and nonconfirmer:
+            return Verdict(True, False, need_reason=_same_never(have), points=1)
         return Verdict(True, False, need_reason=have, points=1)
 
     def public(self, *, source_label: str | None = None, n1mm: bool = False,
@@ -827,7 +844,7 @@ class ChecklistRules:
         cache = getattr(self, "_cache", None)
         if cache and cache[0] == gen and cache[1] is store:
             return cache[2]
-        built = {}
+        built = {"_worked_calls": set(), "_confirmed_calls": set()}
         for kind in _PLACE_KINDS:
             _blank_buckets(built, kind)
         for row in store.cached_rows():
@@ -835,6 +852,7 @@ class ChecklistRules:
             mode = _row_mode(row)
             call = _upper(row.get("call"))
             confirmed = _row_confirmed(row)
+            _note_station(built, call, confirmed)
             if call:
                 _remember(built, "call", call, band, mode, call, confirmed)
             g = _grid4(row.get("grid"))
@@ -882,6 +900,9 @@ class ChecklistRules:
         checked = 0
         first = None
         first_open = None
+        saw_same = False
+        saw_confirmed = False
+        quiet = _known_nonconfirmer(idx, call_u)
         for kind in KIND_ORDER:
             if not self._line_on(kind):
                 continue
@@ -895,7 +916,11 @@ class ChecklistRules:
                 first = (kind, hit[1], hit[2])
             elif tag == "unconfirmed" and first_open is None:
                 first_open = hit[1]
+            elif tag == "same":
+                saw_same = True
+                worked_notes.append(hit[1])
             elif tag == "worked":
+                saw_confirmed = True
                 worked_notes.append(hit[1])
             elif tag == "unknown":
                 unknowns.append(hit[1])
@@ -909,6 +934,12 @@ class ChecklistRules:
                 mult_reason=mult_reason if kind in _MULT_KINDS else "",
                 points=1,
                 chase="needed",
+            )
+        if first_open is not None and quiet:
+            return Verdict(
+                True, False,
+                need_reason=_with_uncertain(_NEVER_CONFIRMED, uncertain),
+                points=1,
             )
         if first_open is not None:
             include = bool(self.count_unconfirmed)
@@ -938,6 +969,8 @@ class ChecklistRules:
             )
         if worked_notes:
             note = "Not needed: " + "; ".join(worked_notes) + "."
+            if saw_same and not saw_confirmed and quiet:
+                note += " " + _NEVER_CONFIRMED
         else:
             note = f"Not needed: nothing checked is new in {self.log_label}."
         return Verdict(
@@ -950,10 +983,11 @@ class ChecklistRules:
         """``(tag, text, mult_reason)``.
 
         ``need`` marks a new unit. ``unconfirmed`` is a worked unit that is not
-        confirmed, heard from a station that is not already in that unit.
-        ``worked`` is confirmed, or the same station again. ``unknown`` and
-        ``uncertain`` do not claim needed. ``uncertain`` is the zone-uncertain
-        case: the country is known and the zone is not.
+        confirmed, heard from a station that is not already in that unit
+        for this scope. ``same`` is that station again in this scope.
+        ``worked`` is a confirmed unit. ``unknown`` and ``uncertain`` do not
+        claim needed. ``uncertain`` is the zone-uncertain case: the country
+        is known and the zone is not.
         """
         label = self.log_label
         where = _where(scope, band, mode)
@@ -1024,6 +1058,8 @@ class ChecklistRules:
             return ("need", need, mult)
         if mark == "unconfirmed":
             return ("unconfirmed", open_text, "")
+        if mark == "same":
+            return ("same", have, "")
         return ("worked", have, "")
 
     def _place_hit(self, kind, scope, idx, band, mode, place, call):
@@ -1102,6 +1138,43 @@ def _row_confirmed(row: dict) -> bool:
     return bool(row.get("confirmed"))
 
 
+# Shown under All when this station is not chased for a confirmation.
+_NEVER_CONFIRMED = "Worked before, never confirmed."
+
+
+def _same_never(have: str) -> str:
+    text = have.rstrip()
+    if text.endswith("."):
+        return text + " " + _NEVER_CONFIRMED
+    return text + ". " + _NEVER_CONFIRMED
+
+
+def _note_station(built: dict, call: str, confirmed: bool) -> None:
+    """Any contact, on any band, counts toward 'worked before'."""
+    call_u = _upper(call)
+    if not call_u:
+        return
+    built.setdefault("_worked_calls", set()).add(call_u)
+    if confirmed:
+        built.setdefault("_confirmed_calls", set()).add(call_u)
+
+
+def _known_nonconfirmer(idx: dict, call: str) -> bool:
+    """True when this station has contacts and none of them are confirmed.
+
+    The check is the whole log, not the goal scope. One confirmed contact
+    anywhere means the station is not a known non-confirmer.
+    """
+    call_u = _upper(call)
+    if not call_u or call_u not in (idx.get("_worked_calls") or ()):
+        return False
+    return call_u not in (idx.get("_confirmed_calls") or ())
+
+
+def _norm_band(band: str) -> str:
+    return (band or "").strip().lower()
+
+
 def _blank_buckets(built: dict, kind: str, *, scopes: bool = True) -> None:
     built[kind] = set()
     built[kind + "_calls"] = {}
@@ -1116,7 +1189,15 @@ def _blank_buckets(built: dict, kind: str, *, scopes: bool = True) -> None:
 
 def _remember(built: dict, kind: str, key, band: str, mode: str,
               call: str, confirmed: bool) -> None:
+    """Record a worked unit and the station that worked it.
+
+    The overall bucket is any band and any mode. The band bucket is that
+    band only. The mode bucket is that mode only. Confirmation is separate
+    from who worked it.
+    """
     call_u = _upper(call)
+    band_u = _norm_band(band)
+    mode_u = _upper(mode)
 
     def note(bucket, token) -> None:
         built.setdefault(bucket, set()).add(token)
@@ -1127,17 +1208,19 @@ def _remember(built: dict, kind: str, key, band: str, mode: str,
             built.setdefault(bucket + "_ok", set()).add(token)
 
     note(kind, key)
-    if band:
-        note(f"{kind}_band", (key, band))
-    if mode:
-        note(f"{kind}_mode", (key, mode))
+    if band_u:
+        note(f"{kind}_band", (key, band_u))
+    if mode_u:
+        note(f"{kind}_mode", (key, mode_u))
 
 
 def _where(scope: str, band: str, mode: str) -> str:
-    if scope == "band" and band:
-        return f" on {band}"
-    if scope == "mode" and mode:
-        return f" on {mode}"
+    band_u = _norm_band(band)
+    mode_u = _upper(mode)
+    if scope == "band" and band_u:
+        return f" on {band_u}"
+    if scope == "mode" and mode_u:
+        return f" on {mode_u}"
     return ""
 
 
@@ -1196,10 +1279,11 @@ def _scope_bucket(kind: str, scope: str) -> str:
 
 
 def _scope_token(scope: str, key, band: str, mode: str):
+    """Overall ignores band and mode. Per band is that band. Per mode is that mode."""
     if scope == "band":
-        return (key, band)
+        return (key, _norm_band(band))
     if scope == "mode":
-        return (key, mode)
+        return (key, _upper(mode))
     return key
 
 
@@ -1207,7 +1291,9 @@ def _mark(idx: dict, kind: str, scope: str, key, band: str, mode: str, call: str
     """``new``, ``confirmed``, ``same``, ``unconfirmed``, or None.
 
     None means this scope cannot be checked (no band, or no mode).
-    ``same`` is an unconfirmed unit heard from a station already worked there.
+    ``same`` is an unconfirmed unit heard from a station already worked for
+    that unit in this scope: overall means any band or mode, per band means
+    that band, per mode means that mode.
     """
     flag = _scoped(idx, kind, scope, key, band, mode)
     if flag is None:
@@ -1269,24 +1355,32 @@ def _open_text(kind: str, shown, scope: str, band: str, mode: str) -> str:
 
 
 def _scoped(idx: dict, kind: str, scope: str, key, band: str, mode: str):
-    """True if already worked, False if new, None if the scope cannot be checked."""
+    """True if already worked, False if new, None if the scope cannot be checked.
+
+    Overall is any band and any mode. Per band is that band only. Per mode
+    is that mode only.
+    """
     if scope == "band":
-        if not band:
+        band_u = _norm_band(band)
+        if not band_u:
             return None
-        return (key, band) in idx[f"{kind}_band"]
+        return (key, band_u) in idx[f"{kind}_band"]
     if scope == "mode":
-        if not mode:
+        mode_u = _upper(mode)
+        if not mode_u:
             return None
-        return (key, mode) in idx[f"{kind}_mode"]
+        return (key, mode_u) in idx[f"{kind}_mode"]
     return key in idx[kind]
 
 
 def _need(kind: str, shown: str, scope: str, band: str, mode: str, label: str) -> str:
     where = ""
-    if scope == "band" and band:
-        where = f" on {band}"
-    elif scope == "mode" and mode:
-        where = f" on {mode}"
+    band_u = _norm_band(band)
+    mode_u = _upper(mode)
+    if scope == "band" and band_u:
+        where = f" on {band_u}"
+    elif scope == "mode" and mode_u:
+        where = f" on {mode_u}"
     if kind == "dxcc":
         what = f"new DXCC entity {shown}"
     elif kind == "grid":
