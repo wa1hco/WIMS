@@ -1013,7 +1013,7 @@ function renderGoalChecklist(goal) {
       `</div>`;
   }).join("");
   const countOn = goal.count_unconfirmed !== false;
-  const toggleTip = "A place you already worked still shows as unconfirmed until the log says it is confirmed. The same station you already worked for that place stays off the needed list.";
+  const toggleTip = "A place you already worked still shows as unconfirmed until the log says it is confirmed. The same station you already worked for that place stays off the needed list. A station you worked before that has never confirmed stays off that list too. A new place can still be needed.";
   const toggle = showToggle
     ? `<div class="goal-row advline">` +
       `<label title="${escAttr(toggleTip)}">` +
