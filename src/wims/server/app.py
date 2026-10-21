@@ -924,11 +924,16 @@ class LiveFleet:
             save_choice(choice)
         elif action == "checklist":
             choice["checklist"] = body.get("items")
+            if "count_unconfirmed" in body:
+                choice["count_unconfirmed"] = bool(body.get("count_unconfirmed"))
             choice["schema"] = 4
             if choice.get("goal") in {"operating", "custom"}:
                 choice["goal_id"] = "checklist"
             choice["explicit"] = True
             choice["suggested"] = False
+            save_choice(choice)
+        elif action == "count_unconfirmed":
+            choice["count_unconfirmed"] = bool(body.get("count_unconfirmed"))
             save_choice(choice)
         elif action == "save_custom":
             save_custom(custom_from_checkboxes(body))

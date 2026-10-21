@@ -650,9 +650,10 @@ decision here. *(Per-feature implementation status is tracked in [wims_status.md
 
 **Guiding reframe:** GridTracker chases *awards* (DXCC/WAS/grids, LoTW/eQSL-confirmed) for general
 operating; WIMS ranks for *contesting* — **mult = grid×band, points, run vs S&P**, with **N1MM as
-the dupe/mult authority** (no award confirmation). Copy GridTracker's *interaction model* (all
-stations, sortable, filterable, status-per-station, alerts, click-to-work); keep WIMS's contest
-scoring as the "wanted" engine.
+the dupe/mult authority** for a contest. Award and checklist goals also read confirmation already
+stored in that same log (card, LoTW, or eQSL). WIMS does not download LoTW. Copy GridTracker's
+*interaction model* (all stations, sortable, filterable, status-per-station, alerts, click-to-work);
+keep WIMS's contest scoring as the "wanted" engine.
 
 **A. Population & per-station status**
 
@@ -1950,7 +1951,10 @@ Candidate situations worth covering — rename, add, or cut freely:
   The log under Log to use is the only log. Choosing N1MM does not switch the rule to
   `arrl-vhf`. Date or `CONTEST_ID` may suggest a contest when the goal was not an explicit
   pick. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing
-  stay off until a list exists. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
+  stay off until a list exists. A worked place that is not confirmed still counts as needed
+  for an award or a checklist line, unless Setup turns that off. The same station already
+  worked for that place does not. Contest dupes ignore confirmation. WIMS does not download
+  LoTW. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must
   prompt for (antenna geometry, intended az/el limits). Decide the form vs file-edit balance.

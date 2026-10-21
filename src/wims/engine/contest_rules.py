@@ -45,6 +45,9 @@ class Verdict:
     need_reason: str = ""
     mult_reason: str = ""
     points: int = 0
+    # "" | "needed" | "unconfirmed". Award and checklist rows set this.
+    # Contest rows leave it empty. The roster shows the word.
+    chase: str = ""
 
 
 def _upper(value) -> str:
@@ -560,6 +563,9 @@ def resolve(
     lookup = dxcc_lookup
     if lookup is None and cty is not None:
         lookup = cty.entity_name
+    count_unconfirmed = choice.get("count_unconfirmed", True)
+    if not isinstance(count_unconfirmed, bool):
+        count_unconfirmed = bool(count_unconfirmed)
     if goal == "contest":
         try:
             rules_obj = load_builtin(str(goal_id))
@@ -571,6 +577,7 @@ def resolve(
     elif goal == "award":
         rules_obj = AwardRules(
             goal_id, dxcc_lookup=lookup, log_label=log_label,
+            count_unconfirmed=count_unconfirmed,
         )
         label = rules_obj.title
         contest = None
@@ -587,6 +594,7 @@ def resolve(
             dxcc_lookup=lookup,
             log_label=log_label,
             cty=cty,
+            count_unconfirmed=count_unconfirmed,
         )
         label = rules_obj.title
         contest = None

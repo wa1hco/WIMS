@@ -78,6 +78,8 @@ class Candidate:
     need_reason: str = ""
     mult_reason: str = ""
     qso_points: int | None = None
+    # "" | "needed" | "unconfirmed". Empty on contest rows.
+    chase: str = ""
 
 
 @dataclass
@@ -228,6 +230,7 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
     need_reason = ""
     mult_reason = ""
     qso_points = None
+    chase = ""
     if log is not None and hasattr(log, "classify"):
         verdict = log.classify(call, band, grid, mode)
         is_dupe = bool(verdict.is_dupe)
@@ -235,6 +238,7 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
         need_reason = verdict.need_reason or ""
         mult_reason = verdict.mult_reason or ""
         qso_points = verdict.points
+        chase = getattr(verdict, "chase", "") or ""
     else:
         is_dupe = bool(log and call and log.is_dupe(call, band, grid))
         is_new_mult = bool(log and grid and log.is_new_mult(grid, band))
@@ -244,4 +248,5 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
         snr=decode.snr, is_cq=decode.is_cq, is_dupe=is_dupe,
         is_new_mult=is_new_mult, is_rover=is_rover, reachable=reachable,
         need_reason=need_reason, mult_reason=mult_reason, qso_points=qso_points,
+        chase=chase,
     )

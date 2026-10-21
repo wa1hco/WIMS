@@ -86,6 +86,7 @@ _EXTRA_COLUMNS = (
     ("cqz", "TEXT"),
     ("ituz", "TEXT"),
     ("cont", "TEXT"),
+    ("confirmed", "INTEGER"),
 )
 
 
@@ -156,8 +157,9 @@ class LogStore:
                  (id, call, band, grid, mode, points, is_mult, contest,
                   timestamp, operator, rover, source,
                   submode, qso_date, time_on, exchange, state, my_state,
-                  my_county, dxcc, contest_id, grid_source, cqz, ituz, cont)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                  my_county, dxcc, contest_id, grid_source, cqz, ituz, cont,
+                  confirmed)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                ON CONFLICT(id) DO UPDATE SET
                  call=excluded.call, band=excluded.band, grid=excluded.grid,
                  mode=excluded.mode, points=excluded.points,
@@ -170,12 +172,13 @@ class LogStore:
                  my_county=excluded.my_county, dxcc=excluded.dxcc,
                  contest_id=excluded.contest_id,
                  grid_source=excluded.grid_source, cqz=excluded.cqz,
-                 ituz=excluded.ituz, cont=excluded.cont""",
+                 ituz=excluded.ituz, cont=excluded.cont,
+                 confirmed=excluded.confirmed""",
             (q.id, q.call, q.band, q.grid, q.mode, q.points, int(q.is_mult),
              q.contest, q.timestamp, q.operator, q.rover_location, q.source,
              q.submode, q.qso_date, q.time_on, q.exchange, q.state, q.my_state,
              q.my_county, q.dxcc, q.contest_id, q.grid_source,
-             q.cqz, q.ituz, q.cont),
+             q.cqz, q.ituz, q.cont, int(bool(getattr(q, "confirmed", False)))),
         )
         self._touch()
         self.con.commit()

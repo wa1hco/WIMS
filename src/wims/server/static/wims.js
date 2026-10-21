@@ -973,7 +973,9 @@ function postRules(body) {
 function renderGoalChecklist(goal) {
   const box = $("goal-checklist");
   if (!box) return;
-  if (!goal || !goal.show_checklist) {
+  const showLines = !!(goal && goal.show_checklist);
+  const showToggle = !!(goal && goal.show_unconfirmed);
+  if (!showLines && !showToggle) {
     if (box.innerHTML) box.innerHTML = "";
     _checklistSig = "";
     return;
@@ -982,7 +984,13 @@ function renderGoalChecklist(goal) {
   const list = goal.checklist || {};
   const rows = list.rows || [];
   const scopes = list.scopes || [];
-  const sig = JSON.stringify({rows, scopes, tip: goal.scope_tip || ""});
+  const sig = JSON.stringify({
+    rows: showLines ? rows : [],
+    scopes: showLines ? scopes : [],
+    tip: goal.scope_tip || "",
+    toggle: showToggle,
+    count: goal.count_unconfirmed !== false,
+  });
   if (sig === _checklistSig && box.dataset.ready === "1") return;
   _checklistSig = sig;
   const scopeTip = goal.scope_tip || "";
@@ -1004,10 +1012,21 @@ function renderGoalChecklist(goal) {
       goalTip(tip) +
       `</div>`;
   }).join("");
-  box.innerHTML =
-    `<p class="hint" style="margin:4px 0">Check what is worth working. ` +
-    `WIMS compares each station with the contacts already in the log.</p>` +
-    body;
+  const countOn = goal.count_unconfirmed !== false;
+  const toggleTip = "A place you already worked still shows as unconfirmed until the log says it is confirmed. The same station you already worked for that place stays off the needed list.";
+  const toggle = showToggle
+    ? `<div class="goal-row advline">` +
+      `<label title="${escAttr(toggleTip)}">` +
+      `<input type="checkbox" id="count-unconfirmed"${countOn ? " checked" : ""}> ` +
+      `Count worked but not confirmed as needed</label>` +
+      goalTip(toggleTip) +
+      `</div>`
+    : "";
+  const intro = showLines
+    ? `<p class="hint" style="margin:4px 0">Check what is worth working. ` +
+      `WIMS compares each station with the contacts already in the log.</p>`
+    : "";
+  box.innerHTML = intro + (showLines ? body : "") + toggle;
   box.dataset.ready = "1";
   const send = () => {
     const items = rows.map(row => {
@@ -1022,12 +1041,28 @@ function renderGoalChecklist(goal) {
         scope: (scopeEl && scopeEl.value) || row.scope || "overall",
       };
     });
+    const flag = box.querySelector("#count-unconfirmed");
     _checklistSig = "";
-    postRules({action: "checklist", items});
+    postRules({
+      action: "checklist",
+      items,
+      count_unconfirmed: flag ? !!flag.checked : (goal.count_unconfirmed !== false),
+    });
   };
   box.querySelectorAll("input[data-kind], select[data-scope]").forEach(el => {
     el.addEventListener("change", send);
   });
+  const flag = box.querySelector("#count-unconfirmed");
+  if (flag) {
+    flag.addEventListener("change", () => {
+      if (showLines) {
+        send();
+        return;
+      }
+      _checklistSig = "";
+      postRules({action: "count_unconfirmed", count_unconfirmed: !!flag.checked});
+    });
+  }
 }
 
 const LOG_TIPS = {
@@ -1192,6 +1227,7 @@ function renderContestRules(s) {
     });
   }
   renderGoalChecklist(goal);
+  if (goal) rosApplyNeedTitles(goal.count_unconfirmed !== false);
   renderContestAdvanced(s);
 }
 
@@ -1865,6 +1901,7 @@ function rosCall(c) {
     (c.is_calling_us ? '<span class="badge callus">us</span>' : '') +
     (c.is_armed ? '<span class="badge armed">TX</span>' : '') +
     (c.is_new_mult ? '<span class="badge" title="' + escAttr(c.mult_reason || '') + '">mult</span>' : '') +
+    rosChase(c) +
     (c.is_rover ? '<span class="badge rover">R</span>' : '');
   return `${esc(c.call)}${badges}`;
 }
@@ -1872,6 +1909,14 @@ const CONTINENT_NAME = {
   NA: "North America", SA: "South America", EU: "Europe",
   AF: "Africa", AS: "Asia", OC: "Oceania", AN: "Antarctica",
 };
+function rosChase(c) {
+  if (!c || (c.chase !== "unconfirmed" && c.chase !== "needed")) return "";
+  const open = c.chase === "unconfirmed";
+  const tip = c.need_reason || (open ? "Worked but not confirmed." : "Not in the log yet.");
+  const word = open ? "unconfirmed" : "needed";
+  return '<span class="badge ' + word + '" title="' + escAttr(tip) + '">' + word + '</span>';
+}
+
 function rosCountryTip(c) {
   const name = String(c.country || "").trim();
   if (!name) return "";
@@ -2281,6 +2326,28 @@ function rosNeedButtons() {
   return [...menu.querySelectorAll('button[role="option"]')];
 }
 
+function rosApplyNeedTitles(include) {
+  const menu = $("ros-needed");
+  if (!menu) return;
+  const titles = {
+    needed: include
+      ? "Only stations marked needed, including unconfirmed places."
+      : "Only stations marked needed.",
+    "needed-cq": include
+      ? "Needed stations calling CQ, including CQ NA and CQ DX. Unconfirmed too."
+      : "Needed stations calling CQ, including CQ NA and CQ DX.",
+    "needed-73": include
+      ? "Needed stations calling CQ, or sending 73 or RR73. Free to call. Unconfirmed too."
+      : "Needed stations calling CQ, or sending 73 or RR73. Free to call.",
+  };
+  for (const o of rosNeedButtons()) {
+    if (titles[o.dataset.value]) o.title = titles[o.dataset.value];
+  }
+  const btn = $("ros-needed-btn");
+  const current = titles[menu.dataset.value];
+  if (btn && current) btn.title = current;
+}
+
 function rosSetNeed(mode, save) {
   const menu = $("ros-needed");
   const btn = $("ros-needed-btn");
@@ -2508,8 +2575,12 @@ function rosDraw() {
     : "all bands";
   const colNote = vis.length === ROS_COLS.length ? "all cols"
     : `${vis.length}/${ROS_COLS.length} cols`;
+  const unconf = Number(r.unconfirmed) || 0;
+  const needNote = unconf
+    ? `${r.needed} needed (${unconf} unconfirmed)`
+    : `${r.needed} needed`;
   $("ros-meta").textContent =
-    `${r.needed} needed · ${r.not_needed} worked · ${r.count} heard` +
+    `${needNote} · ${r.not_needed} worked · ${r.count} heard` +
     ` · showing ${rows.length} · ${bandNote} · ${colNote}`;
   const body = $("ros-body"); body.innerHTML = "";
   $("ros-empty").style.display = rows.length ? "none" : "block";
@@ -2526,6 +2597,7 @@ function rosDraw() {
     if (c.is_calling_us) classes.push("calling-us");
     else if (c.is_armed) classes.push("armed");
     else if (c.is_new_mult) classes.push("mult");
+    if (c.chase === "unconfirmed") classes.push("unconfirmed");
     if (!c.is_needed) classes.push("dupe");
     const rowCanWork = canWorkBase && (c.tx_capable !== false);
     if (rowCanWork) classes.push("workable");

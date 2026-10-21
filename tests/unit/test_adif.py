@@ -23,7 +23,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from wims.adif import iter_records, load_qsos, read_text, record_id, to_logged_qso  # noqa: E402
+from wims.adif import (  # noqa: E402
+    CONFIRMED_QSL_FIELDS,
+    iter_records,
+    load_qsos,
+    qso_confirmed,
+    read_text,
+    record_id,
+    to_logged_qso,
+)
 
 
 SAMPLE = """WSJT-X log file. Ignore this <call:4>NOPE
@@ -76,6 +84,26 @@ def test_load_path_round_trip(tmp_path=None):
     assert problem is None
     assert [q.call for q in qsos] == ["K1ABC", "W1AW"]
     assert len(list(iter_records(path.read_text(encoding="utf-8")))) == 3
+
+
+def test_confirmation_is_card_lotw_or_eqsl_yes():
+    assert CONFIRMED_QSL_FIELDS == ("qsl_rcvd", "lotw_qsl_rcvd", "eqsl_qsl_rcvd")
+    assert qso_confirmed({"qsl_rcvd": "Y"}) is True
+    assert qso_confirmed({"lotw_qsl_rcvd": "y"}) is True
+    assert qso_confirmed({"eqsl_qsl_rcvd": "Y"}) is True
+    assert qso_confirmed({"qsl_rcvd": "N", "lotw_qsl_rcvd": "R"}) is False
+    assert qso_confirmed({}) is False
+    assert qso_confirmed(None) is False
+    card = to_logged_qso(
+        {"call": "W1AW", "band": "6m", "mode": "FT8", "qsl_rcvd": "Y"},
+        realpath="/tmp/log.adi",
+    )
+    open_qso = to_logged_qso(
+        {"call": "K1ABC", "band": "6m", "mode": "FT8"},
+        realpath="/tmp/log.adi",
+    )
+    assert card is not None and card.confirmed is True
+    assert open_qso is not None and open_qso.confirmed is False
 
 
 if __name__ == "__main__":
