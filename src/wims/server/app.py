@@ -2834,6 +2834,9 @@ def make_handler(live: LiveFleet, refresh: float):
                     # loaded. Not a live re-read of the checkout.
                     "server_rev": SERVER_REV,
                     "version": SERVER_VERSION,
+                    # This process. Restart uses it with the pid file or the
+                    # local port owner. A launcher on another PC does not.
+                    "pid": os.getpid(),
                 }
                 self._send_json(200, body)
             elif path == "/events":
@@ -2885,6 +2888,21 @@ def make_handler(live: LiveFleet, refresh: float):
 
         def do_POST(self):
             path = self.path.split("?", 1)[0]
+            if path == "/shutdown":
+                # Loopback only. A browser on another PC reconnects after a
+                # restart; it cannot ask this process to exit.
+                from wims.launcher.site_restart import handle_shutdown_request
+                if handle_shutdown_request(self):
+                    def _stop() -> None:
+                        time.sleep(0.05)
+                        try:
+                            self.server.shutdown()
+                        except Exception:
+                            pass
+                    threading.Thread(
+                        target=_stop, name="wims-shutdown", daemon=True,
+                    ).start()
+                return
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b"{}"
             try:
@@ -3125,7 +3143,14 @@ def make_handler(live: LiveFleet, refresh: float):
 
 
 class _QuietThreadingHTTPServer(ThreadingHTTPServer):
-    """ThreadingHTTPServer that does not dump a full traceback when the peer aborts."""
+    """ThreadingHTTPServer that does not dump a full traceback when the peer aborts.
+
+    Request threads are daemons so a loopback ``/shutdown`` can let the
+    process exit while remote browsers are still connected. Those browsers
+    reconnect when the server is back.
+    """
+
+    daemon_threads = True
 
     def handle_error(self, request, client_address):
         exc = sys.exc_info()[1]
@@ -3515,6 +3540,15 @@ def main() -> None:
 
     threading.Thread(target=_startup_update_check, daemon=True, name="wims-update").start()
 
+    try:
+        from wims.launcher.site_restart import write_site_server_pid
+        write_site_server_pid(os.getpid(), int(args.http_port))
+    except OSError as exc:
+        print(
+            f"  Could not record the site server process id ({exc}).",
+            flush=True,
+        )
+
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()
@@ -3523,6 +3557,15 @@ def main() -> None:
     finally:
         if announcer is not None:
             announcer.stop()
+        try:
+            httpd.server_close()
+        except Exception:
+            pass
+        try:
+            from wims.launcher.site_restart import clear_site_server_pid
+            clear_site_server_pid(pid=os.getpid())
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
