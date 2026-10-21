@@ -374,6 +374,18 @@ class TxController:
         self._send_all(raw, dests)
         return raw
 
+    def configure_grid(self, instance_id: str, dx_grid: str, *,
+                       schema: int = 2,
+                       dests: list[tuple[str, int]] | None = None) -> bytes:
+        """Set DX Grid on ``instance_id`` only. Does not Enable Tx or change DX Call.
+
+        Other Configure fields are the no-change sentinels. ``dests`` is the
+        same MessageClient address Work already chose for Reply.
+        """
+        raw = E.build_configure_grid(instance_id, dx_grid, schema=schema)
+        self._send_all(raw, dests)
+        return raw
+
     @staticmethod
     def for_group(group: str, port: int, iface: str = "0.0.0.0", ttl: int = 3) -> "TxController":
         """Default dest = multicast group; also keeps a unicast socket for per-host Reply."""

@@ -203,6 +203,30 @@ class LogStore:
         self.con.commit()
         return True
 
+    def replace_remembered_grid(self, qso_id: str, grid: str) -> bool:
+        """Point one remembered square at a newer locator.
+
+        A contact whose grid came from the logger is left as written.
+        ``grid_source`` stays remembered. This does not write an ADIF file.
+        """
+        square = (grid or "").strip().upper()
+        if not qso_id or not square:
+            return False
+        row = self.con.execute(
+            "SELECT grid, grid_source FROM qsos WHERE id=?", (qso_id,)
+        ).fetchone()
+        if row is None or (row["grid_source"] or "") != "remembered":
+            return False
+        if (row["grid"] or "").strip().upper() == square:
+            return False
+        self.con.execute(
+            "UPDATE qsos SET grid=? WHERE id=?",
+            (square, qso_id),
+        )
+        self._touch()
+        self.con.commit()
+        return True
+
     def delete(self, qso_id: str) -> None:
         self.con.execute("DELETE FROM qsos WHERE id=?", (qso_id,))
         self._touch()

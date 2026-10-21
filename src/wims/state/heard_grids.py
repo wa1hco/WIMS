@@ -30,9 +30,11 @@ replacing a 6-character one. A later 4-character hearing of that same
 square keeps the 6-character form.
 
 Calls ending in ``/R``, and any call heard in two different squares inside
-the expiry window, are rovers. A blank logged grid for a rover is filled
-only from a hearing inside ``ROVER_WINDOW_S`` before the QSO. Older rover
-squares are left blank.
+the expiry window, are rovers. A blank logged grid for a rover, and the
+square sent to WSJT-X when that rover is worked, use only a hearing inside
+``ROVER_WINDOW_S`` before the contact. Older rover squares are left blank.
+A square taken from memory is an assumption: the roster says so, and the
+ADIF comment stays ``grid remembered``.
 
 The file is JSON next to the other WIMS preferences. ``WIMS_HEARD_GRIDS``
 points at another file; that is for tests. Operator docs do not mention it.
@@ -48,18 +50,21 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from wims.udp.messages import standard_station_grid
+from wims.udp.messages import extract_grid, standard_station_grid
 
 # Drop a station after this long with no new hearing.
 MAX_AGE_S = 30 * 24 * 3600
-# A rover square older than this is not written onto a blank log line.
-ROVER_WINDOW_S = 30 * 60
+# A rover square older than this is not written onto a blank log line
+# and is not sent to WSJT-X. One window for both fills.
+ROVER_WINDOW_S = 10 * 60
 # Distinct squares kept for the roster hover ("now FN43, was FN42").
 HISTORY_KEEP = 4
 # A hearing a couple of minutes after the log timestamp still counts.
 CLOCK_SLACK_S = 120
 SCHEMA = 1
 GRID_REMEMBERED = "grid remembered"
+# Shown on the roster when the square was not in the current decode.
+GRID_ASSUMED = "grid assumed"
 
 _GRID_OK = re.compile(r"^[A-R]{2}\d{2}([A-X]{2})?$")
 _ADIF_FIELD = re.compile(r"<([A-Za-z0-9_]+):(\d+)(?::[^>]*)?>", re.IGNORECASE)
@@ -139,6 +144,24 @@ def _load_time(text: str) -> float | None:
         return datetime.fromisoformat(raw).timestamp()
     except ValueError:
         return None
+
+
+def grid_for_work(message: str | None, found: GridLookup) -> str | None:
+    """Square to send to the worked WSJT-X after Reply, or None.
+
+    A grid already in the decode is left for WSJT-X. A station with no
+    remembered square, and a rover whose square is older than
+    ``ROVER_WINDOW_S``, stay blank. ``found`` is a ``HeardGrids.lookup``
+    result, so the rover window is the same rule the log fill uses.
+    """
+    if extract_grid(message):
+        return None
+    if not found.remembered:
+        return None
+    grid = (found.grid or "").strip().upper()
+    if not grid or grid == "RR73" or not _GRID_OK.match(grid):
+        return None
+    return grid
 
 
 def qso_time_unix(msg) -> float:
@@ -405,21 +428,23 @@ class HeardGrids:
     def _tip(self, entry: _CallMemory, current: SquareHearing) -> str:
         when = _hhmm(current.last_utc)
         prevs = [h for h in entry.history if h.grid[:4] != current.grid[:4]]
+        lead = GRID_ASSUMED[:1].upper() + GRID_ASSUMED[1:] + ". "
         if not prevs:
             return (
-                f"Remembered {current.grid}, heard on {current.last_band} "
+                f"{lead}{current.grid}, heard on {current.last_band} "
                 f"at {when} UTC."
             )
         prev = max(prevs, key=lambda h: h.last_utc)
         return (
-            f"Now {current.grid}, heard on {current.last_band} at {when} UTC. "
+            f"{lead}Now {current.grid}, heard on {current.last_band} at {when} UTC. "
             f"Was {prev.grid} at {_hhmm(prev.last_utc)} UTC on {prev.last_band}."
         )
 
     def _stale_tip(self, latest: SquareHearing) -> str:
+        minutes = max(1, ROVER_WINDOW_S // 60)
         return (
             f"Rover grid not used. Last heard {latest.grid} on {latest.last_band} "
-            f"at {_hhmm(latest.last_utc)} UTC, more than 30 minutes "
+            f"at {_hhmm(latest.last_utc)} UTC, more than {minutes} minutes "
             f"before this contact."
         )
 

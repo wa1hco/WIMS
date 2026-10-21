@@ -278,6 +278,30 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 
 /* --- TX control strip + click-to-work buttons (Operate) ------------------- */
 .txbar { display:flex; align-items:center; gap:10px; margin:4px 0 12px; flex-wrap:wrap; }
+/* Work/Halt note. Hover shows the method, address, port, and message.
+   The title is cleared while the pointer is over the line so this box
+   is the only tooltip. */
+#tx-meta { position: relative; display: inline-block; }
+#tx-meta[title]:not([title=""]) { cursor: help; }
+#tx-meta .tx-tip {
+  display: block;
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  top: calc(100% + 6px);
+  width: max-content;
+  max-width: min(40rem, 70vw);
+  white-space: normal;
+  background: #1f2328;
+  color: #fff;
+  font: 12px/1.35 ui-monospace, Consolas, monospace;
+  font-weight: normal;
+  padding: 8px 10px;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(31, 35, 40, .28);
+  pointer-events: none;
+}
+#tx-meta .tx-tip[hidden] { display: none; }
 .txbtn { font-size:12px; padding:3px 10px; border:1px solid var(--line); border-radius:5px;
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
@@ -298,12 +322,17 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 }
 /* Message: short on the row. The title is the full decode.
    rosFitColumns measures this clamped width so a long line stays narrow. */
-/* Remembered grid: heard earlier, not in this decode. Hover says when and band. */
+/* Assumed grid: heard earlier, not in this decode. Hover says when and band. */
 #ros .grid-remembered {
   font-style: italic;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
   cursor: help;
+}
+#ros .grid-assumed {
+  font-style: normal;
+  font-size: 0.85em;
+  margin-left: 0.25em;
 }
 #ros .grid-stale { cursor: help; }
 #ros .ros-msg {

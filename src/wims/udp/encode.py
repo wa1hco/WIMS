@@ -25,6 +25,7 @@ as `NetworkMessage.hpp`; `messages.parse(build_x(...))` round-trips.
 
 from __future__ import annotations
 
+import re
 import struct
 from datetime import date, datetime, timezone
 
@@ -201,9 +202,55 @@ def build_configure(mid: str, *, mode: str = "", frequency_tolerance: int | None
     w.u32_opt(tr_period)
     w.u32_opt(rx_df)
     w.utf8(dx_call)
-    # GT2 uses a single space when grid unknown so the field is non-empty.
-    w.utf8(dx_grid if dx_grid else " ")
+    # Empty DX Grid is the no-change sentinel (NetworkMessage.hpp). A single
+    # space is non-empty: WSJT-X writes it, the locator check rejects it, and
+    # the logged grid is cleared. Use build_configure_grid to set a square.
+    w.utf8(dx_grid or "")
     w.boolean(generate_messages)
+    return w.bytes()
+
+
+def build_configure_grid(mid: str, dx_grid: str, *, schema: int = 2) -> bytes:
+    """Configure (msg 15) that sets DX Grid and leaves every other field alone.
+
+    Sent after Reply so a tail-end with no grid in the text still fills the
+    DX Grid box WSJT-X logs. Reply itself has no grid field, and rewriting
+    the echoed decode text makes ``replyToCQ`` miss the Band Activity line.
+
+    No-change sentinels, from ``NetworkMessage.hpp`` and
+    ``MainWindow::remote_configure`` (the handler added in WSJT-X c65d832 and
+    still present in the FT8/FT4/Q65 tree, including commit 7c12c66):
+
+    - Mode, Submode, and DX Call are empty strings, so those ``if (size())``
+      branches do not run. An empty DX Call does not call ``setText``.
+    - Frequency Tolerance, T/R period, and Rx DF are ``0xFFFFFFFF``.
+    - Fast Mode is a bool with no wire sentinel. The handler clicks the JT9
+      Fast box only when that box is visible and the checked state differs.
+      The box is hidden in FT8, FT4, Q65, and MSK144, so false leaves those
+      modes alone.
+    - Generate Messages is false, so the handler does not click Generate Std
+      Msgs and does not rewrite Tx1–Tx6.
+
+    ``remote_configure`` never calls ``auto_tx_mode`` and never clicks Enable
+    Tx. ``tx_watchdog(false)`` only clears the idle counter; the ``true``
+    branch is the one that turns TX off. A non-empty DX Grid is copied into
+    the DX Grid box. ``on_dxGridEntry_textChanged`` stores an acceptable
+    locator in ``m_hisGrid``, and Log QSO passes that to the dialog. The
+    operator still presses OK. This datagram does not write the ADIF file.
+    """
+    grid = (dx_grid or "").strip().upper()
+    if not re.fullmatch(r"[A-R]{2}\d{2}([A-X]{2})?", grid) or grid == "RR73":
+        raise ValueError("DX Grid Configure needs a locator")
+    w = _Writer(schema, CONFIGURE, mid)
+    w.utf8("")             # mode: no change
+    w.u32_opt(None)        # frequency tolerance: no change
+    w.utf8("")             # submode: no change
+    w.boolean(False)       # fast mode: ignored unless the JT9 Fast box is shown
+    w.u32_opt(None)        # T/R period: no change
+    w.u32_opt(None)        # RX DF: no change
+    w.utf8("")             # DX call: no change
+    w.utf8(grid)
+    w.boolean(False)       # do not regenerate TX messages
     return w.bytes()
 
 

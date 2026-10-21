@@ -998,6 +998,8 @@ pile. That remains seat WSJT-X UI.
    presented as run mode; not required for M5/M6.
 5. **Configure → Generate Messages** may be used later as a non-TX helper (“load this call into
    WSJT-X without enabling TX”) — secondary to Reply click-to-work; claim-gated if exposed.
+   Work already sends a **grid-only** Configure after Reply when the decode has no square
+   and memory has one inside the rover window. Generate Messages is false on that datagram.
 6. **WIMS still owns interlock, halt, visibility, and ranking while a seat runs.** Observing a
    local CQ is not “unattended automation by WIMS” — the human at the seat (or RDP session)
    enabled TX. Fail-safe Halt / SSB-CW mute still apply.
@@ -1910,17 +1912,25 @@ Candidate situations worth covering — rename, add, or cut freely:
   `lookupinfo` is callbook-only/greyed). WIMS subscribes to N1MM `<contactinfo>` as a log feed and
   self-computes dupe + new-mult (grid×band) using WSJT-X-sourced grid, calibrated by N1MM
   `ismultiplier`.
-- **Grid → WSJT-X for logging — RESOLVED.** Checked against `NetworkMessage.hpp`.
-  **Configure** (inbound type 15) is the only message with a DX Grid the server can send.
-  An empty string means no change; a non-empty DX Grid is applied to the main-window box,
-  and Generate Messages rebuilds the transmit texts. That is the live QSO setup, not a
-  correction of the log line. **Reply** (type 4) has no grid field; a tail-end with no grid
-  in the text does not fill DX Grid. **Location** (type 11) sets our own grid.
-  **QSO Logged** (type 5) and **Logged ADIF** (type 12) are outbound, sent only after the
-  operator presses OK on Log QSO. Nothing in the header edits that dialog or the ADIF
-  WSJT-X writes. WIMS therefore does not push a grid into WSJT-X. It keeps a heard-grid
-  memory and puts that square on its own record and on the record it forwards. The
-  WSJT-X log may still show the grid blank.
+- **Grid → WSJT-X for logging — RESOLVED (Work sends a grid-only Configure).**
+  Checked against `NetworkMessage.hpp` and `MainWindow::remote_configure` /
+  `replyToCQ` (WSJT-X c65d832 through the FT8/FT4/Q65 tree, commit 7c12c66).
+  **Reply** (type 4) has no grid field. `replyToCQ` finds the Band Activity line
+  by the echoed text; putting a remembered square into that text makes the find
+  miss and the Work does nothing. A tail-end such as `W1XX CX4BAN R-10` has no
+  grid for `deCallAndGrid` to copy. **Configure** (type 15) is the message with
+  a DX Grid. Sent immediately after Reply, with empty Mode, Submode, and DX Call,
+  `0xFFFFFFFF` for frequency tolerance, T/R period, and Rx DF, Fast Mode false
+  (applied only when the JT9 Fast checkbox is visible; hidden in FT8/FT4/Q65/MSK144),
+  and Generate Messages false. `remote_configure` does not call `auto_tx_mode`
+  and does not click Enable Tx. An empty DX Call is not written. The DX Grid
+  box updates `m_hisGrid`, which Log QSO puts in the dialog. The operator still
+  presses OK. WIMS does not write the WSJT-X ADIF file. A square already in the
+  worked decode is left for WSJT-X. Rovers (`/R`, or heard in two squares) use
+  one window, `ROVER_WINDOW_S` (10 minutes). A fill from memory is marked
+  **grid assumed** on the roster; the ADIF comment stays `grid remembered`.
+  A later decode that carries a grid, while that Work is still the open contact,
+  updates WIMS and sends the new square to that same instance only.
 - Choose dashboard tech stack. *(Resolved: stdlib HTTP + SSE + static HTML — §2.4.)*
 - **EME pointing hardware** *(open)* — primary path is Yaesu/K3NG az; elevation + moon-tracking
   only if K3NG build + hardware support el, else separate path (§1.4, §3.8). Resolve before EME

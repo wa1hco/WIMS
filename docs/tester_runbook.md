@@ -126,8 +126,9 @@ If manual double‑click works but roster click does not, the problem is almost 
 1. Confirm the station is on the roster (**fresh** decode — still on WSJT-X Band Activity).
 2. **Click the roster line** (or its **Work** button).
 3. Watch the status line under the TX controls (`tx-meta`):
-   - Success: `→ Work CALL on INSTANCE → host:port, …` plus a short note.
-   - Failure: plain-language reason (unknown row, group busy, `--no-tx`, etc.).
+   - Success: `Working CALL on rig` (rig name, without a `WSJT-X - ` prefix). It fades after a few seconds. Hover for the method, address, port, and message.
+   - Halt: `Halted rig`.
+   - Failure: one plain sentence (no route, decode-only seat, another radio transmitting, claim held on another console). Hover for the detail.
 4. In **WSJT-X**, DX Call/Grid should fill and Enable Tx engage (same as a double‑click).
 5. **Halt TX** = stop QSOs **this console** started (always available). Other
    operators’ Work is not halted. Two bands from this console → both stop.
@@ -142,7 +143,7 @@ appears), but WSJT-X **DX Call / DX Grid stay blank** and **Enable Tx does not t
 |-------------|-----|
 | **Accept UDP requests** ON | Necessary; not sufficient alone |
 | WIMS `--iface` = **Linux contest LAN IP** | Multicast leave path |
-| **Unicast to MessageClient** | WSJT-X binds an **ephemeral** control port. WIMS must Reply to the **last `recvfrom` source IP:port** of that instance (not host:2237). `tx-meta` first dest looks like `192.168.x.x:5xxxx` |
+| **Unicast to MessageClient** | WSJT-X binds an **ephemeral** control port. WIMS must Reply to the **last `recvfrom` source IP:port** of that instance (not host:2237). Hover the status line: the first dest looks like `192.168.x.x:5xxxx` |
 | **Windows firewall** | Allow inbound UDP to **wsjtx.exe** (or from the WIMS host). A rule limited to LocalPort **2237 only is wrong** for control — control arrives on the ephemeral port. Outbound Status/Decode can work while inbound Reply is blocked |
 | Fresh CQ | Decode must still be on WSJT-X Band Activity; WIMS roster keeps rows longer (5 min) |
 
@@ -180,7 +181,7 @@ If you see **TX control disabled (--no-tx)**, Work cannot send at all.
 
 | Layer | Pass |
 |-------|------|
-| WIMS | Work returns ok; `tx-meta` shows call + dests |
+| WIMS | Work returns ok; `tx-meta` shows `Working CALL on rig`; hover shows the dests |
 | WSJT-X | Begins calling that station (Tx Enable / sequence) |
 | N1MM | QSO logs when the contact completes (same as a manual QSO) |
 
@@ -210,7 +211,7 @@ and N1MM keep running normally.
 | **Test CAT connection refused** (wfview seats) | Enable **RigCtld** in wfview External Control; confirm `127.0.0.1:4533` LISTENING. See networking §3.3. |
 | **`[XX]` "not sending decodes over UDP"** | WSJT-X UDP Server box is empty — set it per step 2. |
 | **Work / roster click does nothing** | WSJT-X → Reporting → **"Accept UDP requests"** must be checked; WIMS must not be started with `--no-tx`. |
-| **Work says ok but DX/Enable unchanged in WSJT-X** | Control packet not accepted — Accept UDP, multi-host dest (VM IP in `tx-meta`), fresh decode still on Band Activity (6c). |
+| **Work says ok but DX/Enable unchanged in WSJT-X** | Control packet not accepted — Accept UDP, multi-host dest (VM IP on the status-line hover), fresh decode still on Band Activity (6c). |
 | **TX OFF (read-only)** | Server was started with `--no-tx`. Restart without that flag. |
 | **Manual double‑click works, Work does not** | Control path only — Accept UDP + dest (6a/6c). || **Everything shows as "new mult"** | Expected on a sparse or non-VHF log — WIMS counts grid×band mults. Not a problem for testing. |
 | **"needed/dupe" doesn't change when I log** | Broadcast Data **Contacts** → `127.0.0.1:12060` and the **N1MM** checkbox in the WIMS window; or **N1MM → Resync log**. |

@@ -1899,13 +1899,15 @@ function rosCalling(c) {
   return esc(t || "-");
 }
 function rosGrid(c) {
-  // Italic: the square is remembered from an earlier decode, not this message.
+  // Italic, and the words "grid assumed": the square is from an earlier
+  // decode, not this message. The operator checks it before logging.
   const tip = c.grid_tip || "";
   const title = tip ? ` title="${escAttr(tip)}"` : "";
   if (c.grid_stale) return `<span class="grid-stale"${title}>-</span>`;
   if (!c.grid) return "-";
   if (c.grid_remembered) {
-    return `<span class="grid-remembered"${title}>${esc(c.grid)}</span>`;
+    const hover = /grid assumed/i.test(tip) ? tip : ("Grid assumed. " + tip).trim();
+    return `<span class="grid-remembered" title="${escAttr(hover)}">${esc(c.grid)} <span class="grid-assumed">grid assumed</span></span>`;
   }
   return esc(c.grid);
 }
@@ -2557,6 +2559,222 @@ function rosDraw() {
 let _txState = null;      // latest tx block; can_tx when controller is wired
 let _txWired = false;
 
+// Display only. Work, Halt, Reply, Configure, claim, and interlock are unchanged.
+// The short success line stays up for a few seconds, then fades.
+const TX_STATUS_FADE_MS = 4000;
+const TX_STATUS_FADE_OUT_MS = 600;
+let _txNoteTimer = null;
+
+function txNoteCancel() {
+  if (_txNoteTimer) {
+    clearTimeout(_txNoteTimer);
+    _txNoteTimer = null;
+  }
+}
+
+function txDestText(j) {
+  const dests = j.dests || (j.dest ? [j.dest] : []);
+  if (!dests.length) return "";
+  return " → " + dests.map(d => Array.isArray(d) ? `${d[0]}:${d[1]}` : d).join(", ");
+}
+
+/** Rig name for the status line. Drops a redundant "WSJT-X - " prefix. */
+function txRigName(raw) {
+  const t = (raw || "").trim();
+  if (!t) return "radio";
+  const short = rosSourceLabel(t);
+  if (short && short !== "—" && short !== t) return short;
+  const loose = t.replace(/^wsjt-?x\s+/i, "").trim();
+  if (loose && !/^wsjt-?x$/i.test(loose)) return loose;
+  if (!short || short === "—") return "radio";
+  return short;
+}
+
+/** The line operators used to read: method, address, port, and message. */
+function txStatusFull(j, url) {
+  const body = j || {};
+  if (body.ok) {
+    if (body.sent && String(body.sent).includes("reply")) {
+      const via = body.sent !== "reply" ? ` (${body.sent})` : "";
+      return `→ Work ${body.call || "?"} on ${body.instance || "?"}${via}${txDestText(body)}`
+        + (body.detail ? ` · ${body.detail}` : "");
+    }
+    if (Array.isArray(body.halted)) {
+      if (!body.halted.length) return body.detail || "nothing to halt from this console";
+      const bands = fmtBands((body.bands || []).filter(Boolean), "+");
+      const shown = bands ? `halted ${bands}` : `halted ${body.halted.length}`;
+      return body.detail ? `${shown} · ${body.detail}` : shown;
+    }
+    return "ok";
+  }
+  const err = body.error || "failed";
+  const errKey = String(err).startsWith("send_failed") ? "send_failed" : err;
+  const hint = {
+    tx_disabled: "Server is --no-tx (read-only)",
+    unknown_row: "Row gone — wait for a new decode",
+    group_busy: "Another radio holds TX — Halt first",
+    other_dashboard: "Started from another console",
+    no_control_port: "No UDP control port for that WSJT-X yet",
+    send_failed: "UDP send failed (Windows 22 = bad dest; wait for Status)",
+    decode_only: "That instance is decode-only (H2 mark) — Work the TX instance",
+  }[errKey];
+  const isHalt = url && String(url).indexOf("/halt") >= 0;
+  return (isHalt ? "Halt failed: " : "Work failed: ") + (body.detail || hint || err);
+}
+
+function txIsRouteFailure(errKey, detail) {
+  if (errKey === "no_control_port") return true;
+  if (errKey !== "send_failed") return false;
+  return /cannot reach|no path|same network|unreachable|no route/i.test(String(detail || ""));
+}
+
+/** One plain sentence. Transport and route details stay on the hover. */
+function txPlainFailure(j, url) {
+  const body = j || {};
+  const err = String(body.error || "failed");
+  const errKey = err.startsWith("send_failed") ? "send_failed" : err;
+  const isHalt = url && String(url).indexOf("/halt") >= 0;
+  const detail = String(body.detail || "");
+  if (errKey === "no_control_port") {
+    return "No path to that radio yet, so wait until it shows up and try Work again.";
+  }
+  if (txIsRouteFailure(errKey, detail)) {
+    return "No path to that radio, so check that both computers are on the same network and try Work again.";
+  }
+  if (errKey === "decode_only") {
+    return "That seat only listens, so work the radio that transmits or change the mark on Setup.";
+  }
+  // Interlock and overlap both refuse Work with group_busy.
+  if (errKey === "group_busy") {
+    return "Another radio is transmitting, so halt it first.";
+  }
+  if (errKey === "other_dashboard") {
+    return "Another console is working that radio.";
+  }
+  if (errKey === "tx_disabled") {
+    return isHalt
+      ? "This console is read-only, so Halt cannot stop the radio."
+      : "This console is read-only, so Work cannot transmit.";
+  }
+  if (errKey === "unknown_row") {
+    return "That line is gone, so wait for a new decode and try Work again.";
+  }
+  if (errKey === "band_mismatch") {
+    return "That line is on a different band, so work a line on the radio's current band.";
+  }
+  if (errKey === "dial_mismatch") {
+    return "That line is from a different frequency, so work a line on the current dial.";
+  }
+  if (errKey === "send_failed") {
+    return isHalt
+      ? "Halt did not reach the radio, so try again."
+      : "That Work did not reach the radio, so try again.";
+  }
+  return isHalt
+    ? "Halt did not go through, so try again."
+    : "Work did not go through, so try again.";
+}
+
+function txStatusLine(j, url) {
+  const full = txStatusFull(j, url);
+  if (j && j.ok && j.sent && String(j.sent).includes("reply")) {
+    const call = String(j.call || "").trim() || "?";
+    return {
+      text: `Working ${call} on ${txRigName(j.instance)}`,
+      title: full,
+      prominent: false,
+      fade: true,
+    };
+  }
+  if (j && j.ok && Array.isArray(j.halted)) {
+    if (!j.halted.length) {
+      return {text: full, title: full, prominent: false, fade: false};
+    }
+    return {
+      text: `Halted ${j.halted.map(txRigName).join(" + ")}`,
+      title: full,
+      prominent: false,
+      fade: true,
+    };
+  }
+  if (j && j.ok) return {text: full, title: full, prominent: false, fade: false};
+  return {text: txPlainFailure(j, url), title: full, prominent: true, fade: false};
+}
+
+function txTipLine(el) {
+  if (!el) return "";
+  const box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+  const full = el.textContent || "";
+  if (!box) return full;
+  const extra = box.textContent || "";
+  return extra && full.endsWith(extra) ? full.slice(0, -extra.length) : full;
+}
+
+function txTipBox(el, text) {
+  if (!el || typeof el.appendChild !== "function" || typeof document === "undefined") return null;
+  let box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+  if (!box) {
+    box = document.createElement("span");
+    box.className = "tx-tip";
+    box.hidden = true;
+    el.appendChild(box);
+  }
+  if (text != null) box.textContent = text;
+  return box;
+}
+
+function txTipWire(el) {
+  if (!el || el._txTipWired || typeof el.addEventListener !== "function") return;
+  el._txTipWired = true;
+  el.addEventListener("mouseenter", () => {
+    const tip = el.title || (el.dataset && el.dataset.tip) || "";
+    if (!tip || !el.dataset) return;
+    el.dataset.tip = tip;
+    el.title = "";
+    const box = txTipBox(el, tip);
+    if (box) box.hidden = false;
+  });
+  el.addEventListener("mouseleave", () => {
+    const box = el.querySelector ? el.querySelector(":scope > .tx-tip") : null;
+    if (box) box.hidden = true;
+    if (!el.dataset || !el.dataset.tip) return;
+    if (!txTipLine(el)) {
+      el.dataset.tip = "";
+      return;
+    }
+    el.title = el.dataset.tip;
+  });
+}
+
+function txShowStatus(el, view) {
+  if (!el || !view) return;
+  txNoteCancel();
+  txTipWire(el);
+  el.textContent = view.text || "";
+  el.title = view.title || "";
+  if (el.dataset) el.dataset.tip = "";
+  el.className = view.prominent ? "meta warn" : "meta";
+  if (el.style) {
+    el.style.transition = "none";
+    el.style.opacity = "1";
+  }
+  if (!view.fade || !view.text) return;
+  _txNoteTimer = setTimeout(() => {
+    if (el.style) {
+      el.style.transition = "opacity " + (TX_STATUS_FADE_OUT_MS / 1000) + "s ease";
+      el.style.opacity = "0";
+    }
+    _txNoteTimer = setTimeout(() => {
+      _txNoteTimer = null;
+      if (!el.style || el.style.opacity === "0") {
+        el.textContent = "";
+        el.title = "";
+        if (el.dataset) el.dataset.tip = "";
+      }
+    }, TX_STATUS_FADE_OUT_MS);
+  }, TX_STATUS_FADE_MS);
+}
+
 async function txPost(url, payload) {
   try {
     const r = await fetch(url, {method: "POST",
@@ -2567,48 +2785,14 @@ async function txPost(url, payload) {
 
 function txFlash(j, url) {
   const m = $("tx-meta"); if (!m) return;
-  if (j.ok) {
-    m.className = "meta";
-    if (j.sent && String(j.sent).includes("reply")) {
-      const dests = j.dests || (j.dest ? [j.dest] : []);
-      const dest = dests.length
-        ? " → " + dests.map(d => Array.isArray(d) ? `${d[0]}:${d[1]}` : d).join(", ")
-        : "";
-      const via = j.sent !== "reply" ? ` (${j.sent})` : "";
-      m.textContent = `→ Work ${j.call || "?"} on ${j.instance || "?"}${via}${dest}`
-        + (j.detail ? ` · ${j.detail}` : "");
-    } else if (Array.isArray(j.halted)) {
-      if (!j.halted.length) {
-        m.textContent = j.detail || "nothing to halt from this console";
-      } else {
-        const bands = fmtBands((j.bands || []).filter(Boolean), "+");
-        m.textContent = bands ? `halted ${bands}` : `halted ${j.halted.length}`;
-      }
-    } else {
-      m.textContent = "ok";
-    }
-  } else {
-    m.className = "meta warn";
-    const err = j.error || "failed";
-    const errKey = String(err).startsWith("send_failed") ? "send_failed" : err;
-    const hint = {
-      tx_disabled: "Server is --no-tx (read-only)",
-      unknown_row: "Row gone — wait for a new decode",
-      group_busy: "Another radio holds TX — Halt first",
-      other_dashboard: "Started from another console",
-      no_control_port: "No UDP control port for that WSJT-X yet",
-      send_failed: "UDP send failed (Windows 22 = bad dest; wait for Status)",
-      decode_only: "That instance is decode-only (H2 mark) — Work the TX instance",
-    }[errKey];
-    const isHalt = url && String(url).indexOf("/halt") >= 0;
-    m.textContent = (isHalt ? "Halt failed: " : "Work failed: ")
-      + (j.detail || hint || err);
-    // Display only: a refused Work is a conflict the Operate page must show
-    // even before the next live snapshot lists the holder.
-    if (!isHalt && err === "group_busy") {
-      _ilRefused = {holder: j.holder || "", misses: 0, seen: false};
-      if (_ilLast) renderInterlock(_ilLast, _txState, true);
-    }
+  j = j || {};
+  txShowStatus(m, txStatusLine(j, url));
+  // Display only: a refused Work is a conflict the Operate page must show
+  // even before the next live snapshot lists the holder.
+  const isHalt = url && String(url).indexOf("/halt") >= 0;
+  if (!j.ok && !isHalt && j.error === "group_busy") {
+    _ilRefused = {holder: j.holder || "", misses: 0, seen: false};
+    if (_ilLast) renderInterlock(_ilLast, _txState, true);
   }
 }
 
@@ -2646,19 +2830,17 @@ async function rotPost(url, payload) {
     const j = await r.json().catch(() => ({}));
     const m = $("tx-meta");
     if (m) {
-      if (j.ok) {
-        m.className = "meta";
-        m.textContent = j.az != null
+      const text = j.ok
+        ? (j.az != null
           ? `→ Point ${j.rotator || "?"} to ${j.az}°` + (j.detail ? ` (${j.detail})` : "")
-          : (j.detail || "rotator ok");
-      } else {
-        m.className = "meta warn";
-        m.textContent = `Point failed: ${j.detail || j.error || "failed"}`;
-      }
+          : (j.detail || "rotator ok"))
+        : `Point failed: ${j.detail || j.error || "failed"}`;
+      // Same Point wording as before. This only replaces a Work/Halt note.
+      txShowStatus(m, {text: text, title: "", prominent: !j.ok, fade: false});
     }
   } catch (e) {
     const m = $("tx-meta");
-    if (m) { m.className = "meta warn"; m.textContent = String(e); }
+    if (m) txShowStatus(m, {text: String(e), title: "", prominent: true, fade: false});
   }
 }
 

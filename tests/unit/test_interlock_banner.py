@@ -181,6 +181,7 @@ function ilReset() {
   $("il-body").innerHTML = "";
   $("tx-meta").textContent = "";
   $("tx-meta").className = "";
+  $("tx-meta").title = "";
 }
 function ilSnap() {
   const body = $("il-body");
@@ -196,6 +197,7 @@ function ilSnap() {
     rowHtml: row ? row.innerHTML : "",
     rowClass: row ? row.className : "",
     txMeta: $("tx-meta").textContent,
+    txMetaTitle: $("tx-meta").title,
     meta: $("il-meta").textContent,
   };
 }
@@ -437,8 +439,9 @@ def test_interlock_banner_appears_on_conflict():
     assert refused["bannerHidden"] is False
     assert refused["bannerText"] == "Work blocked: 20M is transmitting"
     assert refused["sectionHidden"] is False
-    assert "Work failed:" in refused["txMeta"]
-    assert "Halt first" in refused["txMeta"]
+    assert refused["txMeta"] == "Another radio is transmitting, so halt it first."
+    assert "Work failed:" in refused["txMetaTitle"]
+    assert "Halt first" in refused["txMetaTitle"]
     # One stale snapshot keeps the refusal on screen. The next one drops it
     # once the holder was never actually seen.
     assert v["refusedStale"]["bannerText"] == "Work blocked: 20M is transmitting"
