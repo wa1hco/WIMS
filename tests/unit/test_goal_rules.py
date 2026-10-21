@@ -36,6 +36,9 @@ from wims.engine.goal_rules import (  # noqa: E402
     shape_choice,
 )
 from wims.engine.scoring import build_candidate  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
+
+use_paths([])
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
 from wims.rules.choice import load_choice, needs_migration, save_choice  # noqa: E402
 from wims.rules.places import US_STATES, canonical_place, is_us_state  # noqa: E402

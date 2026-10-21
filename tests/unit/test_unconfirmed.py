@@ -29,6 +29,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.engine.goal_rules import AwardRules, ChecklistRules, shape_choice  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
+
+# These tests pin confirmation to the log fields. A GridTracker file on
+# this PC must not change them.
+use_paths([])
 from wims.engine.roster_filter import row_visible  # noqa: E402
 from wims.engine.scoring import build_candidate  # noqa: E402
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
