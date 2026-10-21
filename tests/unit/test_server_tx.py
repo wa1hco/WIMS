@@ -49,6 +49,10 @@ class _FakeTx:
         self.last_dests = dests
         self.sent.append(("configure", inst, dx_call, dx_grid, generate_messages))
 
+    def configure_grid(self, inst, dx_grid, *, schema=2, dests=None):
+        self.last_dests = dests
+        self.sent.append(("grid", inst, dx_grid, dests))
+
     def halt(self, inst, *, auto_only=False, dests=None):
         self.last_dests = dests
         self.sent.append(("halt", inst))

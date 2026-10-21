@@ -1899,13 +1899,15 @@ function rosCalling(c) {
   return esc(t || "-");
 }
 function rosGrid(c) {
-  // Italic: the square is remembered from an earlier decode, not this message.
+  // Italic, and the words "grid assumed": the square is from an earlier
+  // decode, not this message. The operator checks it before logging.
   const tip = c.grid_tip || "";
   const title = tip ? ` title="${escAttr(tip)}"` : "";
   if (c.grid_stale) return `<span class="grid-stale"${title}>-</span>`;
   if (!c.grid) return "-";
   if (c.grid_remembered) {
-    return `<span class="grid-remembered"${title}>${esc(c.grid)}</span>`;
+    const hover = /grid assumed/i.test(tip) ? tip : ("Grid assumed. " + tip).trim();
+    return `<span class="grid-remembered" title="${escAttr(hover)}">${esc(c.grid)} <span class="grid-assumed">grid assumed</span></span>`;
   }
   return esc(c.grid);
 }

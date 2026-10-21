@@ -203,7 +203,7 @@ def test_slash_r_uses_only_a_recent_grid():
             "paths": [str(chosen)],
         }, [], None)
         live._log_choice_active = True
-        recent = time.time() - 10 * 60
+        recent = time.time() - 2 * 60
         _hear(live, "K1ROV/R", "FN42", recent, hz=144_174_000)
         live._roster._entries.clear()
         qso_at = datetime.now(UTC)
@@ -243,6 +243,8 @@ def test_slash_r_uses_only_a_recent_grid():
         assert shown["grid_stale"] is True
         assert "FN42" in shown["grid_tip"]
         assert "not used" in shown["grid_tip"]
+        assert "10 minutes" in shown["grid_tip"]
+        assert "grid assumed" not in shown["grid_tip"].lower()
     finally:
         if prev is None:
             os.environ.pop("XDG_DATA_HOME", None)
@@ -276,6 +278,7 @@ def test_logged_grid_does_not_override_a_newer_heard_grid():
     assert later["grid"] == "FN43"
     assert later["grid_remembered"] is True
     assert "FN43" in later["grid_tip"]
+    assert "grid assumed" in later["grid_tip"].lower()
     assert later["is_dupe"] is False
     assert later["is_new_mult"] is True
     stored = live._log.con.execute(
@@ -293,7 +296,9 @@ def test_roster_styles_a_remembered_grid():
     )
     assert "function rosGrid" in js
     assert "grid-remembered" in js and "grid_tip" in js
+    assert "grid assumed" in js
     assert "grid-remembered" in css
+    assert "grid-assumed" in css
 
 
 def _hear(live, call, grid, now, hz=14_074_000):

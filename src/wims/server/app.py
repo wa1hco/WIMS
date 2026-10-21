@@ -69,7 +69,8 @@ from wims.engine.roster import RosterBuilder, is_own_tx_decode  # noqa: E402
 from wims.engine.geo import base_call as _base_call  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
 from wims.state.heard_grids import (  # noqa: E402
-    HeardGrids, default_path as heard_grids_path, qso_time_unix, stamp_unix,
+    HeardGrids, _adif_set, _adif_value, default_path as heard_grids_path,
+    grid_for_work, qso_time_unix, stamp_unix,
 )
 from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.logsource import N1mmLogSource  # noqa: E402
@@ -162,6 +163,9 @@ class LiveFleet:
         self._last_tx_action: dict | None = None   # last work/halt for the UI
         # instance_id -> {dashboard_id, band, call, ts} for Halt scoping.
         self._tx_claims: dict[str, dict] = {}
+        # instance_id -> the station this console is working, and the square
+        # WSJT-X was last told. Cleared when that contact is no longer live.
+        self._open_work: dict[str, dict] = {}
         # Last Replay probe (elicit Status/dial) per instance — Heartbeat has no freq.
         self._status_probe_ts: dict[str, float] = {}
         # instance_id → ignore Decode until this `now` (Replay Band Activity dump).
@@ -1420,12 +1424,30 @@ class LiveFleet:
                     )
             except Exception:
                 pass
+            pushed_grid = ""
+            grid_tip = ""
+            if call:
+                found = self._heard.lookup(call, time.time())
+                chosen = grid_for_work(msg_text, found)
+                if chosen:
+                    pushed_grid = chosen
+                    grid_tip = found.tip or ""
         sent_parts = ["reply"]
         try:
             self._tx.reply(inst, decode, dests=dests)
+            if pushed_grid:
+                # After Reply. processMessage clears a blank DX Grid when the
+                # call changes; this puts the remembered square back. Every
+                # other Configure field is a no-change sentinel.
+                self._tx.configure_grid(
+                    inst, pushed_grid, schema=schema, dests=dests,
+                )
+                sent_parts.append("grid")
             if not auto_tx and call:
-                # GT2 secondary path: Configure fills DX/grid + Gen Std Msgs without
-                # inventing a synthetic CQ (design: no fake CQ over UDP).
+                # GT2 secondary path: Configure fills DX call + Gen Std Msgs
+                # without inventing a synthetic CQ (design: no fake CQ over UDP).
+                # An empty grid is no change, so it does not clear the square
+                # just sent above.
                 self._tx.configure(
                     inst, dx_call=call, dx_grid=grid,
                     rx_df=(df if df > 0 else None),
@@ -1463,27 +1485,157 @@ class LiveFleet:
                 "Enable Tx from Reply needs WSJT-X **Hold Tx Freq** checked "
                 "(or Work a CQ/73 line)."
             )
+        grid_hint = f" {grid_tip}" if grid_tip else ""
+        now_ts = time.time()
+        known_grid = pushed_grid or (grid or "").strip().upper()
         with self._lock:
             self._last_tx_action = {
                 "action": "work", "instance": inst, "call": call,
                 "message": msg_text, "dests": dests, "sent": sent_parts,
-                "dashboard_id": dash, "ts": time.time(),
+                "dashboard_id": dash, "ts": now_ts,
+            }
+            self._open_work[inst] = {
+                "call": call,
+                "grid": known_grid,
+                "assumed": bool(pushed_grid),
+                "schema": schema,
+                "ts": now_ts,
+                "started": now_ts,
+                "band": claim_band,
             }
             if dash:
                 self._tx_claims[inst] = {
                     "dashboard_id": dash, "band": claim_band,
-                    "call": call, "ts": time.time(),
+                    "call": call, "ts": now_ts,
                 }
         return {
             "ok": True, "sent": "+".join(sent_parts), "instance": inst,
             "call": call, "message": msg_text, "dest": dests[0] if dests else None,
             "dests": dests, "auto_tx_eligible": auto_tx,
             "dashboard_id": dash,
+            "grid": pushed_grid,
+            "grid_assumed": bool(pushed_grid),
             "detail": (
                 f"Work {call} on id={inst!r} via {'+'.join(sent_parts)} → [{dest_s}]."
-                + mid_hint + age_hint
+                + mid_hint + grid_hint + age_hint
             ),
         }
+
+    def _touch_open_work(self, inst: str, status, now: float) -> None:
+        """Keep or drop the worked station as Status shows the contact (holds lock)."""
+        rec = self._open_work.get(inst)
+        if not rec:
+            return
+        if bool(getattr(status, "transmitting", False)) or bool(
+            getattr(status, "tx_enabled", False)
+        ):
+            rec["ts"] = now
+            return
+        if self._arbiter.is_granted(inst):
+            return
+        try:
+            age = now - float(rec.get("ts") or 0)
+        except (TypeError, ValueError):
+            age = 0.0
+        if age > _CLAIM_ARM_GRACE_S:
+            self._open_work.pop(inst, None)
+
+    def _open_work_live(self, inst: str, now: float) -> bool:
+        """True while this console's Work on ``inst`` is still the contact."""
+        rec = self._open_work.get(inst)
+        if not rec:
+            return False
+        node = self._tracker.nodes.get(inst)
+        if node is not None and (node.transmitting or node.tx_enabled):
+            return True
+        if self._arbiter.is_granted(inst):
+            return True
+        try:
+            age = now - float(rec.get("ts") or 0)
+        except (TypeError, ValueError):
+            age = 0.0
+        return age <= _CLAIM_ARM_GRACE_S
+
+    def _correct_remembered_log_locked(self, call: str, grid: str, started: float) -> None:
+        """Point a just-logged remembered square at a grid the station has now sent.
+
+        Older contacts are left alone. A grid the log already carried is left
+        as written. Does not write a WSJT-X log file.
+        """
+        try:
+            rows = self._log.con.execute(
+                "SELECT id, call, grid, grid_source, timestamp, qso_date, time_on "
+                "FROM qsos"
+            ).fetchall()
+        except Exception:
+            return
+        for row in rows:
+            if (row["call"] or "").upper() != call:
+                continue
+            if (row["grid_source"] or "") != "remembered":
+                continue
+            if (row["grid"] or "").strip().upper() == grid:
+                continue
+            when = stamp_unix(
+                row["timestamp"] if "timestamp" in row.keys() else None,
+                row["qso_date"] if "qso_date" in row.keys() else None,
+                row["time_on"] if "time_on" in row.keys() else None,
+            )
+            if when + 120 < started:
+                continue
+            self._log.replace_remembered_grid(row["id"], grid)
+        for rec in self._logged_qsos:
+            if (rec.get("call") or "").upper() != call:
+                continue
+            if (rec.get("grid_source") or "") != "remembered":
+                continue
+            try:
+                seen = float(rec.get("ts") or 0)
+            except (TypeError, ValueError):
+                seen = 0.0
+            if seen + 120 < started:
+                continue
+            adif = rec.get("adif") or ""
+            if (_adif_value(adif, "GRIDSQUARE") or "").upper() == grid:
+                continue
+            rec["adif"] = _adif_set(adif, "GRIDSQUARE", grid)
+
+    def _grid_correction(self, inst: str, msg, now: float):
+        """Newer grid for the station being worked, or None.
+
+        Caller holds ``_lock``. The datagram is Configure with only DX Grid
+        set, sent to this instance's control address. It does not Reply and
+        does not start TX.
+        """
+        if self._tx is None or not self._seat_profile.tx_capable(inst):
+            return None
+        if getattr(msg, "off_air", False):
+            return None
+        if not self._open_work_live(inst, now):
+            self._open_work.pop(inst, None)
+            return None
+        rec = self._open_work.get(inst)
+        if rec is None:
+            return None
+        call = (getattr(msg, "dx_call", "") or "").upper()
+        if not call or call != (rec.get("call") or "").upper():
+            return None
+        grid = (getattr(msg, "grid", "") or "").strip().upper()
+        if not grid or grid == "RR73" or grid == (rec.get("grid") or "").upper():
+            return None
+        dests = self._tx_dests_for(inst)
+        if not dests:
+            return None
+        previous = rec.get("grid") or ""
+        previous_assumed = bool(rec.get("assumed"))
+        rec["grid"] = grid
+        rec["assumed"] = False
+        rec["ts"] = now
+        self._correct_remembered_log_locked(
+            call, grid, float(rec.get("started") or now),
+        )
+        schema = int(getattr(msg, "schema", None) or rec.get("schema") or 2)
+        return inst, grid, schema, dests, previous, previous_assumed
 
     def _claim_is_live(self, inst: str, claim: dict, now: float) -> bool:
         """True if Halt should still stop this Work (caller holds ``_lock``)."""
@@ -1559,6 +1711,7 @@ class LiveFleet:
             for t in halted:
                 self._arbiter.release(t)
                 self._tx_claims.pop(t, None)
+                self._open_work.pop(t, None)
             self._last_tx_action = {
                 "action": "halt", "instances": halted, "bands": bands,
                 "dashboard_id": dash, "ts": time.time(),
@@ -1607,6 +1760,7 @@ class LiveFleet:
 
     def observe_wsjtx(self, msg, now, src_ip, src_port=None):
         need_replay: tuple[str, list[tuple[str, int]]] | None = None
+        grid_fix = None
         if src_ip:
             d4 = v4_unicast_dest(src_ip, src_port or 1)
             if d4 is None:
@@ -1671,6 +1825,7 @@ class LiveFleet:
                         claim["ts"] = now
                     elif (now - float(claim.get("ts") or 0)) > _CLAIM_ARM_GRACE_S:
                         self._tx_claims.pop(mid, None)
+                self._touch_open_work(mid, msg, now)
                 node = self._tracker.nodes.get(mid)
                 new_band = node.band if node else None
                 # Fill in rows that were heard before the first Status (band was "?").
@@ -1750,6 +1905,8 @@ class LiveFleet:
                             heard_grid=heard_grid,
                             heard_tip=heard_tip,
                             heard_stale=heard_stale)
+                        if (getattr(msg, "grid", None) or "").strip():
+                            grid_fix = self._grid_correction(mid, msg, now)
                         self._maps[mid].add(msg)
                         self._decodes.append({
                             "ts": now, "instance": mid, "snr": msg.snr,
@@ -1777,6 +1934,22 @@ class LiveFleet:
                 self._tx.replay(mid, dests=dests)
             except OSError:
                 pass
+        if grid_fix is not None and self._tx is not None:
+            inst, grid, schema, dests, previous, previous_assumed = grid_fix
+            try:
+                self._tx.configure_grid(inst, grid, schema=schema, dests=dests)
+                dest_s = ", ".join(f"{h}:{p}" for h, p in dests)
+                print(f"TX grid {grid} on {inst!r} → [{dest_s}]", flush=True)
+            except OSError as e:
+                with self._lock:
+                    rec = self._open_work.get(inst)
+                    if rec is not None and rec.get("grid") == grid:
+                        rec["grid"] = previous
+                        rec["assumed"] = previous_assumed
+                print(
+                    f"TX grid could not send {inst} {grid} → {dests}: {e}",
+                    flush=True,
+                )
 
     def logged_qsos_since(self, since: float) -> list[dict]:
         """WSJT Logged QSO after ``since`` (unix ts) for seat log-agent relay."""
@@ -1827,6 +2000,7 @@ class LiveFleet:
             for mid in self._tracker.prune(now):
                 self._maps.pop(mid, None)
                 self._tx_claims.pop(mid, None)
+                self._open_work.pop(mid, None)
             self._tracker.prune_loggers(now)
             d = fleet_to_dict(self._tracker, now,
                               wsjt_pkts=self.wsjt_pkts, n1mm_pkts=self.n1mm_pkts,

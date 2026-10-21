@@ -267,6 +267,21 @@ class InhibitStatus(WsjtxMessage):
 
 
 @dataclass
+class Configure(WsjtxMessage):
+    """Inbound Configure (type 15). Empty strings and max quint32 are no-change."""
+
+    mode: str | None = None
+    frequency_tolerance: int | None = None
+    submode: str | None = None
+    fast_mode: bool = False
+    tr_period: int | None = None
+    rx_df: int | None = None
+    dx_call: str | None = None
+    dx_grid: str | None = None
+    generate_messages: bool = False
+
+
+@dataclass
 class UnknownMessage(WsjtxMessage):
     payload: bytes = field(default=b"", repr=False)
 
@@ -682,6 +697,22 @@ def parse(data: bytes) -> WsjtxMessage | None:
 
     if mtype == LOGGED_ADIF:
         return LoggedADIF(schema, mtype, mid, adif=r.utf8())
+
+    if mtype == CONFIGURE:
+        msg = Configure(schema, mtype, mid)
+        try:
+            msg.mode = r.utf8()
+            msg.frequency_tolerance = r.u32_opt()
+            msg.submode = r.utf8()
+            msg.fast_mode = r.boolean()
+            msg.tr_period = r.u32_opt()
+            msg.rx_df = r.u32_opt()
+            msg.dx_call = r.utf8()
+            msg.dx_grid = r.utf8()
+            msg.generate_messages = r.boolean()
+        except ValueError:
+            pass
+        return msg
 
     if mtype == INHIBIT_STATUS:
         # Matching NetworkMessage.hpp InhibitStatus (Supported bool first).
