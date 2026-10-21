@@ -445,6 +445,7 @@ def shape_choice(data: dict | None) -> dict:
         "station_state": data.get("station_state") or "",
         "station_county": data.get("station_county") or "",
         "checklist": checklist,
+        "count_unconfirmed": _count_unconfirmed(data.get("count_unconfirmed")),
     })
     return base
 
@@ -538,6 +539,8 @@ def goal_menu(choice: dict, *, custom_available: bool, cty_ok: bool = False) -> 
         (goal == "operating" and goal_id == "checklist")
         or (goal == "custom" and goal_id == "checklist")
     )
+    # Awards and the checklist chase a place. Contest rules do not.
+    show_unconfirmed = show or (goal == "award" and goal_id != "county")
     return {
         "type": goal,
         "id": goal_id,
@@ -550,6 +553,8 @@ def goal_menu(choice: dict, *, custom_available: bool, cty_ok: bool = False) -> 
         "options": current["options"],
         "menus": menus,
         "show_checklist": show,
+        "show_unconfirmed": show_unconfirmed,
+        "count_unconfirmed": _count_unconfirmed(choice.get("count_unconfirmed")),
         "checklist": _checklist_public(choice.get("checklist"), cty_ok=cty_ok),
         "scope_tip": SCOPE_TIP,
     }
@@ -600,7 +605,8 @@ def _row_state(row: dict) -> str | None:
 class AwardRules:
     """One award. Logged contacts are the already-have list."""
 
-    def __init__(self, award_id: str, *, dxcc_lookup=None, log_label: str = "the log"):
+    def __init__(self, award_id: str, *, dxcc_lookup=None, log_label: str = "the log",
+                 count_unconfirmed: bool = True):
         self.award_id = award_id if award_id in AWARD_IDS else "dxcc"
         meta = AWARD_BY_ID[self.award_id]
         self.id = f"award-{self.award_id}"
@@ -609,6 +615,7 @@ class AwardRules:
         self.dxcc_lookup = dxcc_lookup
         self.log_label = log_label or "the log"
         self._summary = meta["summary"]
+        self.count_unconfirmed = bool(count_unconfirmed)
 
     def plain_summary(self) -> str:
         line = self._summary
@@ -621,26 +628,28 @@ class AwardRules:
             line += " A station counts only when its state is known."
         elif self.award_id == "county":
             line = AWARD_BY_ID["county"]["summary"]
-        return line
+            return line
+        return line + _confirm_tail(self.count_unconfirmed)
 
     def _index(self, store) -> dict:
         gen = store.generation() if hasattr(store, "generation") else 0
         cache = getattr(self, "_cache", None)
         if cache and cache[0] == gen and cache[1] is store:
             return cache[2]
-        dxcc: set[str] = set()
-        states: set[str] = set()
-        grids: set[str] = set()
+        built: dict = {}
+        for name in ("dxcc", "states", "grids"):
+            _blank_buckets(built, name, scopes=False)
         for row in store.cached_rows():
-            for key in _entity_keys(row.get("call") or "", row.get("dxcc"), self.dxcc_lookup):
-                dxcc.add(key)
+            call = row.get("call") or ""
+            confirmed = _row_confirmed(row)
+            for key in _entity_keys(call, row.get("dxcc"), self.dxcc_lookup):
+                _remember(built, "dxcc", key, "", "", call, confirmed)
             st = _row_state(row)
             if st:
-                states.add(st)
+                _remember(built, "states", st, "", "", call, confirmed)
             g = _grid4(row.get("grid"))
             if g:
-                grids.add(g)
-        built = {"dxcc": dxcc, "states": states, "grids": grids}
+                _remember(built, "grids", g, "", "", call, confirmed)
         self._cache = (gen, store, built)
         return built
 
@@ -669,19 +678,14 @@ class AwardRules:
                     ),
                     points=1,
                 )
-            if keys & idx["dxcc"]:
-                shown = _pretty_entity(keys)
-                return Verdict(
-                    True, False,
-                    need_reason=f"Already have: {shown} is in {label}.",
-                    points=1,
-                )
             shown = _pretty_entity(keys)
-            return Verdict(
-                False, True,
-                need_reason=f"Needed: new DXCC entity {shown} is not in {label}.",
-                mult_reason=f"New mult: DXCC entity {shown}.",
-                points=1,
+            mark = _mark_any(idx, "dxcc", "overall", keys, "", "", call)
+            return self._from_mark(
+                mark,
+                need=f"Needed: new DXCC entity {shown} is not in {label}.",
+                have=f"Already have: {shown} is in {label}.",
+                mult=f"New mult: DXCC entity {shown}.",
+                open_text=f"DXCC entity {shown} is worked but not confirmed.",
             )
         if self.award_id == "vucc":
             g = _grid4(grid)
@@ -693,17 +697,12 @@ class AwardRules:
                 else:
                     reason = "No grid, so this is not a new grid square."
                 return Verdict(True, False, need_reason=reason, points=1)
-            if g in idx["grids"]:
-                return Verdict(
-                    True, False,
-                    need_reason=f"Already have: grid {g} is in {label}.",
-                    points=1,
-                )
-            return Verdict(
-                False, True,
-                need_reason=f"Needed: new grid square {g} is not in {label}.",
-                mult_reason=f"New mult: grid {g}.",
-                points=1,
+            return self._from_mark(
+                _mark(idx, "grids", "overall", g, "", "", call),
+                need=f"Needed: new grid square {g} is not in {label}.",
+                have=f"Already have: grid {g} is in {label}.",
+                mult=f"New mult: grid {g}.",
+                open_text=f"Grid {g} is worked but not confirmed.",
             )
         abbr = canonical_place(state) or canonical_place(exchange)
         if not abbr:
@@ -726,18 +725,33 @@ class AwardRules:
                 points=1,
             )
         name = place_name(abbr)
-        if abbr in idx["states"]:
-            return Verdict(
-                True, False,
-                need_reason=f"Already have: {name} is in {label}.",
-                points=1,
-            )
-        return Verdict(
-            False, True,
-            need_reason=f"Needed: new state {name} is not in {label}.",
-            mult_reason=f"New mult: {name}.",
-            points=1,
+        return self._from_mark(
+            _mark(idx, "states", "overall", abbr, "", "", call),
+            need=f"Needed: new state {name} is not in {label}.",
+            have=f"Already have: {name} is in {label}.",
+            mult=f"New mult: {name}.",
+            open_text=f"{name} is worked but not confirmed.",
         )
+
+    def _from_mark(self, mark, *, need, have, mult, open_text) -> Verdict:
+        """New stays needed. Confirmed, or the same station, stays not needed."""
+        if mark == "new":
+            return Verdict(
+                False, True,
+                need_reason=need,
+                mult_reason=mult,
+                points=1,
+                chase="needed",
+            )
+        if mark == "unconfirmed":
+            include = bool(self.count_unconfirmed)
+            return Verdict(
+                not include, False,
+                need_reason=open_text,
+                points=1,
+                chase="unconfirmed",
+            )
+        return Verdict(True, False, need_reason=have, points=1)
 
     def public(self, *, source_label: str | None = None, n1mm: bool = False,
                extra: dict | None = None) -> dict:
@@ -760,7 +774,7 @@ class ChecklistRules:
     """Just-operating or custom checklist. First matching line wins."""
 
     def __init__(self, items, *, title: str, dxcc_lookup=None, log_label: str = "the log",
-                 cty=None):
+                 cty=None, count_unconfirmed: bool = True):
         self.items = normalize_checklist(items)
         self.title = title or "Checklist"
         self.id = "custom-checklist" if "Custom" in self.title else "checklist"
@@ -769,6 +783,7 @@ class ChecklistRules:
             dxcc_lookup = cty.entity_name
         self.dxcc_lookup = dxcc_lookup
         self.log_label = log_label or "the log"
+        self.count_unconfirmed = bool(count_unconfirmed)
 
     def _line_on(self, kind: str) -> bool:
         row = self.items.get(kind) or {}
@@ -795,7 +810,10 @@ class ChecklistRules:
         if not parts:
             line = "Nothing is checked, so no station will show as needed."
         else:
-            line = "Needed when a station matches " + ", ".join(parts) + "."
+            line = (
+                "Needed when a station matches " + ", ".join(parts) + "."
+                + _confirm_tail(self.count_unconfirmed)
+            )
         if self.items["dxcc"]["enabled"] and self.dxcc_lookup is None:
             line += " DXCC uses country numbers stored in the log."
         if held:
@@ -811,23 +829,22 @@ class ChecklistRules:
             return cache[2]
         built = {}
         for kind in _PLACE_KINDS:
-            built[kind] = set()
-            built[f"{kind}_band"] = set()
-            built[f"{kind}_mode"] = set()
+            _blank_buckets(built, kind)
         for row in store.cached_rows():
             band = row.get("band") or ""
             mode = _row_mode(row)
             call = _upper(row.get("call"))
+            confirmed = _row_confirmed(row)
             if call:
-                _remember(built, "call", call, band, mode)
+                _remember(built, "call", call, band, mode, call, confirmed)
             g = _grid4(row.get("grid"))
             if g:
-                _remember(built, "grid", g, band, mode)
+                _remember(built, "grid", g, band, mode, call, confirmed)
             st = _row_state(row)
             if st:
-                _remember(built, "state", st, band, mode)
+                _remember(built, "state", st, band, mode, call, confirmed)
             for key in _entity_keys(row.get("call") or "", row.get("dxcc"), self.dxcc_lookup):
-                _remember(built, "dxcc", key, band, mode)
+                _remember(built, "dxcc", key, band, mode, call, confirmed)
             place = self._describe(
                 row.get("call") or "",
                 row.get("grid"),
@@ -838,11 +855,11 @@ class ChecklistRules:
             if place is None:
                 continue
             if place.continent:
-                _remember(built, "continent", place.continent, band, mode)
+                _remember(built, "continent", place.continent, band, mode, call, confirmed)
             if place.cq is not None and not place.cq_uncertain:
-                _remember(built, "cq", place.cq, band, mode)
+                _remember(built, "cq", place.cq, band, mode, call, confirmed)
             if place.itu is not None and not place.itu_uncertain:
-                _remember(built, "itu", place.itu, band, mode)
+                _remember(built, "itu", place.itu, band, mode, call, confirmed)
         self._cache = (gen, store, built)
         return built
 
@@ -864,6 +881,7 @@ class ChecklistRules:
         uncertain: list[str] = []
         checked = 0
         first = None
+        first_open = None
         for kind in KIND_ORDER:
             if not self._line_on(kind):
                 continue
@@ -875,6 +893,8 @@ class ChecklistRules:
             tag = hit[0]
             if tag == "need" and first is None:
                 first = (kind, hit[1], hit[2])
+            elif tag == "unconfirmed" and first_open is None:
+                first_open = hit[1]
             elif tag == "worked":
                 worked_notes.append(hit[1])
             elif tag == "unknown":
@@ -888,6 +908,15 @@ class ChecklistRules:
                 need_reason=_with_uncertain(reason, uncertain),
                 mult_reason=mult_reason if kind in _MULT_KINDS else "",
                 points=1,
+                chase="needed",
+            )
+        if first_open is not None:
+            include = bool(self.count_unconfirmed)
+            return Verdict(
+                not include, False,
+                need_reason=_with_uncertain(first_open, uncertain),
+                points=1,
+                chase="unconfirmed",
             )
         if checked and not worked_notes and len(unknowns) + len(uncertain) >= checked:
             if uncertain:
@@ -920,10 +949,11 @@ class ChecklistRules:
     def _hit(self, kind, scope, idx, call, band, mode, grid, state, exchange, place):
         """``(tag, text, mult_reason)``.
 
-        ``need`` marks the station needed. ``worked`` names what is already in
-        the log. ``unknown`` and ``uncertain`` do not claim needed.
-        ``uncertain`` is the zone-uncertain case: the country is known and the
-        zone is not.
+        ``need`` marks a new unit. ``unconfirmed`` is a worked unit that is not
+        confirmed, heard from a station that is not already in that unit.
+        ``worked`` is confirmed, or the same station again. ``unknown`` and
+        ``uncertain`` do not claim needed. ``uncertain`` is the zone-uncertain
+        case: the country is known and the zone is not.
         """
         label = self.log_label
         where = _where(scope, band, mode)
@@ -940,57 +970,63 @@ class ChecklistRules:
             g = _grid4(grid)
             if not g:
                 return ("unknown", "grid", "")
-            worked = _scoped(idx, "grid", scope, g, band, mode)
-            if worked is None:
-                return ("unknown", "grid", "")
-            if worked:
-                return ("worked", f"grid {g}{where} is already in {label}", "")
-            return (
-                "need",
-                _need("grid", g, scope, band, mode, label),
-                f"New mult: grid {g}{where} in {label}.",
+            return self._place_mark(
+                "grid", scope, idx, g, band, mode, call,
+                have=f"grid {g}{where} is already in {label}",
+                need=_need("grid", g, scope, band, mode, label),
+                mult=f"New mult: grid {g}{where} in {label}.",
+                open_text=_open_text("grid", g, scope, band, mode),
+                unknown="grid",
             )
         if kind == "state":
             abbr = canonical_place(state) or canonical_place(exchange)
             if not abbr:
                 return ("unknown", "state", "")
-            worked = _scoped(idx, "state", scope, abbr, band, mode)
-            if worked is None:
-                return ("unknown", "state", "")
-            if worked:
-                name = place_name(abbr)
-                return ("worked", f"{name}{where} is already in {label}", "")
             name = place_name(abbr)
-            return (
-                "need",
-                _need("state", name, scope, band, mode, label),
-                f"New mult: {name}{where} in {label}.",
+            return self._place_mark(
+                "state", scope, idx, abbr, band, mode, call,
+                have=f"{name}{where} is already in {label}",
+                need=_need("state", name, scope, band, mode, label),
+                mult=f"New mult: {name}{where} in {label}.",
+                open_text=_open_text("state", name, scope, band, mode),
+                unknown="state",
             )
         if kind in {"continent", "cq", "itu"}:
-            return self._place_hit(kind, scope, idx, band, mode, place)
+            return self._place_hit(kind, scope, idx, band, mode, place, call)
         keys = _entity_keys(call, None, self.dxcc_lookup)
         if not keys:
             return ("unknown", "DXCC entity", "")
-        worked = False
-        known = False
-        for key in keys:
-            flag = _scoped(idx, "dxcc", scope, key, band, mode)
-            if flag is None:
-                continue
-            known = True
-            worked = worked or flag
-        if not known:
+        mark = _mark_any(idx, "dxcc", scope, keys, band, mode, call)
+        if mark is None:
             return ("unknown", "DXCC entity", "")
         shown = _pretty_entity(keys)
-        if worked:
-            return ("worked", f"DXCC entity {shown}{where} is already in {label}", "")
-        return (
-            "need",
-            _need("dxcc", shown, scope, band, mode, label),
-            f"New mult: DXCC entity {shown}{where} in {label}.",
+        return self._tag_mark(
+            mark,
+            have=f"DXCC entity {shown}{where} is already in {label}",
+            need=_need("dxcc", shown, scope, band, mode, label),
+            mult=f"New mult: DXCC entity {shown}{where} in {label}.",
+            open_text=_open_text("dxcc", shown, scope, band, mode),
+            unknown="DXCC entity",
         )
 
-    def _place_hit(self, kind, scope, idx, band, mode, place):
+    def _place_mark(self, kind, scope, idx, key, band, mode, call, *,
+                    have, need, mult, open_text, unknown):
+        mark = _mark(idx, kind, scope, key, band, mode, call)
+        return self._tag_mark(
+            mark, have=have, need=need, mult=mult,
+            open_text=open_text, unknown=unknown,
+        )
+
+    def _tag_mark(self, mark, *, have, need, mult, open_text, unknown):
+        if mark is None:
+            return ("unknown", unknown, "")
+        if mark == "new":
+            return ("need", need, mult)
+        if mark == "unconfirmed":
+            return ("unconfirmed", open_text, "")
+        return ("worked", have, "")
+
+    def _place_hit(self, kind, scope, idx, band, mode, place, call):
         label = self.log_label
         where = _where(scope, band, mode)
         if place is None:
@@ -1022,12 +1058,13 @@ class ChecklistRules:
             need = f"Need: ITU zone {key}{where} in {label}."
             mult = f"New mult: ITU zone {key}{where} in {label}."
             have = f"ITU zone {key}{where} is already in {label}"
-        worked = _scoped(idx, kind, scope, key, band, mode)
-        if worked is None:
-            return ("unknown", _place_word(kind), "")
-        if worked:
-            return ("worked", have, "")
-        return ("need", need, mult)
+        shown_open = shown if kind == "continent" else key
+        return self._place_mark(
+            kind, scope, idx, key, band, mode, call,
+            have=have, need=need, mult=mult,
+            open_text=_open_text(kind, shown_open, scope, band, mode),
+            unknown=_place_word(kind),
+        )
 
     def public(self, *, source_label: str | None = None, n1mm: bool = False,
                extra: dict | None = None) -> dict:
@@ -1046,12 +1083,54 @@ class ChecklistRules:
         return out
 
 
-def _remember(built: dict, kind: str, key, band: str, mode: str) -> None:
-    built[kind].add(key)
+def _count_unconfirmed(value) -> bool:
+    """Missing means include worked-but-unconfirmed in Needed."""
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return value.strip().lower() not in {"0", "false", "no", "off", ""}
+    return bool(value)
+
+
+def _confirm_tail(include: bool) -> str:
+    if include:
+        return " A worked place that is not confirmed still counts as needed."
+    return " A worked place that is not confirmed stays off the needed list."
+
+
+def _row_confirmed(row: dict) -> bool:
+    return bool(row.get("confirmed"))
+
+
+def _blank_buckets(built: dict, kind: str, *, scopes: bool = True) -> None:
+    built[kind] = set()
+    built[kind + "_calls"] = {}
+    built[kind + "_ok"] = set()
+    if not scopes:
+        return
+    for suffix in ("_band", "_mode"):
+        built[kind + suffix] = set()
+        built[kind + suffix + "_calls"] = {}
+        built[kind + suffix + "_ok"] = set()
+
+
+def _remember(built: dict, kind: str, key, band: str, mode: str,
+              call: str, confirmed: bool) -> None:
+    call_u = _upper(call)
+
+    def note(bucket, token) -> None:
+        built.setdefault(bucket, set()).add(token)
+        slot = built.setdefault(bucket + "_calls", {}).setdefault(token, set())
+        if call_u:
+            slot.add(call_u)
+        if confirmed:
+            built.setdefault(bucket + "_ok", set()).add(token)
+
+    note(kind, key)
     if band:
-        built[f"{kind}_band"].add((key, band))
+        note(f"{kind}_band", (key, band))
     if mode:
-        built[f"{kind}_mode"].add((key, mode))
+        note(f"{kind}_mode", (key, mode))
 
 
 def _where(scope: str, band: str, mode: str) -> str:
@@ -1106,6 +1185,87 @@ def _pretty_entity(keys: set[str]) -> str:
     if nums:
         return f"DXCC {nums[0]}"
     return "this entity"
+
+
+def _scope_bucket(kind: str, scope: str) -> str:
+    if scope == "band":
+        return f"{kind}_band"
+    if scope == "mode":
+        return f"{kind}_mode"
+    return kind
+
+
+def _scope_token(scope: str, key, band: str, mode: str):
+    if scope == "band":
+        return (key, band)
+    if scope == "mode":
+        return (key, mode)
+    return key
+
+
+def _mark(idx: dict, kind: str, scope: str, key, band: str, mode: str, call: str):
+    """``new``, ``confirmed``, ``same``, ``unconfirmed``, or None.
+
+    None means this scope cannot be checked (no band, or no mode).
+    ``same`` is an unconfirmed unit heard from a station already worked there.
+    """
+    flag = _scoped(idx, kind, scope, key, band, mode)
+    if flag is None:
+        return None
+    if not flag:
+        return "new"
+    token = _scope_token(scope, key, band, mode)
+    bucket = _scope_bucket(kind, scope)
+    if token in (idx.get(bucket + "_ok") or ()):
+        return "confirmed"
+    calls = (idx.get(bucket + "_calls") or {}).get(token) or set()
+    if _upper(call) and _upper(call) in calls:
+        return "same"
+    return "unconfirmed"
+
+
+def _mark_any(idx, kind, scope, keys, band, mode, call):
+    """One entity can match more than one stored key. Confirmed wins."""
+    saw = False
+    opened = False
+    same = False
+    for key in keys:
+        mark = _mark(idx, kind, scope, key, band, mode, call)
+        if mark is None:
+            continue
+        saw = True
+        if mark == "confirmed":
+            return "confirmed"
+        if mark == "same":
+            same = True
+        elif mark == "unconfirmed":
+            opened = True
+    if not saw:
+        return None
+    if same:
+        return "same"
+    if opened:
+        return "unconfirmed"
+    return "new"
+
+
+def _open_text(kind: str, shown, scope: str, band: str, mode: str) -> str:
+    where = _where(scope, band, mode)
+    if kind == "dxcc":
+        what = f"DXCC entity {shown}"
+    elif kind == "grid":
+        what = f"Grid {shown}"
+    elif kind == "state":
+        what = str(shown)
+    elif kind == "continent":
+        what = f"Continent {shown}"
+    elif kind == "cq":
+        what = f"CQ zone {shown}"
+    elif kind == "itu":
+        what = f"ITU zone {shown}"
+    else:
+        what = str(shown)
+    return f"{what}{where} is worked but not confirmed."
 
 
 def _scoped(idx: dict, kind: str, scope: str, key, band: str, mode: str):

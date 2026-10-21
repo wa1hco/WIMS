@@ -24,7 +24,9 @@ fields the server already parsed for the Message column: ``is_cq`` and
 
 Modes, in menu order:
 
-* ``needed`` — stations marked needed (the old checked box).
+* ``needed`` — stations marked needed (the old checked box). A worked
+  place that is not confirmed counts as needed when the goal says so.
+  That choice is made before this filter, on ``is_needed``.
 * ``needed-cq`` — those whose latest decode is a CQ, including CQ NA / CQ DX.
 * ``needed-73`` — those, or a 73 / RR73 sign-off. RR73 followed by a grid
   still counts. These stations are free to call.

@@ -31,6 +31,26 @@ from pathlib import Path
 from wims.core.bands import band_label_mhz
 from wims.integrations.n1mm.qso import LoggedQso
 
+# A logged contact is confirmed when any of these ADIF fields is Y.
+# Card (QSL_RCVD) and LoTW (LOTW_QSL_RCVD) are the default. eQSL
+# (EQSL_QSL_RCVD) counts when that field is in the log. WIMS does not
+# download a LoTW report; it only reads the log it already has.
+CONFIRMED_QSL_FIELDS = ("qsl_rcvd", "lotw_qsl_rcvd", "eqsl_qsl_rcvd")
+
+
+def qso_confirmed(fields: dict | None) -> bool:
+    """True when the log already says this contact is confirmed.
+
+    Only ``Y`` counts. Requested, ignored, and no are not confirmed.
+    A missing field is not confirmed.
+    """
+    if not fields:
+        return False
+    for name in CONFIRMED_QSL_FIELDS:
+        if str(fields.get(name) or "").strip().upper() == "Y":
+            return True
+    return False
+
 
 def iter_records(text: str):
     """Yield ADIF records as ``{tag_lower: value}`` dicts.
@@ -225,6 +245,7 @@ def to_logged_qso(
         cqz=(fields.get("cqz") or "").strip() or None,
         ituz=(fields.get("ituz") or "").strip() or None,
         cont=(fields.get("cont") or "").strip().upper() or None,
+        confirmed=qso_confirmed(fields),
     )
 
 

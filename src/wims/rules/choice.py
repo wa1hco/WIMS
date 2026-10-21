@@ -79,6 +79,8 @@ def default_choice() -> dict:
         "station_state": "",
         "station_county": "",
         "checklist": normalize_checklist(None),
+        # Needed on Operate includes a worked place that is not confirmed.
+        "count_unconfirmed": True,
     }
 
 

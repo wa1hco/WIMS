@@ -44,13 +44,13 @@ from wims.state.logstore import LogStore  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _qso(call, band, grid, mode, *, dxcc=None, state=None, qid=None):
+def _qso(call, band, grid, mode, *, dxcc=None, state=None, qid=None, confirmed=False):
     return LoggedQso(
         id=qid or f"{call}-{band}-{mode}-{state or ''}-{dxcc or ''}",
         call=call, band=band, grid=grid, mode=mode,
         points=1, is_mult=False, contest="T", timestamp="",
         operator="", rover_location=None, source="test",
-        state=state, dxcc=dxcc,
+        state=state, dxcc=dxcc, confirmed=confirmed,
     )
 
 
@@ -173,7 +173,7 @@ def test_dxcc_award_uses_the_log_as_the_already_have_list():
     store = LogStore(":memory:")
     rules = AwardRules("dxcc", dxcc_lookup=_lookup, log_label="the log")
     store.rules = rules
-    store.upsert(_qso("K1ABC", "6m", "FN42", "FT8", dxcc="291"))
+    store.upsert(_qso("K1ABC", "6m", "FN42", "FT8", dxcc="291", confirmed=True))
     new = store.classify("I1ABC", "6m", "JN45", "FT8")
     assert new.is_dupe is False and new.is_new_mult is True
     assert "Italy" in new.need_reason
@@ -194,7 +194,7 @@ def test_was_counts_states_and_not_provinces():
     assert canonical_place("Québec") == "QC"
     store = LogStore(":memory:")
     store.rules = AwardRules("was", log_label="the log")
-    store.upsert(_qso("K1ABC", "6m", "FN42", "FT8", state="MA"))
+    store.upsert(_qso("K1ABC", "6m", "FN42", "FT8", state="MA", confirmed=True))
     fresh = store.classify("N2NEW", "6m", "FN20", "FT8", state="NH")
     assert fresh.is_dupe is False and "New Hampshire" in fresh.need_reason
     dupe = store.classify("K1ZZ", "2m", "FN42", "FT8", state="Massachusetts")
@@ -208,7 +208,7 @@ def test_was_counts_states_and_not_provinces():
 def test_vucc_is_the_four_character_square():
     store = LogStore(":memory:")
     store.rules = AwardRules("vucc")
-    store.upsert(_qso("K1ABC", "6m", "FN42xx", "FT8"))
+    store.upsert(_qso("K1ABC", "6m", "FN42xx", "FT8", confirmed=True))
     assert store.classify("N1NEW", "2m", "FN42", "FT8").is_dupe is True
     fresh = store.classify("N1NEW", "2m", "FN31", "FT8")
     assert fresh.is_dupe is False and fresh.is_new_mult is True

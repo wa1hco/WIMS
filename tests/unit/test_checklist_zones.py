@@ -56,13 +56,14 @@ def _cty():
     return CtyIndex.parse(_CTY)
 
 
-def _qso(call, band, grid, mode, *, cqz=None, ituz=None, cont=None, qid=None):
+def _qso(call, band, grid, mode, *, cqz=None, ituz=None, cont=None, qid=None,
+         confirmed=False):
     return LoggedQso(
         id=qid or f"{call}-{band}-{mode}-{grid or ''}-{cqz or ''}-{cont or ''}",
         call=call, band=band, grid=grid, mode=mode,
         points=1, is_mult=False, contest="T", timestamp="",
         operator="", rover_location=None, source="test",
-        cqz=cqz, ituz=ituz, cont=cont,
+        cqz=cqz, ituz=ituz, cont=cont, confirmed=confirmed,
     )
 
 
@@ -228,7 +229,7 @@ def test_country_file_zones_and_portable_prefixes():
 
 def test_each_new_kind_and_scope():
     cty = _cty()
-    logged = [_qso("DL1ABC", "20m", "JO62", "FT8")]
+    logged = [_qso("DL1ABC", "20m", "JO62", "FT8", confirmed=True)]
     asia = _store("continent", "overall", logged, cty=cty).classify(
         "BY1ABC", "20m", "OM89", "FT8",
     )
@@ -304,7 +305,7 @@ def test_uncertain_zone_is_not_called_needed():
 
 def test_adif_zone_fields_win_over_the_country_file():
     cty = _cty()
-    logged = [_qso("DL1ABC", "20m", "JO62", "FT8", cqz="13", cont="OC")]
+    logged = [_qso("DL1ABC", "20m", "JO62", "FT8", cqz="13", cont="OC", confirmed=True)]
     cq = _store("cq", "overall", logged, cty=cty)
     assert cq.classify("Z1ABC", "20m", None, "FT8").is_dupe is True
     still = cq.classify("DL2XYZ", "20m", None, "FT8")

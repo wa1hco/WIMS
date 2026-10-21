@@ -95,6 +95,10 @@ tr.decode-only.workable { cursor: default; }
 .badge.rover { background:#fff1e5; color:var(--quiet); }
 .badge.callus { background:#ffcccc; color:#a40e26; font-weight:bold; }
 .badge.armed { background:#dafbe1; color:#1a7f37; font-weight:bold; }
+.badge.needed { background:#ddf4ff; color:var(--accent); }
+.badge.unconfirmed { background:#fff4d6; color:#7a4e00; }
+tr.unconfirmed { background:#fff8e6; }
+tr.dupe .badge.unconfirmed { color:#7a4e00; }
 .cq { font-weight:bold; color:var(--accent); }
 .qsy { font-weight:bold; color:#8250df; background:#fbefff; padding:0 4px;
        border-radius:3px; }

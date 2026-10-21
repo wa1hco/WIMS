@@ -336,6 +336,9 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "distance_km": None if dist is None else round(dist, 1),
             "score": round(sc.total, 1),
             "is_needed": not c.is_dupe,
+            # "needed" is a new place. "unconfirmed" is worked, not confirmed,
+            # and this station is not one already worked for that place.
+            "chase": getattr(c, "chase", "") or "",
             "is_cq": c.is_cq,
             "is_dupe": c.is_dupe,
             "is_new_mult": c.is_new_mult,
@@ -354,6 +357,10 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         "strategy": strategy,
         "count": len(cands),
         "needed": sum(1 for x in cands if x["is_needed"]),
+        "unconfirmed": sum(
+            1 for x in cands
+            if x.get("chase") == "unconfirmed" and x["is_needed"]
+        ),
         "not_needed": not_needed,
         "candidates": cands,
         # Operate band checks: live WSJT-X (heartbeat/status), not decode traffic.

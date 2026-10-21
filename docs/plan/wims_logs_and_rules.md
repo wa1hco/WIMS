@@ -501,7 +501,7 @@ The Setup control is two menus. The first is the goal. The second depends on tha
 | Goal | Second menu | What “needed” means |
 |------|-------------|---------------------|
 | Contest | NY QSO Party, ARRL VHF, and any later rules file | That file (section 3.2), against the log |
-| Award | DXCC, Worked All States, VUCC (grid squares), County hunting | A station is new when that place is not already in the log |
+| Award | DXCC, Worked All States, VUCC (grid squares), County hunting | A station is new when that place is not already in the log. A worked place that is not confirmed still counts, from a station not already worked there |
 | Just operating (not a contest) | Checklist | The ticked lines below |
 | Custom | My checklist, and Saved contest rules when Advanced has saved one | The ticked lines, or the saved custom file (section 3.3) |
 
@@ -510,6 +510,8 @@ The Setup control is two menus. The first is the goal. The second depends on tha
 **Awards.** Logged contacts are the already-have list. DXCC matches a country number stored on the contact, and a callsign country only when a lookup is available. Without that lookup the summary says a station counts only when the log stores a country number. Worked All States is the fifty US states; a province does not count, and a station with no state is not marked new. VUCC is the four-character grid square. County hunting is shown and disabled: WIMS does not have a county list.
 
 **Checklist** (Just operating → Checklist, or Custom → My checklist). Each line is overall, per band, or per mode. One scope per line. New DXCC entity starts ticked, overall. Also available: new continent, new CQ zone, new ITU zone, new grid, new state or province, new call. Continent and the two zone lines need the country file (`cty.dat`) WSJT-X already keeps. When that file is missing they stay on the list, unchecked on screen, with a tip, and a saved tick is kept for the next time the file is found. New county and new callsign prefix are on the list and cannot be ticked. The short prefix table used for N1MM inserts is not a prefix list, and it is not used here.
+
+**Worked but not confirmed.** Awards and the checklist (grid, US state, DXCC entity, continent, CQ zone, ITU zone) use the log WIMS already reads. A place with no contact is **needed**. A place with a confirmed contact is not needed. A place that is worked and not confirmed is **unconfirmed** when the station heard is not one of the stations already worked for that place, in the scope the line uses (overall, per band, or per mode). The same station again stays not needed. A new call is not this rule: the call itself is the unit. Confirmation is a card or LoTW yes already in the log (`QSL_RCVD` or `LOTW_QSL_RCVD`). An eQSL yes (`EQSL_QSL_RCVD`) counts when that field is present. The accepted set is `CONFIRMED_QSL_FIELDS` in `adif.py`. WIMS does not download LoTW. Setup has one checkbox, **Count worked but not confirmed as needed**, stored as `count_unconfirmed` (default true). Needed, Needed and CQ, and Needed and CQ or 73 include those stations when the box is checked. All still shows them, with the word unconfirmed, when it is not. Contest rules do not use this. Work stays a click. Nothing transmits on its own.
 
 Zones use the country-file number when the entity is one zone. A prefix written as `prefix(cq)[itu]` uses that number. United States, Canada, Russia, Australia, and China span more than one CQ zone; those plus Brazil span more than one ITU zone. For those, the zone comes from the grid when the square sits inside one zone box (`rules/zones.py`, approximating the CQ WAZ map and the EI8IC ITU map). A missing grid, a two-character field, or a square the boxes will not call is **zone uncertain**. That station is not marked needed for the zone. A logged contact with an uncertain zone does not count as that zone already worked. ADIF `CQZ`, `ITUZ`, and `CONT` on a logged contact win over the derivation.
 
@@ -528,6 +530,7 @@ Zones use the country-file number when the entity is one zone. A prefix written 
   "goal_id": "checklist",
   "contest": null,
   "explicit": true,
+  "count_unconfirmed": true,
   "checklist": {
     "dxcc": {"enabled": true, "scope": "overall"},
     "continent": {"enabled": false, "scope": "overall"},

@@ -142,6 +142,10 @@ class LoggedQso:
     cqz: str | None = None
     ituz: str | None = None
     cont: str | None = None
+    # True when the ADIF log already says this contact is confirmed.
+    # Card, LoTW, and eQSL are decided in ``wims.adif.CONFIRMED_QSL_FIELDS``.
+    # N1MM rows stay false: that log does not carry those fields.
+    confirmed: bool = False
 
     @classmethod
     def _from_dict(cls, d: dict, source: str) -> "LoggedQso":
