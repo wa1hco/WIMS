@@ -633,15 +633,16 @@ class AwardRules:
 
     def _index(self, store) -> dict:
         gen = store.generation() if hasattr(store, "generation") else 0
+        lotw = _lotw_index()
         cache = getattr(self, "_cache", None)
-        if cache and cache[0] == gen and cache[1] is store:
-            return cache[2]
+        if cache and cache[0] == gen and cache[1] is store and cache[2] == lotw.token:
+            return cache[3]
         built: dict = {"_worked_calls": set(), "_confirmed_calls": set()}
         for name in ("dxcc", "states", "grids"):
             _blank_buckets(built, name, scopes=False)
         for row in store.cached_rows():
             call = row.get("call") or ""
-            confirmed = _row_confirmed(row)
+            confirmed = _row_is_confirmed(row, lotw)
             _note_station(built, call, confirmed)
             for key in _entity_keys(call, row.get("dxcc"), self.dxcc_lookup):
                 _remember(built, "dxcc", key, "", "", call, confirmed)
@@ -651,7 +652,10 @@ class AwardRules:
             g = _grid4(row.get("grid"))
             if g:
                 _remember(built, "grids", g, "", "", call, confirmed)
-        self._cache = (gen, store, built)
+        _apply_lotw_places(
+            built, lotw, self.dxcc_lookup, grid_kind="grids", state_kind="states",
+        )
+        self._cache = (gen, store, lotw.token, built)
         return built
 
     def classify(self, store, call: str, band: str, mode: str | None, grid: str | None,
@@ -841,9 +845,10 @@ class ChecklistRules:
 
     def _index(self, store) -> dict:
         gen = store.generation() if hasattr(store, "generation") else 0
+        lotw = _lotw_index()
         cache = getattr(self, "_cache", None)
-        if cache and cache[0] == gen and cache[1] is store:
-            return cache[2]
+        if cache and cache[0] == gen and cache[1] is store and cache[2] == lotw.token:
+            return cache[3]
         built = {"_worked_calls": set(), "_confirmed_calls": set()}
         for kind in _PLACE_KINDS:
             _blank_buckets(built, kind)
@@ -851,7 +856,7 @@ class ChecklistRules:
             band = row.get("band") or ""
             mode = _row_mode(row)
             call = _upper(row.get("call"))
-            confirmed = _row_confirmed(row)
+            confirmed = _row_is_confirmed(row, lotw)
             _note_station(built, call, confirmed)
             if call:
                 _remember(built, "call", call, band, mode, call, confirmed)
@@ -878,7 +883,10 @@ class ChecklistRules:
                 _remember(built, "cq", place.cq, band, mode, call, confirmed)
             if place.itu is not None and not place.itu_uncertain:
                 _remember(built, "itu", place.itu, band, mode, call, confirmed)
-        self._cache = (gen, store, built)
+        _apply_lotw_places(
+            built, lotw, self.dxcc_lookup, grid_kind="grid", state_kind="state",
+        )
+        self._cache = (gen, store, lotw.token, built)
         return built
 
     def _describe(self, call, grid, *, cqz=None, ituz=None, cont=None):
@@ -1136,6 +1144,59 @@ def _confirm_tail(include: bool) -> str:
 
 def _row_confirmed(row: dict) -> bool:
     return bool(row.get("confirmed"))
+
+
+def _lotw_index():
+    """GridTracker LoTW file, if this PC has one. Re-read when it changes."""
+    from wims.lotw import current
+    return current()
+
+
+def _row_is_confirmed(row: dict, lotw) -> bool:
+    """The log's own QSL yes, or a matching LoTW record."""
+    if _row_confirmed(row):
+        return True
+    return bool(lotw is not None and lotw.confirms_row(row))
+
+
+def _lotw_entity_keys(call: str, dxcc: str | None, lookup) -> set[str]:
+    keys: set[str] = set()
+    if dxcc:
+        keys.add(f"dxcc:{dxcc}")
+    named = _entity(call, None, lookup)
+    if named:
+        keys.add(named)
+    return keys
+
+
+def _apply_lotw_places(built, lotw, lookup, *, grid_kind: str, state_kind: str) -> None:
+    """A LoTW record's own grid, state, and DXCC confirm that place.
+
+    The record's band is the band. Every mode in its LoTW mode group counts
+    as confirmed where that place was already worked, so FT8 in the log and
+    DATA or MFSK on the LoTW record are the same confirmation.
+    """
+    if lotw is None or not getattr(lotw, "records", None):
+        return
+    from wims.lotw import modes_in_group
+    for rec in lotw.records:
+        _note_station(built, rec.call, True)
+        extras = [m for m in modes_in_group(rec.group) if m and m != rec.mode]
+
+        def add(kind: str, key, extras=extras) -> None:
+            _remember(built, kind, key, rec.band, rec.mode, rec.call, True)
+            if not extras:
+                return
+            slot = built.setdefault(kind + "_mode_ok", set())
+            for mode in extras:
+                slot.add((key, mode))
+
+        if rec.grid:
+            add(grid_kind, rec.grid)
+        if rec.state:
+            add(state_kind, rec.state)
+        for key in _lotw_entity_keys(rec.call, rec.dxcc, lookup):
+            add("dxcc", key)
 
 
 # Shown under All when this station is not chased for a confirmation.

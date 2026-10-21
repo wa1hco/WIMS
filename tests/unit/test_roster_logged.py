@@ -28,6 +28,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
+
+use_paths([])
 from wims.server.app import LiveFleet  # noqa: E402
 from wims.udp import encode as E  # noqa: E402
 from wims.udp import messages as M  # noqa: E402

@@ -34,7 +34,10 @@ from wims.engine.goal_rules import (  # noqa: E402
     colors_to_checklist,
 )
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
+
+use_paths([])
 
 
 def _qso(call, band, grid, mode, *, my_county="", qid=None):

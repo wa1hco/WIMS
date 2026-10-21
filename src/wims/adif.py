@@ -33,8 +33,9 @@ from wims.integrations.n1mm.qso import LoggedQso
 
 # A logged contact is confirmed when any of these ADIF fields is Y.
 # Card (QSL_RCVD) and LoTW (LOTW_QSL_RCVD) are the default. eQSL
-# (EQSL_QSL_RCVD) counts when that field is in the log. WIMS does not
-# download a LoTW report; it only reads the log it already has.
+# (EQSL_QSL_RCVD) counts when that field is in the log. A GridTracker
+# LoTW download is a separate source (``wims.lotw``). WIMS does not
+# download LoTW.
 CONFIRMED_QSL_FIELDS = ("qsl_rcvd", "lotw_qsl_rcvd", "eqsl_qsl_rcvd")
 
 

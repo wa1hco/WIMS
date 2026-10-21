@@ -886,6 +886,11 @@ function renderIfSeats(s) {
 
 /** Setup-only live hints (no-op on other pages). */
 function renderSetupExtras(n1mm, s) {
+  const lotw = $("lotw-line");
+  if (lotw && s && s.lotw) {
+    const line = s.lotw.line || "LoTW confirmations: not found";
+    if (lotw.textContent !== line) lotw.textContent = line;
+  }
   renderIfSeats(s);
   const hint = $("seed-dir-hint");
   if (hint && n1mm && n1mm.scan_dirs && n1mm.scan_dirs.length) {

@@ -2109,6 +2109,8 @@ class LiveFleet:
             d["seat_profile"] = prof.to_public_dict(live_ids=marked_ids)
             self._maybe_refresh_access_locked()
             d["rules"] = self._rules_meta
+            from wims.lotw import status_public
+            d["lotw"] = status_public()
             d["log_access"] = list(self._log_access_rows)
             d["log_in_use"] = dict(self._log_in_use)
             return d

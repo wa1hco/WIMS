@@ -651,7 +651,9 @@ decision here. *(Per-feature implementation status is tracked in [wims_status.md
 **Guiding reframe:** GridTracker chases *awards* (DXCC/WAS/grids, LoTW/eQSL-confirmed) for general
 operating; WIMS ranks for *contesting* — **mult = grid×band, points, run vs S&P**, with **N1MM as
 the dupe/mult authority** for a contest. Award and checklist goals also read confirmation already
-stored in that same log (card, LoTW, or eQSL). WIMS does not download LoTW. Copy GridTracker's
+stored in that same log (card, LoTW, or eQSL) and, when GridTracker has already
+downloaded one, in that LoTW file. WIMS does not download LoTW and does not
+write the file. Copy GridTracker's
 *interaction model* (all stations, sortable, filterable, status-per-station, alerts, click-to-work);
 keep WIMS's contest scoring as the "wanted" engine.
 
@@ -1956,8 +1958,10 @@ Candidate situations worth covering — rename, add, or cut freely:
   worked for that place does not, using that line's scope: overall is any band or mode,
   per band is that band, per mode is that mode. A station worked before with no confirmed
   contact is not chased for confirmation; a new place can still be needed. Contest dupes
-  ignore confirmation. WIMS does not download
-  LoTW. Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
+  ignore confirmation. A GridTracker LoTW file on this PC, when one is present,
+  also confirms a matching contact and the grid, state, and DXCC on that record.
+  WIMS does not download LoTW and does not write that file.
+  Detail: [wims_logs_and_rules.md](wims_logs_and_rules.md) §3.8.
 - **Instance profile — format & auto-discovery** — file format for the Instance Profile schema
   (§3.14) and how much the setup wizard can auto-discover (WSJT-X ID/port/rig via UDP/CAT) vs must
   prompt for (antenna geometry, intended az/el limits). Decide the form vs file-edit balance.

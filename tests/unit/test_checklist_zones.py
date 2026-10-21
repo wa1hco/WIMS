@@ -23,7 +23,10 @@ from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
 from wims.rules.choice import load_choice, needs_migration, save_choice  # noqa: E402
 from wims.rules.cty import CtyIndex, find_cty_dat  # noqa: E402
 from wims.rules.zones import cq_zone_from_grid, itu_zone_from_grid  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
+
+use_paths([])
 
 # A small country file in the AD1C layout. Not a copy of cty.dat.
 _CTY = """\

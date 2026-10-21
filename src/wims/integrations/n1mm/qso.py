@@ -144,6 +144,7 @@ class LoggedQso:
     cont: str | None = None
     # True when the ADIF log already says this contact is confirmed.
     # Card, LoTW, and eQSL are decided in ``wims.adif.CONFIRMED_QSL_FIELDS``.
+    # A GridTracker LoTW file can also confirm the contact (``wims.lotw``).
     # N1MM rows stay false: that log does not carry those fields.
     confirmed: bool = False
 
