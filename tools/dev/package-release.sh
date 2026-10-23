@@ -109,9 +109,15 @@ Windows (contest seat):
   Full unblock notes: README.md (Windows section) and INSTALL.md.
 
 Linux (personal laptop):
-  1. Unpack the linux tar.gz
-  2. ./scripts/add-wims-to-desktop.sh
-  3. Double-click the WIMS icon. The console opens in the browser.
+  1. Unpack this tar.gz (it keeps the permission to run the installer)
+  2. Open the WIMS folder, open scripts, and double-click
+     "Add WIMS to Desktop"
+     GNOME: if a message says the file is not trusted, right-click it
+       and click Allow Launching, then double-click it again
+     KDE, XFCE, or Cinnamon: if a window asks, click Execute or Run
+     If it opens as a page of text, right-click it, choose Properties,
+       allow it to run as a program, and double-click it again
+  3. Double-click the WIMS icon
 
 Docs: INSTALL.md · docs/tester_quickstart.md
 Design: docs/plan/wims_release_packages.md
@@ -150,6 +156,9 @@ deny_check() {
         "src/wims/server/app.py" \
         "src/wims/server/static/ops.html" \
         "scripts/windows/Install-Wims.cmd" \
+        "scripts/Add WIMS to Desktop.desktop" \
+        "scripts/add-wims-to-desktop.sh" \
+        "scripts/start-wims.sh" \
         "install.sh" \
         "INSTALL.md" \
         "manifest.json" \
@@ -178,13 +187,67 @@ hash_file() {
     fi
 }
 
+# Zip extractors and some copies drop the executable bit. The Linux
+# tarball must keep it on the double-click installer and the scripts it runs.
+linux_exec_bits() {
+    local root="$1"
+    local f
+    for f in \
+        "install.sh" \
+        "scripts/Add WIMS to Desktop.desktop" \
+        "scripts/add-wims-to-desktop.sh" \
+        "scripts/install-linux.sh" \
+        "scripts/start-wims.sh" \
+        "scripts/start-wims-solo.sh" \
+        "scripts/start-wims-inhibit-home.sh" \
+        "scripts/Check logs.sh" \
+        "scripts/_resolve-python.sh" \
+        "scripts/_say.sh"
+    do
+        if [ -f "$root/$f" ]; then
+            chmod a+x "$root/$f"
+        fi
+    done
+}
+
+assert_linux_tarball_exec() {
+    local archive="$1"
+    python3 - "$archive" <<'PY'
+import sys
+import tarfile
+
+archive = sys.argv[1]
+need = (
+    "scripts/Add WIMS to Desktop.desktop",
+    "scripts/add-wims-to-desktop.sh",
+    "scripts/start-wims.sh",
+    "scripts/Check logs.sh",
+    "scripts/_say.sh",
+)
+with tarfile.open(archive) as tf:
+    members = list(tf.getmembers())
+bad = []
+for suffix in need:
+    hits = [m for m in members if m.name.endswith("/" + suffix)]
+    if not hits or not (hits[0].mode & 0o111):
+        bad.append(suffix)
+if bad:
+    sys.stderr.write(
+        "Linux tarball lost the run permission on: %s\n" % ", ".join(bad)
+    )
+    sys.exit(1)
+PY
+}
+
 # ── Linux tarball ─────────────────────────────────────────────────────
 if [ "${SKIP_LINUX:-0}" != "1" ]; then
     LIN_PREFIX="wims-${DISPLAY}-linux-x86_64"
     LIN_STAGE="$STAGE/$LIN_PREFIX"
     copy_tree "$LIN_STAGE"
+    linux_exec_bits "$LIN_STAGE"
     deny_check "$LIN_STAGE"
     tar -C "$STAGE" -czf "$OUT_DIR/${LIN_PREFIX}.tar.gz" "$LIN_PREFIX"
+    assert_linux_tarball_exec "$OUT_DIR/${LIN_PREFIX}.tar.gz"
     hash_file "$OUT_DIR/${LIN_PREFIX}.tar.gz"
     echo "Wrote $OUT_DIR/${LIN_PREFIX}.tar.gz"
 fi

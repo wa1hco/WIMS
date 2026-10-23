@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Add WIMS to Desktop
+GenericName=Install WIMS
+Comment=Put WIMS on the desktop and in the app menu
+# If this opened as a page of text, right-click it, choose Properties, allow it
+# to run as a program, and double-click it again.
+# The Exec line is escaped so the desktop can store it. Leave the backslashes.
+Exec=/bin/sh -c "f=\\$1; case \\$f in file://localhost/*) f=/\\${f#file://localhost/};; file:///*) f=/\\${f#file:///};; file://*) f=\\${f#file://};; esac; exec /bin/bash \\"\\$(dirname \\"\\$f\\")/add-wims-to-desktop.sh\\"" sh %k
+Icon=system-software-install
+Terminal=false
+Categories=Utility;
+StartupNotify=true

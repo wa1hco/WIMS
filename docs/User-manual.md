@@ -44,7 +44,7 @@ That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when an
 ## Quick start
 
 - **Windows:** double-click `scripts\Add WIMS to Desktop.bat`, then Desktop **WIMS**. First time: `Install-Wims.cmd` — [scripts/windows/README.md](../scripts/windows/README.md)
-- **Linux:** `./scripts/add-wims-to-desktop.sh` (needs `python3-tk`), then double-click **WIMS**  
+- **Linux:** double-click `scripts/Add WIMS to Desktop.desktop`, then Desktop **WIMS**. If a message names a missing package (`python3` and `python3-tk`, or `python3-tkinter` on Fedora), install it and follow the message.  
 - Console: `http://<server>:8787/` (the WIMS launcher opens it as a chrome-free
 	app window with Chrome, Chromium, or Edge, or a dedicated resizable Firefox
 	window; otherwise it uses the normal default browser)  

@@ -21,16 +21,24 @@ Sibling digi builds: [wsjtx-inhibit Releases](https://github.com/wa1hco/wsjtx-in
 
 ## Linux
 
-```bash
-sudo apt update
-sudo apt install -y git python3 python3-tk   # ≥ 3.10
+The release file is `wims-<ver>-linux-x86_64.tar.gz`. A ZIP of `main` works too.
 
-# from clone or unpacked linux tarball:
-./install.sh
-# same entry: scripts/install-linux.sh
-```
+1. Unpack it and open the WIMS folder.
+2. Open **scripts**.
+3. Double-click **Add WIMS to Desktop**.
 
-Start: double-click Desktop **WIMS**.
+WIMS is then on the desktop and in the app menu. Double-click **WIMS**.
+
+The file manager may ask once:
+
+- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Add WIMS to Desktop** and click **Allow Launching**. Then double-click it again.
+- **KDE:** If a window asks whether to open or run the file, click **Execute**.
+- **XFCE:** If a window asks whether to run the file, click **Execute**.
+- **Cinnamon:** If a window asks, click **Run**. If it says the file is not trusted, right-click it and click **Allow Launching**, then double-click it again.
+
+If the file opens as a page of text, right-click it, open **Properties**, allow it to run as a program, and double-click it again.
+
+If Python or the window library is missing, a message names what to install. Install that, then do what the message says. On Ubuntu and Debian the packages are `python3` and `python3-tk`. On Fedora the window library is `python3-tkinter`.
 
 ## Windows
 
@@ -61,6 +69,19 @@ A Flex 10 m radio at 28.074 MHz shows as **10m**. Roy’s 222 (21 MHz IF) and
 432 (28 MHz IF) are marked on the console **Setup** page (or the seat agent
 page on that PC). The list is `if_seats.json` under `~/.config/wims/` or
 `%APPDATA%\wims\`. You do not set an environment variable for this.
+
+## Developer
+
+Typed commands are for people changing WIMS or installing from a shell.
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-tk   # Debian or Ubuntu; Python ≥ 3.10
+# Fedora: python3 and python3-tkinter
+
+./install.sh
+# same entry: scripts/install-linux.sh
+```
 
 ## Cut a Release (maintainers)
 
