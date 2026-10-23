@@ -225,9 +225,11 @@ and N1MM keep running normally.
 
 ---
 
-## Linux / macOS
+## Linux
 
-```bash
-./scripts/start-wims-solo.sh
-```
+Double-click **WIMS**, then start Solo in that window.
 Same WSJT-X settings (UDP Server `224.0.0.73` port **`2237`**, Accept UDP requests on).
+
+### Developer
+
+On a Mac, from the WIMS folder: `scripts/add-wims-to-desktop.sh`, then start Solo in the WIMS window.

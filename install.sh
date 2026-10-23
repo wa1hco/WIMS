@@ -76,8 +76,8 @@ if [ "$WANT_SHORTCUT" = "1" ]; then
     if [ -x "$REPO_DIR/scripts/add-wims-to-desktop.sh" ]; then
         echo "Installing Desktop shortcut ..."
         "$REPO_DIR/scripts/add-wims-to-desktop.sh" || {
-            echo "WARNING: Desktop shortcut install failed (tk / desktop dir?)." >&2
-            echo "  You can re-run: scripts/add-wims-to-desktop.sh" >&2
+            echo "WARNING: Desktop shortcut install failed." >&2
+            echo "  Double-click scripts/Add WIMS to Desktop.desktop again." >&2
         }
     else
         echo "WARNING: scripts/add-wims-to-desktop.sh missing; skip shortcut." >&2
@@ -91,8 +91,7 @@ cat <<EOF
 Install complete.
 
 Start: double-click the Desktop icon named WIMS.
-One PC with WSJT-X: scripts/start-wims-solo.sh
-Windows site server: scripts\\windows\\Start-WimsServer.cmd
+On one PC, choose Start Solo in that window.
 
 Docs: INSTALL.md · docs/tester_quickstart.md
 EOF

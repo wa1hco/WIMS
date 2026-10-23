@@ -133,6 +133,7 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         self.assertIn("Name=WIMS\n", text)
         self.assertIn("Icon=", text)
         self.assertIn("scripts/start-wims.sh", text.replace("\\", "/"))
+        self.assertIn("/bin/bash", text)
         self.assertNotIn("PYTHONPATH", text)
         self.assertNotIn("-m ", text)
 
@@ -211,9 +212,13 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
             return real_import(name, *args, **kwargs)
 
         buf = io.StringIO()
-        with mock.patch("builtins.__import__", side_effect=block_tk):
-            with mock.patch("sys.stdout", buf):
-                show_operator_message("Click the WIMS window if you can see it.")
+        env = os.environ.copy()
+        env.pop("DISPLAY", None)
+        env.pop("WAYLAND_DISPLAY", None)
+        with mock.patch("builtins.__import__", side_effect=block_tk), mock.patch.dict(
+            os.environ, env, clear=True
+        ), mock.patch("sys.stdout", buf):
+            show_operator_message("Click the WIMS window if you can see it.")
         self.assertIn("Click the WIMS window", buf.getvalue())
 
 

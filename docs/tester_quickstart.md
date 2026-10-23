@@ -45,15 +45,16 @@ really differs.
 
 **Linux**
 
-```bash
-sudo apt install -y git python3   # 3.10+; 3.12–3.14 fine
-# no pip packages required
-```
+1. Open the WIMS folder, open **scripts**, and double-click **Add WIMS to Desktop**.
+2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**. Details are in [INSTALL.md](../INSTALL.md).
+3. If a message names a missing package, install that package, then do what the message says.
+
+No extra Python packages are required. Git is not required for a release package or a ZIP of main.
 
 ### A3. Start the server and open the browser
 
 **Windows:** Desktop **WIMS** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
-**Linux:** `./scripts/add-wims-to-desktop.sh`, then double-click **WIMS** and start the site server. One PC: `./scripts/start-wims-solo.sh`.
+**Linux:** double-click **WIMS**, then start the site server in that window. On one PC, start Solo in that window.
 
 Open:
 
@@ -107,7 +108,7 @@ Prefer **solo** on one PC (simplest):
 | OS | Start |
 |----|--------|
 | Windows | **`Start-Wims-Solo.cmd`** |
-| Linux | `./scripts/start-wims-solo.sh` |
+| Linux | Double-click **WIMS**, then **Start Solo** |
 
 Solo = local server, no fleet presence election, browser to Operate.
 

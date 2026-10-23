@@ -5,7 +5,7 @@
 | | |
 |--|--|
 | Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
-| Linux or Mac | [`./scripts/add-wims-to-desktop.sh`](scripts/add-wims-to-desktop.sh) |
+| Linux | Double-click [`scripts/Add WIMS to Desktop.desktop`](scripts/Add%20WIMS%20to%20Desktop.desktop) |
 
 **Step 2.** Double-click **WIMS**.
 
@@ -32,7 +32,7 @@ The checklist is checked against the log you chose. A contest goal suggests the 
 
 ## Install & quick start
 
-**Short install guide:** **[INSTALL.md](INSTALL.md)** — clone or Release ZIP → `./install.sh` / `.\install.ps1`.  
+**Short install guide:** **[INSTALL.md](INSTALL.md)** — Release package or ZIP, then the double-click installer for your system.  
 **Testers / home evaluation:**  
 **[docs/tester_quickstart.md](docs/tester_quickstart.md)** — tracks from *no radio apps* → WSJT-X only → WSJT-X+N1MM → optional multi-PC.  
 **What you install (roles):** [docs/tester_roles.md](docs/tester_roles.md) — solo vs server vs N1MM agent / WSJT monitor.  
@@ -131,11 +131,22 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 
 ### B. Linux — first time on this PC
 
-Double-click is not available until the icon exists. From the WIMS folder:
+1. Open the WIMS folder.
+2. Open **scripts**.
+3. Double-click **Add WIMS to Desktop**.
 
-`./scripts/add-wims-to-desktop.sh`
+WIMS is then on the desktop and in the app menu. Double-click **WIMS**.
 
-Then double-click **WIMS**. If Python or its window library is missing, the script says what to install.
+The file manager may ask once before that first file runs:
+
+- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Add WIMS to Desktop** and click **Allow Launching**. Then double-click it again.
+- **KDE:** If a window asks whether to open or run the file, click **Execute**.
+- **XFCE:** If a window asks whether to run the file, click **Execute**.
+- **Cinnamon:** If a window asks, click **Run**. If it says the file is not trusted, right-click it and click **Allow Launching**, then double-click it again.
+
+If the file opens as a page of text, the download dropped the permission to run it. Right-click **Add WIMS to Desktop**, open **Properties**, allow it to run as a program, and double-click it again.
+
+If Python or the window library is missing, a message names what to install. Install that, then do what the message says.
 
 ### C. Already installed — just run
 
@@ -199,6 +210,8 @@ WIMS/
 ## Developer
 
 Typed commands, path variables, and flags are for people changing WIMS. Operators use the Desktop icon.
+
+On a Mac, double-click is not available. From the WIMS folder: `scripts/add-wims-to-desktop.sh`.
 
 ```bash
 # from the repo root; the checkout shim finds src/ with no path variable

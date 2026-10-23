@@ -35,7 +35,7 @@ This design defines **release packages** for Windows (primary) and Linux (second
 | Python pin consume | All `.cmd` launchers (including `Start-WimsServer.cmd`) call `_resolve-python.cmd`, which reads `python-path.txt` then falls back to common paths / `py` / `python`. A pin that is a directory or vendor embed is ignored. Install must not rewrite the tracked `.cmd`. |
 | Windows update | `Update-Wims.ps1`: `git pull --ff-only origin/main` when `.git` exists. Startup (`check_for_update`) also queries **GitHub Releases**; ZIP / no-git trees get the banner and open the release URL. Tag `v*` publishes; push to `main` does not. |
 | Local seat configs (gitignored) | `scripts/windows/seat-common.cmd`, `seat-local.cmd`, `radio-flex50.cmd`, `radio-ic9700-144.cmd`, `python-path.txt` |
-| Linux | `apt install git python3 python3-tk`; run from tree; `scripts/add-wims-to-desktop.sh` |
+| Linux | Double-click `scripts/Add WIMS to Desktop.desktop`. System `python3` + `python3-tk` (the dialog names the package if it is missing). The release tarball keeps the executable bit. |
 | CI | `.github/workflows/ci.yml` → `tools/dev/validate.sh` on 3.10/3.12/3.14; version pin `pyproject.toml` ↔ `wims.__version__` |
 | Releases | [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0); Windows bundled runtime still later |
 | KEY software | IN product: `wims.seat --key` (N1MM agent KEY section) |
@@ -132,7 +132,7 @@ flowchart TB
 **Primary operator path on Windows (tired-op):** download **`-setup.exe`** → double-click → extracts to **`C:\WIMS`** → runs Install → Desktop **WIMS**.  
 **USB / advanced:** use the `.zip` the same way (manual extract to `C:\WIMS`, then Install).
 
-**Primary operator path on Linux (personal laptop):** unpack tarball → `./scripts/install-linux.sh` → desktop entry or `python3 -m wims`.
+**Primary operator path on Linux (personal laptop):** unpack the tar.gz → open `scripts` → double-click **Add WIMS to Desktop** → double-click **WIMS**. A ZIP of `main` uses the same file. GNOME may ask for **Allow Launching** once. KDE, XFCE, and Cinnamon may ask for **Execute** or **Run**. The dialog names `python3` / `python3-tk` when either is missing.
 
 ### Default Windows install path (locked)
 
@@ -159,7 +159,7 @@ flowchart TB
 | **Windows primary payload** | Versioned **zip + evolved `Install-Wims.cmd/.ps1`** | USB / FromZip / CI source of truth |
 | **Windows Python** | **Ship embeddable CPython 3.12.x + Tcl/Tk overlay** under `runtime\python\` (locked; notices required) | Offline; no winget; avoids Store stub; pins via `python-path.txt` |
 | **Windows setup.exe (v1)** | Thin Inno/SFX: extract to `C:\WIMS` + run Install; **Authenticode** (lab self-signed → real cert) | One double-click for tired ops; after PR 5 |
-| **Linux primary** | **tar.gz + install script** using system `python3` + `python3-tk` | Personal laptops; stays in all-platforms gate |
+| **Linux primary** | **tar.gz + double-click desktop file** using system `python3` + `python3-tk`. The tarball keeps the executable bit on `scripts/Add WIMS to Desktop.desktop`. | Personal laptops; stays in all-platforms gate |
 | **Linux `.deb`** | Deferred post-contest | No contest Linux seats today |
 | **Avoid for v1** | PyInstaller / Nuitka; CMake/CPack; conda | AV / rebuild / poor fit |
 | **Hard omit** | Entire `hardware/` from every release artifact | Agreed; CI deny-list |
@@ -338,7 +338,7 @@ wims-<ver>-windows-x86_64/
 | Concern | Behavior |
 |---------|----------|
 | Python | System `python3` ≥3.10. |
-| Tkinter | `python3-tk`; install script checks `import tkinter`. |
+| Tkinter | `python3-tk` (`python3-tkinter` on Fedora). The double-click installer shows a dialog when `import tkinter` fails. |
 | Static assets | Same tree paths. |
 | Firewall | Optional docs only for v1. |
 | External apps | Detect/warn only. |
@@ -529,7 +529,7 @@ flowchart LR
 | No Git on ZIP install | Low | Expected | FromZip / USB path |
 | Offline and no bundle | High | — | Fixed by shipping `runtime\` |
 | `hardware/` flash confusion | Med if shipped | — | Hard omit + CI deny-list |
-| `python3-tk` missing (Linux) | Medium | Launcher / install script | apt install line |
+| `python3-tk` missing (Linux) | Medium | Double-click installer and the WIMS icon | Dialog names `python3-tk` (Fedora: `python3-tkinter`) |
 | WSJT-X / N1MM missing | Info | Detect | WARN only |
 | Two site servers | Medium | Plane E refuse | Existing presence logic |
 
@@ -696,7 +696,7 @@ Operator answers **2026-09-07** (final for this design):
    Recipe and smoke tests are normative. Alternative F / system Python only if spike or later legal review forces a change.
 
 4. **Linux primary artifact = tar.gz using system `python3` + `python3-tk` (personal laptops; stays in release gate). `.deb` deferred post-contest.**  
-   No contest Linux seats today.
+   The operator opens `scripts/Add WIMS to Desktop.desktop`. The tarball keeps its executable bit. No contest Linux seats today.
 
 5. **Release artifacts hard-omit the entire `hardware/` tree; WIMS KEY agent software stays in.**  
    CI deny-list: `hardware/`, `flash_keyline.py`, `99-keyline.rules`, eeprom `*.bin`. Builders use the git repo for flash.

@@ -182,7 +182,7 @@ jobs:
             echo "| File | Use |"
             echo "|------|-----|"
             echo "| \`wims-${VERSION}-windows-x86_64.zip\` | Extract to \`C:\\\\WIMS\` → \`Install-Wims.cmd\` |"
-            echo "| \`wims-${VERSION}-linux-x86_64.tar.gz\` | Unpack → \`./install.sh\` |"
+            echo "| \`wims-${VERSION}-linux-x86_64.tar.gz\` | Unpack, open scripts, double-click Add WIMS to Desktop |"
             echo
             echo "### Install"
             echo

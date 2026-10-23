@@ -583,11 +583,34 @@ def desktop_dir() -> Path:
     return home / "Desktop"
 
 
+def freedesktop_exec(argv: list[str]) -> str:
+    """Exec= value GLib can store and a file manager can launch.
+
+    Paths with spaces are quoted. Backslashes are doubled so GKeyFile
+    leaves the desktop-file escapes in place. ``/bin/bash`` runs the
+    script even when a zip extract dropped the executable bit.
+    """
+    parts: list[str] = []
+    for arg in argv:
+        if any(ch in arg for ch in ' \t\n"\\$`'):
+            desktop = (
+                arg.replace("\\", "\\\\")
+                .replace('"', '\\"')
+                .replace("$", "\\$")
+                .replace("`", "\\`")
+            )
+            parts.append('"' + desktop.replace("\\", "\\\\") + '"')
+        else:
+            parts.append(arg)
+    return " ".join(parts)
+
+
 def linux_desktop_entry_text() -> str:
     """Freedesktop entry named WIMS. The program finds its own files."""
     icon = find_icon_path()
     icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
     script = _REPO_ROOT / "scripts" / "start-wims.sh"
+    exec_line = freedesktop_exec(["/bin/bash", str(script)])
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -595,7 +618,7 @@ def linux_desktop_entry_text() -> str:
         "Name=WIMS\n"
         "GenericName=WSJT-X Instance Management\n"
         "Comment=WIMS agents and site console\n"
-        f"Exec=\"{script}\"\n"
+        f"Exec={exec_line}\n"
         f"Path={_REPO_ROOT}\n"
         f"{icon_line}\n"
         "Terminal=false\n"
@@ -609,6 +632,7 @@ def linux_check_logs_desktop_entry_text() -> str:
     icon = find_icon_path()
     icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
     script = _REPO_ROOT / "scripts" / "Check logs.sh"
+    exec_line = freedesktop_exec(["/bin/bash", str(script)])
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -616,12 +640,47 @@ def linux_check_logs_desktop_entry_text() -> str:
         "Name=Check logs\n"
         "GenericName=Compare contest logs\n"
         "Comment=See whether WSJT-X, N1MM, and other logs agree\n"
-        f"Exec=\"{script}\"\n"
+        f"Exec={exec_line}\n"
         f"Path={_REPO_ROOT}\n"
         f"{icon_line}\n"
         "Terminal=true\n"
         "Categories=HamRadio;\n"
         "StartupNotify=true\n"
+    )
+
+
+def mark_linux_launcher_trusted(path: Path) -> None:
+    """Make a desktop file launch on double-click.
+
+    File managers run it only when it is executable. GNOME also wants the
+    trusted flag that Allow Launching sets.
+    """
+    try:
+        path.chmod(path.stat().st_mode | 0o111)
+    except OSError:
+        return
+    if not sys.platform.startswith("linux"):
+        return
+    gio = shutil.which("gio")
+    if not gio:
+        return
+    subprocess.run(
+        [gio, "set", str(path), "metadata::trusted", "true"],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _refresh_applications_menu(menu: Path) -> None:
+    tool = shutil.which("update-desktop-database")
+    if not tool or not menu.is_dir():
+        return
+    subprocess.run(
+        [tool, str(menu)],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
 
 
@@ -631,25 +690,27 @@ def write_linux_desktop_shortcut() -> Path:
     path = desk / "WIMS.desktop"
     content = linux_desktop_entry_text()
     path.write_text(content, encoding="utf-8")
-    path.chmod(path.stat().st_mode | 0o111)
+    mark_linux_launcher_trusted(path)
     menu = Path.home() / ".local" / "share" / "applications"
     try:
         menu.mkdir(parents=True, exist_ok=True)
         menu_path = menu / "WIMS.desktop"
         menu_path.write_text(content, encoding="utf-8")
-        menu_path.chmod(menu_path.stat().st_mode | 0o111)
+        mark_linux_launcher_trusted(menu_path)
     except OSError:
         pass
     check = linux_check_logs_desktop_entry_text()
     check_path = desk / "Check logs.desktop"
     check_path.write_text(check, encoding="utf-8")
-    check_path.chmod(check_path.stat().st_mode | 0o111)
+    mark_linux_launcher_trusted(check_path)
     try:
+        menu.mkdir(parents=True, exist_ok=True)
         menu_check = menu / "Check logs.desktop"
         menu_check.write_text(check, encoding="utf-8")
-        menu_check.chmod(menu_check.stat().st_mode | 0o111)
+        mark_linux_launcher_trusted(menu_check)
     except OSError:
         pass
+    _refresh_applications_menu(menu)
     return path
 
 
@@ -3350,13 +3411,16 @@ ALREADY_RUNNING_UNREACHABLE = (
 
 def show_operator_message(text: str) -> None:
     """A dialog for a double-click. The same words are printed if it cannot open."""
+    from wims.launcher.plain_message import show_plain_message
+
     try:
         import tkinter as tk
         from tkinter import messagebox
 
         root = tk.Tk()
     except Exception:
-        print(text, flush=True)
+        if not show_plain_message(text):
+            print(text, flush=True)
         return
     try:
         root.withdraw()
@@ -3422,11 +3486,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         import tkinter as tk
     except ImportError:
-        print(
-            "WIMS needs the Python window library.\n"
-            "On Ubuntu, install the python3-tk package, then double-click WIMS again.",
-            file=sys.stderr,
-        )
+        from wims.launcher.plain_message import WINDOW_LIBRARY_MESSAGE
+
+        # The double-click script already showed a dialog. Printing keeps a
+        # terminal start and the unit test moving; a dialog here would wait
+        # for a click inside the test process.
+        print(WINDOW_LIBRARY_MESSAGE, file=sys.stderr)
         return 2
 
     root = tk.Tk()

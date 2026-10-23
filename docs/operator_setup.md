@@ -37,14 +37,11 @@ Details: [scripts/windows/README.md](../scripts/windows/README.md).
 
 ### Linux
 
-```bash
-sudo apt install -y git python3 python3-tk   # 3.10+; 3.12–3.14 fine
-cd WIMS
-./scripts/add-wims-to-desktop.sh
-# then double-click WIMS
-```
+1. Open the WIMS folder, open **scripts**, and double-click **Add WIMS to Desktop**.
+2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**.
+3. Double-click **WIMS**.
 
-No `pip` packages for runtime.
+If Python or the window library is missing, a message names what to install. On Ubuntu and Debian those are `python3` and `python3-tk`. On Fedora the window library is `python3-tkinter`. No `pip` packages for runtime.
 
 ---
 
