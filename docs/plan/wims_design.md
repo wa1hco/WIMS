@@ -510,7 +510,8 @@ SSB/CW or hand off to a 2nd op.
   (scrolling).
 - **Call roster** — **GridTracker-style flat table, one row per station heard** (every decode with a
   callsign, CQ or mid-exchange), scored via §3.5 with the score **kept as a sortable column** (not the
-  only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
+  only view). The number the column shows today, and a proposed replacement for
+  review, are in **[scoring.md](scoring.md)**. The proposal is not implemented. **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
   operator’s* roster. Columns: **DX callsign · Country** (DXCC entity name for the
   call, blank when the prefix is unknown; hover adds continent and CQ zone when
@@ -1434,7 +1435,9 @@ Build and test each module independently against the test bed (§5) before integ
 
 **Planned, not implemented (§2.15).** PSK Reporter, contest history, and VHF
 chat are hint lists beside the decode roster. They are not inputs to §3.5
-ranking, and a hint does not grant TX.
+ranking, and a hint does not grant TX. The score the roster uses today, and a
+proposed sum for review, are in **[scoring.md](scoring.md)**. That proposal is
+not implemented either.
 
 ### 3.3.1 Seat agent — per-station local process
 
@@ -2067,8 +2070,10 @@ Candidate situations worth covering — rename, add, or cut freely:
 - **GridTracker's role — RESOLVED** (§4.3/§1.2/§3.7): under multicast, GridTracker is an optional
   **parallel read-only viewer**, not a relay and not a TX controller; WIMS's roster (§3.12) is the
   click-to-work path. Coexists per operator preference; go-boxes run none.
-- **Scoring model source** — per-contest QSO-point + multiplier rules feed §3.5 ranking and §3.11
-  config. One original GPL-3.0 JSON file per contest (first file: NY QSO Party, from the
+- **Scoring model source** — the implemented total and a proposed replacement
+  (for review, not built) are in **[scoring.md](scoring.md)**. Per-contest
+  QSO-point + multiplier rules feed §3.5 ranking and §3.11 config. One original
+  GPL-3.0 JSON file per contest (first file: NY QSO Party, from the
   published rules). Casual Setup is a Goal menu (contest, award, just operating, or custom)
   plus one menu that depends on that goal, and a plain sentence. Just operating uses
   the checklist (DXCC overall on a fresh install; continent, CQ zone, and ITU zone when

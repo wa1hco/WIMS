@@ -161,7 +161,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 **§2.10** rotator Az ant/Az DX + rotating font; **E1b** / **§2.11** band subscribe → roster;
 **G6** / **§2.12** run vs S&P/tailend (Reply = WIMS incl. 73; run = WSJT-X UI);
 **A7** / **§2.15** needed-list hints (PSK Reporter, contest history, VHF chat) — planned,
-not implemented.
+not implemented. **Score:** what the Score column does today, and a proposed
+replacement for review, are in [scoring.md](scoring.md). The proposal is not implemented.
 
 ### Design / feature todos (not yet coded)
 
@@ -190,6 +191,12 @@ not implemented.
   A hint never starts a call or transmit. Clicking one at most selects the station
   and fills the grid. Settings stay in the GUI. Chat access, login, parsing, and
   rate limits are open; WIMS never posts to those chats. Design: wims_design.md §2.15.
+- [ ] **Needed-list score — proposed sum** — **planned, not implemented.** The
+  Score column today is the weighted sum in `scoring.py` (documented in
+  [scoring.md](scoring.md)). The proposed replacement is a sum of named terms
+  (need, rover clock, recency, opening, regular contacts, hint sources) with
+  weights edited in Setup later, and a “why this score” hover. No term
+  transmits. Reviewers: the open questions in that file.
 - [ ] **G4 / §2.8 — Closing free text / QSY (assess-then-decide)** — Free Text UDP encode + live
   verify; work/complete dialog shows §2.9 evidence; operator **explicitly chooses** accept
   suggestion / other band / skip (default plain 73). Never auto-QSY. Claim-gated.
@@ -264,6 +271,7 @@ not implemented.
 
 ## Build log
 
+- **2026-10-24** — **Design only (no code): needed-list score written out for review.** [scoring.md](scoring.md) records the Score column as implemented (`scoring.py`, roster order, goal verdict, weights) and a proposed sum (need, rover clock, recency, short-lived openings, regular contacts, §2.15 hint terms). The proposal is not implemented. No term transmits.
 - **2026-10-24** — **Design only (no code): §2.15 Additional sources for the needed-stations list.** Planned hints, shown apart from live WSJT-X decodes: PSK Reporter (about every 5 minutes), contest history (a not-yet-worked panel from past runs of the same contest), and read-only VHF chat (ON4KST, Ping Jockey). A hint never starts a call or transmit. Chat access, login, parsing, and rate limits stay open. Backlog A7. README Status points at this section.
 - **2026-10-23** — **Linux desktop icon is a double-click.** `scripts/Add WIMS to Desktop.desktop` puts WIMS on the desktop and in the app menu. It runs the installer with bash, so a ZIP that dropped the executable bit still works after Allow Launching or the Permissions checkbox. The release tarball keeps that bit. A missing Python or window library opens a plain message (a dialog when the desktop has one) naming `python3` and `python3-tk` (`python3-tkinter` on Fedora). Tests: `tests/unit/test_linux_desktop_install.py`.
 - **2026-10-21** — **LoTW confirmations from GridTracker.** WIMS finds GridTracker 2 `LoTW_QSL.adif` (`~/.config/GridTracker2/Ginternal` on Linux, `%APPDATA%\GridTracker2\Ginternal` on Windows, Library/Application Support on macOS) and GridTracker 1 `~/Documents/GridTracker/LogbookOfTheWorld.adif`. The newest file is used. Read-only; re-read when the modified time changes. A logged contact is confirmed when call, band, LoTW mode group (FT8 matches DATA and MFSK), and time within 30 minutes match. The record's grid, state, and DXCC also confirm that place. Setup says `LoTW confirmations: from GridTracker, updated <time>` or `not found`. WIMS does not download LoTW. Tests: `tests/unit/test_lotw.py`.
