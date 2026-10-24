@@ -538,6 +538,8 @@ SSB/CW or hand off to a 2nd op.
   `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
+  **Needed rows are live WSJT-X decodes only.** PSK Reporter, past contest logs, and
+  VHF chat are planned as separate hints and are not implemented (§2.15).
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
   broadcast). N1MM has no heartbeat — "no recent packet" means quiet, not a fault.
@@ -667,6 +669,7 @@ keep WIMS's contest scoring as the "wanted" engine.
 | A4 | Multi-band / multi-instance aggregate | one roster across all ~6 instances | W | H |
 | A5 | Age-out stale rows | drop decodes older than a TTL | both | M |
 | A6 | Rover in a new grid = fresh high-value row | not greyed as a dupe | W | H |
+| A7 | **Hints beside the needed list (§2.15)** | PSK Reporter, past runs of this contest, VHF chat. Shown apart from live decodes. **Planned, not implemented.** A click prepares the station and fills the grid; it never transmits | W | H |
 
 **B. Columns & sorting**
 
@@ -1293,6 +1296,118 @@ in-progress FT8 QSO before keying when possible); actuation adds automatic inhib
 **Not a third “disable all safety” mode.** Coordinated still assumes cooperative operators and
 contest rules; WIMS simply does not automate the stop. Panic Halt and readiness fail-soft remain.
 
+### 2.15 Additional sources for the needed-stations list
+
+**Planned. Not implemented.** No poller, no panel, and no settings exist yet. The
+needed list on Operate is unchanged: a station is there because a subscribed
+WSJT-X instance decoded it (§2.2), and needed-versus-worked is still the log
+(§3.5 / §3.6).
+
+**Today.** WSJT-X UDP decodes are the only source. A call that nobody has decoded
+does not appear. That includes a station that is active on the band, one worked
+in a past run of this contest, and one posted in a spotting chat.
+
+**Planned sources.** Three later sources may suggest stations. Each one is a
+**hint**, shown in its own place, apart from the live decode rows. A hint is not
+a decode, not a score, and not a dupe verdict. It does not join the ranked roster
+and it does not change needed or dupe for a station that has been decoded. When
+that station is later decoded, the live roster is where it is worked. The hint
+row stays a hint.
+
+#### What a hint may do
+
+| Action | Allowed |
+|--------|---------|
+| Show the call, grid, band, frequency, and where the hint came from | Yes |
+| Select the station and fill in the grid square the hint carried | Yes — the click prepares the station. The square is shown and kept so a later Work can use it |
+| Start a call, send Reply, Free Text, or CQ, or key the radio | **No.** A hint never transmits. There is no automated transmit, ever |
+| Work the station from the hint alone | **No.** Work stays a separate click on a **live decode** (§2.3 / §2.12). With no retained decode, Work stays unavailable and one short line says so |
+
+#### 1. PSK Reporter
+
+A periodic poll for two pictures:
+
+- Stations heard on our bands near our grid.
+- Stations reporting us (they decoded one of our calls).
+
+**Value.** Active stations not yet decoded, one-way paths, and band openings.
+
+**Rate.** Respect PSK Reporter’s rate guidance: no more than about once every
+5 minutes. A failed or slow poll waits out that interval. It does not retry in
+a tight loop. Our grid and our bands come from the fleet’s own WSJT-X instances
+when those are already known. How far “near” reaches is a Setup choice, with a
+default chosen when this is built and shown in the GUI.
+
+#### 2. Contest history
+
+Stations and grids worked in past runs of the **same contest**, from our own logs
+or from public logs, minus those worked this time.
+
+**Value.** Schedule planning, and catching rovers and big stations that show up
+every year. The panel is **not yet worked**: who we usually work, and who is
+still missing this weekend. Once they are worked this contest, they leave the
+panel. A call that is also on the live roster is labeled heard on this panel
+until it is worked. The history row does not become the decode row.
+
+This is a different surface from cross-band evidence (§2.9 / C7). C7 annotates a
+station **already heard** with other bands they may still do. This panel lists
+stations from past runs of this contest who are not worked yet. The two may
+later read the same old logs. A history hint never becomes a this-contest dupe
+and never changes the live log copy (§3.6). Which public logs are acceptable is
+still open (parking lot).
+
+#### 3. VHF chat and spotting groups
+
+Read-only parsing of posts on groups such as **ON4KST chat** and **Ping Jockey**
+([pingjockey.net](https://pingjockey.net)). Pull posted callsigns, grids, sked
+requests, and frequencies, and show the active stations as hints.
+
+**WIMS never posts to these chats.** No messages, no skeds, no “I am on” lines,
+and no replies, automatic or otherwise. Reading is the whole feature. The
+operator who wants to answer a sked does that in the chat’s own window.
+
+**Open** (also in the parking lot), and this source stays off until they are
+settled:
+
+- Access method and terms of use.
+- Whether a login is required.
+- Whether free-form posts can be parsed reliably.
+- Rate limits for each site.
+
+A partial or messy parse is a short status line, not a confident station list.
+
+#### Design constraints
+
+These apply to every source, including any added later.
+
+- **No automated transmit, ever.** A hint never starts a call and never sends
+  Reply, Halt, Free Text, or CQ. Click-to-work stays a human click on a live
+  decode.
+- **A click prepares, at most.** Clicking a hint selects that station and fills
+  the grid. It does not transmit.
+- **Stdlib-only Python.** Polls and parsing use the standard library. No added
+  packages.
+- **Zero-knowledge settings.** Anything the operator sets — which sources are
+  on, how far “near” reaches, a login if a chat requires one — is in the GUI
+  (Setup, extra choices kept closed until opened). No command-line flag and no
+  environment variable. Our grid and our bands are taken from the fleet when
+  WIMS already knows them. Sources stay quiet until the operator turns them on.
+  A saved choice lives with the other site-server settings, the same way the
+  Goal does, so it is still there next time.
+- **The remote browser console keeps working.** The site server does the polls.
+  An operator laptop that only opens the console in a browser sees the same
+  hints on the state feed the console already uses. Nothing extra is installed
+  on that laptop.
+- **Plain short status.** Each source gets one short line: what it last did, or
+  what to do next. Examples of the wording (not strings in the product today):
+  `PSK Reporter: updated 4 min ago`, `Contest history: 12 not yet worked`,
+  `Chat: sign in on Setup`. Detail stays on the hover. A failure names the next
+  step in ordinary words.
+
+**Out of scope:** posting to chats; calling or transmitting from a hint;
+folding hints into the live decode rows; treating a hint as proof the station
+is on the air this minute; polling or reading faster than the source allows.
+
 ---
 
 ## 3. Specific pieces of the WSJT-X management program
@@ -1316,6 +1431,10 @@ Build and test each module independently against the test bed (§5) before integ
 | 3.12 | **Server API / integration hub** (the **server↔console boundary**, §4.5) | The unicast API between the **site server** and **operator consoles** (local or remote): serve live state + accept commands — **band/station subscription** (§2.11 → which decodes fill *this* console’s call roster), **call-roster feed + click-to-work** (→ Reply via §3.2, claim-gated), **click-to-point** (→ rotator §3.8), and **control-claim / instant takeover** (§4.5). Roster rows carry **Az DX**, and **Az ant + rotator_moving** when a remote rotator is mapped. Also **re-publish WIMS's normalized/enriched event stream** (decodes + grid + dupe/mult + priority) so other apps consume WIMS's annotated feed — integration hub, not a closed monolith. Stdlib HTTP + SSE serving the JSON state contract (`state.py`) → static dashboard | State store, claim state, **per-console subscriptions** | Feed to consoles §2, roster/point/claim/subscribe actions, published event feed |
 | 3.13 | **Override interface** | Let the SSB/CW op or 2nd op supervise/override. The **SSB/CW op's small client app** (§Goals) = a lightweight **console** on the SSB/CW main screen showing WIMS activity on their band (reads the **existing SSB/CW N1MM**, no extra logger). Their **agent** detects keying — **PTT read as the USB-serial CTS line** (§3.4.1 Sensor) — and raises the SSB/CW-priority signal → §3.4.1 fast inhibit, **direct peer-to-peer** (§4.5) | Operator input, priority requests | Commands to arbiter, priority signal |
 | 3.15 | **Network discovery & diagnostics** | Be the **protocol-aware network tool so the operator never opens Wireshark**. Passively enumerate live nodes from the multicast WIMS already joins (WSJT-X instances by id/host/group/port/version, N1MM sources, GridTracker); **register N1MM presence from *any* broadcast** (`<RadioInfo>`/`<AppInfo>` beacons, not just `<contactinfo>`, so the link is verifiable at setup with no QSO — capturing StationName + `mycall` + last-seen). Optional active probes (host ping, N1MM:12060, rotator/CAT reachability). **Diff observed vs the declared Instance Profiles (§3.14)** and name every discrepancy. Feeds the §2.5 topology map / health / Wireshark-lite views and the readiness gate | All UDP, profiles, probe results | Live topology, health, discrepancy list |
+
+**Planned, not implemented (§2.15).** PSK Reporter, contest history, and VHF
+chat are hint lists beside the decode roster. They are not inputs to §3.5
+ranking, and a hint does not grant TX.
 
 ### 3.3.1 Seat agent — per-station local process
 
@@ -1869,6 +1988,10 @@ Candidate situations worth covering — rename, add, or cut freely:
 - S6c — **Cross-band opportunity assess-then-decide**: station needed on 6m; evidence shows
   prior/other-band activity on 432 not yet worked → roster boost + **visible evidence panel**;
   operator assesses ability and **chooses** QSY 432 / other / skip (C7 / §2.9) — not auto-applied
+- S6d — **Needed-list hints (§2.15, planned, not implemented):** PSK Reporter, a not-yet-worked
+  panel from past runs of this contest, and read-only ON4KST / Ping Jockey posts show stations
+  apart from live decodes. Clicking a hint selects the station and fills the grid. It does not
+  call or transmit. WIMS does not post to the chats
 - S7 — Human override: op grabs one instance, then hands it back
 - S8 — Multi-op handoff (primary op → 2nd op)
 - S9 — Fault / runaway: stuck TX or lost heartbeat → watchdog halts
@@ -1988,7 +2111,15 @@ Candidate situations worth covering — rename, add, or cut freely:
   to keep history from polluting this-contest dupe/mult (strict separation: history → evidence +
   scoring only). Weight of “worked last year on 432” vs “heard this weekend on 432 but not
   worked”. How much detail on the roster row vs expand/work-dialog so assessment is fast under
-  contest pace.
+  contest pace. The not-yet-worked panel in §2.15 is a separate planned hint list (same contest,
+  stations not worked this time). It is not this evidence panel, and it is not implemented.
+- **Needed-list hints beyond decodes (§2.15) — planned, not implemented.** PSK Reporter poll
+  interval is capped at about 5 minutes; the “near our grid” distance is not chosen yet.
+  Contest history may use our own logs and public logs; which public logs, and on what terms,
+  is open. VHF chat (ON4KST, Ping Jockey / pingjockey.net) is read-only: access method and
+  terms of use, whether a login is required, parsing reliability of free-form posts, and
+  rate limits are all open. WIMS never posts to those chats. Hints never start a call or
+  transmit.
 - **Multiple N1MM on one band — RESOLVED (§2.13.4).** Exactly one N1MM may enable the **WSJT
   reader** per band stream (logger-of-record). A second N1MM for SSB/CW that does **not** join
   that stream is OK for presence/RadioInfo; two WSJT readers = readiness error. WIMS displays
