@@ -32,6 +32,8 @@ from wims.log.app import rebuild_n1mm_adif  # noqa: E402
 from wims.server.app import LiveFleet  # noqa: E402
 from wims.state.heard_grids import (  # noqa: E402
     MAX_AGE_S,
+    QSO_PREAMBLE_S,
+    QSO_WINDOW_S,
     ROVER_WINDOW_S,
     HeardGrids,
 )
@@ -98,11 +100,13 @@ def test_tail_end_qso_gets_the_remembered_grid():
         assert row["grid_source"] == "remembered"
         relay = list(live._logged_qsos)
         assert relay and "GF15" in relay[-1]["adif"]
-        assert "grid remembered" in relay[-1]["adif"].lower()
+        # A fixed station's square is its grid. The comment is only for a
+        # rover square that came from an earlier hearing.
+        assert "grid remembered" not in relay[-1]["adif"].lower()
         assert relay[-1]["grid_source"] == "remembered"
         wire = rebuild_n1mm_adif(relay[-1]["adif"], operator="IC7300")
         assert "GF15" in wire
-        assert "grid remembered" in wire.lower()
+        assert "grid remembered" not in wire.lower()
         assert chosen.read_bytes() == before
     finally:
         if prev is None:
@@ -158,7 +162,10 @@ def test_persistence_round_trip():
     again = HeardGrids(path)
     assert again.current("CX4BAN", t0 + 60) == "GF15XX"
     found = again.lookup("CX4BAN", t0 + 60)
-    assert found.remembered and "20m" in found.tip and "14:10" in found.tip
+    assert found.remembered and not found.assumed
+    assert found.tip.startswith("Grid from 20m at 14:10 UTC")
+    assert "GF15" in found.tip
+    assert "grid assumed" not in found.tip.lower()
 
 
 def test_rover_grid_change_and_hover():
@@ -277,14 +284,146 @@ def test_logged_grid_does_not_override_a_newer_heard_grid():
     later = _row(live, "K1ROV/R", now=now + 3)
     assert later["grid"] == "FN43"
     assert later["grid_remembered"] is True
+    # The CQ carried FN43, and the next message is to us. Same QSO.
+    assert later["grid_assumed"] is False
     assert "FN43" in later["grid_tip"]
-    assert "grid assumed" in later["grid_tip"].lower()
+    assert later["grid_tip"].startswith("Grid from ")
+    assert "grid assumed" not in later["grid_tip"].lower()
     assert later["is_dupe"] is False
     assert later["is_new_mult"] is True
     stored = live._log.con.execute(
         "SELECT grid FROM qsos WHERE call='K1ROV/R'"
     ).fetchone()
     assert stored["grid"] == "FN42"
+
+
+def test_same_qso_and_an_earlier_rover_hearing():
+    """A rover square from this contact is the grid. An older one is assumed.
+
+    Same QSO starts when they call us or we call them, and includes the
+    grid heard in the short preamble before that. A gap, or no exchange,
+    leaves a rover square as an earlier hearing. A fixed station is never
+    marked assumed. Two squares, with no /R, are a rover.
+    """
+    store = HeardGrids()
+    t0 = _t()
+    store.note("CX4BAN", "GF15", "20m", t0)
+    fixed = store.lookup("CX4BAN", t0 + 3600)
+    assert fixed.grid == "GF15" and fixed.assumed is False
+    assert fixed.tip.startswith("Grid from 20m at ")
+    assert "grid assumed" not in fixed.tip.lower()
+
+    store.note("K1ROV/R", "FN42", "6m", t0)
+    earlier = store.lookup("K1ROV/R", t0 + 60)
+    assert earlier.assumed is True
+    assert earlier.tip.startswith("Grid assumed.")
+
+    store.note_exchange("K1ROV/R", t0 + 30)
+    same = store.lookup("K1ROV/R", t0 + 60)
+    assert same.grid == "FN42" and same.assumed is False
+    assert same.tip.startswith("Grid from 6m at ")
+    assert "grid assumed" not in same.tip.lower()
+
+    # Their next message is a new contact. The old square is still inside
+    # the rover window, so it is filled, and it is marked assumed.
+    later = t0 + QSO_WINDOW_S + QSO_PREAMBLE_S + 30
+    assert later - t0 < ROVER_WINDOW_S
+    store.note_exchange("K1ROV/R", later)
+    assumed = store.lookup("K1ROV/R", later)
+    assert assumed.grid == "FN42" and assumed.assumed is True
+    assert "grid assumed" in assumed.tip.lower()
+
+    store.note("N1MOV", "FN31", "2m", t0)
+    store.note("N1MOV", "FN32", "2m", t0 + 20)
+    assert store.is_rover("N1MOV", t0 + 20)
+    assert store.lookup("N1MOV", t0 + 40).assumed is True
+    store.note_exchange("N1MOV", t0 + 40)
+    moved = store.lookup("N1MOV", t0 + 40)
+    assert moved.grid == "FN32" and moved.assumed is False
+    assert moved.tip.startswith("Grid from ")
+    assert "Was FN31" in moved.tip
+
+
+def test_adif_comment_only_when_a_rover_grid_is_from_memory():
+    """The comment is noise unless the square is an assumed rover grid.
+
+    The log-copy source stays remembered either way, so a later decode can
+    still correct the square.
+    """
+    store = HeardGrids()
+    t0 = _t()
+    blank = "<call:6>CX4BAN <gridsquare:0> <eor>"
+    store.note("CX4BAN", "GF15", "20m", t0)
+    fixed, source = store.fill_blank_adif(blank, "CX4BAN", t0 + 60)
+    assert source == "remembered"
+    assert "GF15" in fixed
+    assert "grid remembered" not in fixed.lower()
+
+    store.note("K1ROV/R", "FN42", "6m", t0)
+    store.note_exchange("K1ROV/R", t0 + 20)
+    same, source = store.fill_blank_adif(
+        "<call:7>K1ROV/R <gridsquare:0> <eor>", "K1ROV/R", t0 + 40,
+    )
+    assert source == "remembered" and "FN42" in same
+    assert "grid remembered" not in same.lower()
+
+    stale_at = t0 + QSO_WINDOW_S + QSO_PREAMBLE_S + 30
+    store.note_exchange("K1ROV/R", stale_at)
+    assumed, source = store.fill_blank_adif(
+        "<call:7>K1ROV/R <gridsquare:0> <comment:3>tu <eor>",
+        "K1ROV/R", stale_at,
+    )
+    assert source == "remembered" and "FN42" in assumed
+    assert "grid remembered" in assumed.lower()
+    assert "tu" in assumed.lower()
+
+    kept, source = store.fill_blank_adif(
+        "<call:6>CX4BAN <gridsquare:4>FN20 <eor>", "CX4BAN", t0 + 60,
+    )
+    assert source == "logged" and "FN20" in kept
+    assert "GF15" not in kept
+
+
+def test_our_tx_text_starts_the_qso_and_a_cq_does_not():
+    now = time.time()
+    live = LiveFleet()
+    live._heard.note("K1ROV/R", "FN42", "6m", now - 20)
+    live.observe_wsjtx(
+        M.parse(E.build_status(
+            "IC7300", 50_313_000, mode="FT8", de_call="W1XX",
+            dx_call="K1ROV/R", tx_enabled=True, transmitting=True,
+            tx_message="K1ROV/R W1XX FN31",
+        )),
+        now=now, src_ip="10.0.0.8",
+    )
+    found = live._heard.lookup("K1ROV/R", now)
+    assert found.grid == "FN42" and found.assumed is False
+
+    calling = LiveFleet()
+    calling._heard.note("K1ROV/R", "FN42", "6m", now - 20)
+    calling.observe_wsjtx(
+        M.parse(E.build_status(
+            "IC7300", 50_313_000, mode="FT8", de_call="W1XX",
+            dx_call="K1ROV/R", tx_enabled=True, transmitting=True,
+            tx_message="CQ W1XX FN31",
+        )),
+        now=now, src_ip="10.0.0.8",
+    )
+    cq = calling._heard.lookup("K1ROV/R", now)
+    assert cq.assumed is True
+
+
+def test_roster_marks_only_an_earlier_rover_grid():
+    live = LiveFleet()
+    now = time.time()
+    live._heard.note("K1ROV/R", "FN42", "6m", now - (QSO_PREAMBLE_S + 60))
+    _hear_line(live, "W1XX K1ROV/R R-10", now, hz=50_313_000)
+    shown = _row(live, "K1ROV/R", now=now + 1)
+    assert shown["grid"] == "FN42"
+    assert shown["grid_remembered"] is True
+    assert shown["grid_assumed"] is True
+    assert "grid assumed" in shown["grid_tip"].lower()
+    assert shown["grid_tip"].startswith("Grid assumed.")
 
 
 def test_roster_styles_a_remembered_grid():
@@ -296,9 +435,27 @@ def test_roster_styles_a_remembered_grid():
     )
     assert "function rosGrid" in js
     assert "grid-remembered" in js and "grid_tip" in js
+    assert "c.grid_assumed" in js
     assert "grid assumed" in js
     assert "grid-remembered" in css
     assert "grid-assumed" in css
+    assert "grid-assumed-cell" in css
+
+
+def _hear_line(live, message, now, hz=14_074_000):
+    live.observe_wsjtx(
+        M.parse(E.build_status(
+            "IC7300", hz, mode="FT8", decoding=True, de_call="W1XX",
+        )),
+        now=now, src_ip="10.0.0.8",
+    )
+    live.observe_wsjtx(
+        M.parse(E.build_decode(
+            "IC7300", time_ms=0, snr=-8, delta_time=0.1,
+            delta_frequency=800, mode="FT8", message=message,
+        )),
+        now=now + 0.2, src_ip="10.0.0.8",
+    )
 
 
 def _hear(live, call, grid, now, hz=14_074_000):

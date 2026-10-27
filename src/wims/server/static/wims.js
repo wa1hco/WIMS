@@ -1949,15 +1949,19 @@ function rosCalling(c) {
   return esc(t || "-");
 }
 function rosGrid(c) {
-  // Italic, and the words "grid assumed": the square is from an earlier
-  // decode, not this message. The operator checks it before logging.
+  // A square from an earlier decode keeps a hover (band and time). A fixed
+  // station, and a rover square heard in this QSO, are shown as the grid.
+  // "grid assumed" is only a rover square from an earlier hearing.
   const tip = c.grid_tip || "";
   const title = tip ? ` title="${escAttr(tip)}"` : "";
   if (c.grid_stale) return `<span class="grid-stale"${title}>-</span>`;
   if (!c.grid) return "-";
-  if (c.grid_remembered) {
+  if (c.grid_assumed) {
     const hover = /grid assumed/i.test(tip) ? tip : ("Grid assumed. " + tip).trim();
-    return `<span class="grid-remembered" title="${escAttr(hover)}">${esc(c.grid)} <span class="grid-assumed">grid assumed</span></span>`;
+    return `<span class="grid-remembered grid-assumed-cell" title="${escAttr(hover)}">${esc(c.grid)} <span class="grid-assumed">grid assumed</span></span>`;
+  }
+  if (c.grid_remembered && tip) {
+    return `<span class="grid-remembered"${title}>${esc(c.grid)}</span>`;
   }
   return esc(c.grid);
 }

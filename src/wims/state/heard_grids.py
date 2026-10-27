@@ -33,8 +33,28 @@ Calls ending in ``/R``, and any call heard in two different squares inside
 the expiry window, are rovers. A blank logged grid for a rover, and the
 square sent to WSJT-X when that rover is worked, use only a hearing inside
 ``ROVER_WINDOW_S`` before the contact. Older rover squares are left blank.
-A square taken from memory is an assumption: the roster says so, and the
-ADIF comment stays ``grid remembered``.
+
+A fixed station stays in the square it sent. A remembered grid for that
+station is its grid: the roster shows the square with no marker, and the
+hover says where it was heard (``Grid from <band> at <time> UTC``). A rover
+square heard in the current QSO is the same. ``grid assumed`` is only a
+rover square that was not heard in this QSO.
+
+Same QSO: an exchange with our station. It starts at the earlier of our
+first message to that call (Work, or a Status whose TX text names the DX
+call and is not a CQ) and their first message addressed to us. It continues
+while the next such message arrives within ``QSO_WINDOW_S`` (3 minutes). A
+gap longer than that is a new QSO. A square was heard in this QSO when its
+last hearing is inside that span, or in the ``QSO_PREAMBLE_S`` (90 seconds)
+before the start — the CQ or the grid that opened the contact. The exchange
+is session state and is not written to the file.
+
+The ADIF comment ``grid remembered`` is written only for that assumed rover
+square. A fixed station, and a rover square from this QSO, are filled with
+no comment: the square is not in doubt, and the words would be noise. The
+log copy still marks ``grid_source`` ``remembered`` whenever this store
+filled a blank, so a later decode can correct it. That flag is not the
+comment.
 
 The file is JSON next to the other WIMS preferences. ``WIMS_HEARD_GRIDS``
 points at another file; that is for tests. Operator docs do not mention it.
@@ -57,13 +77,22 @@ MAX_AGE_S = 30 * 24 * 3600
 # A rover square older than this is not written onto a blank log line
 # and is not sent to WSJT-X. One window for both fills.
 ROVER_WINDOW_S = 10 * 60
+# Silence that ends an exchange with our station. A new directed message
+# after this starts a new QSO. Long enough for a slow FT8 contact with
+# repeats; a later hearing is a different contact.
+QSO_WINDOW_S = 3 * 60
+# The CQ or the grid that opened the contact, heard just before the first
+# message to us or our first message to them. Covers an FT8 or FT4 period
+# and one Q65-60 period, plus a little slack. A rover square older than
+# this, relative to the QSO start, is an earlier hearing.
+QSO_PREAMBLE_S = 90
 # Distinct squares kept for the roster hover ("now FN43, was FN42").
 HISTORY_KEEP = 4
 # A hearing a couple of minutes after the log timestamp still counts.
 CLOCK_SLACK_S = 120
 SCHEMA = 1
 GRID_REMEMBERED = "grid remembered"
-# Shown on the roster when the square was not in the current decode.
+# Roster words for a rover square that was not heard in this QSO.
 GRID_ASSUMED = "grid assumed"
 
 _GRID_OK = re.compile(r"^[A-R]{2}\d{2}([A-X]{2})?$")
@@ -88,11 +117,17 @@ class GridLookup:
     tip: str = ""
     remembered: bool = False
     stale: bool = False
+    # Rover square from an earlier hearing, not this QSO. A fixed station,
+    # and a rover square heard in this QSO, are never assumed.
+    assumed: bool = False
 
 
 @dataclass
 class _CallMemory:
     history: list[SquareHearing] = field(default_factory=list)
+    # Session only (not written to heard_grids.json). See the module docstring.
+    exchange_start: float | None = None
+    exchange_last: float | None = None
 
     def hear(self, grid: str, band: str, when: float) -> None:
         square = grid[:4]
@@ -292,6 +327,36 @@ class HeardGrids:
             return False
         return self.note_message(getattr(msg, "message", None), band, when)
 
+    def note_exchange(self, call: str, when: float) -> None:
+        """Mark a QSO with our station as in progress at ``when``.
+
+        The QSO starts at the earliest directed message and stays open while
+        the next one arrives within ``QSO_WINDOW_S``. A gap longer than that
+        starts a new QSO. A message older than the live QSO is left alone.
+        This is not written to the file.
+        """
+        call_u = (call or "").strip().upper()
+        if not call_u:
+            return
+        when = float(when)
+        with self._lock:
+            entry = self._calls.get(call_u)
+            if entry is None:
+                entry = _CallMemory()
+                self._calls[call_u] = entry
+            start = entry.exchange_start
+            last = entry.exchange_last
+            if start is None or last is None or when > last + QSO_WINDOW_S:
+                entry.exchange_start = when
+                entry.exchange_last = when
+                return
+            if when + QSO_WINDOW_S < start:
+                return
+            if when < start:
+                entry.exchange_start = when
+            if when > last:
+                entry.exchange_last = when
+
     def lookup(self, call: str, when: float) -> GridLookup:
         call_u = (call or "").strip().upper()
         if not call_u:
@@ -311,10 +376,12 @@ class HeardGrids:
                 return GridLookup()
             if rover and age > ROVER_WINDOW_S:
                 return GridLookup(tip=self._stale_tip(latest), stale=True)
+            assumed = bool(rover and not self._in_this_qso(entry, latest, when))
             return GridLookup(
                 grid=latest.grid,
-                tip=self._tip(entry, latest),
+                tip=self._tip(entry, latest, assumed),
                 remembered=True,
+                assumed=assumed,
             )
 
     def is_rover(self, call: str, when: float) -> bool:
@@ -344,12 +411,19 @@ class HeardGrids:
             return max(usable, key=lambda h: h.last_utc).grid
 
     def fill_blank_adif(self, adif: str, call: str, when: float) -> tuple[str, str]:
-        """Fill a blank ``GRIDSQUARE`` and mark the record remembered.
+        """Fill a blank ``GRIDSQUARE``.
 
         Returns ``(adif, source)`` where source is ``logged`` when the
         datagram already carried a grid, ``remembered`` when this store
-        filled one, or ``""`` when the grid stays blank. Does not write a
-        WSJT-X log file.
+        filled one, or ``""`` when the grid stays blank.
+
+        The comment ``grid remembered`` is written only when the square is
+        a rover grid from an earlier hearing (``GridLookup.assumed``). A
+        fixed station stays in the square it sent, and a rover square heard
+        in this QSO was copied from that contact, so the comment would be
+        noise. ``source`` is still ``remembered`` in those cases: the log
+        copy uses it to tell a filled square from one the datagram carried,
+        and a later decode can correct it. Does not write a WSJT-X log file.
         """
         if (_adif_value(adif, "GRIDSQUARE") or "").strip():
             return adif, "logged"
@@ -357,13 +431,14 @@ class HeardGrids:
         if not found.grid:
             return adif, ""
         text = _adif_set(adif, "GRIDSQUARE", found.grid)
-        comment = _adif_value(text, "COMMENT")
-        if GRID_REMEMBERED not in (comment or "").lower():
-            merged = (
-                f"{comment}; {GRID_REMEMBERED}" if (comment or "").strip()
-                else GRID_REMEMBERED
-            )
-            text = _adif_set(text, "COMMENT", merged)
+        if found.assumed:
+            comment = _adif_value(text, "COMMENT")
+            if GRID_REMEMBERED not in (comment or "").lower():
+                merged = (
+                    f"{comment}; {GRID_REMEMBERED}" if (comment or "").strip()
+                    else GRID_REMEMBERED
+                )
+                text = _adif_set(text, "COMMENT", merged)
         return text, "remembered"
 
     def load(self) -> None:
@@ -415,28 +490,61 @@ class HeardGrids:
             entry.history = [
                 h for h in entry.history if when - h.last_utc <= MAX_AGE_S
             ]
-            if not entry.history:
-                dead.append(call)
+            if entry.history:
+                continue
+            last = entry.exchange_last
+            if (
+                last is not None
+                and abs(when - last) <= QSO_WINDOW_S
+            ):
+                continue
+            dead.append(call)
         for call in dead:
             del self._calls[call]
+
+    def _in_this_qso(self, entry: _CallMemory, latest: SquareHearing,
+                     when: float) -> bool:
+        """True when ``latest`` was heard in the exchange with our station.
+
+        No exchange, or one that has gone quiet, is not this QSO. The
+        opening grid just before the first directed message still counts.
+        """
+        start = entry.exchange_start
+        last = entry.exchange_last
+        if start is None or last is None:
+            return False
+        if when + CLOCK_SLACK_S < start:
+            return False
+        if when > last + QSO_WINDOW_S:
+            return False
+        return latest.last_utc >= start - QSO_PREAMBLE_S
 
     def _is_rover_locked(self, call_u: str, entry: _CallMemory) -> bool:
         if call_u.endswith("/R"):
             return True
         return len({h.grid[:4] for h in entry.history}) >= 2
 
-    def _tip(self, entry: _CallMemory, current: SquareHearing) -> str:
+    def _tip(self, entry: _CallMemory, current: SquareHearing, assumed: bool) -> str:
         when = _hhmm(current.last_utc)
         prevs = [h for h in entry.history if h.grid[:4] != current.grid[:4]]
-        lead = GRID_ASSUMED[:1].upper() + GRID_ASSUMED[1:] + ". "
-        if not prevs:
+        prev = max(prevs, key=lambda h: h.last_utc) if prevs else None
+        if assumed:
+            lead = GRID_ASSUMED[:1].upper() + GRID_ASSUMED[1:] + ". "
+            if prev is None:
+                return (
+                    f"{lead}{current.grid}, heard on {current.last_band} "
+                    f"at {when} UTC."
+                )
             return (
-                f"{lead}{current.grid}, heard on {current.last_band} "
-                f"at {when} UTC."
+                f"{lead}Now {current.grid}, heard on {current.last_band} at {when} UTC. "
+                f"Was {prev.grid} at {_hhmm(prev.last_utc)} UTC on {prev.last_band}."
             )
-        prev = max(prevs, key=lambda h: h.last_utc)
+        # The lead is the band and time. The square stays in the hover so a
+        # Work line that does not print the grid still names it.
+        if prev is None:
+            return f"Grid from {current.last_band} at {when} UTC ({current.grid})."
         return (
-            f"{lead}Now {current.grid}, heard on {current.last_band} at {when} UTC. "
+            f"Grid from {current.last_band} at {when} UTC ({current.grid}). "
             f"Was {prev.grid} at {_hhmm(prev.last_utc)} UTC on {prev.last_band}."
         )
 
@@ -451,6 +559,8 @@ class HeardGrids:
     def _dump(self) -> dict:
         calls = {}
         for call, entry in sorted(self._calls.items()):
+            if not entry.history:
+                continue
             calls[call] = {
                 "history": [
                     {

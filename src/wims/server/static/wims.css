@@ -326,13 +326,15 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 }
 /* Message: short on the row. The title is the full decode.
    rosFitColumns measures this clamped width so a long line stays narrow. */
-/* Assumed grid: heard earlier, not in this decode. Hover says when and band. */
+/* Remembered grid: hover names the band and time. The dotted line is the
+   cue that the hover is there. Italic and the words are only a rover
+   square from an earlier hearing. */
 #ros .grid-remembered {
-  font-style: italic;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
   cursor: help;
 }
+#ros .grid-assumed-cell { font-style: italic; }
 #ros .grid-assumed {
   font-style: normal;
   font-size: 0.85em;

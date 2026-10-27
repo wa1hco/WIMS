@@ -31,6 +31,7 @@ from wims.server.app import LiveFleet  # noqa: E402
 from wims.state.heard_grids import (  # noqa: E402
     GRID_ASSUMED,
     GRID_REMEMBERED,
+    QSO_PREAMBLE_S,
     ROVER_WINDOW_S,
     GridLookup,
     HeardGrids,
@@ -127,7 +128,11 @@ def test_decision_remembered_none_stale_and_decode_grid():
     assert grid_for_work("W1XX CX4BAN R-10", store.lookup("CX4BAN", t0)) is None
 
     store.note("CX4BAN", "GF15", "20m", t0)
-    assert grid_for_work("W1XX CX4BAN R-10", store.lookup("CX4BAN", t0 + 60)) == "GF15"
+    fixed = store.lookup("CX4BAN", t0 + 60)
+    assert grid_for_work("W1XX CX4BAN R-10", fixed) == "GF15"
+    assert fixed.assumed is False
+    assert fixed.tip.startswith("Grid from 20m at ")
+    assert "grid assumed" not in fixed.tip.lower()
     assert grid_for_work("CQ CX4BAN GF15", store.lookup("CX4BAN", t0 + 60)) is None
     assert grid_for_work("W1XX CX4BAN GF15", store.lookup("CX4BAN", t0 + 60)) is None
     # A fixed station is still filled after the rover window.
@@ -138,7 +143,18 @@ def test_decision_remembered_none_stale_and_decode_grid():
     store.note("K1ROV/R", "FN42", "6m", t0)
     fresh = store.lookup("K1ROV/R", t0 + 60)
     assert grid_for_work("W1XX K1ROV/R R-10", fresh) == "FN42"
+    assert fresh.assumed is True
     assert "grid assumed" in fresh.tip.lower()
+    store.note_exchange("K1ROV/R", t0 + 30)
+    same = store.lookup("K1ROV/R", t0 + 60)
+    assert grid_for_work("W1XX K1ROV/R R-10", same) == "FN42"
+    assert same.assumed is False
+    assert "grid assumed" not in same.tip.lower()
+    # A new exchange after the preamble no longer treats that square as this QSO.
+    # The square is still inside the rover window, so Work would send it.
+    store.note_exchange("K1ROV/R", t0 + QSO_PREAMBLE_S + 180)
+    aged = store.lookup("K1ROV/R", t0 + QSO_PREAMBLE_S + 180)
+    assert aged.grid == "FN42" and aged.assumed is True
     on_time = store.lookup("K1ROV/R", t0 + ROVER_WINDOW_S)
     assert grid_for_work("W1XX K1ROV/R R-10", on_time) == "FN42"
     stale = store.lookup("K1ROV/R", t0 + ROVER_WINDOW_S + 1)
@@ -174,8 +190,10 @@ def test_work_sends_remembered_grid_only_to_that_instance():
     )
     tx.sent.clear()
     r = live.work_station(row)
-    assert r["ok"] and r["grid"] == "GF15" and r["grid_assumed"] is True
-    assert "grid assumed" in (r.get("detail") or "").lower()
+    assert r["ok"] and r["grid"] == "GF15" and r["grid_assumed"] is False
+    detail = (r.get("detail") or "")
+    assert "grid assumed" not in detail.lower()
+    assert "Grid from " in detail and "GF15" in detail
     kinds = [s[0] for s in tx.sent]
     assert kinds[0] == "reply"
     assert tx.sent[0][1] == MID
@@ -186,6 +204,44 @@ def test_work_sends_remembered_grid_only_to_that_instance():
     assert grids[0][1] == MID and grids[0][2] == "GF15"
     assert grids[0][4] == [("127.0.0.1", CTRL)]
     assert all(s[1] == MID for s in tx.sent)
+
+
+def test_work_still_sends_an_earlier_rover_grid_and_marks_it():
+    """Transmit is unchanged. Only the marker says the square is from earlier."""
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    live._heard.note("K1ROV/R", "FN42", "6m", now - (QSO_PREAMBLE_S + 60))
+    _hear(live, MID, "W1XX K1ROV/R R-10", 14_074_000, now)
+    shown = next(
+        c for c in live.snapshot(now)["roster"]["candidates"] if c["call"] == "K1ROV/R"
+    )
+    assert shown["grid"] == "FN42" and shown["grid_assumed"] is True
+    tx.sent.clear()
+    r = live.work_station(shown["id"])
+    assert r["ok"] and r["grid"] == "FN42" and r["grid_assumed"] is True
+    assert "grid assumed" in (r.get("detail") or "").lower()
+    grids = [s for s in tx.sent if s[0] == "grid"]
+    assert len(grids) == 1 and grids[0][2] == "FN42"
+
+
+def test_work_does_not_mark_a_rover_grid_heard_in_this_qso():
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    now = time.time()
+    _hear(live, MID, "CQ K1ROV/R FN42", 14_074_000, now - 20)
+    _hear(live, MID, "W1XX K1ROV/R R-10", 14_074_000, now)
+    shown = next(
+        c for c in live.snapshot(now)["roster"]["candidates"]
+        if c["call"] == "K1ROV/R" and "R-10" in (c.get("message") or "")
+    )
+    assert shown["grid_remembered"] is True and shown["grid_assumed"] is False
+    assert shown["grid_tip"].startswith("Grid from ")
+    tx.sent.clear()
+    r = live.work_station(shown["id"])
+    assert r["ok"] and r["grid"] == "FN42" and r["grid_assumed"] is False
+    assert "grid assumed" not in (r.get("detail") or "").lower()
+    assert any(s[0] == "grid" and s[2] == "FN42" for s in tx.sent)
 
 
 def test_work_skips_grid_when_decode_has_one_or_memory_is_empty():
@@ -319,7 +375,9 @@ def test_newer_decode_updates_the_open_contact():
         assert len(relay) == 2
         forwarded = relay[-2]["adif"].lower()
         assert "fn43" in forwarded
-        assert "grid remembered" in forwarded
+        # FN42 was heard a minute before they answered. That is this QSO,
+        # so the comment is not added. The log copy still says remembered.
+        assert "grid remembered" not in forwarded
         assert "grid assumed" not in forwarded
         assert "em00" in relay[-1]["adif"].lower()
         old = live._log.con.execute(

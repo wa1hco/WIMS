@@ -517,7 +517,10 @@ SSB/CW or hand off to a 2nd op.
   known) **· Calling** (who they address — `CQ` or the worked call)
   **· Message** (the exchange after the callsigns — a report such as `R-12`, a grid, `73` /
   `RR73` / `RRR`, or the leftover text of a QSY or free-text line; hover shows the full
-  decode; a long line is shortened on the row) **· Band · Mode · Grid · dB · Freq**
+  decode; a long line is shortened on the row) **· Band · Mode · Grid** (a square
+  remembered from an earlier decode is that station's grid; hover names the
+  band and the time. **grid assumed** is only a rover square from an earlier
+  hearing, not this QSO — see the Grid → WSJT-X resolution) **· dB · Freq**
   (RF = instance dial + decode audio df) **· Az DX**
   (great-circle bearing **from our receiving instance’s `de_grid` to the DX grid**) **· km**
   (great-circle distance) **· Age · Op** (band manager — stubbed until §3.14) **· Score**.
@@ -1930,10 +1933,26 @@ Candidate situations worth covering — rename, add, or cut freely:
   box updates `m_hisGrid`, which Log QSO puts in the dialog. The operator still
   presses OK. WIMS does not write the WSJT-X ADIF file. A square already in the
   worked decode is left for WSJT-X. Rovers (`/R`, or heard in two squares) use
-  one window, `ROVER_WINDOW_S` (10 minutes). A fill from memory is marked
-  **grid assumed** on the roster; the ADIF comment stays `grid remembered`.
-  A later decode that carries a grid, while that Work is still the open contact,
-  updates WIMS and sends the new square to that same instance only.
+  one window, `ROVER_WINDOW_S` (10 minutes). Older rover squares stay blank.
+  A fixed station's remembered square is its grid: the roster shows it with
+  no marker, and the hover says which band and time it was heard (`Grid from
+  <band> at <time> UTC`). A rover square heard in the current QSO is the same.
+  **Same QSO:** an exchange with our call. It starts at the earlier of our
+  first message to that station (a Work click, or a Status whose TX text names
+  that call and is not a CQ) and their first message addressed to us, and it
+  continues while the next such message arrives within `QSO_WINDOW_S`
+  (3 minutes). A square heard in that span, or in the `QSO_PREAMBLE_S`
+  (90 seconds) before it — the CQ or the grid that opened the contact — was
+  heard in this QSO. Only a rover square from an earlier hearing is marked
+  **grid assumed** (italic, plus those words). The ADIF comment
+  `grid remembered` is written only in that case. A fixed station, and a
+  rover square from this QSO, are filled without that comment: the square is
+  not in doubt. The log copy still records `grid_source=remembered` whenever
+  WIMS filled a blank square, so a later real grid can correct it. That flag
+  is not copied into the comment. A later decode that carries a grid, while
+  that Work is still the open contact, updates WIMS and sends the new square
+  to that same instance only. Transmit behavior is unchanged: Work still
+  sends the square the log fill would use.
 - Choose dashboard tech stack. *(Resolved: stdlib HTTP + SSE + static HTML — §2.4.)*
 - **EME pointing hardware** *(open)* — primary path is Yaesu/K3NG az; elevation + moon-tracking
   only if K3NG build + hardware support el, else separate path (§1.4, §3.8). Resolve before EME

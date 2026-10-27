@@ -1431,8 +1431,14 @@ class LiveFleet:
                 pass
             pushed_grid = ""
             grid_tip = ""
+            found = None
             if call:
-                found = self._heard.lookup(call, time.time())
+                # Work is our first message to them when they have not called
+                # us yet. Noted before the lookup so a grid in the opening
+                # CQ can count as this QSO.
+                now_tx = time.time()
+                self._heard.note_exchange(call, now_tx)
+                found = self._heard.lookup(call, now_tx)
                 chosen = grid_for_work(msg_text, found)
                 if chosen:
                     pushed_grid = chosen
@@ -1502,6 +1508,8 @@ class LiveFleet:
             self._open_work[inst] = {
                 "call": call,
                 "grid": known_grid,
+                # DX Grid was filled from memory. A later decode can replace it.
+                # This is not the roster "grid assumed" marker.
                 "assumed": bool(pushed_grid),
                 "schema": schema,
                 "ts": now_ts,
@@ -1519,7 +1527,7 @@ class LiveFleet:
             "dests": dests, "auto_tx_eligible": auto_tx,
             "dashboard_id": dash,
             "grid": pushed_grid,
-            "grid_assumed": bool(pushed_grid),
+            "grid_assumed": bool(pushed_grid and found is not None and found.assumed),
             "detail": (
                 f"Work {call} on id={inst!r} via {'+'.join(sent_parts)} → [{dest_s}]."
                 + mid_hint + grid_hint + age_hint
@@ -1750,6 +1758,29 @@ class LiveFleet:
             return val or "?"
         return instance_id
 
+    def _note_our_tx(self, msg, now: float) -> None:
+        """Our radio is sending to this station, so a QSO with them is in progress.
+
+        A CQ is not a message to the call left in the DX box. The TX text has
+        to name that call. Work and a decode addressed to us are the other
+        two ways a QSO starts; see ``HeardGrids.note_exchange``.
+        """
+        if not (
+            bool(getattr(msg, "transmitting", False))
+            or bool(getattr(msg, "tx_enabled", False))
+        ):
+            return
+        dx = (getattr(msg, "dx_call", None) or "").strip().upper()
+        if not dx or dx in {"CQ", "QRZ", "DE"}:
+            return
+        text = (getattr(msg, "tx_message", None) or "").strip().upper()
+        if not text or text.startswith("CQ"):
+            return
+        tokens = text.split()
+        base = dx.split("/", 1)[0]
+        if dx in tokens or (base and base in tokens):
+            self._heard.note_exchange(dx, now)
+
     def _own_station_calls(self) -> set[str]:
         """Our call(s): every live WSJT-X de_call plus N1MM mycall."""
         calls: set[str] = set()
@@ -1817,6 +1848,7 @@ class LiveFleet:
             # Status), not only after the first Decode — quiet bands still get a frame.
             self._maps.setdefault(mid, ActivityMap(mid))
             if isinstance(msg, M.Status):
+                self._note_our_tx(msg, now)
                 self._overlap.observe(mid, msg.transmitting, now)
                 # Free the arbiter grant on the TX→RX edge so the next Work isn't
                 # blocked. Driven by WSJT-X's own Status (not N1MM) — a solo tester
@@ -1892,9 +1924,14 @@ class LiveFleet:
                         }
                     if not burst_dup:
                         self._heard.note_decode(msg, band, now)
+                        dx = (getattr(msg, "dx_call", None) or "").strip().upper()
+                        to = _base_call(getattr(msg, "to_call", None))
+                        if dx and to and to in own and not getattr(msg, "off_air", False):
+                            self._heard.note_exchange(dx, now)
                         heard_grid = None
                         heard_tip = ""
                         heard_stale = False
+                        heard_assumed = False
                         if not (getattr(msg, "grid", None) or "").strip():
                             found = self._heard.lookup(msg.dx_call, now)
                             heard_tip = found.tip
@@ -1902,6 +1939,7 @@ class LiveFleet:
                                 heard_stale = True
                             elif found.grid:
                                 heard_grid = found.grid
+                                heard_assumed = found.assumed
                         self._roster.observe_decode(
                             msg, band, now,
                             dial_hz=(node.dial_hz if node else 0),
@@ -1909,7 +1947,8 @@ class LiveFleet:
                             own_calls=own,
                             heard_grid=heard_grid,
                             heard_tip=heard_tip,
-                            heard_stale=heard_stale)
+                            heard_stale=heard_stale,
+                            heard_assumed=heard_assumed)
                         if (getattr(msg, "grid", None) or "").strip():
                             grid_fix = self._grid_correction(mid, msg, now)
                         self._maps[mid].add(msg)

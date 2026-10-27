@@ -161,7 +161,12 @@ out.successBare = txStatusLine(Object.assign({}, work, {instance: "flex"}), "/ap
 out.successReply = txStatusLine(Object.assign({}, work, {sent: "reply"}), "/api/tx/work");
 out.successGrid = txStatusLine(Object.assign({}, work, {
   sent: "reply+grid",
-  detail: "Work PY3FSN on id='WSJT-X - flex' via reply+grid → [127.0.0.1:34669]. Grid assumed. GF15, heard on 6m at 18:02 UTC.",
+  detail: "Work PY3FSN on id='WSJT-X - flex' via reply+grid → [127.0.0.1:34669]. Grid from 6m at 18:02 UTC (GF15).",
+}), "/api/tx/work");
+out.successGridRover = txStatusLine(Object.assign({}, work, {
+  sent: "reply+grid",
+  call: "K1ROV/R",
+  detail: "Work K1ROV/R on id='WSJT-X - flex' via reply+grid → [127.0.0.1:34669]. Grid assumed. FN42, heard on 6m at 18:02 UTC.",
 }), "/api/tx/work");
 out.halt = txStatusLine({
   ok: true,
@@ -280,8 +285,13 @@ def test_success_is_the_short_rig_name():
     assumed = _views()["successGrid"]
     assert assumed["text"] == "Working PY3FSN on flex"
     assert "GF15" not in assumed["text"]
-    assert "grid assumed" in assumed["title"].lower()
+    assert "grid assumed" not in assumed["title"].lower()
+    assert "Grid from 6m at 18:02 UTC" in assumed["title"]
     assert "GF15" in assumed["title"]
+    rover = _views()["successGridRover"]
+    assert rover["text"] == "Working K1ROV/R on flex"
+    assert "grid assumed" in rover["title"].lower()
+    assert "FN42" in rover["title"]
 
 
 def test_halt_uses_the_short_rig_name():
