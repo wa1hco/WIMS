@@ -62,6 +62,7 @@ class _Entry:
     de_grid: str | None = None   # instance's own grid -> azimuth reference
     grid: str | None = None      # last known Maidenhead; kept across no-grid reports
     grid_remembered: bool = False  # grid is from memory, not this decode
+    grid_assumed: bool = False     # rover square from an earlier hearing
     grid_tip: str = ""             # hover: when and on what band
     grid_stale: bool = False       # rover square too old to use
 
@@ -78,7 +79,8 @@ class RosterBuilder:
                        own_calls: Iterable[str] | None = None,
                        heard_grid: str | None = None,
                        heard_tip: str = "",
-                       heard_stale: bool = False) -> None:
+                       heard_stale: bool = False,
+                       heard_assumed: bool = False) -> None:
         """Retain a decoded station as a roster row. Every decode carrying a callsign
         is kept (CQ or mid-exchange) so the console can show all activity and filter by
         need; a decode with no resolvable call is dropped.
@@ -86,8 +88,9 @@ class RosterBuilder:
         Own-station TX (the other radio on this band hearing us) is not a DX row.
 
         ``heard_grid`` is a square remembered from an earlier decode when this
-        message has none. ``heard_stale`` leaves the cell blank: a rover square
-        that is too old to guess.
+        message has none. ``heard_assumed`` is that square for a rover when it
+        was not heard in the current QSO. ``heard_stale`` leaves the cell
+        blank: a rover square that is too old to guess.
         """
         if not decode.dx_call:
             return
@@ -134,6 +137,7 @@ class RosterBuilder:
             decode=decode, band=band, last_seen=now,
             dial_hz=dial_hz, de_grid=de_grid, grid=keep_grid,
             grid_remembered=remembered,
+            grid_assumed=bool(remembered and heard_assumed),
             grid_tip=tip if remembered or stale else "",
             grid_stale=stale,
         )
