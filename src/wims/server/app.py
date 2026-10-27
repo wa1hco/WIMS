@@ -2087,17 +2087,19 @@ class LiveFleet:
             ctx = S.Context(weights=S.weights_for(self._condition), condition=self._condition)
             rows, not_needed = self._roster.ranked(now, ctx)
             self._rotators.tick_sims(now)
+            cty = self._country_index()
             d["roster"] = roster_to_dict(rows, not_needed, now,
                                          condition=self._condition,
                                          strategy=self._roster.strategy.name,
                                          nodes=self._tracker.nodes,
-                                         rotators=self._rotators)
+                                         rotators=self._rotators,
+                                         cty=cty)
             # One activity tile per live instance (including empty / no decodes).
             live_ids = set(self._tracker.nodes)
             d["activity"] = [activity_to_dict(self._maps[mid], now=now)
                              for mid in sorted(self._maps)
                              if mid in live_ids]
-            d["decodes"] = decodes_to_dict(self._decodes, now)
+            d["decodes"] = decodes_to_dict(self._decodes, now, cty=cty)
             d["n1mm_sync"] = n1mm_sync_to_dict(
                 now, n1mm_pkts=self.n1mm_pkts, last_n1mm=self._last_n1mm,
                 qso_count=self._log.count(), last_qso=self._last_qso, seed=self._seed,

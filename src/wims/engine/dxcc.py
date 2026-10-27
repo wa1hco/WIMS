@@ -29,9 +29,22 @@ has no name, so the Operate column stays blank.
 The table is the ARRL DXCC list (entity number, name, continent, CQ zone,
 and prefix). United States and Canada CQ zones follow the call area, using
 the same zone numbers as the N1MM insert table.
+
+When a country file is loaded, ``lookup`` and ``country_fields`` use that
+file (``rules/cty.py``) instead of this table. The checklist uses the same
+call. This table is the fallback for the Country column when ``cty.dat``
+is not on this PC. Suffix rules live in ``rules/callsign.py``.
 """
 
 from __future__ import annotations
+
+from wims.rules.callsign import (
+    island_key,
+    kc4_antarctica,
+    kg4_kind,
+    location_body,
+    normalize as _normalize,
+)
 
 # Call-area CQ zones. Same numbers as wims.log.pfx.
 _US_CQ = {0: 4, 1: 5, 2: 5, 3: 5, 4: 5, 5: 4, 6: 3, 7: 3, 8: 4, 9: 4}
@@ -43,11 +56,6 @@ _ALASKA = 6
 _GTMO = 105
 _EUROPE_RU = 54
 _ASIATIC_RU = 15
-
-# Slash designators that do not change the DXCC entity.
-_PORTABLE = frozenset({
-    "P", "M", "MM", "AM", "QRP", "A", "LH", "N", "B", "PM", "J",
-})
 
 # Slash forms the prefix list cannot see as one token (island / alternate).
 _COMPOUND = {
@@ -108,13 +116,15 @@ def entity_name(number) -> str:
     return row[0]
 
 
-def lookup(call: str | None) -> str | None:
+def lookup(call: str | None, *, cty=None) -> str | None:
     """Entity name for ``call``, or None.
 
-    This is the ``dxcc_lookup`` callable used by the checklist and by the
-    DXCC award. Unknown calls, and entity numbers with no name, return None
-    so the caller can leave the field blank.
+    Pass the loaded country file as ``cty`` so this matches the checklist.
+    Without it, the builtin prefix list below is used. Unknown calls return
+    None so the caller can leave the field blank.
     """
+    if cty is not None:
+        return cty.entity_name(call)
     found = describe(call)
     if not found:
         return None
@@ -130,8 +140,10 @@ def describe(call: str | None) -> dict | None:
     norm = _normalize(call)
     if not norm or not any(ch.isdigit() for ch in norm):
         return None
-    number = _compound_number(norm)
-    body = _body(norm)
+    body = location_body(norm)
+    number = _structural_number(norm)
+    if number is None:
+        number = _compound_number(norm)
     if number is None:
         number = _match_number(body)
     if number is None:
@@ -140,8 +152,14 @@ def describe(call: str | None) -> dict | None:
     return _pack(number, body)
 
 
-def country_fields(call: str | None) -> dict:
-    """Roster / decode fields. Unknown calls are blank, not an error."""
+def country_fields(call: str | None, *, cty=None, grid: str | None = None) -> dict:
+    """Roster / decode fields. Unknown calls are blank, not an error.
+
+    ``cty`` is the country file the checklist already uses. ``grid`` fills
+    a CQ zone when that entity spans more than one zone.
+    """
+    if cty is not None:
+        return cty.country_fields(call, grid)
     found = describe(call)
     if not found:
         return {"country": "", "continent": "", "cq_zone": None}
@@ -171,22 +189,20 @@ def _pack(number: int, body: str) -> dict | None:
     }
 
 
-def _normalize(call: str | None) -> str:
-    if not call:
-        return ""
-    return (
-        str(call)
-        .upper()
-        .replace("<", "")
-        .replace(">", "")
-        .strip()
-    )
-
-
-def _is_portable(piece: str) -> bool:
-    if piece in _PORTABLE:
-        return True
-    return len(piece) == 1 and piece.isdigit()
+# Structural keys that are not already a builtin prefix or compound.
+_ISLAND_NUM = {
+    "SV/A": 180,
+    "3Y/B": 24,
+    "3Y/P": 199,
+    "VP8/G": 235,
+    "VP8/H": 241,
+    "VP8/O": 238,
+    "VP8/S": 240,
+    "CE0X": 217,
+    "CE0Y": 47,
+    "CE0Z": 125,
+    "CE0I": 125,
+}
 
 
 def _compound_number(norm: str) -> int | None:
@@ -203,23 +219,15 @@ def _compound_number(norm: str) -> int | None:
     return None
 
 
-def _body(norm: str) -> str:
-    parts = [p for p in norm.split("/") if p]
-    if not parts:
-        return ""
-    kept = [p for p in parts if not _is_portable(p)] or [parts[0]]
-    if len(kept) == 1:
-        return kept[0]
-    longest = max(kept, key=len)
-    best = ""
-    for piece in kept:
-        if piece == longest:
-            continue
-        if _match_number(piece) is None:
-            continue
-        if len(piece) > len(best):
-            best = piece
-    return best or longest
+def _structural_number(norm: str) -> int | None:
+    key = island_key(norm)
+    if not key:
+        return None
+    if key in _ISLAND_NUM:
+        return _ISLAND_NUM[key]
+    if key in _COMPOUND:
+        return _COMPOUND[key]
+    return _PREFIX.get(key)
 
 
 def _match_number(token: str) -> int | None:
@@ -233,9 +241,12 @@ def _match_number(token: str) -> int | None:
 
 
 def _adjust(number: int, body: str) -> int:
-    if number == _GTMO and _kg4_is_us(body):
+    if kc4_antarctica(body):
+        return 13
+    kind = kg4_kind(body)
+    if kind == "us" and number == _GTMO:
         return _US
-    if number == _US and body.startswith("KG4") and not _kg4_is_us(body):
+    if kind == "gtmo" and number == _US:
         return _GTMO
     if number in (_EUROPE_RU, _ASIATIC_RU):
         digit = _first_digit(body)
@@ -243,14 +254,6 @@ def _adjust(number: int, body: str) -> int:
             return _ASIATIC_RU
         return _EUROPE_RU
     return number
-
-
-def _kg4_is_us(body: str) -> bool:
-    """KG4 plus a 3-letter suffix is a US call. KG4AA and KG4/ are Guantanamo."""
-    if not body.startswith("KG4"):
-        return False
-    letters = "".join(ch for ch in body[3:] if ch.isalpha())
-    return len(letters) >= 3
 
 
 def _first_digit(text: str) -> int | None:
@@ -1266,7 +1269,6 @@ _PREFIX = {
     'TI9': 37,
     'UA2': 126,
     'VK0': 111,
-    'VK7': 153,
     'VK9': 38,
     'VLU': 235,
     'VP5': 89,

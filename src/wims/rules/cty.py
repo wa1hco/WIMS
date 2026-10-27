@@ -31,10 +31,14 @@ uses the primary zone. Otherwise the zone comes from the grid
 (``rules/zones.py``). No grid, or a grid the table will not call, is zone
 uncertain — the caller must not claim the station is needed for that zone.
 
-The prefix ``KG4`` is Guantanamo Bay. A call with a three-letter suffix
-(``KG4LDK``) is a United States call and uses the ``K`` entry, including
-that entry's zone rules. A one- or two-letter suffix (``KG4AA``) stays
-Guantanamo Bay. An exact call written in the file wins over both.
+This is the call-to-entity resolver for the checklist and for the Country
+column. The column calls it when this file is loaded, so the two cannot
+name different entities. Shapes that are not prefixes (KG4 suffix length,
+KC4 Antarctic bases, ``3Y0``, ``VP8/G``, ``SV/A``, ``CE0/X``, rover ``/R``)
+live in ``rules/callsign.py`` and are applied here. An exact call (``=``)
+wins over those rules. A primary prefix with a leading ``*`` is a WAE
+entity: it still supplies a zone, and it is not a separate DXCC entity.
+The survey is ``docs/plan/wims_call_entities.md``.
 """
 
 from __future__ import annotations
@@ -44,6 +48,13 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from wims.rules.callsign import (
+    island_key,
+    kc4_antarctica,
+    kg4_kind,
+    location_body,
+    normalize,
+)
 from wims.rules.zones import cq_zone_from_grid, itu_zone_from_grid
 
 # Primary prefixes that span more than one zone even when a cty.dat file
@@ -67,14 +78,17 @@ CONTINENT_NAMES = {
     "AN": "Antarctica",
 }
 
-_TOKEN = re.compile(
-    r"^(?P<exact>=)?(?P<pre>[A-Z0-9]+)"
-    r"(?:\((?P<paren>[^)]*)\))?"
-    r"(?:\[(?P<bracket>[^\]]*)\])?$",
+# Overrides that may follow a prefix, in any order. A parenthesized
+# latitude/longitude is not a CQ zone. Angle brackets and tildes are
+# position and time; they do not change the entity.
+_OVERRIDE = re.compile(
+    r"\((?P<paren>[^)]*)\)"
+    r"|\[(?P<bracket>[^\]]*)\]"
+    r"|\{(?P<cont>[^}]*)\}"
+    r"|<[^>]*>"
+    r"|~[^~]*~"
 )
-_SUFFIXES = frozenset({
-    "P", "M", "MM", "AM", "QRP", "R", "LH", "A", "B", "T", "N", "S",
-})
+_PREFIX_TEXT = re.compile(r"^[A-Z0-9/]+$")
 
 
 @dataclass(frozen=True)
@@ -109,6 +123,7 @@ class _Raw:
     itu: int | None
     cq_explicit: bool
     itu_explicit: bool
+    cont: str | None = None
 
 
 @dataclass
@@ -119,6 +134,7 @@ class _Ent:
     itu: int
     primary: str
     prefs: list
+    wae: bool = False
 
 
 def continent_name(code: str | None) -> str:
@@ -148,50 +164,50 @@ def norm_cont(value) -> str | None:
 
 
 def match_text(call: str | None) -> str:
-    """Call body used for prefix match. A leading DX prefix wins over the home call."""
-    raw = (call or "").upper().replace("<", "").replace(">", "").strip()
-    if not raw:
-        return ""
-    if "/" not in raw:
-        return raw
-    parts = [p for p in raw.split("/") if p]
-    if not parts:
-        return ""
-    if len(parts) == 1:
-        return parts[0]
-    left, right = parts[0], parts[1]
-    if right in _SUFFIXES or (len(right) == 1 and right.isdigit()):
-        return left
-    if len(left) <= len(right) and len(left) <= 4:
-        return left
-    if len(right) <= 4 and len(right) < len(left):
-        return right
-    return left
+    """Call body used for a prefix match. Same rules as ``location_body``."""
+    return location_body(call)
 
 
 def _parse_token(token: str) -> _Raw | None:
-    text = token.strip().upper()
-    if not text or text == ";":
+    text = token.strip().upper().rstrip(";")
+    if not text:
         return None
-    found = _TOKEN.match(text)
-    if not found:
-        return None
-    pre = found.group("pre")
-    if not pre:
-        return None
+    exact = text.startswith("=")
+    if exact:
+        text = text[1:]
     cq = None
     itu = None
+    cont = None
     cq_explicit = False
     itu_explicit = False
-    paren = (found.group("paren") or "").strip()
-    if paren.isdigit():
-        cq = int(paren)
-        cq_explicit = True
-    bracket = (found.group("bracket") or "").strip()
-    if bracket.isdigit():
-        itu = int(bracket)
-        itu_explicit = True
-    return _Raw(pre, bool(found.group("exact")), cq, itu, cq_explicit, itu_explicit)
+
+    def _take(found: re.Match) -> str:
+        nonlocal cq, itu, cont, cq_explicit, itu_explicit
+        paren = found.group("paren")
+        if paren is not None:
+            paren = paren.strip()
+            if paren.isdigit() and not cq_explicit:
+                cq = int(paren)
+                cq_explicit = True
+            return ""
+        bracket = found.group("bracket")
+        if bracket is not None:
+            bracket = bracket.strip()
+            if bracket.isdigit() and not itu_explicit:
+                itu = int(bracket)
+                itu_explicit = True
+            return ""
+        continent = found.group("cont")
+        if continent is not None:
+            continent = continent.strip().upper()
+            if continent in CONTINENTS and cont is None:
+                cont = continent
+        return ""
+
+    pre = _OVERRIDE.sub(_take, text).strip()
+    if not pre or not _PREFIX_TEXT.fullmatch(pre):
+        return None
+    return _Raw(pre, exact, cq, itu, cq_explicit, itu_explicit, cont)
 
 
 def _parse_primary(line: str) -> _Ent | None:
@@ -210,7 +226,12 @@ def _parse_primary(line: str) -> _Ent | None:
     if cont not in CONTINENTS:
         return None
     primary = parts[7].strip().upper() if len(parts) >= 8 else ""
-    return _Ent(name, cont, cq, itu, primary, [])
+    wae = primary.startswith("*")
+    if wae:
+        primary = primary[1:].strip()
+    if primary and not _PREFIX_TEXT.fullmatch(primary):
+        primary = ""
+    return _Ent(name, cont, cq, itu, primary, [], wae)
 
 
 class CtyIndex:
@@ -219,6 +240,11 @@ class CtyIndex:
     def __init__(self) -> None:
         self.by_prefix: dict[str, Hit] = {}
         self.exact: dict[str, Hit] = {}
+        # DXCC maps omit WAE (``*``) entities. Zone lookup still uses them.
+        self.dxcc_prefix: dict[str, Hit] = {}
+        self.dxcc_exact: dict[str, Hit] = {}
+        self._zone_slash: tuple[str, ...] = ()
+        self._dxcc_slash: tuple[str, ...] = ()
         self.entities = 0
 
     @classmethod
@@ -258,6 +284,7 @@ class CtyIndex:
             finish_entity()
             current = _parse_primary(line)
         finish_entity()
+        index._finish()
         return index
 
     @classmethod
@@ -292,34 +319,104 @@ class CtyIndex:
                 itu, itu_grid = None, True
             else:
                 itu, itu_grid = ent.itu, False
-            hit = Hit(ent.name, ent.continent, cq, itu, cq_grid, itu_grid)
-            if pref.exact:
-                self.exact[pref.text] = hit
+            continent = pref.cont or ent.continent
+            hit = Hit(ent.name, continent, cq, itu, cq_grid, itu_grid)
+            if ent.wae:
+                if pref.exact:
+                    self._put(self.exact, pref.text, hit)
+                else:
+                    self._put(self.by_prefix, pref.text, hit)
             else:
-                self.by_prefix[pref.text] = hit
+                if pref.exact:
+                    self._put(self.exact, pref.text, hit)
+                    self._put(self.dxcc_exact, pref.text, hit)
+                else:
+                    self._put(self.by_prefix, pref.text, hit)
+                    self._put(self.dxcc_prefix, pref.text, hit)
         self.entities += 1
 
-    def lookup(self, call: str | None) -> Hit | None:
-        key = match_text(call)
-        if not key:
+    @staticmethod
+    def _put(mapping: dict, key: str, hit: Hit) -> None:
+        """First entry wins. A later duplicate call in the file is ignored."""
+        if key and key not in mapping:
+            mapping[key] = hit
+
+    def _finish(self) -> None:
+        self._zone_slash = self._slash_keys(self.by_prefix)
+        self._dxcc_slash = self._slash_keys(self.dxcc_prefix)
+
+    @staticmethod
+    def _slash_keys(prefixes: dict) -> tuple[str, ...]:
+        keys = [key for key in prefixes if "/" in key]
+        keys.sort(key=len, reverse=True)
+        return tuple(keys)
+
+    def lookup(self, call: str | None, *, dxcc: bool = False) -> Hit | None:
+        """Entity for ``call``.
+
+        ``dxcc=False`` is the zone record, including WAE entities such as
+        Sicily. ``dxcc=True`` is the DXCC entity. An exact call wins. Then
+        a slash prefix (``3Y/B``), then the structural keys in
+        ``callsign.island_key``, then the longest ordinary prefix. KG4
+        suffix length is applied last, and only when no exact call matched.
+        """
+        raw = normalize(call)
+        if not raw:
             return None
-        exact = self.exact.get(key)
-        if exact is not None:
-            return exact
-        hit, matched = self._longest_prefix(key)
+        if not any(ch.isdigit() for ch in raw) and "/" not in raw:
+            return None
+        exact, prefixes, slash_keys = self._maps(dxcc)
+        hit = exact.get(raw)
+        if hit is not None:
+            return hit
+        hit = self._slash_hit(raw, slash_keys, prefixes)
+        if hit is not None:
+            return hit
+        key = island_key(raw)
+        if key:
+            hit = prefixes.get(key)
+            if hit is not None:
+                return hit
+        body = location_body(raw)
+        if not body:
+            return None
+        hit = exact.get(body)
+        if hit is not None:
+            return hit
+        if kc4_antarctica(body):
+            antarctic = prefixes.get("CE9")
+            if antarctic is not None and "ANTARCT" in antarctic.name.upper():
+                return antarctic
+        hit, matched = self._longest_prefix(body, prefixes)
         if hit is None:
             return None
-        return self._kg4_hit(key, hit, matched)
+        return self._kg4_hit(body, hit, matched, prefixes)
 
-    def _longest_prefix(self, key: str) -> tuple[Hit | None, str]:
+    def _maps(self, dxcc: bool):
+        if dxcc:
+            return self.dxcc_exact, self.dxcc_prefix, self._dxcc_slash
+        return self.exact, self.by_prefix, self._zone_slash
+
+    @staticmethod
+    def _slash_hit(raw: str, keys: tuple[str, ...], prefixes: dict) -> Hit | None:
+        if "/" not in raw:
+            return None
+        for key in keys:
+            if raw == key or raw.startswith(key + "/"):
+                return prefixes[key]
+        return None
+
+    @staticmethod
+    def _longest_prefix(key: str, prefixes: dict) -> tuple[Hit | None, str]:
         for length in range(len(key), 0, -1):
             prefix = key[:length]
-            hit = self.by_prefix.get(prefix)
+            hit = prefixes.get(prefix)
             if hit is not None:
                 return hit, prefix
         return None, ""
 
-    def _kg4_hit(self, key: str, hit: Hit, matched: str) -> Hit:
+    @staticmethod
+    def _kg4_hit(key: str, hit: Hit, matched: str, prefixes: dict) -> Hit:
         """A three-letter KG4 suffix belongs to prefix ``K``, not ``KG4``.
 
         Longest-prefix match would call ``KG4LDK`` Guantanamo Bay, because
@@ -328,27 +425,41 @@ class CtyIndex:
         this runs. A file that has no ``K`` entry is left unchanged, and a
         file that has no ``KG4`` entry does not invent Guantanamo Bay.
         """
-        if not key.startswith("KG4"):
-            return hit
-        letters = "".join(ch for ch in key[3:] if ch.isalpha())
-        if len(letters) >= 3:
+        kind = kg4_kind(key)
+        if kind == "us":
             if matched == "KG4":
-                us = self.by_prefix.get("K")
+                us = prefixes.get("K")
                 if us is not None:
                     return us
             return hit
-        if matched != "KG4" and len(matched) < len("KG4"):
-            gtmo = self.by_prefix.get("KG4")
+        if kind == "gtmo" and matched != "KG4" and len(matched) < len("KG4"):
+            gtmo = prefixes.get("KG4")
             if gtmo is not None:
                 return gtmo
         return hit
 
     def entity_name(self, call: str | None) -> str | None:
-        """Name for the DXCC checklist. None when this call is not in the file."""
-        hit = self.lookup(call)
+        """DXCC name. None when this call is not in the file.
+
+        WAE entities are not returned. Sicily is Italy. The zone for that
+        call still comes from ``describe``.
+        """
+        hit = self.lookup(call, dxcc=True)
         if hit is None:
             return None
-        return hit.name
+        return hit.name or None
+
+    def country_fields(self, call: str | None, grid: str | None = None) -> dict:
+        """Country-column fields from this same resolver."""
+        name = self.entity_name(call)
+        if not name:
+            return {"country": "", "continent": "", "cq_zone": None}
+        zone = self.describe(call, grid)
+        return {
+            "country": name,
+            "continent": zone.continent or "",
+            "cq_zone": zone.cq,
+        }
 
     def describe(
         self,
