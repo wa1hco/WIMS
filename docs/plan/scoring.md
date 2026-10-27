@@ -194,7 +194,8 @@ whose amount slides from 0 to 1.
 total = need_new + need_qso + need_unconfirmed
       + rover_clock + recency + opening
       + regular
-      + hint_psk + hint_history + hint_chat + hint_recency
+      + hint_psk + hint_cluster + hint_chat
+      + hint_ours + hint_others + hint_recency
 ```
 
 The goal's verdict is unchanged. This sum only reads it. No term starts a
@@ -202,17 +203,17 @@ call, sends Reply, Free Text, or CQ, or keys a radio.
 
 ### Live rows and hint rows
 
-Hints stay on their own panel (§2.15). They are not decode rows.
+Hints are a second call roster (§2.15). They are not decode rows. The two
+rosters are never merged. A station on both stays on both. A hint total
+orders the second roster only. It is not compared with a live total.
 
 - A **live** row uses need, rover clock, recency, opening, and regular.
   Hint terms are 0 once we have a decode of that station on that band.
 - A **hint** row uses only the hint terms, plus a small hint recency.
   It does not get `need_new`, the rover clock, or `regular`.
-- **Order rule:** every live row that is still needed stays above every hint
-  row. The weights are chosen so the totals already do that; the rule holds
-  even if someone later raises a hint weight. Within the live needed rows,
-  higher total first. Within hints, higher hint total first. Live rows that
-  are not needed stay off the Needed menu, as they do today.
+- **Order.** On the live roster, needed rows sort by total, high to low, as
+  today. On the hint roster, higher hint total first. Live rows that are not
+  needed stay off the Needed menu, as they do today.
 
 ### Terms
 
@@ -228,8 +229,10 @@ Starter weights are for the first review. Later they live in the GUI.
 | `opening` | 12 | 0 unless this band is marked meteor scatter or Es. `max(0, 1 − minutes_since_marked / life)`. Life is 15 minutes for meteor scatter and 30 minutes for Es |
 | `regular` | 8 | Only on a live row that is still needed. `min(1, prior_qsos / 10) × (0.5 + 0.5 × confirmed_fraction)`. No prior QSOs → 0. Ten or more QSOs, all confirmed → 1 |
 | `hint_psk` | 3 | 1 on a hint row that came from PSK Reporter. 0 on a live row |
-| `hint_history` | 2 | 1 on a hint row from contest history (§2.15). 0 on a live row |
+| `hint_cluster` | 2 | 1 on a hint row from a DX cluster spot (§2.15). 0 on a live row |
 | `hint_chat` | 2 | 1 on a hint row from ON4KST or Ping Jockey. 0 on a live row |
+| `hint_ours` | 2 | 1 on a hint row from our own past runs of this contest (§2.15 B1). 0 on a live row |
+| `hint_others` | 2 | 1 on a hint row from other stations' public ARRL logs, in range (§2.15 B2). 0 on a live row |
 | `hint_recency` | 2 | Same shape as `recency`, using the hint's age and the same 2-minute window. Hint rows only |
 
 **Rover clock.** A rover is today's `/R` test, or a call the heard-grid memory
@@ -258,11 +261,13 @@ who is already in the log does not climb the Needed list.
 operator sets on that band in Setup (or a later detector, if reviewers want
 one). The mark is not a transmit. When it ages out, the term goes to 0.
 
-**Hints.** PSK Reporter, contest history, and chat are §2.15. Their weights
-sit under `need_qso` (8). A hint row that carries all three sources and was
-just refreshed scores 3+2+2+2 = 9 from sources and hint recency, still under
-a live needed contact that was just heard (`need_qso` 8 + `recency` 10 = 18)
-and under the order rule even if the arithmetic changes.
+**Hints.** Category A (PSK Reporter, DX cluster, ON4KST, Ping Jockey) and
+category B (our history, others' history) are §2.15. They are a second roster,
+never merged with the live roster, so these weights only order that roster.
+A hint row that carries every source and was just refreshed scores
+3+2+2+2+2+2 = 13. A past-contest history row is older than the 2-minute
+hint window, so `hint_recency` is 0 on that row unless a category A source
+refreshed it. Age is still shown on the row.
 
 ### Tie-break
 
@@ -285,12 +290,14 @@ was. Rover stay is 20 minutes. No opening unless the row says so.
 | W1AW | Live CQ. Worked grid, not confirmed, switch on. Heard 12 seconds ago | `need_unconfirmed` 12. `recency` 9 | **21** |
 | W2XYZ | Live CQ. Needed, not a new mult (grid already worked, or checklist new call). Heard 12 seconds ago | `need_qso` 8. `recency` 9 | **17** |
 | K1ABC dupe | Live CQ. Already worked this time. Ten prior QSOs, all confirmed. Heard 12 seconds ago | `recency` 9. Need and `regular` stay 0 | **9** (hidden on Needed) |
-| W3BIG | Hint only. PSK Reporter and contest history. Refreshed 12 seconds ago. No decode | `hint_psk` 3. `hint_history` 2. `hint_recency` 2×0.9 = 1.8 | **6.8** |
+| W3BIG | Hint roster only. PSK Reporter and our history. Refreshed 12 seconds ago. No decode | `hint_psk` 3. `hint_ours` 2. `hint_recency` 2×0.9 = 1.8 | **6.8** |
+| W4OLD | Hint roster only. Others' history, in range. No decode. The past contest is years old | `hint_others` 2. `hint_recency` 0 | **2** |
 
 On the Needed list the live order is N0ROV/R (58.1), N0MSK (57), the rover's
-73 (56.6), K2ES (55), K1ABC (49), W1AW (21), W2XYZ (17). W3BIG stays on the
-hint panel, under all of those. Today the 73 would be 0.0 and the rover would
-beat K1ABC only by the flat `rover` +10, with no clock.
+73 (56.6), K2ES (55), K1ABC (49), W1AW (21), W2XYZ (17). W3BIG (6.8) and
+W4OLD (2) stay on the second roster. They are not mixed into that order.
+Today the 73 would be 0.0 and the rover would beat K1ABC only by the flat
+`rover` +10, with no clock.
 
 ### What the operator sees
 
@@ -337,20 +344,23 @@ not a decision.
    Should silence also drain the clock?
 6. Where would a real departure time come from? Operator entry only, or a
    sked time parsed from chat (§2.15)? Chat parsing is still an open question
-   of its own.
+   of its own. Cluster-spot parsing is the same kind of open question.
 7. Who marks meteor scatter or Es? An operator switch, the mode (MSK144 vs
    FT8), or something else? Are 15 and 30 minutes the right lives?
 8. Regular contacts. Which logs count — everything WIMS can read, or only the
    same contest in past years? Is 10 QSOs the right full-scale count? Should
    the term look at the base call or the full call, so a rover is not mixed
    with the home station? Should a station who is already worked this time
-   keep a small `regular` term on the All menu?
+   keep a small `regular` term on the All menu? This term is on a live row.
+   The hint roster's history sources are separate (§2.15 B1 and B2).
 9. Is `need_unconfirmed` 12, between a new mult and an ordinary new contact,
    the right place for a worked-but-not-confirmed place? Confirm that a
    station who never confirms stays off the list.
-10. Hint weights 3 / 2 / 2, and hint recency weight 2. Is the hard rule
-    "every live needed row above every hint" what we want, or should a hint
-    of a new multiplier outrank a live contact that is only a new call?
+10. Hint weights: PSK 3, cluster 2, chat 2, our history 2, others' history 2,
+    and hint recency 2. The two rosters are never merged, so a hint total
+    orders the second roster only. Are these starter weights right for that
+    order? PSK Reporter is polled about every 5 minutes, and a history row is
+    years old. Should either use a longer age window than 2 minutes?
 11. One set of weights, or keep open / marginal / dead as named presets in
     the Score section that the operator can load and then edit?
 12. Tie-break: recency, then time in grid, then callsign. Anything missing

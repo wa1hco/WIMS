@@ -195,7 +195,7 @@ agent**, not through the server. Design §2.12 / §4 / §4.5.
 **Phase-1 read-only console is live** (roster, interlock, N1MM sync, agents, three-page UI).
 Command path (click-to-work) and later milestones: [wims_status.md](docs/plan/wims_status.md).
 
-**Planned, not built:** additional sources for the needed-stations list — PSK Reporter, contest history, and VHF chat — as hints beside live decodes. A hint does not transmit. Design [§2.15](docs/plan/wims_design.md#215-additional-sources-for-the-needed-stations-list).
+**Planned, not built:** additional sources for the needed-stations list — stations seen live by other means (PSK Reporter, ON4KST, Ping Jockey, DX cluster) and stations worked in past runs (our logs, and other stations’ public ARRL logs) — as a second roster beside live decodes. The lists are never merged. A hint does not transmit. Design [§2.15](docs/plan/wims_design.md#215-additional-sources-for-the-needed-stations-list).
 
 How the Score column is computed today, and a proposed score for comment, is in [docs/plan/scoring.md](docs/plan/scoring.md). The proposal is not built. A score does not transmit.
 

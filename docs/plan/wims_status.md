@@ -160,8 +160,9 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 **New (design only):** **C7** / §2.9 cross-band evidence; **G4** / §2.8 QSY free text; **G5** /
 **§2.10** rotator Az ant/Az DX + rotating font; **E1b** / **§2.11** band subscribe → roster;
 **G6** / **§2.12** run vs S&P/tailend (Reply = WIMS incl. 73; run = WSJT-X UI);
-**A7** / **§2.15** needed-list hints (PSK Reporter, contest history, VHF chat) — planned,
-not implemented. **Score:** what the Score column does today, and a proposed
+**A7** / **§2.15** needed-list hints — a second roster, planned, not implemented.
+Seen live: PSK Reporter, VHF chat, DX cluster. Worked previously: our logs and
+other stations’ public ARRL logs. **Score:** what the Score column does today, and a proposed
 replacement for review, are in [scoring.md](scoring.md). The proposal is not implemented.
 
 ### Design / feature todos (not yet coded)
@@ -180,23 +181,31 @@ replacement for review, are in [scoring.md](scoring.md). The proposal is not imp
   boost is secondary. History never becomes live dupe. Design: wims_design.md §2.9 / §3.5.
 - [ ] **Prior-contest station history** — seed `call → bands` from multi-contest N1MM `DXLOG`
   without affecting live dupe/mult. Feeds §2.9 evidence panel + scoring. Design: §3.6.
-  The §2.15 contest-history panel is a different surface (stations from past runs of
-  this contest, not yet worked this time) and is also not implemented.
+  The §2.15 second roster is a different surface (stations from past runs of
+  this contest, not yet worked this time: our own logs, and other stations’
+  public ARRL logs) and is also not implemented.
 - [ ] **§2.15 — Additional sources for the needed-stations list** — **planned, not
-  implemented.** The needed list is still WSJT-X UDP decodes only. Three later
-  sources are hints, shown apart from those decodes: PSK Reporter (poll no more
-  than about once every 5 minutes; stations heard on our bands near our grid, and
-  stations reporting us), contest history (same contest, minus stations worked
-  this time; a not-yet-worked panel), and read-only VHF chat (ON4KST, Ping Jockey).
-  A hint never starts a call or transmit. Clicking one at most selects the station
-  and fills the grid. Settings stay in the GUI. Chat access, login, parsing, and
-  rate limits are open; WIMS never posts to those chats. Design: wims_design.md §2.15.
+  implemented.** The needed list is still WSJT-X UDP decodes only. Later sources
+  are hints on a second call roster. That roster is separate from the live roster
+  and is never merged with it. It uses the same columns and annotation style, plus
+  a source annotation and age. **Seen live by other means:** PSK Reporter (poll no
+  more than about once every 5 minutes; stations heard on our bands near our grid,
+  and stations reporting us), read-only VHF chat (ON4KST, Ping Jockey), and
+  read-only DX cluster spots filtered to our bands. **Worked previously:** our own
+  logs from past runs of this contest, and other stations’ public ARRL contest
+  logs filtered to stations in range of our grid. How “in range” is decided is a
+  Setup choice with a default. Which of those public logs are acceptable stays
+  open. A hint never starts a call or transmit. Clicking one at most selects the
+  station and fills the grid. Work still needs a live decode. Settings stay in
+  the GUI. Chat and cluster access, login, parsing, and rate limits are open.
+  WIMS never posts to those chats and never posts spots. Design: wims_design.md §2.15.
 - [ ] **Needed-list score — proposed sum** — **planned, not implemented.** The
   Score column today is the weighted sum in `scoring.py` (documented in
   [scoring.md](scoring.md)). The proposed replacement is a sum of named terms
-  (need, rover clock, recency, opening, regular contacts, hint sources) with
-  weights edited in Setup later, and a “why this score” hover. No term
-  transmits. Reviewers: the open questions in that file.
+  (need, rover clock, recency, opening, regular contacts, and hint sources on
+  the second roster) with weights edited in Setup later, and a “why this score”
+  hover. Hint totals order that roster only. No term transmits. Reviewers:
+  the open questions in that file.
 - [ ] **G4 / §2.8 — Closing free text / QSY (assess-then-decide)** — Free Text UDP encode + live
   verify; work/complete dialog shows §2.9 evidence; operator **explicitly chooses** accept
   suggestion / other band / skip (default plain 73). Never auto-QSY. Claim-gated.
@@ -271,6 +280,7 @@ replacement for review, are in [scoring.md](scoring.md). The proposal is not imp
 
 ## Build log
 
+- **2026-10-27** — **Design only (no code): §2.15 sources split into seen-live and worked-previously.** Seen live: PSK Reporter, ON4KST, Ping Jockey, and read-only DX cluster spots (our bands only; never post spots). Worked previously: our own past runs of this contest, and other stations’ public ARRL logs filtered to stations in range of our grid. In range is a Setup choice with a default. Which of those public logs are acceptable stays open. Hints are a second call roster, same columns and annotation style as the live roster, plus a source annotation and age. The two rosters are never merged. A hint never transmits. [scoring.md](scoring.md) hint terms follow the same sources. Backlog A7.
 - **2026-10-24** — **Design only (no code): needed-list score written out for review.** [scoring.md](scoring.md) records the Score column as implemented (`scoring.py`, roster order, goal verdict, weights) and a proposed sum (need, rover clock, recency, short-lived openings, regular contacts, §2.15 hint terms). The proposal is not implemented. No term transmits.
 - **2026-10-24** — **Design only (no code): §2.15 Additional sources for the needed-stations list.** Planned hints, shown apart from live WSJT-X decodes: PSK Reporter (about every 5 minutes), contest history (a not-yet-worked panel from past runs of the same contest), and read-only VHF chat (ON4KST, Ping Jockey). A hint never starts a call or transmit. Chat access, login, parsing, and rate limits stay open. Backlog A7. README Status points at this section.
 - **2026-10-23** — **Linux desktop icon is a double-click.** `scripts/Add WIMS to Desktop.desktop` puts WIMS on the desktop and in the app menu. It runs the installer with bash, so a ZIP that dropped the executable bit still works after Allow Launching or the Permissions checkbox. The release tarball keeps that bit. A missing Python or window library opens a plain message (a dialog when the desktop has one) naming `python3` and `python3-tk` (`python3-tkinter` on Fedora). Tests: `tests/unit/test_linux_desktop_install.py`.
