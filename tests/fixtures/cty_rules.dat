@@ -1,0 +1,73 @@
+United States:5:8:NA:43.00:-87.90:0.0:K:
+    K,W,N,AA,=KG4V(4)[8],=KL7NW(4)[7],=KH6EE/7(3)[6],=KC4BB(4)[8],
+    =W1ZZ<43/-87>~5~(4)[8];
+Guantanamo Bay:8:11:NA:20.00:-75.00:0.0:KG4:
+    KG4,=KG4NE;
+Alaska:1:1:NA:61.00:-150.00:0.0:KL:
+    KL,=KG4HZF;
+Hawaii:31:61:OC:21.00:-157.00:0.0:KH6:
+    KH6,AH6,NH6,WH6;
+US Virgin Islands:8:11:NA:18.00:-64.00:0.0:KP2:
+    KP2,NP2,WP2;
+England:14:27:EU:52.00:1.00:0.0:G:
+    G,M,2E;
+Scotland:14:27:EU:56.00:4.00:0.0:GM:
+    GM,MM,2M;
+Italy:15:28:EU:42.00:-12.00:0.0:I:
+    I,IZ1{AF};
+Sicily:15:28:EU:37.00:-14.00:0.0:*IT9:
+    IT9;
+African Italy:33:37:AF:35.00:-12.00:0.0:*IG9:
+    IG9,IH9{AF};
+Antarctica:13:74:SA:-90.00:0.00:0.0:CE9:
+    CE9,=KC4AAA(39)[73];
+Bouvet:38:67:AF:-54.00:-3.00:0.0:3Y/b:
+    =3Y/LB5SH;
+Peter 1 Island:12:72:SA:-68.00:90.00:0.0:3Y/p:
+    =3Y0X;
+ITU HQ:14:28:EU:46.00:-6.00:0.0:4U1I:
+    =4U1ITU,=4U1WRC;
+United Nations HQ:5:8:NA:40.00:74.00:5.0:4U1U:
+    =4U1UN;
+Vienna Intl Ctr:15:28:EU:48.00:-16.00:0.0:*4U1V:
+    =4U1VIC;
+Austria:15:28:EU:47.00:-13.00:0.0:OE:
+    OE,=4U1VIC;
+Easter Island:12:63:SA:-27.00:109.00:0.0:CE0Y:
+    CE0,CE0Y;
+San Felix & San Ambrosio:12:14:SA:-26.00:80.00:0.0:CE0X:
+    CE0X;
+Juan Fernandez Islands:12:14:SA:-33.00:78.00:0.0:CE0Z:
+    CE0Z,CE0I;
+Canada:4:4:NA:45.00:-75.00:0.0:VE:
+    VE,VA;
+Uruguay:13:14:SA:-33.00:56.00:0.0:CX:
+    CX;
+Fed. Rep. of Germany:14:28:EU:51.00:-10.00:0.0:DL:
+    DL,DA;
+France:14:27:EU:46.00:-2.00:0.0:F:
+    F,=F1FIRST;
+France Later:14:27:EU:46.00:-2.00:0.0:FX:
+    FX,=F1FIRST;
+Anguilla:8:11:NA:18.00:-63.00:0.0:VP2E:
+    VP2E;
+Falkland Islands:13:16:SA:-51.00:59.00:0.0:VP8:
+    VP8;
+South Georgia Island:13:73:SA:-54.00:37.00:0.0:VP8/g:
+    VP8/G;
+South Shetland Islands:13:73:SA:-62.00:58.00:0.0:VP8/h:
+    VP8/H;
+South Orkney Islands:13:73:SA:-60.00:45.00:0.0:VP8/o:
+    VP8/O;
+South Sandwich Islands:13:73:SA:-59.00:26.00:0.0:VP8/s:
+    VP8/S;
+Mount Athos:20:28:EU:40.00:-24.00:0.0:SV/a:
+    =SV2RSG/A;
+Swains Island:32:62:OC:-11.00:171.00:0.0:KH8/s:
+    =K9CS/KH8S;
+Minami Torishima:27:90:OC:24.00:-154.00:0.0:JD/m:
+    =JG8NQJ/JD1;
+Ogasawara:27:45:AS:27.00:-142.00:0.0:JD/o:
+    JD1;
+Australia:30:59:OC:-35.00:149.00:0.0:VK:
+    VK;

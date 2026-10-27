@@ -3,6 +3,7 @@
 Not for contest operation. These build, test, package, or bring up hardware.
 
 - `validate.sh` — Run the unit suites and a no-radio live check.
+- `audit_entities.py` — Run every call in an ADIF log (and an optional N1MM `.s3db`) through the call-to-entity resolver and list disagreements with stored DXCC, COUNTRY, or N1MM country.
 - `package-release.sh` — Build the release zip and tar.
 - `cut-release.sh` — Tag a release.
 - `packaging/write_manifest.py` — Write the release manifest.
