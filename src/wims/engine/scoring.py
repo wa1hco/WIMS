@@ -250,3 +250,127 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
         need_reason=need_reason, mult_reason=mult_reason, qso_points=qso_points,
         chase=chase,
     )
+
+
+# --------------------------------------------------------------------------- #
+# DX cluster spots (design §2.15). A separate list from the live roster.
+# A QSY spot stays eligible. ``qsy`` is a cost (negative), not a gate.
+# The live-roster WEIGHTS above are not used here.
+# --------------------------------------------------------------------------- #
+
+# Default weights. Setup can change the QSY cost (stored as a positive
+# number of points; the weight applied here is negative).
+CLUSTER_WEIGHTS = {
+    "need_new": 40,          # new grid / multiplier / entity on that band
+    "need_call": 18,         # needed, and not a new multiplier
+    "need_unconfirmed": 12,  # worked place, not confirmed, still chased
+    "recency": 15,           # 1 when the spot just arrived, 0 at the 15 min age
+    "spotters": 10,          # 1 spotter is 1/3, 3 or more is full
+    "spotter_near": 8,       # a spotter within 500 km of us
+    "distance": 12,          # inside the sweet spot for that band
+    "rover": 15,             # /R, or a call already heard as a rover
+    "qsy": -8,               # no live WSJT-X on this band and mode
+}
+
+
+def cluster_weights(qsy_cost: float | None = None) -> dict[str, float]:
+    """Named spot weights. ``qsy_cost`` is points taken off (0 or more)."""
+    weights = dict(CLUSTER_WEIGHTS)
+    if qsy_cost is not None:
+        weights["qsy"] = -abs(float(qsy_cost))
+    return weights
+
+
+@dataclass
+class SpotFeatures:
+    """What the spot scorer needs. The filter has already dropped dupes."""
+
+    is_new_mult: bool = False
+    chase: str = ""
+    is_rover: bool = False
+    needs_qsy: bool = False
+    age_s: float = 0.0
+    ttl_s: float = 15 * 60
+    spotter_count: int = 1
+    spotter_near: float = 0.0       # 0..1
+    distance_fit: float = 0.0       # 0..1
+    need_detail: str = ""
+    mult_detail: str = ""
+    near_detail: str = ""
+    distance_detail: str = ""
+
+
+@dataclass
+class SpotScore:
+    total: float
+    factors: list[Factor]
+
+    def explain(self) -> str:
+        terms = "  ".join(f"{f.name} {f.contribution:+g}" for f in self.factors)
+        return f"score {self.total:+.1f}  [{terms}]"
+
+
+def _round1(value: float) -> float:
+    return round(float(value), 1)
+
+
+def _age_words(age_s: float) -> str:
+    age = max(0, int(age_s))
+    if age < 60:
+        return f"{age}s old"
+    return f"{age // 60} min old"
+
+
+def score_spot(features: SpotFeatures,
+               weights: dict[str, float] | None = None) -> SpotScore:
+    """Rank one needed spot. Nothing here transmits."""
+    w = weights if weights is not None else cluster_weights()
+    factors: list[Factor] = []
+
+    def add(name: str, amount: float, detail: str) -> None:
+        if amount <= 0 and name != "qsy":
+            return
+        contribution = _round1(amount * float(w.get(name, 0.0)))
+        if contribution == 0:
+            return
+        factors.append(Factor(name, contribution, detail))
+
+    if features.is_new_mult:
+        detail = features.mult_detail or features.need_detail or "new multiplier"
+        add("need_new", 1.0, detail)
+    elif (features.chase or "") == "unconfirmed":
+        add("need_unconfirmed", 1.0, features.need_detail or "unconfirmed")
+    else:
+        add("need_call", 1.0, features.need_detail or "needed")
+
+    ttl = features.ttl_s if features.ttl_s > 0 else 1.0
+    fresh = max(0.0, 1.0 - max(0.0, features.age_s) / ttl)
+    add("recency", fresh, _age_words(features.age_s))
+
+    heard = min(1.0, max(0, features.spotter_count) / 3.0)
+    n = max(0, int(features.spotter_count))
+    word = "spotter" if n == 1 else "spotters"
+    add("spotters", heard, f"{n} {word}")
+
+    if features.spotter_near > 0:
+        add("spotter_near", min(1.0, features.spotter_near),
+            features.near_detail or "spotter near us")
+
+    if features.distance_fit > 0:
+        add("distance", min(1.0, features.distance_fit),
+            features.distance_detail or "distance for this band")
+
+    if features.is_rover:
+        add("rover", 1.0, "rover")
+
+    if features.needs_qsy:
+        # Weight is stored negative. Pass amount 1 and let the sign stand,
+        # including a cost of 0 which adds nothing.
+        cost = float(w.get("qsy", 0.0))
+        if cost > 0:
+            cost = -cost
+        if cost != 0:
+            factors.append(Factor("qsy", _round1(cost), "QSY"))
+
+    total = _round1(sum(f.contribution for f in factors))
+    return SpotScore(total, factors)

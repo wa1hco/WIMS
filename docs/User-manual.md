@@ -37,7 +37,8 @@ That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when an
 1. **Call roster** — needed stations; click to **Work** (answer)  
 2. **Inhibit** — SSB/CW KEY → WSJT-X PTT release (N1MM agent **KEY** section + Keyline)  
 3. **Logging** — WSJT-X Logged QSOs → N1MM via **N1MM agent Log**  
-4. **Broadcast bridge** — N1MM Broadcast Data on localhost → site **N1MM** tab via **N1MM agent Broadcast**  
+4. **Broadcast bridge** — N1MM Broadcast Data on localhost → site **N1MM** tab via **N1MM agent Broadcast**
+5. **Spotted** — DX cluster spots the Goal still needs, including other bands. A click selects the station. It does not transmit and it does not retune a radio.  
 
 ---
 
@@ -102,6 +103,12 @@ What is on the page:
 
 A group with more than one instance is the multi-op case: the closed **TX groups** line is how you reach the table even when nothing is wrong.
 
+**Spotted**, under the roster, is a DX cluster list. It is not the live roster. Each line is one station on one band: call, grid, band, mode, frequency, **QSY** or **on band**, why it is needed, score, age, and how many stations spotted it. **On band** means a WSJT-X you already have running is on that band and that mode. **QSY** means it is not, so you would move a radio if the spot is worth it. The line stays either way. Spots that are already worked, have no grid, or are too far for that band are left off. They drop off after 15 minutes.
+
+The line above the list is the connection, such as `Cluster: connected, 12 spots, 3 needed`. Hover it for the node, the login, and why some spots were left off. A failure names the next step. Spots stay off until Setup turns them on (`Cluster: off. Turn it on in Setup.`).
+
+Click a Spotted line to select that station. The radio is not retuned and nothing is transmitted. Work still needs a live decode on the roster.
+
 ### Overview · WSJT-X · Log · N1MM
 
 | Page | URL | Content |
@@ -126,6 +133,8 @@ A group with more than one instance is the multi-op case: the closed **TX groups
 *Setup — Goal and install diagnostics (networking, seat configs). The log is on **Log**.*
 
 **Goal** is Contest, Award, Just operating, or Custom. Just operating uses **Checklist**. Tick what is worth working. Each line counts the first time, on each band, or on each mode. Continent, CQ zone, and ITU zone use the country list WSJT-X already keeps. When that list is not on this computer, those three lines stay off and the tip says so. County and callsign prefix stay off. A choice saved earlier as WSJT-X Colors is turned into the matching checklist lines the next time WIMS starts, and that list is what Setup shows after that. The log under **Log to use** is the only log those lines read.
+
+**DX cluster** is under the Goal. **Show spots** turns the list on. It is off until you check it. The usual node is `dxc.ve7cc.net`, port 23. WIMS logs in with the callsign from WSJT-X and then only listens. It does not post spots. **QSY cost** is how many points a spot loses when no radio is already on that band and mode. The usual cost is 8. The spot stays on the list. **All bands** starts checked, so a spot on another band can show. Uncheck a band to hide it. Save is immediate when you change a box. The choice is kept on this PC the same way the Goal is.
 
 ---
 
@@ -213,6 +222,7 @@ Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you 
 
 | Date | Note |
 |------|------|
+| 2026-10-27 | Operate Spotted list and Setup DX cluster (other bands, QSY cost, click does not transmit) |
 | 2026-10-19 | Operate TX groups: hidden until a shared group or a conflict; one-line banner |
 | 2026-08-30 | Initial Markdown manual + screenshot manifest |
 | 2026-09-05 | N1MM agent Broadcast/Log/KEY; console Overview/WSJT/N1MM; link operator_setup |

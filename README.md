@@ -193,6 +193,8 @@ agent**, not through the server. Design §2.12 / §4 / §4.5.
 ## Status
 
 **Phase-1 read-only console is live** (roster, interlock, N1MM sync, agents, three-page UI).
+Operate also has a separate **Spotted** list of DX cluster spots (other bands included;
+a click does not transmit or retune). PSK Reporter and the other hint lists are not built.
 Command path (click-to-work) and later milestones: [wims_status.md](docs/plan/wims_status.md).
 
 ## Repository layout
