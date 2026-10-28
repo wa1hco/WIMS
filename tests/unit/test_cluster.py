@@ -18,6 +18,7 @@
 
 """DX cluster spots: parse, read-only login, filter, score, QSY flag."""
 
+import socket
 import sys
 import tempfile
 import threading
@@ -30,8 +31,8 @@ from wims.engine import scoring as S  # noqa: E402
 from wims.engine.contest_rules import load_builtin  # noqa: E402
 from wims.engine.geo import distance_km  # noqa: E402
 from wims.integrations.cluster.client import (  # noqa: E402
-    BACKOFF_START, ClusterLink, ClusterService, is_login_prompt, next_backoff,
-    sent_text,
+    BACKOFF_START, LOGIN_WAIT_S, ClusterLink, ClusterService, is_login_prompt,
+    next_backoff, sent_text,
 )
 from wims.integrations.cluster.modes import infer_mode  # noqa: E402
 from wims.integrations.cluster.parse import parse_spot  # noqa: E402
@@ -48,6 +49,9 @@ from wims.state.heard_grids import HeardGrids  # noqa: E402
 from wims.state.logstore import LogStore  # noqa: E402
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "dx_cluster_spots.txt"
+AR_CLUSTER = Path(__file__).resolve().parents[1] / "fixtures" / "cluster_ar_cluster.txt"
+DX_SPIDER = Path(__file__).resolve().parents[1] / "fixtures" / "cluster_dx_spider.txt"
+SILENT_NODE = Path(__file__).resolve().parents[1] / "fixtures" / "cluster_silent.txt"
 HOME = "FN42ev"
 NOW = 1_700_000_000.0
 
@@ -151,6 +155,15 @@ def test_name_prompt_is_not_answered():
     assert not is_login_prompt("Your name:")
     assert is_login_prompt("Please enter your call:")
     assert is_login_prompt("login:")
+    assert is_login_prompt("LOGIN:")
+    assert is_login_prompt("CALL:")
+    assert is_login_prompt("Callsign:")
+    for prompt in (b"Login:\r\n", b"CALL:\r\n", b"PLEASE ENTER YOUR CALL:\r\n"):
+        sent = bytearray()
+        again = ClusterLink("wa1hco", sent.extend)
+        again.feed(prompt)
+        assert again.sent_login, prompt
+        assert sent_text(bytes(sent)).strip() == "WA1HCO"
 
 
 def test_mode_from_comment_then_frequency():
@@ -316,11 +329,28 @@ def test_status_lines_name_the_next_step():
         bands_empty=False, have_grid=True,
     )
     connected = status_line(
-        enabled=True, phase="connected", host=DEFAULT_HOST, port=23,
+        enabled=True, phase="connected", host=DEFAULT_HOST, port=DEFAULT_PORT,
         callsign="WA1HCO", retry_s=0, reason="", spot_count=12, needed_count=3,
         bands_empty=False, have_grid=True,
     )
-    assert connected == "Cluster: connected, 12 spots, 3 needed"
+    assert connected == "Cluster: logged in, 12 spots, 3 needed"
+    assert status_line(
+        enabled=True, phase="tcp", host=DEFAULT_HOST, port=DEFAULT_PORT,
+        callsign="WA1HCO", retry_s=0, reason="", spot_count=0, needed_count=0,
+        bands_empty=False, have_grid=True,
+    ) == "Cluster: connected, no spots yet."
+    assert status_line(
+        enabled=True, phase="logged_in", host=DEFAULT_HOST, port=DEFAULT_PORT,
+        callsign="WA1HCO", retry_s=0, reason="", spot_count=0, needed_count=0,
+        bands_empty=False, have_grid=True,
+    ) == "Cluster: logged in, no spots yet."
+    silent = status_line(
+        enabled=True, phase="silent", host="dxc.ve7cc.net", port=23,
+        callsign="WA1HCO", retry_s=5, reason="silent", spot_count=0,
+        needed_count=0, bands_empty=False, have_grid=True,
+    )
+    assert silent.startswith("Cluster: node sent nothing. Try another node on Setup.")
+    assert "0 spots" not in silent
     retry = status_line(
         enabled=True, phase="retry", host=DEFAULT_HOST, port=23,
         callsign="WA1HCO", retry_s=40, reason="timeout", spot_count=0,
@@ -352,8 +382,9 @@ def test_settings_default_all_bands_and_node():
         path = Path(tmp) / "cluster.json"
         fresh = load(path)
         assert fresh["enabled"] is False
-        assert fresh["host"] == DEFAULT_HOST
-        assert fresh["port"] == DEFAULT_PORT
+        assert fresh["host"] == "k1ttt.net"
+        assert fresh["port"] == 7373
+        assert fresh["node"] == "k1ttt"
         assert fresh["bands"] == "all"
         assert fresh["qsy_cost"] == 8
         save({"enabled": True, "host": "bad host", "port": 23,
@@ -364,6 +395,24 @@ def test_settings_default_all_bands_and_node():
         assert again["bands"] == ["10m", "6m"]
         assert again["qsy_cost"] == 12
         assert "160m" in all_bands() and "2m" in all_bands() and "70cm" in all_bands()
+        old = Path(tmp) / "old.json"
+        old.write_text(
+            '{"schema": 1, "enabled": true, "host": "dxc.ve7cc.net", '
+            '"port": 23, "bands": "all", "qsy_cost": 8}\n',
+            encoding="utf-8",
+        )
+        moved = load(old)
+        assert moved["host"] == "k1ttt.net" and moved["port"] == 7373
+        assert moved["node"] == "k1ttt"
+        kept = Path(tmp) / "kept.json"
+        kept.write_text(
+            '{"schema": 2, "node": "ve7cc", "enabled": true, '
+            '"host": "dxc.ve7cc.net", "port": 23, "bands": "all", "qsy_cost": 8}\n',
+            encoding="utf-8",
+        )
+        stay = load(kept)
+        assert stay["node"] == "ve7cc"
+        assert stay["host"] == "dxc.ve7cc.net" and stay["port"] == 23
 
 
 def test_reconnect_waits_out_the_backoff():
@@ -457,7 +506,8 @@ def test_service_public_uses_goal_and_qsy_flag():
             now=NOW, callsign="WA1HCO", our_grid=HOME,
             operations=[OnAir("10m", "FT8")], classify=classify,
         )
-        assert view["status_line"] == "Cluster: connected, 2 spots, 2 needed"
+        assert view["status_line"] == "Cluster: logged in, 2 spots, 2 needed"
+        assert "Last spot" in view["detail"]
         where = {row["call"]: row["where"] for row in view["rows"]}
         assert where["K1ABC"] == "on band"
         assert where["W2XYZ"] == "QSY"
@@ -485,6 +535,141 @@ def test_no_callsign_does_not_open_a_socket():
         svc._thread.join(timeout=2)
         assert opened == []
         assert svc.phase == "need_call"
+
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+class _ScriptSock:
+    def __init__(self, chunks):
+        self.chunks = list(chunks)
+        self.sent = bytearray()
+
+    def settimeout(self, _seconds):
+        return None
+
+    def sendall(self, data):
+        self.sent += data
+
+    def recv(self, _n):
+        if not self.chunks:
+            return b""
+        item = self.chunks.pop(0)
+        if item is None:
+            raise socket.timeout()
+        return item
+
+    def close(self):
+        return None
+
+
+def _node_bytes(path: Path) -> bytes:
+    lines = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        lines.append(line)
+    if not lines:
+        return b""
+    return ("\r\n".join(lines) + "\r\n").encode("ascii")
+
+
+def _play(blob: bytes):
+    with tempfile.TemporaryDirectory() as tmp:
+        svc = ClusterService(path=Path(tmp) / "cluster.json")
+        svc.update({"enabled": True, "bands": "all"})
+        sock = _ScriptSock([blob])
+        try:
+            svc._read_loop(sock, "WA1HCO", svc._gen)
+        except TimeoutError:
+            pass
+        log = _log()
+
+        def classify(call, band, grid, mode):
+            return log.classify(call, band, grid, mode)
+
+        view = svc.public(
+            now=time.time(), callsign="WA1HCO", our_grid=HOME, operations=[],
+            classify=classify,
+        )
+        return sock, view
+
+
+def test_prompt_any_case_and_no_login_into_silence():
+    clock = _Clock()
+    sent = bytearray()
+    link = ClusterLink("WA1HCO", sent.extend, now=clock)
+    clock.t = LOGIN_WAIT_S + 1
+    link.poll()
+    assert sent == bytearray()
+    link.feed(b"Welcome to the DX Spider cluster\r\n")
+    clock.t = LOGIN_WAIT_S - 0.1
+    link.poll()
+    assert b"WA1HCO" not in sent
+    clock.t = LOGIN_WAIT_S
+    link.poll()
+    assert sent_text(bytes(sent)).strip() == "WA1HCO"
+
+
+def test_silent_node_is_not_called_connected():
+    assert _node_bytes(SILENT_NODE) == b""
+    clock = _Clock()
+
+    class Sock(_ScriptSock):
+        def __init__(self):
+            super().__init__([])
+            self.calls = 0
+
+        def recv(self, _n):
+            self.calls += 1
+            clock.t = 59.0 if self.calls == 1 else 60.0
+            raise socket.timeout()
+
+    sock = Sock()
+    with tempfile.TemporaryDirectory() as tmp:
+        svc = ClusterService(
+            path=Path(tmp) / "cluster.json", connect=lambda *_a, **_k: sock,
+            monotonic=clock,
+        )
+
+        def pause(_seconds):
+            svc._stop.set()
+
+        svc._sleep = pause
+        svc.update({"enabled": True})
+        svc.start(lambda: "WA1HCO")
+        svc._thread.join(timeout=2)
+        assert svc.phase == "silent"
+        assert sock.sent.startswith(b"\r\n")
+        assert b"WA1HCO" not in sock.sent
+        view = svc.public(
+            now=NOW, callsign="WA1HCO", our_grid=HOME, operations=[],
+            classify=lambda *_a: None,
+        )
+        assert view["status_line"].startswith(
+            "Cluster: node sent nothing. Try another node on Setup.")
+        assert "0 spots" not in view["status_line"]
+        assert "No spot line yet" in view["detail"]
+
+
+def test_ar_cluster_and_dx_spider_transcripts():
+    ar_sock, ar = _play(_node_bytes(AR_CLUSTER))
+    assert ar_sock.sent.startswith(b"\r\n")
+    assert sent_text(bytes(ar_sock.sent)).strip() == "WA1HCO"
+    assert "set/" not in sent_text(bytes(ar_sock.sent)).lower()
+    assert "logged in" in ar["status_line"]
+    assert any(row["call"] == "K1ABC" for row in ar["rows"])
+    assert "Last spot" in ar["detail"]
+
+    spider_sock, spider = _play(_node_bytes(DX_SPIDER))
+    assert sent_text(bytes(spider_sock.sent)).strip() == "WA1HCO"
+    assert any(row["call"] == "JA1ABC" for row in spider["rows"])
+    assert "logged in" in spider["status_line"]
 
 
 def test_thread_stops():

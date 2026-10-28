@@ -3090,13 +3090,30 @@ function clusterReadForm() {
     if (box.checked) bands.push(box.dataset.band);
   });
   const all = $("cluster-all");
+  const node = $("cluster-node");
   return {
     enabled: !!($("cluster-enabled") && $("cluster-enabled").checked),
+    node: node ? node.value : "custom",
     host: ($("cluster-host") && $("cluster-host").value || "").trim(),
     port: Number($("cluster-port") && $("cluster-port").value),
     qsy_cost: Number($("cluster-qsy") && $("cluster-qsy").value),
     bands: (all && all.checked) ? "all" : bands,
   };
+}
+
+function clusterApplyPick() {
+  const sel = $("cluster-node");
+  const host = $("cluster-host");
+  const port = $("cluster-port");
+  if (!sel || !host || !port) return;
+  const opt = sel.options[sel.selectedIndex];
+  const custom = !opt || opt.value === "custom" || !opt.dataset.host;
+  host.readOnly = !custom;
+  port.readOnly = !custom;
+  if (!custom) {
+    host.value = opt.dataset.host;
+    port.value = opt.dataset.port;
+  }
 }
 
 function clusterSave() {
@@ -3145,6 +3162,21 @@ function clusterWire() {
   });
   const qsy = $("cluster-qsy");
   if (qsy) qsy.addEventListener("change", clusterSave);
+  const node = $("cluster-node");
+  if (node) node.addEventListener("change", () => {
+    clusterApplyPick();
+    clusterSave();
+  });
+  const host = $("cluster-host");
+  if (host) host.addEventListener("change", () => {
+    if (node && !host.readOnly) node.value = "custom";
+    clusterSave();
+  });
+  const port = $("cluster-port");
+  if (port) port.addEventListener("change", () => {
+    if (node && !port.readOnly) node.value = "custom";
+    clusterSave();
+  });
 }
 
 let _clusterReady = false;
@@ -3163,9 +3195,21 @@ function renderCluster(c) {
   c = c || {};
   const en = $("cluster-enabled");
   if (en) en.checked = !!c.enabled;
-  host.value = c.host || "dxc.ve7cc.net";
+  const node = $("cluster-node");
+  if (node && c.nodes && c.nodes.length) {
+    const current = c.node || "custom";
+    node.innerHTML = c.nodes.map(item =>
+      `<option value="${escAttr(item.id)}" data-host="${escAttr(item.host)}" ` +
+      `data-port="${escAttr(String(item.port))}">${esc(item.label)}</option>`
+    ).join("") + '<option value="custom">Other</option>';
+    node.value = [...node.options].some(opt => opt.value === current) ? current : "custom";
+  } else if (node && c.node) {
+    node.value = c.node;
+  }
+  host.value = c.host || "k1ttt.net";
   const port = $("cluster-port");
-  if (port) port.value = c.port || 23;
+  if (port) port.value = c.port || 7373;
+  clusterApplyPick();
   const qsy = $("cluster-qsy");
   if (qsy && c.qsy_cost != null) qsy.value = String(c.qsy_cost);
   const all = $("cluster-all");

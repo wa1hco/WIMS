@@ -124,11 +124,31 @@ def _spotter_key(call: str) -> str:
     return (call or "").upper().split("-", 1)[0].strip()
 
 
+def _ago(age_s: float | None) -> str:
+    if age_s is None:
+        return "No spot line yet."
+    age = max(0, int(age_s))
+    if age < 60:
+        return f"Last spot {age}s ago."
+    return f"Last spot {age // 60} min ago."
+
+
+def _retry_wait(retry_s: float) -> str:
+    if not retry_s:
+        return ""
+    return f" Trying again in {max(0, int(retry_s))} seconds."
+
+
 def status_line(*, enabled: bool, phase: str, host: str, port: int,
                 callsign: str, retry_s: float, reason: str,
                 spot_count: int, needed_count: int,
-                bands_empty: bool, have_grid: bool) -> str:
-    """One line for Operate. A failure names what to do next."""
+                bands_empty: bool, have_grid: bool,
+                have_lines: bool = False) -> str:
+    """One line for Operate. A failure names what to do next.
+
+    ``connected, N spots`` is only for a session that has received spot
+    lines. A TCP session with no bytes is not that line.
+    """
     if not enabled:
         return "Cluster: off. Turn it on in Setup."
     if bands_empty:
@@ -145,8 +165,13 @@ def status_line(*, enabled: bool, phase: str, host: str, port: int,
             "Cluster: the node asked for more than a callsign. "
             "WIMS only sends your callsign. Pick another node in Setup."
         )
+    if phase == "silent" or (phase == "retry" and reason == "silent"):
+        return (
+            "Cluster: node sent nothing. Try another node on Setup."
+            + _retry_wait(retry_s)
+        )
     if phase == "retry":
-        wait = f" Trying again in {max(0, int(retry_s))} seconds." if retry_s else ""
+        wait = _retry_wait(retry_s)
         if reason == "dns":
             return (
                 f"Cluster: the name {host} did not resolve. "
@@ -163,16 +188,22 @@ def status_line(*, enabled: bool, phase: str, host: str, port: int,
             f"Cluster: can't reach {host} port {port}. "
             f"Check the node address in Setup.{wait}"
         )
+    if phase == "tcp":
+        return "Cluster: connected, no spots yet."
+    if phase == "logged_in" and spot_count <= 0 and not have_lines:
+        return "Cluster: logged in, no spots yet."
     if not have_grid:
         return (
-            f"Cluster: connected, {spot_count} spots. "
+            f"Cluster: logged in, {spot_count} spots. "
             "No grid from WSJT-X yet, so range cannot be checked."
         )
-    return f"Cluster: connected, {spot_count} spots, {needed_count} needed"
+    return f"Cluster: logged in, {spot_count} spots, {needed_count} needed"
 
 
 def status_detail(*, host: str, port: int, callsign: str, qsy_cost: int,
-                  bands, ttl_s: int, drops: dict, weights: dict) -> str:
+                  bands, ttl_s: int, drops: dict, weights: dict,
+                  last_spot_age: float | None = None,
+                  node_spoke: bool = False, login_sent: bool = False) -> str:
     if bands is None:
         band_words = "every amateur band"
     elif not bands:
@@ -182,9 +213,12 @@ def status_detail(*, host: str, port: int, callsign: str, qsy_cost: int,
     parts = [
         f"Node {host} port {port}.",
         f"Login {callsign}." if callsign else "No callsign yet.",
+        "Logged in." if login_sent else "Not logged in yet.",
+        "The node has spoken." if node_spoke else "The node has not spoken.",
+        _ago(last_spot_age),
         "Read-only. WIMS sends only your callsign, then listens.",
         "It does not post spots. A click does not transmit or retune a radio.",
-        "VE7CC asks for one connection per callsign.",
+        "Some nodes allow one connection per callsign.",
         f"Spots drop off after {max(1, ttl_s // 60)} minutes.",
         "QSY means no live WSJT-X is on that band and mode. On band means one is.",
         f"QSY cost is {qsy_cost} points.",

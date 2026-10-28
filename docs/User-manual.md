@@ -134,7 +134,9 @@ Click a Spotted line to select that station. The radio is not retuned and nothin
 
 **Goal** is Contest, Award, Just operating, or Custom. Just operating uses **Checklist**. Tick what is worth working. Each line counts the first time, on each band, or on each mode. Continent, CQ zone, and ITU zone use the country list WSJT-X already keeps. When that list is not on this computer, those three lines stay off and the tip says so. County and callsign prefix stay off. A choice saved earlier as WSJT-X Colors is turned into the matching checklist lines the next time WIMS starts, and that list is what Setup shows after that. The log under **Log to use** is the only log those lines read.
 
-**DX cluster** is under the Goal. **Show spots** turns the list on. It is off until you check it. The usual node is `dxc.ve7cc.net`, port 23. WIMS logs in with the callsign from WSJT-X and then only listens. It does not post spots. **QSY cost** is how many points a spot loses when no radio is already on that band and mode. The usual cost is 8. The spot stays on the list. **All bands** starts checked, so a spot on another band can show. Uncheck a band to hide it. Save is immediate when you change a box. The choice is kept on this PC the same way the Goal is.
+**DX cluster** is under the Goal. **Show spots** turns the list on. It is off until you check it. The usual node is K1TTT (`k1ttt.net`, port 7373). The list also has NC7J, W3LPL, and VE7CC, or you can type another host and port. WIMS logs in with the callsign from WSJT-X and then only listens. It does not post spots. **QSY cost** is how many points a spot loses when no radio is already on that band and mode. The usual cost is 8. The spot stays on the list. **All bands** starts checked, so a spot on another band can show. Uncheck a band to hide it. Save is immediate when you change a box. The choice is kept on this PC the same way the Goal is.
+
+The line on Operate tells you what the node is doing. **connected, no spots yet** means the connection is up and the node has not sent a spot. **logged in, no spots yet** means your callsign was sent. **logged in, 12 spots, 3 needed** means spot lines arrived. If the node accepts the connection and stays silent, the line says the node sent nothing and to try another node. Hover that line for how long since the last spot.
 
 ---
 
@@ -222,6 +224,7 @@ Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you 
 
 | Date | Note |
 |------|------|
+| 2026-10-28 | DX cluster node list. Usual node is K1TTT. A silent node says so |
 | 2026-10-27 | Operate Spotted list and Setup DX cluster (other bands, QSY cost, click does not transmit) |
 | 2026-10-19 | Operate TX groups: hidden until a shared group or a conflict; one-line banner |
 | 2026-08-30 | Initial Markdown manual + screenshot manifest |

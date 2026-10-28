@@ -1312,19 +1312,33 @@ Hints stay on their own list. They are never merged into the roster, and they
 never start a transmission.
 
 **DX cluster (built).** The site server opens one read-only telnet session to the
-node chosen on Setup. The usual node is VE7CC, `dxc.ve7cc.net` port 23. Spots
-stay off until Setup checks **Show spots**. The choice is saved beside the Goal
-(`cluster.json` in the same directory). There is no command-line flag and no
-environment variable.
+node chosen on Setup. The usual node is K1TTT, `k1ttt.net` port 7373
+(AR-Cluster). The list also offers NC7J (`dxc.nc7j.com` port 7373), W3LPL
+(`w3lpl.net` port 7373, DX-Spider), VE7CC (`dxc.ve7cc.net` port 23, CC
+Cluster), or a host and port the operator types. Spots stay off until Setup
+checks **Show spots**. The choice is saved beside the Goal (`cluster.json` in
+the same directory). There is no command-line flag and no environment variable.
+
+A field check from FN42 found that VE7CC port 23 can complete TCP and then
+send no bytes. That is not a working login. The first saved copy of that
+factory pair is moved to K1TTT. Picking VE7CC again keeps it.
 
 Login uses the callsign WSJT-X (or the N1MM logger, or a seat-agent config) has
-already reported. WIMS sends that callsign and then only listens. It does not
-post a spot, an announcement, or a band filter. Telnet option requests are
-refused; that handshake is not a cluster command. One connection, with a wait
-that starts at 5 seconds and doubles up to 5 minutes. VE7CC asks for one
-connection per callsign. If a node stays silent until it is given a filter,
-the status says so and the next step is to pick another node. WIMS will not
-send the filter.
+already reported. WIMS sends one blank line so a node that waits for the
+client will speak, then the callsign when it sees a login prompt (`login:`,
+`call:`, `callsign:`, or `Please enter your call`, any case). That covers
+AR-Cluster, DX-Spider, and CC Cluster. It does not post a spot, an
+announcement, or a band filter. Telnet option requests are refused; that
+handshake is not a cluster command. One connection, with a wait that starts
+at 5 seconds and doubles up to 5 minutes. Some nodes allow one connection
+per callsign.
+
+The status does not say the node is fine just because TCP is up. No bytes
+yet is `connected, no spots yet`. The callsign has been sent and no spot
+line has arrived is `logged in, no spots yet`. Spot lines are `logged in, N
+spots, M needed`. After about 60 seconds with no banner the line is
+`Cluster: node sent nothing. Try another node on Setup.` Hover shows how
+long since the last spot line. WIMS will not send a filter command.
 
 A spot is kept when all of these are true:
 

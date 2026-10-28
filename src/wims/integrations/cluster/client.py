@@ -18,14 +18,18 @@
 
 """One read-only cluster connection.
 
-Login is the callsign and nothing else. Telnet option refusals are sent
-because the socket will not stay in plain text without them. No spot, no
-announcement, no ``set/`` filter, no ``sh/dx``. The node streams every spot
-after login. WIMS chooses bands locally.
+Login is the callsign and nothing else. A blank line is sent once when the
+socket opens, so a node that waits for the client will speak. Telnet option
+refusals are sent because the socket will not stay in plain text without
+them. No spot, no announcement, no ``set/`` filter, no ``sh/dx``. The node
+streams every spot after login. WIMS chooses bands locally.
 
-Reconnect waits, starting at 5 seconds and doubling up to 5 minutes.
-VE7CC (the default node) asks for one connection per callsign. This thread
-holds one socket.
+AR-Cluster asks ``Please enter your call:``. DX-Spider asks ``login:``.
+CC Cluster asks the same kind of call prompt. The match is any case.
+
+A TCP session that sends no bytes is not logged in. After 60 seconds with
+no banner the status says the node sent nothing. Reconnect waits, starting
+at 5 seconds and doubling up to 5 minutes. This thread holds one socket.
 """
 
 from __future__ import annotations
@@ -39,16 +43,20 @@ from collections.abc import Callable
 from wims.engine import scoring as S
 from wims.integrations.cluster.parse import parse_spot, valid_login_call
 from wims.integrations.cluster.settings import (
-    DEFAULT_TTL_S, allowed_bands, load, save, sanitize,
+    DEFAULT_TTL_S, allowed_bands, known_nodes, load, save, sanitize,
 )
 from wims.integrations.cluster.telnet import plaintext, strip_telnet
 from wims.integrations.cluster.view import (
     SpotBook, band_choices, build_list, status_detail, status_line,
 )
 
-# A prompt that means "send the callsign".
+# A prompt that means "send the callsign". Any case. AR-Cluster says
+# "Please enter your call:", DX-Spider says "login:", CC Cluster says "call:".
 _LOGIN = re.compile(
-    r"(?:login|callsign|your call(?:sign)?)\s*:?\s*$|^\s*call\s*:?\s*$",
+    r"(?:please\s+enter\s+(?:your\s+)?call(?:sign)?|"
+    r"\blogin\s*:|"
+    r"\bcallsign\s*:|"
+    r"(?<![A-Za-z])call\s*:)",
     re.IGNORECASE,
 )
 # The node wants a name, a QTH, or a password. We do not answer.
@@ -65,6 +73,8 @@ BACKOFF_START = 5.0
 BACKOFF_CAP = 300.0
 LOGIN_WAIT_S = 8.0
 QUIET_S = 180.0
+# TCP is up and the node has sent nothing. Do not call that logged in.
+SILENT_S = 60.0
 
 
 def next_backoff(previous: float) -> float:
@@ -91,6 +101,8 @@ class ClusterLink:
         self._now = now or time.monotonic
         self._started = self._now()
         self._sent_login = False
+        self._woke = False
+        self.bytes_seen = False
         self._buf = ""
         self._telnet: dict = {}
         self.refused = False
@@ -100,7 +112,16 @@ class ClusterLink:
     def sent_login(self) -> bool:
         return self._sent_login
 
+    def wake(self) -> None:
+        """One blank line so a quiet node starts talking. Not a command."""
+        if self._woke:
+            return
+        self._woke = True
+        self._send(b"\r\n")
+
     def feed(self, data: bytes) -> list:
+        if data:
+            self.bytes_seen = True
         reply = bytearray()
         plain = strip_telnet(data or b"", reply, self._telnet)
         if reply:
@@ -123,8 +144,14 @@ class ClusterLink:
         return spots
 
     def poll(self) -> None:
-        """Send the callsign if the node has been waiting and never asked."""
+        """Send the callsign if the node spoke and never asked.
+
+        A socket that has sent no bytes does not get the callsign. That
+        session is not logged in.
+        """
         if self._sent_login or self.refused or self.extra:
+            return
+        if not self.bytes_seen:
             return
         if self._now() - self._started < LOGIN_WAIT_S:
             return
@@ -208,6 +235,10 @@ class ClusterService:
         self.retry_s = 0.0
         self.login_call = ""
         self.lines = 0
+        self.node_spoke = False
+        self.login_sent = False
+        self.saw_lines = False
+        self.last_spot_at: float | None = None
         self._selected: dict | None = None
 
     def start(self, callsign_fn: Callable[[], str]) -> None:
@@ -233,7 +264,7 @@ class ClusterService:
         current = self.settings()
         merged = dict(current)
         if isinstance(body, dict):
-            for key in ("enabled", "host", "port", "bands", "qsy_cost"):
+            for key in ("enabled", "node", "host", "port", "bands", "qsy_cost"):
                 if key in body:
                     merged[key] = body[key]
         cleaned = sanitize(merged)
@@ -244,6 +275,10 @@ class ClusterService:
             if not cleaned["enabled"]:
                 self.phase = "off"
                 self.reason = ""
+                self.node_spoke = False
+                self.login_sent = False
+                self.saw_lines = False
+                self.last_spot_at = None
                 self._book.clear()
         self._close_socket()
         self._wake.set()
@@ -266,6 +301,8 @@ class ClusterService:
             self._book.add(spot, now)
             self._book.prune(now, DEFAULT_TTL_S)
             self.lines += 1
+            self.saw_lines = True
+            self.last_spot_at = now
         return True
 
     def public(self, *, now: float, callsign: str, our_grid: str | None,
@@ -280,6 +317,10 @@ class ClusterService:
             retry_s = self.retry_s
             login = self.login_call or callsign or ""
             selected = dict(self._selected) if self._selected else None
+            saw_lines = self.saw_lines
+            node_spoke = self.node_spoke
+            login_sent = self.login_sent
+            last_spot_at = self.last_spot_at
         allowed = allowed_bands(settings)
         bands_empty = allowed is not None and not allowed
         if not settings.get("enabled"):
@@ -312,19 +353,24 @@ class ClusterService:
             callsign=login, retry_s=retry_s, reason=reason,
             spot_count=spot_count, needed_count=len(rows),
             bands_empty=bands_empty, have_grid=have_grid,
+            have_lines=saw_lines,
         )
         weights = S.cluster_weights(settings.get("qsy_cost", 8))
+        last_age = None if last_spot_at is None else max(0.0, now - last_spot_at)
         detail = status_detail(
             host=settings.get("host") or "", port=int(settings.get("port") or 0),
             callsign=login, qsy_cost=int(settings.get("qsy_cost") or 0),
             bands=None if allowed is None else sorted(allowed),
             ttl_s=DEFAULT_TTL_S, drops=drops, weights=weights,
+            last_spot_age=last_age, node_spoke=node_spoke, login_sent=login_sent,
         )
         selected_line = ""
         if selected and selected.get("call"):
             selected_line = selected.get("line") or ""
         return {
             "enabled": bool(settings.get("enabled")),
+            "node": settings.get("node") or "custom",
+            "nodes": known_nodes(),
             "host": settings.get("host"),
             "port": int(settings.get("port") or 0),
             "bands": "all" if allowed is None else sorted(allowed),
@@ -388,6 +434,8 @@ class ClusterService:
                 self.phase = "connecting"
                 self.login_call = call
                 self.reason = ""
+                self.node_spoke = False
+                self.login_sent = False
                 gen = self._gen
                 host = settings["host"]
                 port = int(settings["port"])
@@ -404,6 +452,8 @@ class ClusterService:
             try:
                 with self._lock:
                     self._sock = sock
+                    self.phase = "tcp"
+                    self.reason = ""
                 self._read_loop(sock, call, gen)
                 backoff = 0.0
                 continue
@@ -425,10 +475,27 @@ class ClusterService:
             finally:
                 self._close_socket()
 
+    def _note_progress(self, link: ClusterLink, saw_bytes: bool) -> None:
+        """TCP up is not logged in. Logged in is not the same as spots."""
+        with self._lock:
+            self.node_spoke = saw_bytes
+            self.login_sent = bool(link.sent_login and saw_bytes)
+            self.retry_s = 0.0
+            self.reason = ""
+            if self.phase == "connected":
+                return
+            if self.login_sent:
+                self.phase = "logged_in"
+            else:
+                self.phase = "tcp"
+
     def _read_loop(self, sock, callsign: str, gen: int) -> None:
         sock.settimeout(1.0)
         link = ClusterLink(callsign, sock.sendall, now=self._monotonic)
-        last = self._monotonic()
+        link.wake()
+        opened = self._monotonic()
+        last_byte = None
+        saw_bytes = False
         while not self._stop.is_set():
             with self._lock:
                 if self._gen != gen or not self._settings.get("enabled"):
@@ -448,11 +515,11 @@ class ClusterService:
                     raise LinkStop("extra", "extra")
                 if link.refused:
                     raise LinkStop("refused", "login")
-                if link.sent_login:
-                    with self._lock:
-                        self.phase = "connected"
-                        self.retry_s = 0.0
-                if self._monotonic() - last > QUIET_S:
+                self._note_progress(link, saw_bytes)
+                now_m = self._monotonic()
+                if not saw_bytes and now_m - opened >= SILENT_S:
+                    raise LinkStop("silent", "silent")
+                if last_byte is not None and now_m - last_byte > QUIET_S:
                     raise TimeoutError("quiet")
                 continue
             if data == b"":
@@ -460,16 +527,14 @@ class ClusterService:
                     if self._gen != gen or not self._settings.get("enabled"):
                         return
                 raise TimeoutError("closed")
-            last = self._monotonic()
+            saw_bytes = True
+            last_byte = self._monotonic()
             spots = link.feed(data)
             if link.extra:
                 raise LinkStop("extra", "extra")
             if link.refused:
                 raise LinkStop("refused", "login")
-            if link.sent_login or spots:
-                with self._lock:
-                    self.phase = "connected"
-                    self.retry_s = 0.0
+            self._note_progress(link, True)
             if spots:
                 received = time.time()
                 with self._lock:
@@ -477,7 +542,11 @@ class ClusterService:
                         self._book.add(spot, received)
                         self.lines += 1
                     self._book.prune(received, DEFAULT_TTL_S)
+                    self.saw_lines = True
+                    self.last_spot_at = received
                     self.phase = "connected"
+                    self.login_sent = True
+                    self.node_spoke = True
 
 
 def _default_connect(address, timeout: float):
