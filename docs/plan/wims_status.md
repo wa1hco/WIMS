@@ -110,13 +110,14 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
   QSOs). Operator **Resync log** (DXLOG re-read) done. Remaining: give-up / run-vs-S&P,
   geometry-aware reachability (§3.14), **cross-band opportunity factor (C7)** from prior-contest
   history.
-- [ ] **M4 — multi-instance + rotator + safety.** Rotator: Yaesu/K3NG status + click-to-point
-  from roster Az (§2.10 / §3.8):
-  - [ ] **Show antenna pointing** — live az (and el when present) in the browser (Status / Operate)
-  - [ ] **Command: rotate to azimuth** — operator enters or selects a bearing; WIMS commands the rotator
-  - [ ] **Rotate to WSJT-X / roster DX az** — point at DX azimuth (decode grid / roster `az`);
-    human initiates, never unattended slew
-  - [ ] Backend: Yaesu GS-232 via K3NG (primary design); soft limits; serialize multi-rotator moves
+- [ ] **M4 — multi-instance + rotator + safety.** Rotator product path is rotctld on the
+  seat agent (design §2.10, revised 2026-10-28; brief [wims_rotator.md](wims_rotator.md)).
+  The earlier Yaesu/K3NG-in-WIMS wording is superseded. Build order:
+  - [ ] **Read-only heading** — name and heading on Operate (current; target and turning blank)
+  - [ ] **Manual turn** — operator enters a bearing; claim-gated; stop
+  - [ ] **Auto-association** — agent proposes the instance; operator confirms once; site profile
+  - [ ] **Point at a spot** — spot click prepares (QSY, rotate, Tuning/Ready); roster click starts
+    the QSO; score by estimated retune time. Never unattended transmit
 - [ ] **M5 — WIMS op works one band on-air (S&P + tailend)** via roster + click-to-work → Reply
   echoing retained decode (CQ or **73**; GT2 pattern) on one empty seat; Free Text + optional
   closing QSY (G4 / §2.8). **Not** Call CQ — run/autorespond is WSJT-X UI (§2.12).
@@ -137,7 +138,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (Checklist), or custom. Checklist adds continent, CQ zone, and ITU zone (overall, per band, or per mode) when `cty.dat` is present; a missing file leaves those three off with a tip. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. A worked place that is not confirmed still shows as unconfirmed for a new station, per the line's scope (overall is any band or mode), until the log or a GridTracker LoTW file on this PC says it is confirmed. A station with no confirmed contact is not marked unconfirmed. That file confirms a matching contact (call, band, LoTW mode group, within 30 minutes) and the grid, state, and DXCC on the record. Setup names when the file was updated, or says it was not found. WIMS does not download LoTW and does not write the file. Log to use is the only log. A saved WSJT-X Colors choice is rewritten once as checklist lines. Heard grids persist, and Work sends a remembered square to that WSJT-X (10-minute rover window; roster says grid assumed only for a rover square from an earlier hearing). DX cluster spots are a separate Operate list (§2.15): any selected amateur band, mode from the comment or the frequency, needed on that spot’s band and mode, a small QSY cost when no live instance is on that band and mode, click selects only. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
 | 3.6 | Logger interface (N1MM) | `[~]` | Log to use on the Log page: the operator’s log, or a Goal suggestion (contest → newest matching N1MM; otherwise WSJT-X). Count-since / count-until change the needed/dupe lookup. N1MM seed + live contact UDP + resync when that contest file is the log. The selected file is re-read about once a second, before the roster is scored, and a locked read does not wipe the copy. A logged contact clears needed and Mult on the next push. The mult badge names the square, the band, and the log. Per-instance `wsjtx_log.adi` discovery and Log-page warnings. **Check logs** is on the Log page (summary first; shared files count once). The N1MM tab lists several stations and stays hidden when fewer than two are heard. Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), challenge pace UI, **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
-| 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. Remaining: live K3NG TCP/serial on agent, command relay seat←server, soft limits from profiles. |
+| 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. That GS-232 client and `WIMS_ROTATOR_*` are a lab stand-in. Product path (design 2026-10-28, not coded): rotctld on the seat agent — read-only heading, manual turn, confirmed link, point-at-spot. See [wims_rotator.md](wims_rotator.md). |
 | 3.9 | Safety / watchdog | `[ ]` | — |
 | 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
 | 3.11 | Config | `[~]` | DX cluster host, port, band set, and QSY cost are saved from Setup in `cluster.json` (same directory as the Goal). Live-roster weights stay the defaults in `engine/scoring.py`. Instance profiles are still not files. |
@@ -186,11 +187,12 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 - [ ] **E1b / §2.11 — Subscribe to station/band → call roster** — operator subscription selects
   which fleet bands’ decodes appear on *their* roster; server still ingests all. Multi-op
   widget shows subscriptions. Distinct from TX claim. Design: wims_design.md §2.11 / §2.7.
-- [ ] **G5 / §2.10 — Rotator status & control (Yaesu / K3NG)** — K3NG/Yaesu backend; state
-  `rotators` + roster **Az ant** (live antenna az) and **Az DX** (bearing to other station).
-  **Az ant uses a different font while actively rotating** (`rotator_moving`). Click-to-point
-  from Az DX; soft limits; stop/park. Prefer **seat agent** owns serial (§3.3.1). Design:
-  wims_design.md §1.4 / §2.10 / §3.8 / §3.3.1.
+- [ ] **G5 / §2.10 — Rotator control (rotctld)** — design **revised 2026-10-28** (Jeff,
+  WA1HCO). The per-PC agent speaks hamlib rotctld; GS-232 serial stays behind rotctld.
+  Operate row: current, target, turning. Fifth launcher checkbox **Rotators**. Confirm
+  the rotor-to-instance link once; multi-multi saves it in the site profile. Spot click
+  (step 4) prepares only. Az ant font while turning (`rotator_moving`). Not coded.
+  Design: wims_design.md §1.4 / §2.10 / §3.8 / §3.3.1 and [wims_rotator.md](wims_rotator.md).
 - [ ] **G6 / §2.12 — Run vs S&P + tailend boundary** — design **done** (2026-07-20, revised same
   day): S&P/tailend = WIMS Reply on retained decode (CQ **and** **73**, GT2 `initiateQso`);
   run/CQ + pile autorespond = WSJT-X UI only; no product Call CQ. Remaining code/UI: observe
@@ -198,7 +200,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   seat/RDP. Design: wims_design.md §2.12 / §1.1 / §4.2.
 - [ ] **§3.3.1 — Seat agent capability matrix (beyond config audit)** — per station agent:
   setup test (**done**); **interlock** sensor (SSB/CW CTS) + fast mute actuator (WSJT-X host);
-  **rotator** status/control (K3NG); thumbnails; process lifecycle; local readiness; watchdog
+  **rotator** status/control (rotctld, §2.10); thumbnails; process lifecycle; local readiness; watchdog
   fail-safe. Design: wims_design.md §3.3.1.
 - [x] **L1 — Contest rules interface (no verdict change).** `arrl-vhf.json` is the
   default `LogStore` rule. `is_dupe` / `is_new_mult` delegate to it. Scoring tests
@@ -253,6 +255,20 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-28** — **Design only: rotator control is rotctld on the seat agent.**
+  Jeff (WA1HCO): WIMS turns rotators itself, through hamlib rotctld. WSJT-X has
+  no rotator control, and the Flex is not the path. The per-PC agent finds each
+  rotor, reads name and heading, announces them with the WSJT-X instances
+  (`6m beam, 212 deg, linked to instance flexA-6M`), and runs turns. The console
+  never sees a port. Launcher gains a **Rotators** checkbox. Link is confirmed
+  once and, on a multi-multi, saved with the site profile. One architecture for
+  home, two PCs, and the fleet. Spot click later prepares (QSY, rotate,
+  Tuning/Ready) and does not transmit; spots score by estimated retune time.
+  Safety: stop on disconnect, heartbeat, optional no rotation during TX.
+  Steps: heading, manual turn, association, point at a spot. The owner’s
+  controller firmware is not written; the brief proposes a name-and-announce
+  feature. No code. Design: [wims_design.md](wims_design.md) §2.10,
+  [wims_rotator.md](wims_rotator.md), networking §3.4.
 - **2026-10-28** — **DX cluster node list, and a silent node is not "connected".** Field check at FN42: `dxc.ve7cc.net` port 23 completed TCP and sent no bytes, so the Spotted list stayed empty with no hint. The usual node is now K1TTT, `k1ttt.net` port 7373. Setup also lists NC7J (`dxc.nc7j.com` port 7373), W3LPL (`w3lpl.net` port 7373), VE7CC, or another host and port. A saved schema-1 VE7CC default moves to K1TTT; picking VE7CC again keeps it. WIMS sends one blank line to wake the node, then the callsign for `login:`, `call:`, `callsign:`, or `Please enter your call` (any case; AR-Cluster, DX-Spider, CC Cluster). No bytes yet is `connected, no spots yet`. Callsign sent is `logged in, no spots yet`. Spot lines are `logged in, N spots, M needed`. After 60 seconds with no banner: `Cluster: node sent nothing. Try another node on Setup.` Hover shows the last spot's age. Tests: `tests/unit/test_cluster.py` with `tests/fixtures/cluster_silent.txt`, `cluster_ar_cluster.txt`, `cluster_dx_spider.txt`.
 - **2026-10-27** — **DX cluster spots on Operate.** A separate Spotted list (design §2.15), not merged into the roster. The site server listens to one cluster node (Setup, default was `dxc.ve7cc.net` port 23, off until Show spots is checked). It sends only the callsign WSJT-X already reported, then listens. No spot is posted and no filter command is sent. Spots on any checked amateur band are kept (default all). Mode comes from the comment, then a watering hole, then the US band segment. Needed is judged on that spot’s band and mode. Range is per band from the grid WSJT-X reports. **QSY** means no live instance is on that band and mode; the spot stays and loses the Setup QSY cost (default 8). **On band** means one is. A click selects the station and remembers the grid. It does not transmit and it does not retune. Work still needs a live decode. Spots drop off after 15 minutes. Weights: [scoring.md](scoring.md). Tests: `tests/unit/test_cluster.py`.
 - **2026-10-27** — **A three-letter KG4 call is the United States.** The country file's KG4 prefix is Guantanamo Bay, so a normal US call such as KG4LDK was read as a new DXCC entity on a band where Guantanamo had not been worked. Just operating then badged it Mult and needed even when that grid was already in the log. A one- or two-letter suffix stays Guantanamo Bay. An exact call in the file still wins. A single remembered square for a fixed station is not labeled grid assumed. Tests: `tests/unit/test_kg4_checklist.py`.

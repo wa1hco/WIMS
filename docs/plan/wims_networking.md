@@ -261,7 +261,11 @@ WIMS-managed instances (that bypasses the TX arbiter — design §1.2 / §4.3).
 - SSB/CW **10 ms** mute is **not** plane B; it is host-agent peer UDP / CTS (design §3.4.1).
 - **Radio CAT / PTT / USB audio** are **not** WIMS planes. They are **seat-local** under the
   radio host (see **§3.2** / **§3.3**). WIMS never opens the radio’s COM port and never speaks
-  CI-V or Hamlib to the rig; it talks only to **WSJT-X over plane A** (and N1MM over plane B).
+  CI-V or Hamlib **rigctld** to the rig; it talks to **WSJT-X over plane A** (and N1MM over
+  plane B).
+- **Rotators** are seat-local too, and they are not a fleet plane. The rotor PC’s agent
+  speaks hamlib **rotctld** (TCP). The site server and the console do not. See **§3.4** and
+  design §2.10.
 
 ### 3.1 Plane E — site-server presence (zero-memory discovery)
 
@@ -318,7 +322,8 @@ WIMS treats **WSJT-X as the radio adapter** for digital:
 **Invariant:** one process (or one deliberate middleware stack) **owns** the radio’s exclusive
 COM/USB CI-V path. A second logger or second digital app must **not** open the same COM port
 directly. Sharing is done via **middleware** (wfview, Win4Icom, virtual ports, etc.), not by
-pointing two apps at the same Windows COM device.
+pointing two apps at the same Windows COM device. Rotator control is a different seat-local
+path (§3.4). It uses rotctld, not the radio’s CAT port.
 
 **Do not** use N1MM’s built-in **Window → Load WSJT/JTDX** / “DX Lab Suite Commander” rig-proxy
 path on WIMS-managed seats. That path makes N1MM the CAT master for WSJT-X and fights the
@@ -485,6 +490,32 @@ Other valid CAT path enums for profiles: `direct-com` · `wfview-rigctld` · `wi
 | N1MM cannot open radio | Pointed at COM while wfview holds it — use wfview **TCP** |
 | WIMS roster empty; waterfall full | WSJT-X not on `224.0.0.73:2237`, or §4.8 outgoing iface |
 | Double QSOs in N1MM | Built-in WSJT reader and/or Secondary UDP 2333 **and** agent Log both on |
+
+---
+
+### 3.4 Seat-local rotators (rotctld) — not a WIMS plane
+
+Rotators follow the same split as radio CAT: the hardware stays on the seat,
+and the site server never opens it. The difference is the program the seat
+talks to. Radio CAT stays in wfview / rigctld / the radio middleware, and WIMS
+talks to WSJT-X. Rotators are hamlib **rotctld**, and the per-PC WIMS agent
+is the client.
+
+| Direction | Who |
+|-----------|-----|
+| Heading, name | rotctld → agent on that PC → site server → Operate |
+| Turn | Operate → site server (control claim) → owning agent → rotctld |
+| GS-232 serial | rotctld only. The agent does not open the serial device |
+
+Design: [wims_design.md](wims_design.md) §2.10 and [wims_rotator.md](wims_rotator.md).
+
+**Port 4533 is the radio** on the preferred Icom seat (§3.3, wfview RigCtld).
+Hamlib’s rotctld default is that same port. The agent does not put a rotor
+there. A listener already on 4533 is the radio, and the agent says so.
+
+The controller’s optional LAN announce (UDP **4534**) is discovery for the
+agent on that LAN. It is not plane A and not plane E. The console does not
+listen for it.
 
 ---
 
