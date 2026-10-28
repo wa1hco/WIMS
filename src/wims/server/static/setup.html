@@ -101,6 +101,49 @@
     <div id="contest-advanced-body" style="font-size:12px;margin-top:8px"></div>
   </details>
 
+  <h2>DX cluster</h2>
+  <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
+    Spots from a DX cluster, read only. WIMS logs in with the callsign from
+    WSJT-X and then only listens. It does not post spots. A click on Operate
+    selects the station. It does not transmit and it does not retune a radio.
+    Work still needs a live decode. Spots can be on any band you check, including
+    ones you would have to QSY to. They drop off after 15 minutes.
+  </p>
+  <div id="cluster-setup" class="syncrow" style="align-items:center;gap:10px;flex-wrap:wrap">
+    <label style="font-size:13px" title="Turn spots on. Saved on this PC, the same way the Goal is.">
+      <input type="checkbox" id="cluster-enabled"> Show spots
+    </label>
+    <label style="font-size:13px" title="K1TTT is the usual node. If the status says the node sent nothing, pick another.">
+      Node
+      <select id="cluster-node">
+        <option value="k1ttt" data-host="k1ttt.net" data-port="7373" selected>K1TTT (AR-Cluster)</option>
+        <option value="nc7j" data-host="dxc.nc7j.com" data-port="7373">NC7J</option>
+        <option value="w3lpl" data-host="w3lpl.net" data-port="7373">W3LPL (DX-Spider)</option>
+        <option value="ve7cc" data-host="dxc.ve7cc.net" data-port="23">VE7CC (CC Cluster)</option>
+        <option value="custom">Other</option>
+      </select>
+    </label>
+    <label style="font-size:13px" title="Host name. Type one here when Node is Other.">
+      Host <input id="cluster-host" size="18" spellcheck="false" value="k1ttt.net">
+    </label>
+    <label style="font-size:13px" title="Port. K1TTT, NC7J, and W3LPL use 7373. VE7CC uses 23.">
+      Port <input id="cluster-port" size="5" value="7373">
+    </label>
+    <label style="font-size:13px" title="Points taken off a spot when no radio is already on that band and mode. The spot stays on the list.">
+      QSY cost <input id="cluster-qsy" type="number" min="0" max="80" step="1" value="8" style="width:4em">
+    </label>
+    <button type="button" id="cluster-save">Save</button>
+  </div>
+  <p class="hint" style="font-size:12px;margin:6px 0">
+    Bands to keep. All of them start on, so a spot on another band can still show.
+    QSY on the Operate line means you would have to move a radio there.
+  </p>
+  <label style="font-size:12px" title="Keep spots on every amateur band.">
+    <input type="checkbox" id="cluster-all" checked> All bands
+  </label>
+  <div id="cluster-bands" class="cluster-bands"></div>
+  <p id="cluster-setup-line" class="hint" style="font-size:12px;margin:6px 0 12px 0"></p>
+
   <h2>Networking checklist</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
     Flat LAN; WSJT-X multicast by band port; N1MM external broadcast to WIMS; see

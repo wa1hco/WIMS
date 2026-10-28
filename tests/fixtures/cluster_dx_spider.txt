@@ -1,0 +1,4 @@
+# Synthetic DX-Spider transcript. Not a recording.
+# The node asks with "login:" and then sends a spot.
+login:
+DX de W3LPL:     14074.0  JA1ABC       PM95 FT8                      1737Z

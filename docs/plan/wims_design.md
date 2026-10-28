@@ -541,6 +541,11 @@ SSB/CW or hand off to a 2nd op.
   `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
+- **Spotted** — a separate compact list of DX cluster spots the current Goal still
+  needs (§2.15). It is not merged into the live roster. Each line shows band and
+  mode, and **QSY** when no live instance is already on that band and mode.
+  A click selects the station and remembers the grid. It does not transmit and
+  it does not retune a radio.
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
   broadcast). N1MM has no heartbeat — "no recent packet" means quiet, not a fault.
@@ -670,6 +675,7 @@ keep WIMS's contest scoring as the "wanted" engine.
 | A4 | Multi-band / multi-instance aggregate | one roster across all ~6 instances | W | H |
 | A5 | Age-out stale rows | drop decodes older than a TTL | both | M |
 | A6 | Rover in a new grid = fresh high-value row | not greyed as a dupe | W | H |
+| A7 | **DX cluster spots, separate list** | needed spots on any band the station can use, including a band or mode that needs a QSY; click prepares only (§2.15) | W | H |
 
 **B. Columns & sorting**
 
@@ -1295,6 +1301,82 @@ in-progress FT8 QSO before keying when possible); actuation adds automatic inhib
 
 **Not a third “disable all safety” mode.** Coordinated still assumes cooperative operators and
 contest rules; WIMS simply does not automate the stop. Panic Halt and readiness fail-soft remain.
+
+---
+
+### 2.15 Hint sources — DX cluster spots
+
+The live roster is stations a subscribed WSJT-X has decoded. A hint is a station
+heard somewhere else, shown so the operator can decide whether to move a radio.
+Hints stay on their own list. They are never merged into the roster, and they
+never start a transmission.
+
+**DX cluster (built).** The site server opens one read-only telnet session to the
+node chosen on Setup. The usual node is K1TTT, `k1ttt.net` port 7373
+(AR-Cluster). The list also offers NC7J (`dxc.nc7j.com` port 7373), W3LPL
+(`w3lpl.net` port 7373, DX-Spider), VE7CC (`dxc.ve7cc.net` port 23, CC
+Cluster), or a host and port the operator types. Spots stay off until Setup
+checks **Show spots**. The choice is saved beside the Goal (`cluster.json` in
+the same directory). There is no command-line flag and no environment variable.
+
+A field check from FN42 found that VE7CC port 23 can complete TCP and then
+send no bytes. That is not a working login. The first saved copy of that
+factory pair is moved to K1TTT. Picking VE7CC again keeps it.
+
+Login uses the callsign WSJT-X (or the N1MM logger, or a seat-agent config) has
+already reported. WIMS sends one blank line so a node that waits for the
+client will speak, then the callsign when it sees a login prompt (`login:`,
+`call:`, `callsign:`, or `Please enter your call`, any case). That covers
+AR-Cluster, DX-Spider, and CC Cluster. It does not post a spot, an
+announcement, or a band filter. Telnet option requests are refused; that
+handshake is not a cluster command. One connection, with a wait that starts
+at 5 seconds and doubles up to 5 minutes. Some nodes allow one connection
+per callsign.
+
+The status does not say the node is fine just because TCP is up. No bytes
+yet is `connected, no spots yet`. The callsign has been sent and no spot
+line has arrived is `logged in, no spots yet`. Spot lines are `logged in, N
+spots, M needed`. After about 60 seconds with no banner the line is
+`Cluster: node sent nothing. Try another node on Setup.` Hover shows how
+long since the last spot line. WIMS will not send a filter command.
+
+A spot is kept when all of these are true:
+
+- The frequency is on an amateur band the operator left checked. The set
+  defaults to every band WIMS already names (160 m through 1.2 cm). Saving
+  with every box checked stores “all”, so a band added later stays included.
+- The station is still needed on **that spot’s** band and mode under the
+  current Goal. The same classify path as the roster decides this. A dupe is
+  not listed.
+- A grid is in the comment, or WIMS has already heard one for that call.
+  `RR73` is not a grid.
+- The distance from the station grid WSJT-X reports is inside the workable
+  window for **that band** (and for MSK144, that mode). The windows are a
+  choice, written in [scoring.md](scoring.md). No station grid means nothing
+  is listed, and the status says why.
+- The spot is younger than 15 minutes. Age is when WIMS received the line.
+
+The mode is inferred: a word in the comment wins (FT8, FT4, MSK144, Q65, CW,
+SSB, and the other tokens in `integrations/cluster/modes.py`), then the nearest
+watering hole, then the US band segment (CW below the data segment, phone above
+it). USB, LSB, and PHONE show as SSB.
+
+**QSY is a cost, not a filter.** **On band** means a live instance (not dead,
+and with a dial) is already on that band and that mode. FT8 on 10 m does not
+cover CW on 10 m. Anything else is **QSY**. The spot stays. Its score loses
+the QSY cost from Setup (default 8 points, 0–80). Zero keeps the spot with no
+penalty. The named weights are in [scoring.md](scoring.md). The live roster
+weights are unchanged.
+
+A click on a Spotted line stores the selection and remembers the grid, so a
+later Work on a live decode can fill a blank square. The click does not call
+Reply, Halt, or Configure, and it does not retune a radio. Work still requires
+a live decode on the roster.
+
+**Still planned, not built:** PSK Reporter, ON4KST, Ping Jockey, and a
+worked-previously history list. Those stay off until their own access and
+parsing are settled. They would be further separate lists, with the same rule:
+a click prepares, and nothing transmits or retunes by itself.
 
 ---
 

@@ -74,6 +74,10 @@ from wims.state.heard_grids import (  # noqa: E402
 )
 from wims.state import last_log as last_log_pref  # noqa: E402
 from wims.integrations.logsource import N1mmLogSource  # noqa: E402
+from wims.integrations.cluster.client import ClusterService  # noqa: E402
+from wims.integrations.cluster.modes import canonical_mode as _spot_mode  # noqa: E402
+from wims.integrations.cluster.parse import valid_login_call as _login_call  # noqa: E402
+from wims.integrations.cluster.view import OnAir as _OnAir  # noqa: E402
 from wims.config.seat_profile import (  # noqa: E402
     default_seat_profile_path, load_seat_profile, save_seat_profile_marks,
 )
@@ -238,6 +242,8 @@ class LiveFleet:
         # In-memory until main() attaches the JSON file. Tests stay off the
         # operator's heard-grid file.
         self._heard = HeardGrids()
+        # DX cluster spots. The thread starts from main(), not from tests.
+        self._cluster = ClusterService()
         self._maps: dict[str, ActivityMap] = {}    # per-instance decode-activity map
         self._decodes: deque = deque(maxlen=300)   # rolling fleet-wide decode log
         self._condition = condition
@@ -2152,7 +2158,154 @@ class LiveFleet:
             d["lotw"] = status_public()
             d["log_access"] = list(self._log_access_rows)
             d["log_in_use"] = dict(self._log_in_use)
+            d["cluster"] = self._cluster_public_locked(now)
             return d
+
+    def _grid_text(self, grid: str | None) -> str:
+        g = (grid or "").strip().upper()
+        if len(g) not in (4, 6):
+            return ""
+        if not (g[0].isalpha() and g[1].isalpha() and g[2].isdigit() and g[3].isdigit()):
+            return ""
+        if len(g) == 6 and not (g[4].isalpha() and g[5].isalpha()):
+            return ""
+        return g
+
+    def _best_station_field_locked(self, field: str) -> str:
+        best = ""
+        best_t = -1.0
+        now = time.time()
+        for node in self._tracker.nodes.values():
+            if node.health(now) == "DEAD":
+                continue
+            value = (getattr(node, field, None) or "").strip().upper()
+            if not value:
+                continue
+            seen = node.last_seen() or 0
+            if seen >= best_t:
+                best = value
+                best_t = seen
+        return best
+
+    def _agent_station_locked(self) -> tuple[str, str]:
+        call, grid = "", ""
+        best = -1.0
+        for report in self._agents.values():
+            try:
+                ts = float(report.get("received_at") or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            configs = ((report.get("wsjtx") or {}).get("configs") or [])
+            for cfg in configs:
+                if not isinstance(cfg, dict):
+                    continue
+                c = str(cfg.get("my_call") or "").strip().upper()
+                g = str(cfg.get("my_grid") or "").strip().upper()
+                if ts >= best and (c or g):
+                    best = ts
+                    call, grid = c, g
+        return call, grid
+
+    def _operator_call_locked(self) -> str:
+        call = self._best_station_field_locked("de_call")
+        if _login_call(call):
+            return call
+        for logger in self._tracker.loggers.values():
+            call = (getattr(logger, "mycall", None) or "").strip().upper()
+            if _login_call(call):
+                return call
+        call, _grid = self._agent_station_locked()
+        return call if _login_call(call) else ""
+
+    def _operator_grid_locked(self) -> str:
+        grid = self._grid_text(self._best_station_field_locked("de_grid"))
+        if grid:
+            return grid
+        _call, grid = self._agent_station_locked()
+        return self._grid_text(grid)
+
+    def _operations_locked(self, now: float) -> list:
+        out = []
+        for node in self._tracker.nodes.values():
+            if node.health(now) == "DEAD":
+                continue
+            band = node.band or ""
+            if not band or band == "?" or not node.dial_hz:
+                continue
+            out.append(_OnAir(band, _spot_mode(node.mode)))
+        return out
+
+    def _cluster_public_locked(self, now: float) -> dict:
+        def classify(call, band, grid, mode):
+            return self._log.classify(call, band, grid, mode)
+
+        def grid_for(call):
+            return self._heard.lookup(call, now).grid or ""
+
+        def rover_for(call):
+            return self._heard.is_rover(call, now)
+
+        return self._cluster.public(
+            now=now,
+            callsign=self._operator_call_locked(),
+            our_grid=self._operator_grid_locked() or None,
+            operations=self._operations_locked(now),
+            classify=classify,
+            grid_for=grid_for,
+            rover_for=rover_for,
+            spotter_grid=grid_for,
+        )
+
+    def start_cluster(self) -> None:
+        self._cluster.start(self._cluster_callsign)
+
+    def stop_cluster(self) -> None:
+        self._cluster.stop()
+
+    def _cluster_callsign(self) -> str:
+        with self._lock:
+            return self._operator_call_locked()
+
+    def set_cluster(self, body: dict) -> dict:
+        """POST /api/cluster. Saved beside the Goal. No flag and no env var."""
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "invalid_body"}
+        saved = self._cluster.update(body)
+        return {
+            "ok": True,
+            "enabled": saved["enabled"],
+            "host": saved["host"],
+            "port": saved["port"],
+            "bands": saved["bands"],
+            "qsy_cost": saved["qsy_cost"],
+        }
+
+    def select_spot(self, body: dict) -> dict:
+        """Remember a spotted station. Does not transmit and does not retune."""
+        if not isinstance(body, dict):
+            return {"ok": False, "error": "invalid_body",
+                    "line": "That spot could not be read."}
+        call = str(body.get("call") or "").strip().upper()
+        if not call:
+            return {"ok": False, "error": "no_call",
+                    "line": "That spot has no callsign."}
+        grid = self._grid_text(body.get("grid"))
+        band = str(body.get("band") or "").strip()
+        mode = str(body.get("mode") or "").strip()
+        where = " ".join(part for part in (band, mode) if part)
+        place = f" {grid}" if grid else ""
+        on = f" on {where}" if where else ""
+        line = (
+            f"Selected {call}{place}{on}. "
+            "Work needs a live decode. The radio is not retuned."
+        )
+        with self._lock:
+            self._cluster.set_selected({
+                "call": call, "grid": grid, "band": band, "mode": mode, "line": line,
+            })
+            if grid:
+                self._heard.note(call, grid, band or "?", time.time())
+        return {"ok": True, "line": line, "transmitted": False, "retuned": False}
 
     def _n1mm_db_path(self) -> str:
         active = self._active_contest or {}
@@ -3022,6 +3175,21 @@ def make_handler(live: LiveFleet, refresh: float):
                     self._send_json(code, result)
                 except Exception as e:
                     self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/cluster":
+                try:
+                    result = live.set_cluster(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
+            elif path == "/api/cluster/select":
+                # Selects a spotted station. Never a transmit and never a retune.
+                try:
+                    result = live.select_spot(body)
+                    code = 200 if result.get("ok") else 400
+                    self._send_json(code, result)
+                except Exception as e:
+                    self._send_json(500, {"ok": False, "error": str(e)})
             elif path == "/api/logs/check":
                 try:
                     self._send_json(200, live.check_logs(start=True))
@@ -3595,12 +3763,21 @@ def main() -> None:
             flush=True,
         )
 
+    try:
+        live.start_cluster()
+    except Exception as exc:
+        print(f"  DX cluster did not start ({exc}).", flush=True)
+
     print("Ctrl-C to stop.")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
     finally:
+        try:
+            live.stop_cluster()
+        except Exception:
+            pass
         if announcer is not None:
             announcer.stop()
         try:

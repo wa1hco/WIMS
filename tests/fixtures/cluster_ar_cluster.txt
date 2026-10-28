@@ -1,0 +1,6 @@
+# Synthetic AR-Cluster transcript. Not a recording.
+# The node sends a banner, asks for the call, then a spot.
+AR-Cluster Version 6.1
+Welcome to K1TTT
+Please enter your call:
+DX de K1TTT:      28074.0  K1ABC        FN42 FT8                      1734Z

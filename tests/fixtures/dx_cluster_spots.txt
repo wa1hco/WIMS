@@ -1,0 +1,13 @@
+# Synthetic DX cluster lines. Not a recording of a live node.
+# The shape is the standard "DX de SPOTTER: freq CALL comment time" line.
+DX de K1TTT:      28074.0  K1ABC        FN42 FT8                      1734Z
+DX de W1AW:       28075.5  K1ABC        FN42 loud                     1735Z
+DX de W3LPL-#:    28074.0  N0ROV/R      FN31 rover                    1736Z
+DX de K2SPO:     144174.0  W2XYZ        FN20                          1736Z
+DX de K5DX:       28025.0  K4CW         CW                            1736Z
+DX de G4ABC:      50313.0  EA8/DK9TN    IL18                          1737Z
+DX de N1ABC:      14074.0  JA1ABC       PM95 FT8                      1737Z
+DX de VE3BAR:     50125.0  VE3ABC       FN03 SSB                      1738Z
+WCY de DK0WCY: 10cm flux 72
+To ALL de W1AW: bulletin, not a spot
+DX de SPOTTER: this line has no frequency and is not a spot

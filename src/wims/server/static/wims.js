@@ -24,7 +24,7 @@
 // no-ops when its container is absent. The frontend is the disposable part; the
 // state contract (server/state.py) is the durable boundary.
 //
-//   Operate  — roster; TX groups banner only when a group conflicts
+//   Operate  — roster, spotted list; TX groups banner only when a group conflicts
 //   Status   — overview / WSJT / N1MM (N1MM owns contest log pick/resync)
 //   Setup    — install diagnostics: networking checklist, host app configs
 
@@ -3001,6 +3001,229 @@ function renderTxBar(tx) {
   }
 }
 
+// -- DX cluster spots (separate from the live roster) ----------------------- //
+
+function spotAge(s) {
+  s = Math.max(0, Math.round(Number(s) || 0));
+  if (s < 60) return s + "s";
+  return Math.round(s / 60) + "m";
+}
+
+function spotTitle(row) {
+  const factors = (row.factors || []).map(f => {
+    const n = Number(f.contribution);
+    const sign = n > 0 ? "+" : "";
+    return f.name + " " + sign + n + (f.detail ? " (" + f.detail + ")" : "");
+  }).join(" · ");
+  const who = (row.spotter_calls || []).join(", ");
+  return [
+    row.why_full || row.why || "",
+    factors,
+    row.km != null ? (row.km + " km") : "",
+    who ? ("Spotters: " + who) : "",
+    "Click selects this station. It does not transmit or retune. Work needs a live decode.",
+  ].filter(Boolean).join("\n");
+}
+
+let _spotWired = false;
+function spotWire() {
+  const body = $("spot-body");
+  if (!body || _spotWired) return;
+  _spotWired = true;
+  body.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr[data-call]");
+    if (!tr) return;
+    const note = $("spot-note");
+    fetch("/api/cluster/select", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        call: tr.dataset.call || "",
+        grid: tr.dataset.grid || "",
+        band: tr.dataset.band || "",
+        mode: tr.dataset.mode || "",
+      }),
+    }).then(r => r.json()).then(j => {
+      if (note) note.textContent = (j && j.line) || "";
+    }).catch(err => {
+      if (note) note.textContent = String(err);
+    });
+  });
+}
+
+function renderSpotted(c) {
+  const status = $("spot-status");
+  if (!status) return;
+  c = c || {};
+  status.textContent = c.status_line || "Cluster: off. Turn it on in Setup.";
+  if (c.detail) status.title = c.detail;
+  const note = $("spot-note");
+  if (note && c.selected_line) note.textContent = c.selected_line;
+  const table = $("spot");
+  const body = $("spot-body");
+  if (!table || !body) return;
+  spotWire();
+  const rows = c.rows || [];
+  table.hidden = rows.length === 0;
+  const selCall = (c.selected && c.selected.call) || "";
+  const selBand = (c.selected && c.selected.band) || "";
+  body.innerHTML = rows.map(row => {
+    const on = selCall && row.call === selCall && row.band === selBand;
+    const whereCls = row.needs_qsy ? "qsy" : "here";
+    return `<tr class="${on ? "spot-sel" : ""}" data-call="${escAttr(row.call)}" ` +
+      `data-grid="${escAttr(row.grid || "")}" data-band="${escAttr(row.band || "")}" ` +
+      `data-mode="${escAttr(row.mode || "")}" title="${escAttr(spotTitle(row))}">` +
+      `<td>${esc(row.call)}</td><td>${esc(row.grid || "")}</td>` +
+      `<td>${esc(fmtBand(row.band))}</td><td>${esc(row.mode || "")}</td>` +
+      `<td class="num">${esc(row.freq || "")}</td>` +
+      `<td class="${whereCls}">${esc(row.where || "")}</td>` +
+      `<td>${esc(row.why || "")}</td>` +
+      `<td class="num">${row.score == null ? "" : row.score}</td>` +
+      `<td class="num">${spotAge(row.age_s)}</td>` +
+      `<td class="num">${row.spotters == null ? "" : row.spotters}</td></tr>`;
+  }).join("");
+}
+
+function clusterReadForm() {
+  const bands = [];
+  document.querySelectorAll("#cluster-bands input[data-band]").forEach(box => {
+    if (box.checked) bands.push(box.dataset.band);
+  });
+  const all = $("cluster-all");
+  const node = $("cluster-node");
+  return {
+    enabled: !!($("cluster-enabled") && $("cluster-enabled").checked),
+    node: node ? node.value : "custom",
+    host: ($("cluster-host") && $("cluster-host").value || "").trim(),
+    port: Number($("cluster-port") && $("cluster-port").value),
+    qsy_cost: Number($("cluster-qsy") && $("cluster-qsy").value),
+    bands: (all && all.checked) ? "all" : bands,
+  };
+}
+
+function clusterApplyPick() {
+  const sel = $("cluster-node");
+  const host = $("cluster-host");
+  const port = $("cluster-port");
+  if (!sel || !host || !port) return;
+  const opt = sel.options[sel.selectedIndex];
+  const custom = !opt || opt.value === "custom" || !opt.dataset.host;
+  host.readOnly = !custom;
+  port.readOnly = !custom;
+  if (!custom) {
+    host.value = opt.dataset.host;
+    port.value = opt.dataset.port;
+  }
+}
+
+function clusterSave() {
+  const line = $("cluster-setup-line");
+  fetch("/api/cluster", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(clusterReadForm()),
+  }).then(r => r.json()).then(j => {
+    if (!line) return;
+    if (j && j.ok) {
+      delete line.dataset.err;
+    } else {
+      line.dataset.err = "1";
+      line.textContent = "Could not save. Try again.";
+    }
+  }).catch(() => {
+    if (!line) return;
+    line.dataset.err = "1";
+    line.textContent = "Could not save. Try again.";
+  });
+}
+
+let _clusterWired = false;
+function clusterWire() {
+  if (_clusterWired || !$("cluster-save")) return;
+  _clusterWired = true;
+  $("cluster-save").addEventListener("click", clusterSave);
+  const en = $("cluster-enabled");
+  if (en) en.addEventListener("change", clusterSave);
+  const all = $("cluster-all");
+  const wrap = $("cluster-bands");
+  if (all) all.addEventListener("change", () => {
+    if (wrap) wrap.querySelectorAll("input[data-band]").forEach(box => {
+      box.checked = all.checked;
+    });
+    clusterSave();
+  });
+  if (wrap) wrap.addEventListener("change", (e) => {
+    if (!e.target.closest("input[data-band]")) return;
+    if (all) {
+      const boxes = [...wrap.querySelectorAll("input[data-band]")];
+      all.checked = boxes.length > 0 && boxes.every(b => b.checked);
+    }
+    clusterSave();
+  });
+  const qsy = $("cluster-qsy");
+  if (qsy) qsy.addEventListener("change", clusterSave);
+  const node = $("cluster-node");
+  if (node) node.addEventListener("change", () => {
+    clusterApplyPick();
+    clusterSave();
+  });
+  const host = $("cluster-host");
+  if (host) host.addEventListener("change", () => {
+    if (node && !host.readOnly) node.value = "custom";
+    clusterSave();
+  });
+  const port = $("cluster-port");
+  if (port) port.addEventListener("change", () => {
+    if (node && !port.readOnly) node.value = "custom";
+    clusterSave();
+  });
+}
+
+let _clusterReady = false;
+function renderCluster(c) {
+  renderSpotted(c);
+  const host = $("cluster-host");
+  const line = $("cluster-setup-line");
+  if (line && c && !line.dataset.err) {
+    line.textContent = c.status_line || "";
+    if (c.detail) line.title = c.detail;
+  }
+  if (!host) return;
+  clusterWire();
+  if (_clusterReady) return;
+  _clusterReady = true;
+  c = c || {};
+  const en = $("cluster-enabled");
+  if (en) en.checked = !!c.enabled;
+  const node = $("cluster-node");
+  if (node && c.nodes && c.nodes.length) {
+    const current = c.node || "custom";
+    node.innerHTML = c.nodes.map(item =>
+      `<option value="${escAttr(item.id)}" data-host="${escAttr(item.host)}" ` +
+      `data-port="${escAttr(String(item.port))}">${esc(item.label)}</option>`
+    ).join("") + '<option value="custom">Other</option>';
+    node.value = [...node.options].some(opt => opt.value === current) ? current : "custom";
+  } else if (node && c.node) {
+    node.value = c.node;
+  }
+  host.value = c.host || "k1ttt.net";
+  const port = $("cluster-port");
+  if (port) port.value = c.port || 7373;
+  clusterApplyPick();
+  const qsy = $("cluster-qsy");
+  if (qsy && c.qsy_cost != null) qsy.value = String(c.qsy_cost);
+  const all = $("cluster-all");
+  if (all) all.checked = c.all_bands !== false;
+  const wrap = $("cluster-bands");
+  if (wrap) {
+    const choices = c.band_choices || [];
+    wrap.innerHTML = choices.map(item =>
+      `<label><input type="checkbox" data-band="${escAttr(item.band)}" ${item.on ? "checked" : ""}> ` +
+      `${esc(fmtBand(item.band))}</label>`
+    ).join("");
+  }
+}
+
 // -- dispatch + connect ----------------------------------------------------- //
 
 function render(s) {
@@ -3013,6 +3236,7 @@ function render(s) {
   renderInterlock(s.interlock, s.tx);
   _rosOffered = operateOfferedBands(s);
   renderRoster(s.roster);
+  renderCluster(s.cluster);
   renderInstances(s);
   renderActivity(s.activity);
   renderDecodes(s.decodes);                   // no-op unless #dlog-body exists

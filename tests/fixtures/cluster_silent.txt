@@ -1,0 +1,3 @@
+# Synthetic transcript of a node that accepts TCP and sends no bytes.
+# dxc.ve7cc.net port 23 did this in the FN42 field test.
+# There is no banner and no login prompt below this comment.

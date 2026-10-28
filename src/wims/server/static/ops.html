@@ -89,6 +89,18 @@
   </table>
   <div id="ros-empty" class="empty">no decodes yet…</div>
 
+  <h2>Spotted</h2>
+  <p id="spot-status" class="hint" title="DX cluster spots. A click selects the station. It does not transmit and it does not retune a radio. Work still needs a live decode.">Cluster: off. Turn it on in Setup.</p>
+  <table id="spot" class="tight" hidden>
+    <thead><tr>
+      <th>Call</th><th>Grid</th><th>Band</th><th>Mode</th><th>MHz</th>
+      <th></th><th>Why</th><th class="num">Score</th><th class="num">Age</th>
+      <th class="num" title="How many stations posted this">Sp</th>
+    </tr></thead>
+    <tbody id="spot-body"></tbody>
+  </table>
+  <p id="spot-note" class="hint"></p>
+
   <!--
     TX groups is display-only. Hidden while every group has one instance and
     nothing is blocked, overlapping, or refused. The summary title is the
