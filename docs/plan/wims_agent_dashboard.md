@@ -94,7 +94,7 @@ Setup page expands the nested report (per WSJT-X.ini UDP Server / Outgoing inter
 Full agent capability matrix (design **[wims_design.md §3.3.1](wims_design.md)**):
 
 - **10 ms interlock** — SSB/CW CTS sensor + WSJT-X host fast mute (peer-to-peer, not via server)
-- **Rotator** — K3NG/Yaesu status + control (Az ant); serial owned on the seat
+- **Rotator** — rotctld status and turns (design §2.10); the agent owns the session, the console never sees the port
 - Thumbnails, process lifecycle, local readiness 🟢/🔴, watchdog fail-safe
 - Contest profile expected-vs-actual board
 - Plane A join **2237** (fleet default; lab may pass extra ports)

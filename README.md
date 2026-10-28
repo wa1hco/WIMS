@@ -181,7 +181,7 @@ Double-click **WIMS**. On Windows the same window is **Start-WimsLauncher** in `
         └────────────────────────│  - safety / watchdog     │
                                  └───────┬─────────┬────────┘
                                          │         │
-                           N1MM+ (log, ◀┘          └▶ Rotator(s) Yaesu/K3NG
+                           N1MM+ (log, ◀┘          └▶ Rotators (seat agent → rotctld)
                            dupe/needed)
 ```
 
@@ -189,6 +189,8 @@ Double-click **WIMS**. On Windows the same window is **Start-WimsLauncher** in `
 Consoles are browsers. Soft claim who may command TX from the console; local seat **run/CQ**
 (Enable Tx in WSJT-X) is attended by the seat op. 10 ms SSB/CW mute runs on the **radio host
 agent**, not through the server. Design §2.12 / §4 / §4.5.
+Rotator control is designed and not built yet: the seat agent speaks hamlib
+rotctld, and the console never sees a port (design §2.10).
 
 ## Status
 

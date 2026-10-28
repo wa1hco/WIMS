@@ -150,7 +150,7 @@ TX steps in the runbook are **provisional** until the first real-WSJT-X dummy-lo
 | Dummy-load Reply echo-exactness | Open (R0 ship gate) |
 | Seat agent: interlock / KEY / mute | Not productized |
 | KEY agent fleet assignment | Lab selftest in GUI only; no server-pushed targets yet |
-| Rotator: live K3NG on seats | Partial (sim + API; not full product) |
+| Rotator product path (rotctld, design §2.10) | Not started. A lab sim and an in-process GS-232 helper exist; they are not the product path |
 | Desktop GUI role launcher | Done (`python -m wims` / Desktop **WIMS** icon) |
 | Multi-op claims, remote console polish | Later milestones |
 | Fleet inventory UI + KEY target lists as nodes churn | Design §2.13; not coded |

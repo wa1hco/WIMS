@@ -120,3 +120,17 @@ Comment wins over the frequency. A comment that says CW on 28.074 is CW.
 
 **On band** requires the same band and the same mode. An FT8 instance does
 not cover a CW spot on that band.
+
+## Retune time (designed, not scored yet)
+
+Rotator step 4 (design §2.10) replaces the flat `qsy` cost with estimated
+retune time. Until that step, the table above is what Operate scores.
+
+Time is the shortest-arc turn from the rotor’s current heading to the
+bearing of the spot grid, divided by the rotor’s slew rate. When the rate
+is unknown, use 6°/s and say the rate is assumed. Add an allowance when the
+radio must change band or mode. A spot already on frequency and already in
+the beam has no retune penalty. The hover shows the breakdown
+(`retune 20s (turn 90°)`). A spot with no grid is not rotated and keeps the
+flat cost only, with the row saying the grid is missing. The live roster
+weights stay as they are.
