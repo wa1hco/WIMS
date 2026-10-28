@@ -509,7 +509,14 @@ SSB/CW or hand off to a 2nd op.
 - **Decision log** — station chosen, needed-vs-dupe reason, run/S&P mode, give-up events
   (scrolling).
 - **Call roster** — **GridTracker-style flat table, one row per station heard** (every decode with a
-  callsign, CQ or mid-exchange), scored via §3.5 with the score **kept as a sortable column** (not the
+  callsign, CQ or mid-exchange). FT8 and FT4 print one compound station several ways: the full
+  call (`P4/WE9V`), a resolved hash (`<P4/WE9V>`), or an unresolved hash (`<...>`). The row is
+  keyed by the full call. `<...>` adds no row. A DXpedition line `CALL RR73; CALL <FOX> report`
+  is from the fox. A compound CQ cannot carry a grid, so the Grid cell stays blank — country
+  still names the place (P4 is Aruba) — and the row is not labeled **grid assumed**. A home-call
+  token joins that compound only on the same instance and band within three minutes; a CQ of the
+  bare call remains its own station. The same rule covers `/P`, `/R`, `/QRP`, `/MM`, and a prefix
+  such as `VE3/W1XX`. Scored via §3.5 with the score **kept as a sortable column** (not the
   only view). **Population is subscription-scoped (§2.7 / §2.11):** the operator **subscribes to a
   fleet station/band** (seat or band instance); only decodes from subscribed bands appear in *that
   operator’s* roster. Columns: **DX callsign · Country** (DXCC entity name for the

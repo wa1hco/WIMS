@@ -70,6 +70,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from wims.engine.callsign import is_compound_call, plain_call, same_home
 from wims.udp.messages import extract_grid, standard_station_grid
 
 # Drop a station after this long with no new hearing.
@@ -325,7 +326,19 @@ class HeardGrids:
     def note_decode(self, msg, band: str, when: float) -> bool:
         if getattr(msg, "off_air", False):
             return False
-        return self.note_message(getattr(msg, "message", None), band, when)
+        pair = standard_station_grid(getattr(msg, "message", None))
+        if pair is None:
+            return False
+        parsed, grid = pair
+        named = plain_call(getattr(msg, "dx_call", None)) or ""
+        call = parsed
+        # A standard message can name the home call while the roster has
+        # already resolved the transmitter to the full compound. Keep the
+        # square on that full call. Do not attach another station's grid.
+        if (named and named != parsed and same_home(named, parsed)
+                and is_compound_call(named)):
+            call = named
+        return self.note(call, grid, band, when)
 
     def note_exchange(self, call: str, when: float) -> None:
         """Mark a QSO with our station as in progress at ``when``.

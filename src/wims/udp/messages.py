@@ -41,6 +41,8 @@ import re
 import struct
 from dataclasses import dataclass, field
 
+from wims.engine.callsign import is_unresolved_hash, plain_call
+
 MAGIC = 0xADBCCBDA
 
 # Message type numbers (NetworkMessage::Type enum).
@@ -345,12 +347,15 @@ def standard_station_grid(message: str | None) -> tuple[str, str] | None:
             return None
         return dx_call, grid
     if (len(tokens) == 3
-            and _is_station_token(tokens[0])
-            and _is_station_token(tokens[1])):
+            and _call_slot(tokens[0])
+            and _call_slot(tokens[1])):
+        dx_call = _station_call(tokens[1])
+        if not dx_call:
+            return None
         grid = tokens[2].upper()
         if not _GRID_RE.match(grid) or grid == "RR73":
             return None
-        return tokens[1].upper(), grid
+        return dx_call, grid
     return None
 
 
@@ -391,14 +396,37 @@ def _looks_like_callsign(token: str | None) -> bool:
     return has_letter and has_digit
 
 
+def _core_token(token: str | None) -> str:
+    """Uppercase call text without hash brackets or a trailing semicolon."""
+    call = plain_call(token) or ""
+    return call.rstrip(";.,")
+
+
 def _is_station_token(token: str | None) -> bool:
-    """True for a callsign. Reports, grids, and sign-offs are not stations."""
-    if not _looks_like_callsign(token):
+    """True for a callsign. Reports, grids, sign-offs, and ``<...>`` are not."""
+    if not token or is_unresolved_hash(token):
         return False
-    t = token.strip().upper()
-    if t in _SIGNOFF_TOKENS:
+    core = _core_token(token)
+    if not core or core in _SIGNOFF_TOKENS:
         return False
-    return _REPORT_RE.match(t) is None
+    if not _looks_like_callsign(core):
+        return False
+    return _REPORT_RE.match(core) is None
+
+
+def _station_call(token: str | None) -> str | None:
+    """Plain callsign for a station slot, or None for a hash / non-call."""
+    if not token or is_unresolved_hash(token):
+        return None
+    call = plain_call(token)
+    if not call or not _is_station_token(call):
+        return None
+    return call
+
+
+def _call_slot(token: str | None) -> bool:
+    """True when the token occupies a callsign slot, including ``<...>``."""
+    return is_unresolved_hash(token) or _station_call(token) is not None
 
 
 def reply_auto_tx_eligible(message: str | None) -> bool:
@@ -503,9 +531,35 @@ def _calling_station(tokens: list[str]) -> tuple[str | None, int | None]:
     for i, t in enumerate(tokens[1:], start=1):
         if _GRID_RE.match(t):
             break
-        if _is_station_token(t):
-            return t.upper(), i
+        if is_unresolved_hash(t):
+            continue
+        call = _station_call(t)
+        if call:
+            return call, i
     return None, None
+
+
+def _dxpedition_from(tokens: list[str]) -> tuple[str | None, str | None, str] | None:
+    """Fox message ``X RR73; Y <Z> report`` is transmitted by Z.
+
+    WSJT-X DXpedition mode packs a sign-off to one hound and a report to
+    another into one line. The fox is the call after the second hound, hashed
+    (``<P4/WE9V>``) or written in full. ``<...>`` in that slot is an unknown
+    fox: the shape is recognized so it is not parsed as a station named
+    ``RR73;``, and no roster line is created.
+
+    Returns ``(dx, to, report)`` or None when this is not that shape.
+    ``dx`` is None when the fox hash is unresolved.
+    """
+    if len(tokens) != 5 or tokens[1].upper() != "RR73;":
+        return None
+    y, z, report = tokens[2], tokens[3], tokens[4]
+    if is_unresolved_hash(z):
+        return None, _station_call(y), report
+    dx = _station_call(z)
+    if not dx:
+        return None
+    return dx, _station_call(y), report
 
 
 def _interpret_decode(
@@ -526,6 +580,11 @@ def _interpret_decode(
 
     Only callsigns become stations. A report, grid, sign-off, or plain word is
     never written into DX or Calling.
+
+    A hashed compound call is the same station with the brackets removed
+    (``<P4/WE9V>`` → ``P4/WE9V``). ``<...>`` occupies a callsign slot and is
+    not a station. A DXpedition line ``CALL RR73; CALL <FOX> report`` is from
+    the fox.
 
     WSJT-X 2.7+ Message System QSY lines put the **target call** in ``dx_call``
     and a ``QSY …`` label in ``to_call`` (Calling). The raw payload
@@ -553,18 +612,24 @@ def _interpret_decode(
         dx_call, dx_at = _calling_station(tokens)
         tail = _tail_after(tokens, (dx_at + 1) if dx_at is not None else 1)
         return head == "CQ", dx_call, head, grid, tail
+    # Fox / DXpedition: "X RR73; Y <Z> rpt" is from Z, not from the RR73 token.
+    fox = _dxpedition_from(tokens)
+    if fox is not None:
+        dx_call, to_call, report = fox
+        return False, dx_call, to_call, None, report
     # Standard exchange "<to> <from> <report/grid>": the caller of interest (the
     # station transmitting) is the 2nd token; the 1st is who it is addressing.
+    # Either slot may be an unresolved hash. That slot is not a station.
     if (len(tokens) >= 2
-            and _is_station_token(tokens[0])
-            and _is_station_token(tokens[1])):
-        return (
-            False,
-            tokens[1].upper(),
-            tokens[0].upper(),
-            grid,
-            _tail_after(tokens, 2),
-        )
+            and _call_slot(tokens[0])
+            and _call_slot(tokens[1])):
+        dx_call = _station_call(tokens[1])
+        to_call = _station_call(tokens[0])
+        if dx_call:
+            return False, dx_call, to_call, grid, _tail_after(tokens, 2)
+        if to_call:
+            # Transmitter is <...>. Do not open a roster line for the hash.
+            return False, None, to_call, None, _tail_after(tokens, 2)
     # Free text. Do not promote ordinary words into a roster station.
     return False, None, None, grid, stripped
 

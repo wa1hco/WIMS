@@ -63,6 +63,11 @@ def test_portable_and_prefix_override():
     assert lookup("CX4BAN/P") == "Uruguay"
     assert lookup("W1AW/M") == "United States"
     assert lookup("W1AW/7") == "United States"
+    # Trailing /R is a rover, still the home entity. A leading R/ is Russia.
+    assert lookup("W1XX/R") == "United States"
+    assert lookup("K1ABC/R") == "United States"
+    assert lookup("R/W1XX") == "European Russia"
+    assert lookup("3D2/R") == "Rotuma I."
     # Prefix before or after the slash is the place they are operating from.
     assert lookup("W1AW/CX") == "Uruguay"
     assert lookup("CX/W1AW") == "Uruguay"
