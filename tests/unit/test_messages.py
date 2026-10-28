@@ -258,6 +258,53 @@ def test_inhibit_status_roundtrip():
     assert msg.type == m.INHIBIT_STATUS
 
 
+# 30 m FT8, one fox, as copied in ALL.TXT. The CQ has no grid (a compound
+# call cannot carry one). Angle brackets are the same station. The
+# semicolon line is the fox, not a station named RR73.
+_P4_LINES = (
+    "CQ P4/WE9V",
+    "K5WVF <P4/WE9V> -10",
+    "K5WVF RR73; YU6DX <P4/WE9V> +04",
+    "<...> P4/WE9V RR73",
+    "<WB8EJN> P4/WE9V RR73",
+    "<P4/WE9V> WB8EJN EM48",
+    "EU2NS <P4/WE9V> -01",
+)
+
+
+def test_compound_hash_and_dxpedition_lines():
+    """ALL.TXT forms for P4/WE9V. The fox line is from P4/WE9V."""
+    expect = {
+        "CQ P4/WE9V": (True, "P4/WE9V", "CQ", None, None),
+        "K5WVF <P4/WE9V> -10": (False, "P4/WE9V", "K5WVF", None, "-10"),
+        "K5WVF RR73; YU6DX <P4/WE9V> +04": (
+            False, "P4/WE9V", "YU6DX", None, "+04",
+        ),
+        "<...> P4/WE9V RR73": (False, "P4/WE9V", None, None, "RR73"),
+        "<WB8EJN> P4/WE9V RR73": (False, "P4/WE9V", "WB8EJN", None, "RR73"),
+        # EM48 is the station transmitting it (WB8EJN), not the fox.
+        "<P4/WE9V> WB8EJN EM48": (False, "WB8EJN", "P4/WE9V", "EM48", "EM48"),
+        "EU2NS <P4/WE9V> -01": (False, "P4/WE9V", "EU2NS", None, "-01"),
+    }
+    for text in _P4_LINES:
+        got = m._interpret_decode(text)
+        assert got == expect[text], (text, got)
+    # Unresolved hash is not a transmitter.
+    assert m._interpret_decode("EU2NS <...> -01") == (
+        False, None, "EU2NS", None, "-01",
+    )
+    assert m._interpret_decode("<...> <...> RR73")[1] is None
+
+
+def test_compound_grid_belongs_to_the_transmitter():
+    """A grid beside WB8EJN is WB8EJN's. The fox CQ has none."""
+    assert m.standard_station_grid("<P4/WE9V> WB8EJN EM48") == ("WB8EJN", "EM48")
+    assert m.standard_station_grid("CQ P4/WE9V") is None
+    assert m.standard_station_grid("K5WVF RR73; YU6DX <P4/WE9V> +04") is None
+    assert m.standard_station_grid("<...> P4/WE9V RR73") is None
+    assert m.standard_station_grid("EU2NS <P4/WE9V> -01") is None
+
+
 def test_inhibit_status_null_source_parses():
     """WSJT may stream a null QByteArray for an empty source_station."""
     from wims.udp import encode as E

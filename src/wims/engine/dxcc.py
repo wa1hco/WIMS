@@ -207,6 +207,13 @@ def _body(norm: str) -> str:
     parts = [p for p in norm.split("/") if p]
     if not parts:
         return ""
+    # Trailing /R is the rover tag (W1XX/R), not the Russia prefix. A leading
+    # R/ (R/W1XX) is still Russia. 3D2/R is Rotuma via the compound table,
+    # which is applied before this body is used as the entity.
+    if (len(parts) >= 2 and parts[-1] == "R"
+            and any(ch.isdigit() for ch in parts[-2])
+            and any(ch.isalpha() for ch in parts[-2])):
+        parts = parts[:-1]
     kept = [p for p in parts if not _is_portable(p)] or [parts[0]]
     if len(kept) == 1:
         return kept[0]

@@ -30,6 +30,12 @@ Keyed on `(instance, call, grid)` so a **rover in a new grid** is a distinct, fr
 (a new mult), never collapsed onto its old grid. A later report **without** a grid
 (``R-10``, ``RR73``, ``73``) updates that station's existing row instead of opening a
 second empty-grid line — otherwise one QSO paints two red "calling us" rows.
+
+FT8/FT4 compound calls are one station. ``<P4/WE9V>`` is ``P4/WE9V``. A home-call
+token (``WE9V``) joins that compound only on the same instance and band within
+``COMPOUND_LINK_S``, and only when a CQ of the bare call has not shown a different
+station. ``<...>`` never opens a row. A compound CQ carries no grid, so the row
+stays blank — country still follows the full call — and is not marked grid assumed.
 Nothing here transmits — it only ranks recommendations for the operator (§4.2).
 Time is injected (`now`) for replayability.
 """
@@ -40,6 +46,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from wims.engine import scoring as S
+from wims.engine.callsign import (
+    COMPOUND_LINK_S,
+    home_call,
+    is_compound_call,
+    is_unresolved_hash,
+    plain_call,
+)
 from wims.engine.geo import base_call as _base_call
 
 
@@ -67,12 +80,77 @@ class _Entry:
     grid_stale: bool = False       # rover square too old to use
 
 
+@dataclass
+class _CompoundLink:
+    """A full compound call that can explain a later home-call token."""
+
+    full: str
+    heard: float
+    ambiguous: bool = False
+    bare_cq: bool = False
+
+
+def _band_key(band: str | None) -> str:
+    text = (band or "").strip()
+    if not text or text == "?":
+        return "?"
+    return text
+
+
 class RosterBuilder:
     def __init__(self, log=None, strategy_name: str = "vhf-default", ttl: float = 300.0):
         self.log = log
         self.strategy = S.get_strategy(strategy_name)
         self.ttl = ttl
         self._entries: dict[tuple[str, str, str], _Entry] = {}
+        # (instance, band, home call) → full compound heard recently.
+        self._links: dict[tuple[str, str, str], _CompoundLink] = {}
+
+    def canonicalize(self, decode, band: str, now: float,
+                     own_calls: Iterable[str] | None = None) -> str | None:
+        """Point ``decode.dx_call`` at one full call, or clear it.
+
+        Strips hash brackets. Maps a home-call token onto a compound heard on
+        this instance and band inside ``COMPOUND_LINK_S``, unless a CQ of the
+        bare call showed a different station. Returns the call to key, or None
+        when the transmitter is unknown (``<...>``). Does not invent a grid.
+        Our own compound call is not used as a link for other stations.
+        """
+        self._prune_links(now)
+        raw = getattr(decode, "dx_call", None)
+        if is_unresolved_hash(raw):
+            decode.dx_call = None
+            self._plain_to_call(decode)
+            return None
+        call = plain_call(raw)
+        if not call:
+            if raw:
+                decode.dx_call = None
+            self._plain_to_call(decode)
+            return None
+        self._plain_to_call(decode)
+        decode.dx_call = call
+        # Our own TX must not become the link that renames someone else.
+        if is_own_tx_decode(decode, own_calls):
+            return call
+        inst = getattr(decode, "id", None) or "?"
+        bkey = _band_key(band)
+        home = home_call(call)
+        if is_compound_call(call) and home:
+            self._remember_compound(inst, bkey, home, call, now)
+            link = self._links.get((inst, bkey, home))
+            if link is not None and not link.ambiguous and not link.bare_cq:
+                self._absorb_bare(inst, bkey, home, call, now)
+            decode.dx_call = call
+            return call
+        if home and home == call:
+            link = self._fresh_link(inst, bkey, home, now)
+            if link is not None and not getattr(decode, "is_cq", False):
+                decode.dx_call = link.full
+                return link.full
+            if getattr(decode, "is_cq", False):
+                self._note_bare_cq(inst, bkey, home, now)
+        return call
 
     def observe_decode(self, decode, band: str, now: float,
                        *, dial_hz: int = 0, de_grid: str | None = None,
@@ -91,13 +169,25 @@ class RosterBuilder:
         message has none. ``heard_assumed`` is that square for a rover when it
         was not heard in the current QSO. ``heard_stale`` leaves the cell
         blank: a rover square that is too old to guess.
+
+        A hashed or home-call form of a compound station updates that station's
+        row. A grid remembered for a different token is not copied across, and
+        a missing grid is left blank rather than marked assumed.
         """
-        if not decode.dx_call:
+        before = plain_call(getattr(decode, "dx_call", None))
+        call = self.canonicalize(decode, band, now, own_calls=own_calls)
+        if not call:
             return
         if is_own_tx_decode(decode, own_calls):
             return
+        # heard_grid was looked up under the pre-alias token. A home-call
+        # square (WE9V in the States) must not become P4/WE9V's grid.
+        if before and before != call:
+            heard_grid = None
+            heard_tip = ""
+            heard_stale = False
+            heard_assumed = False
         inst = decode.id or "?"
-        call = (decode.dx_call or "").upper()
         decode_grid = (decode.grid or "").strip().upper()
         grid = decode_grid
         from_memory = False
@@ -157,6 +247,120 @@ class RosterBuilder:
         dead = [k for k, e in self._entries.items() if now - e.last_seen > self.ttl]
         for k in dead:
             del self._entries[k]
+        self._prune_links(now)
+
+    def _prune_links(self, now: float) -> None:
+        dead = [k for k, link in self._links.items()
+                if now - link.heard > COMPOUND_LINK_S]
+        for k in dead:
+            del self._links[k]
+
+    def _plain_to_call(self, decode) -> None:
+        to = getattr(decode, "to_call", None)
+        if not to:
+            return
+        if is_unresolved_hash(to):
+            decode.to_call = None
+            return
+        plain = plain_call(to)
+        if plain:
+            decode.to_call = plain
+
+    def _remember_compound(self, inst: str, band: str, home: str, full: str,
+                           now: float) -> None:
+        key = (inst, band, home)
+        link = self._links.get(key)
+        if link is None:
+            self._links[key] = _CompoundLink(full=full, heard=now)
+            return
+        if link.full and link.full != full:
+            link.ambiguous = True
+            link.heard = now
+            return
+        link.full = full or link.full
+        link.heard = now
+
+    def _note_bare_cq(self, inst: str, band: str, home: str, now: float) -> None:
+        """A CQ of the bare call is that station, not the compound."""
+        key = (inst, band, home)
+        link = self._links.get(key)
+        if link is None:
+            self._links[key] = _CompoundLink(full="", heard=now, bare_cq=True)
+            return
+        link.bare_cq = True
+
+    def _fresh_link(self, inst: str, band: str, home: str, now: float):
+        link = self._links.get((inst, band, home))
+        if link is None or not link.full or link.ambiguous or link.bare_cq:
+            return None
+        if now - link.heard > COMPOUND_LINK_S:
+            return None
+        return link
+
+    def _absorb_bare(self, inst: str, band: str, home: str, full: str,
+                     now: float) -> None:
+        """Fold a recent home-call exchange into the compound row.
+
+        A CQ of the bare call is left where it is. An assumed square is not
+        carried over: the compound row keeps a grid only when that transmission
+        itself contained one.
+        """
+        victims = []
+        for key, entry in self._entries.items():
+            if key[0] != inst or key[1] != home:
+                continue
+            if _band_key(entry.band) != band:
+                continue
+            if now - entry.last_seen > COMPOUND_LINK_S:
+                continue
+            if self._entry_is_bare_cq(entry):
+                continue
+            victims.append(key)
+        for key in victims:
+            entry = self._entries.pop(key)
+            self._drop_unheard_grid(entry)
+            if getattr(entry.decode, "dx_call", None):
+                entry.decode.dx_call = full
+            new_key = (inst, full, entry.grid or "")
+            prev = self._entries.get(new_key)
+            if prev is None:
+                self._entries[new_key] = entry
+                continue
+            if entry.last_seen >= prev.last_seen:
+                if not entry.grid and prev.grid:
+                    entry.grid = prev.grid
+                    entry.grid_remembered = prev.grid_remembered
+                    entry.grid_assumed = False
+                    entry.grid_tip = prev.grid_tip
+                self._entries[new_key] = entry
+            elif not prev.grid and entry.grid:
+                prev.grid = entry.grid
+                prev.grid_assumed = False
+                prev.grid_remembered = False
+
+    @staticmethod
+    def _entry_is_bare_cq(entry) -> bool:
+        dec = entry.decode
+        if not getattr(dec, "is_cq", False):
+            return False
+        call = plain_call(getattr(dec, "dx_call", None)) or ""
+        return bool(call) and not is_compound_call(call)
+
+    @staticmethod
+    def _drop_unheard_grid(entry) -> None:
+        """Keep a square only when this decode actually sent one."""
+        heard = (getattr(entry.decode, "grid", None) or "").strip().upper()
+        if heard:
+            entry.grid = heard
+            entry.grid_assumed = False
+            entry.grid_remembered = False
+            entry.grid_stale = False
+            return
+        entry.grid = None
+        entry.grid_assumed = False
+        entry.grid_remembered = False
+        entry.grid_tip = ""
+        entry.grid_stale = False
 
     def last_grid(self, call: str, band: str | None = None) -> str | None:
         """Last Maidenhead heard for this call, preferring the same band.

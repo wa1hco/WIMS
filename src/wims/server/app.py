@@ -1923,6 +1923,10 @@ class LiveFleet:
                             if t >= cut
                         }
                     if not burst_dup:
+                        # Resolve <P4/WE9V> / home-call tokens before grid
+                        # memory, so a square is stored under the full call
+                        # and a missing square stays blank.
+                        self._roster.canonicalize(msg, band, now, own_calls=own)
                         self._heard.note_decode(msg, band, now)
                         dx = (getattr(msg, "dx_call", None) or "").strip().upper()
                         to = _base_call(getattr(msg, "to_call", None))
