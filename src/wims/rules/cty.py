@@ -30,6 +30,11 @@ agree, and whose primary prefix is not in the known multi-zone list below,
 uses the primary zone. Otherwise the zone comes from the grid
 (``rules/zones.py``). No grid, or a grid the table will not call, is zone
 uncertain — the caller must not claim the station is needed for that zone.
+
+The prefix ``KG4`` is Guantanamo Bay. A call with a three-letter suffix
+(``KG4LDK``) is a United States call and uses the ``K`` entry, including
+that entry's zone rules. A one- or two-letter suffix (``KG4AA``) stays
+Guantanamo Bay. An exact call written in the file wins over both.
 """
 
 from __future__ import annotations
@@ -301,11 +306,42 @@ class CtyIndex:
         exact = self.exact.get(key)
         if exact is not None:
             return exact
+        hit, matched = self._longest_prefix(key)
+        if hit is None:
+            return None
+        return self._kg4_hit(key, hit, matched)
+
+    def _longest_prefix(self, key: str) -> tuple[Hit | None, str]:
         for length in range(len(key), 0, -1):
-            hit = self.by_prefix.get(key[:length])
+            prefix = key[:length]
+            hit = self.by_prefix.get(prefix)
             if hit is not None:
-                return hit
-        return None
+                return hit, prefix
+        return None, ""
+
+    def _kg4_hit(self, key: str, hit: Hit, matched: str) -> Hit:
+        """A three-letter KG4 suffix belongs to prefix ``K``, not ``KG4``.
+
+        Longest-prefix match would call ``KG4LDK`` Guantanamo Bay, because
+        ``KG4`` is longer than ``K``. That suffix is a United States call.
+        ``KG4AA`` stays on the ``KG4`` entry. Exact calls are handled before
+        this runs. A file that has no ``K`` entry is left unchanged, and a
+        file that has no ``KG4`` entry does not invent Guantanamo Bay.
+        """
+        if not key.startswith("KG4"):
+            return hit
+        letters = "".join(ch for ch in key[3:] if ch.isalpha())
+        if len(letters) >= 3:
+            if matched == "KG4":
+                us = self.by_prefix.get("K")
+                if us is not None:
+                    return us
+            return hit
+        if matched != "KG4" and len(matched) < len("KG4"):
+            gtmo = self.by_prefix.get("KG4")
+            if gtmo is not None:
+                return gtmo
+        return hit
 
     def entity_name(self, call: str | None) -> str | None:
         """Name for the DXCC checklist. None when this call is not in the file."""
