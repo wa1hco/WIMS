@@ -80,6 +80,8 @@ class Candidate:
     qso_points: int | None = None
     # "" | "needed" | "unconfirmed". Empty on contest rows.
     chase: str = ""
+    # Short place badge for chase == "needed". Empty otherwise.
+    need_label: str = ""
 
 
 @dataclass
@@ -123,6 +125,9 @@ FactorFn = Callable[[Candidate, Context], "Factor | None"]
 
 
 def f_new_mult(c: Candidate, ctx: Context) -> Factor | None:
+    # Once per station. A checklist row that is new for several places
+    # still adds this weight one time. The badge names one of those
+    # places (goal_rules.NEED_LABEL_PRIORITY) and does not list the rest.
     if c.is_new_mult:
         detail = c.mult_reason or f"new {c.band} grid {c.grid}"
         return Factor("new_mult", ctx.w("new_mult", 25), detail)
@@ -231,6 +236,7 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
     mult_reason = ""
     qso_points = None
     chase = ""
+    need_label = ""
     if log is not None and hasattr(log, "classify"):
         verdict = log.classify(call, band, grid, mode)
         is_dupe = bool(verdict.is_dupe)
@@ -239,6 +245,7 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
         mult_reason = verdict.mult_reason or ""
         qso_points = verdict.points
         chase = getattr(verdict, "chase", "") or ""
+        need_label = getattr(verdict, "need_label", "") or ""
     else:
         is_dupe = bool(log and call and log.is_dupe(call, band, grid))
         is_new_mult = bool(log and grid and log.is_new_mult(grid, band))
@@ -248,7 +255,7 @@ def build_candidate(decode, band: str, log=None, reachable: bool = True,
         snr=decode.snr, is_cq=decode.is_cq, is_dupe=is_dupe,
         is_new_mult=is_new_mult, is_rover=is_rover, reachable=reachable,
         need_reason=need_reason, mult_reason=mult_reason, qso_points=qso_points,
-        chase=chase,
+        chase=chase, need_label=need_label,
     )
 
 

@@ -565,8 +565,21 @@ SSB/CW or hand off to a 2nd op.
   including CQ NA or CQ DX. Needed and CQ or 73 also keeps 73 or RR73, including RR73
   with a grid: stations that are free to call. The choice is saved in the browser.
   CQ and the sign-off come from the Message-column parse (`is_cq` and `message_tail`).
+  On an award or a checklist, the callsign badge names one category: **grid**,
+  **state** (a US state or a Canadian province), **DXCC**, **CQ zone**,
+  **ITU zone**, **continent**, or **call**. Each line is judged in that line's
+  scope (overall, that band, or that mode). When several are new, the badge
+  shows one, most specific first: grid, state, DXCC, CQ zone, ITU zone,
+  continent, then call. A new call is last because it is not a multiplier.
+  The score adds the new-multiplier weight once when any multiplier place is
+  new. That weight is not added again for each extra place, so the badge names
+  one place. Hover keeps the one sentence for the place that won. The **mult**
+  badge stays the word mult, with its own hover. **Unconfirmed** stays the word
+  unconfirmed. County and callsign prefix are not computed, so they are not
+  labels. A contest row leaves this badge off; a new grid there is still
+  **mult**.
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
-  `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
+  `need_label`, `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
   `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
@@ -2196,7 +2209,9 @@ Candidate situations worth covering — rename, add, or cut freely:
   published rules). Casual Setup is a Goal menu (contest, award, just operating, or custom)
   plus one menu that depends on that goal, and a plain sentence. Just operating uses
   the checklist (DXCC overall on a fresh install; continent, CQ zone, and ITU zone when
-  `cty.dat` is present). A saved WSJT-X Colors choice is rewritten once as those lines.
+  `cty.dat` is present). The roster badge names one of those places, most specific
+  first (grid, state, DXCC, CQ zone, ITU zone, continent, call); the new-mult
+  weight is added once (§2.2). A saved WSJT-X Colors choice is rewritten once as those lines.
   The log under Log to use is the only log. Choosing N1MM does not switch the rule to
   `arrl-vhf`. Date or `CONTEST_ID` may suggest a contest when the goal was not an explicit
   pick. N1MM `.udc` and DXLog files are not bundled. County and callsign-prefix chasing

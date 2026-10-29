@@ -340,7 +340,10 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "is_needed": not c.is_dupe,
             # "needed" is a new place. "unconfirmed" is worked, not confirmed,
             # and this station is not one already worked for that place.
+            # need_label is the one short badge (grid, state, DXCC, …) when
+            # chase is "needed". Empty for a contest row and for unconfirmed.
             "chase": getattr(c, "chase", "") or "",
+            "need_label": getattr(c, "need_label", "") or "",
             "is_cq": c.is_cq,
             "is_dupe": c.is_dupe,
             "is_new_mult": c.is_new_mult,

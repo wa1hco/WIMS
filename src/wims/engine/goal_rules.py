@@ -210,6 +210,37 @@ CHECKLIST_KINDS = (
 KIND_BY_ID = {row["id"]: row for row in CHECKLIST_KINDS}
 KIND_ORDER = tuple(row["id"] for row in CHECKLIST_KINDS)
 
+# One callsign badge when several lines are new. The roster score adds the
+# new-mult weight once for the station, not once per line, so the badge
+# names a single line. A new call is not a multiplier and scores without
+# that weight, so it is last. The other lines tie on that weight; the
+# smaller place wins. Each line is still judged in its own scope (overall,
+# that band, or that mode). County and callsign prefix are not computed,
+# so they are not in this order and they are not labels.
+NEED_LABEL_PRIORITY = (
+    "grid",
+    "state",
+    "dxcc",
+    "cq",
+    "itu",
+    "continent",
+    "call",
+)
+
+# Short badge text. "state" is a US state or a Canadian province.
+# "DXCC" is one entity. "CQ zone" and "ITU zone" are those zones.
+NEED_LABEL = {
+    "grid": "grid",
+    "state": "state",
+    "dxcc": "DXCC",
+    "cq": "CQ zone",
+    "itu": "ITU zone",
+    "continent": "continent",
+    "call": "call",
+    "was": "state",
+    "vucc": "grid",
+}
+
 SCOPES = (
     {"id": "overall", "label": "overall"},
     {"id": "band", "label": "per band"},
@@ -755,6 +786,7 @@ class AwardRules:
                 mult_reason=mult,
                 points=1,
                 chase="needed",
+                need_label=NEED_LABEL.get(self.award_id, ""),
             )
         if mark == "unconfirmed" and nonconfirmer:
             return Verdict(
@@ -792,7 +824,11 @@ class AwardRules:
 
 
 class ChecklistRules:
-    """Just-operating or custom checklist. First matching line wins."""
+    """Just-operating or custom checklist.
+
+    When several lines are new, the badge names the most specific one
+    (``NEED_LABEL_PRIORITY``). The score still counts a new multiplier once.
+    """
 
     def __init__(self, items, *, title: str, dxcc_lookup=None, log_label: str = "the log",
                  cty=None, count_unconfirmed: bool = True):
@@ -906,7 +942,7 @@ class ChecklistRules:
         worked_notes: list[str] = []
         uncertain: list[str] = []
         checked = 0
-        first = None
+        needs: list[tuple[str, str, str]] = []
         first_open = None
         saw_same = False
         saw_confirmed = False
@@ -920,8 +956,8 @@ class ChecklistRules:
                 kind, scope, idx, call_u, band, mode_u, grid, state, exchange, place,
             )
             tag = hit[0]
-            if tag == "need" and first is None:
-                first = (kind, hit[1], hit[2])
+            if tag == "need":
+                needs.append((kind, hit[1], hit[2]))
             elif tag == "unconfirmed" and first_open is None:
                 first_open = hit[1]
             elif tag == "same":
@@ -934,14 +970,18 @@ class ChecklistRules:
                 unknowns.append(hit[1])
             elif tag == "uncertain":
                 uncertain.append(hit[1])
-        if first is not None:
-            kind, reason, mult_reason = first
+        if needs:
+            # call is last in NEED_LABEL_PRIORITY, so a new multiplier place
+            # still sets is_new_mult when a new call is also new. The score
+            # adds that weight once.
+            kind, reason, mult_reason = min(needs, key=lambda item: _need_rank(item[0]))
             return Verdict(
                 False, kind in _MULT_KINDS,
                 need_reason=_with_uncertain(reason, uncertain),
                 mult_reason=mult_reason if kind in _MULT_KINDS else "",
                 points=1,
                 chase="needed",
+                need_label=NEED_LABEL.get(kind, ""),
             )
         if first_open is not None and quiet:
             return Verdict(
@@ -1125,6 +1165,14 @@ class ChecklistRules:
         if extra:
             out.update(extra)
         return out
+
+
+def _need_rank(kind: str) -> int:
+    """Lower is the badge. Unknown kinds sort after the documented list."""
+    try:
+        return NEED_LABEL_PRIORITY.index(kind)
+    except ValueError:
+        return len(NEED_LABEL_PRIORITY)
 
 
 def _count_unconfirmed(value) -> bool:
