@@ -30,7 +30,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from wims.engine import scoring as S
-from wims.engine.geo import distance_km
+from wims.engine.dxcc import country_fields
+from wims.engine.geo import bearing, distance_km
 from wims.integrations.cluster.modes import canonical_mode, infer_mode
 from wims.integrations.cluster.parse import ParsedSpot
 from wims.integrations.cluster.ranges import distance_fit, in_range, spotter_near_amount
@@ -104,24 +105,42 @@ def on_band(band: str, mode: str, operations: list[OnAir] | None) -> bool:
     return False
 
 
-def short_why(verdict, grid: str | None) -> str:
-    if getattr(verdict, "is_new_mult", False):
-        square = (grid or "")[:4]
-        return f"new {square}" if square else "new mult"
-    if (getattr(verdict, "chase", "") or "") == "unconfirmed":
-        return "unconfirmed"
-    reason = (getattr(verdict, "need_reason", "") or "").lower()
-    if "new call" in reason or ("call" in reason and "new" in reason):
-        return "new call"
-    return "needed"
-
-
 def _mhz(freq_hz: int) -> str:
     return f"{freq_hz / 1_000_000:.3f}"
 
 
 def _spotter_key(call: str) -> str:
     return (call or "").upper().split("-", 1)[0].strip()
+
+
+def _latest_spotter(spotters: dict) -> str:
+    if not spotters:
+        return ""
+    return max(spotters.items(), key=lambda item: (item[1], item[0]))[0]
+
+
+def _as_grid(found) -> tuple[str, dict]:
+    """A grid callback may return a square, or the roster's heard-grid lookup.
+
+    The lookup carries the same hover the call roster uses (remembered,
+    assumed, tip). A stale lookup with no square is blank. A plain string
+    is only the square.
+    """
+    if found is None or found == "":
+        return "", {}
+    if isinstance(found, str):
+        return found.strip().upper(), {}
+    grid = str(getattr(found, "grid", "") or "").strip().upper()
+    if not grid:
+        return "", {}
+    extra: dict = {}
+    if getattr(found, "remembered", False):
+        extra["grid_remembered"] = True
+        extra["grid_assumed"] = bool(getattr(found, "assumed", False))
+        tip = getattr(found, "tip", "") or ""
+        if tip:
+            extra["grid_tip"] = tip
+    return grid, extra
 
 
 def _ago(age_s: float | None) -> str:
@@ -259,6 +278,11 @@ def build_list(
 ) -> tuple[list[dict], dict]:
     """Rows for the Spotted list, and counts of why others were left off.
 
+    Need is ``classify(call, band, grid, mode)`` for this spot's own band
+    and mode — the same check as the roster. The row keeps that verdict's
+    ``need_label``, ``chase``, and reasons so the Operate badge is the one
+    the roster already draws. This does not invent a second place order.
+
     ``spot_count`` is every fresh spot on a selected band. ``needed`` is the
     list the operator sees.
     """
@@ -274,10 +298,10 @@ def build_list(
             continue
         drops["spot_count"] += 1
         grid = (group.grid or "").strip().upper() or None
+        remembered: dict = {}
         if grid is None and grid_for is not None:
-            remembered = grid_for(group.call)
-            if remembered:
-                grid = str(remembered).strip().upper() or None
+            filled, remembered = _as_grid(grid_for(group.call))
+            grid = filled or None
         if not home:
             drops["no_station_grid"] += 1
             continue
@@ -302,10 +326,10 @@ def build_list(
         best_call = ""
         if spotter_grid is not None:
             for spotter in group.spotters:
-                square = spotter_grid(_spotter_key(spotter))
+                square, _spotter_extra = _as_grid(spotter_grid(_spotter_key(spotter)))
                 if not square:
                     continue
-                dist = distance_km(home, str(square))
+                dist = distance_km(home, square)
                 if dist is None:
                     continue
                 if best is None or dist < best:
@@ -330,22 +354,60 @@ def build_list(
             near_detail=near_detail,
             distance_detail=f"{int(km)} km",
         ), weights)
-        why = short_why(verdict, grid)
-        full = (getattr(verdict, "need_reason", "") or
-                getattr(verdict, "mult_reason", "") or why)
+        chase = getattr(verdict, "chase", "") or ""
+        need_label = getattr(verdict, "need_label", "") or ""
+        need_reason = getattr(verdict, "need_reason", "") or ""
+        mult_reason = getattr(verdict, "mult_reason", "") or ""
+        is_new_mult = bool(getattr(verdict, "is_new_mult", False))
+        # Same word the roster badge shows. A contest row leaves it blank;
+        # the mult badge is separate. Unconfirmed keeps that word.
+        if chase == "needed":
+            why = need_label
+        elif chase == "unconfirmed":
+            why = "unconfirmed"
+        else:
+            why = ""
+        place = country_fields(group.call)
+        az_dx = bearing(home, grid)
+        qsy_points = 0.0
+        for factor in scored.factors:
+            if factor.name == "qsy":
+                qsy_points = factor.contribution
+        where = "QSY" if needs_qsy else "on band"
         rows.append({
             "call": group.call,
+            "country": place["country"],
+            "continent": place["continent"],
+            "cq_zone": place["cq_zone"],
             "grid": grid,
+            "grid_remembered": bool(remembered.get("grid_remembered")),
+            "grid_assumed": bool(remembered.get("grid_assumed")),
+            "grid_tip": remembered.get("grid_tip") or "",
+            "grid_stale": False,
             "band": group.band,
             "mode": group.mode,
             "freq_hz": group.freq_hz,
             "freq": _mhz(group.freq_hz),
-            "where": "QSY" if needs_qsy else "on band",
+            "az": None if az_dx is None else round(az_dx),
+            "distance_km": None if km is None else round(km, 1),
+            "where": where,
+            "qsy": where,
             "needs_qsy": needs_qsy,
+            "qsy_points": qsy_points,
             "why": why,
-            "why_full": full,
+            "why_full": need_reason or mult_reason,
+            "chase": chase,
+            "need_label": need_label,
+            "need_reason": need_reason,
+            "mult_reason": mult_reason,
+            "is_new_mult": is_new_mult,
+            "is_needed": True,
+            "is_dupe": False,
+            "is_rover": rover,
             "score": scored.total,
+            "age": round(max(0.0, age), 1),
             "age_s": int(max(0, age)),
+            "spotter": _latest_spotter(group.spotters),
             "spotters": len(group.spotters),
             "spotter_calls": sorted(group.spotters),
             "km": int(round(km or 0)),

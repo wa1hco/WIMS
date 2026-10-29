@@ -583,12 +583,22 @@ SSB/CW or hand off to a 2nd op.
   `country`, `continent`, `cq_zone`, `msg` /
   `message_tail` (exchange text), `message` (original decode), scores. Geometry:
   `engine/geo.py`. Full rotator + subscription: §2.10 / §2.11. (Backlog: §2.6.)
-- **Spotted** — a separate compact list of DX cluster spots the current Goal still
-  needs (§2.15). It is not merged into the live roster. Each line shows band and
-  mode, and **QSY** when no live instance is already on that band and mode.
-  A click selects the station and remembers the grid. It does not transmit and
-  it does not retune a radio. A later rotator step (§2.10) makes that click
-  prepare the instance — QSY and rotate — and still waits for a roster click
+- **Spotted** — a separate list of DX cluster spots the current Goal still
+  needs (§2.15). It is not merged into the live roster. Columns follow the
+  call roster wherever a spot has the same fact, in the same order, with the
+  same headers and the same content widths: **DX · Country · Band · Mode ·
+  Grid · Freq · Az DX · km · Age · Score**. Calling, Message, Source, dB,
+  Az ant, and Δaz stay off this list (a spot is not a decode and not a
+  radio). **Spotter** sits where Source sits. **QSY** sits just before
+  Score: the cell says QSY or on band, and the score already includes the
+  retune cost. On an award or a checklist the DX badge is the same single
+  word as the roster (grid, state, DXCC, CQ zone, ITU zone, continent, or
+  call), from the same check, judged on **that spot’s** band and mode.
+  The mult badge stays the word mult. Unconfirmed stays the word
+  unconfirmed. A contest row leaves the place badge off. A click selects
+  the station and remembers the grid. It does not transmit and it does not
+  retune a radio. A later rotator step (§2.10) makes that click prepare
+  the instance — QSY and rotate — and still waits for a roster click
   before any transmission.
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
@@ -1521,6 +1531,15 @@ A click on a Spotted line stores the selection and remembers the grid, so a
 later Work on a live decode can fill a blank square. The click does not call
 Reply, Halt, or Configure, and it does not retune a radio. Work still requires
 a live decode on the roster.
+
+The columns match the call roster wherever the spot has that fact (DX,
+Country, Band, Mode, Grid, Freq, Az DX, km, Age, Score): same order, same
+headers, same content widths. The DX badge is the roster’s one place name,
+from that same check, on this spot’s band and mode. Spotter sits where
+Source sits on the roster. QSY sits just before Score. Freq is the spotted
+frequency. Age is when WIMS received the line. Score is the spot score,
+including the retune cost. A remote browser sees the same list on the live
+update.
 
 **Later (§2.10 step 4).** That same click prepares the linked instance: QSY
 over the WSJT-X UDP path, rotate to the bearing from the spot grid, and show

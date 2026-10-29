@@ -253,12 +253,11 @@ body.dense h2 { margin:12px 0 4px; font-size:11px; }
 .op-col { flex:0 0 auto; }
 .ros-col { flex:1 1 520px; min-width:0; }
 
-#spot { font-size:12px; }
-#spot th, #spot td { padding:1px 6px; white-space:nowrap; }
 #spot tbody tr { cursor:pointer; }
-#spot tr.spot-sel { background:#ddf4ff; }
-#spot td.qsy { color:var(--stale); font-weight:600; }
-#spot td.here { color:var(--alive); }
+#spot tbody tr:hover { background:#eef4fb; }
+#spot tr.spot-sel, #spot tr.spot-sel:hover { background:#ddf4ff; }
+#spot .spot-qsy { color:var(--stale); font-weight:600; }
+#spot .spot-here { color:var(--alive); }
 #spot-status { cursor:help; }
 .cluster-bands { display:flex; flex-wrap:wrap; gap:2px 12px; font-size:12px;
   max-width:52rem; margin:4px 0 8px; }
@@ -319,15 +318,16 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
          background:var(--panel); color:var(--text); cursor:pointer; }
 .txbtn:hover:not(:disabled) { background:#eef4fb; }
 .txbtn:disabled { opacity:.45; cursor:not-allowed; }
-/* Roster: shrink-wrap columns to content (not full page width).
-   JS rosFitColumns() pins each <col> after measure; zoom/resize remeasures. */
-#ros {
+/* Roster and Spotted: shrink-wrap columns to content (not full page width).
+   JS fitOperateColumns() pins each <col> after measure; zoom/resize remeasures.
+   A header that is on both tables uses the wider of the two. */
+#ros, #spot {
   width: max-content;
   max-width: none;
   table-layout: auto;
   border-collapse: collapse;
 }
-#ros th, #ros td {
+#ros th, #ros td, #spot th, #spot td {
   white-space: nowrap;
   padding: 1px 4px;
   vertical-align: middle;
@@ -366,8 +366,8 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
   text-overflow: ellipsis;
   vertical-align: bottom;
 }
-#ros th.num, #ros td.num { padding-left: 6px; }
-#ros .badge { margin-left: 3px; padding: 0 4px; font-size: 10px; }
+#ros th.num, #ros td.num, #spot th.num, #spot td.num { padding-left: 6px; }
+#ros .badge, #spot .badge { margin-left: 3px; padding: 0 4px; font-size: 10px; }
 #ros button.azbtn { padding: 0 3px; font-size: 11px; }
 /* Roster line clickable for GT2-style Work (no Work button column). */
 #ros-body tr.workable { cursor: pointer; }
