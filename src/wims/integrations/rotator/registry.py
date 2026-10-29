@@ -18,6 +18,19 @@ from wims.integrations.rotator.protocol import RotatorState
 from wims.integrations.rotator.sim import SimRotator
 
 
+def _reported_link_ok(raw: dict) -> bool:
+    """True when this report still has a live heading."""
+    conn = str(raw.get("connection") or "").strip().lower()
+    link = str(raw.get("link") or "").strip().lower()
+    if conn == "stale" or link in ("down", "stale"):
+        return False
+    if conn == "connected" or link == "up":
+        return True
+    if "link_ok" in raw:
+        return bool(raw.get("link_ok"))
+    return True
+
+
 class RotatorRegistry:
     """Thread-safety is the caller's job (LiveFleet holds the lock)."""
 
@@ -53,44 +66,71 @@ class RotatorRegistry:
 
     def ingest_report(self, items: list | None, *, agent_id: str | None,
                       now: float | None = None) -> int:
-        """Merge rotator status objects from a seat agent report. Returns count."""
-        if not items:
+        """Merge rotator status objects from a seat agent report. Returns count.
+
+        An empty list drops rotors this agent reported earlier (Rotators
+        unchecked, or the endpoint removed). A down link clears the heading
+        so the last number is not left up as live. ``None`` leaves the
+        registry alone (an older agent report with no rotators key).
+        """
+        if items is None or not isinstance(items, list):
             return 0
         now = time.time() if now is None else now
+        seen: set[str] = set()
         n = 0
         for raw in items:
             if not isinstance(raw, dict):
                 continue
-            rid = str(raw.get("id") or "").strip()
+            rid = str(raw.get("id") or raw.get("name") or "").strip()
             if not rid:
                 continue
             st = self._states.get(rid) or RotatorState(id=rid)
             st.source = "agent"
             st.agent_id = agent_id
             st.ts = now
-            if raw.get("az") is not None:
-                try:
-                    st.az = float(raw["az"]) % 360.0
-                except (TypeError, ValueError):
-                    pass
-            if raw.get("el") is not None:
-                try:
-                    st.el = float(raw["el"])
-                except (TypeError, ValueError):
-                    pass
-            if raw.get("target_az") is not None:
-                try:
-                    st.target_az = float(raw["target_az"]) % 360.0
-                except (TypeError, ValueError):
-                    pass
-            if "moving" in raw:
-                st.moving = bool(raw["moving"])
-            st.link_ok = bool(raw.get("link_ok", True))
-            st.health = str(raw.get("health") or ("OK" if st.link_ok else "FAULT"))
+            name = str(raw.get("name") or raw.get("label") or "").strip()
+            if name:
+                st.label = name
+            link_ok = _reported_link_ok(raw)
+            st.link_ok = link_ok
+            if raw.get("detail"):
+                st.detail = str(raw["detail"])
+            elif not link_ok:
+                st.detail = "Heading unknown."
+            else:
+                st.detail = ""
+            if not link_ok:
+                st.az = None
+                st.el = None
+                st.moving = False
+                st.health = str(raw.get("health") or "STALE")
+            else:
+                st.health = str(raw.get("health") or "OK")
+                if "az" in raw:
+                    if raw.get("az") is None:
+                        st.az = None
+                    else:
+                        try:
+                            st.az = float(raw["az"]) % 360.0
+                        except (TypeError, ValueError):
+                            pass
+                if "el" in raw:
+                    if raw.get("el") is None:
+                        st.el = None
+                    else:
+                        try:
+                            st.el = float(raw["el"])
+                        except (TypeError, ValueError):
+                            pass
+                if raw.get("target_az") is not None:
+                    try:
+                        st.target_az = float(raw["target_az"]) % 360.0
+                    except (TypeError, ValueError):
+                        pass
+                if "moving" in raw:
+                    st.moving = bool(raw["moving"])
             if raw.get("instances") is not None:
                 st.instances = [str(x) for x in (raw.get("instances") or [])]
-            if raw.get("label"):
-                st.label = str(raw["label"])
             if raw.get("soft_min") is not None:
                 try:
                     st.soft_min = float(raw["soft_min"])
@@ -101,12 +141,25 @@ class RotatorRegistry:
                     st.soft_max = float(raw["soft_max"])
                 except (TypeError, ValueError):
                     pass
-            # Recompute moving from az/target when agent omitted the flag.
-            if st.target_az is not None and st.az is not None and "moving" not in raw:
+            # Recompute moving from az/target when the agent omitted the flag.
+            if (
+                link_ok
+                and st.target_az is not None
+                and st.az is not None
+                and "moving" not in raw
+            ):
                 d = abs((st.target_az - st.az + 180.0) % 360.0 - 180.0)
                 st.moving = d > self.settle_tol
             self._states[rid] = st
+            seen.add(rid)
             n += 1
+        if agent_id:
+            gone = [
+                rid for rid, st in self._states.items()
+                if st.source == "agent" and st.agent_id == agent_id and rid not in seen
+            ]
+            for rid in gone:
+                del self._states[rid]
         return n
 
     def tick_sims(self, now: float | None = None) -> None:
@@ -197,5 +250,16 @@ class RotatorRegistry:
             if age > self.stale_after * 2:
                 st.health = "DEAD"
                 st.link_ok = False
+                st.az = None
+                st.el = None
+                st.moving = False
+                if not st.detail:
+                    st.detail = "Heading unknown."
             elif age > self.stale_after:
                 st.health = "STALE"
+                st.link_ok = False
+                st.az = None
+                st.el = None
+                st.moving = False
+                if not st.detail:
+                    st.detail = "Heading unknown."

@@ -973,6 +973,7 @@ def build_report(
     fleet: bool = True,
     solo: bool = False,
     now: float | None = None,
+    rotator_reports: list | None = None,
 ) -> dict:
     """Full agent report (local UI and server POST body). `solo` = single-PC tester
     lens (this PC runs N1MM + WSJT-X + the WIMS server)."""
@@ -1022,7 +1023,16 @@ def build_report(
     firewall = probe_windows_firewall()
     keyline = probe_keyline_interface()
     summary = _summary(wsjtx, n1mm, apps, firewall=firewall, keyline=keyline)
-    rotators = _rotators_from_env()
+    # ``rotator_reports`` is the live rotctld poll (Rotators checked).
+    # None keeps the lab WIMS_ROTATOR_* path.
+    if rotator_reports is not None:
+        rotators = [x for x in rotator_reports if isinstance(x, dict)]
+    else:
+        rotators = _rotators_from_env()
+    # Product path fills ``antennas`` from the poller after this returns.
+    # The key is always present so a seat with the antenna side off clears
+    # a previous list. The poller overwrites it when Antennas is checked.
+    antennas: list = []
     log_access = None
     if solo:
         try:
@@ -1050,6 +1060,7 @@ def build_report(
         "firewall": firewall,
         "keyline": keyline,
         "rotators": rotators,
+        "antennas": antennas,
         "summary": summary,
         "mode": "solo" if solo else ("fleet" if fleet else "lab"),
     }
@@ -1274,6 +1285,44 @@ def format_report_text(report: dict, *, skip_wsjtx: bool = False) -> str:
     mark = {"ok": "OK", "warn": "WARN", "error": "ERROR"}.get(sev, sev.upper())
     lines.append(f"SUMMARY [{mark}]: {s.get('message', '')}")
     lines.append("")
+
+    ants = report.get("antennas") or []
+    if ants:
+        lines.append("Antennas")
+        lines.append("-" * 48)
+        for ant in ants:
+            if not isinstance(ant, dict):
+                continue
+            name = ant.get("name") or ant.get("id") or "Antenna"
+            for dev in ant.get("devices") or []:
+                if not isinstance(dev, dict):
+                    continue
+                kind = dev.get("kind") or "device"
+                if (
+                    kind == "rotator"
+                    and dev.get("connection") == "connected"
+                    and dev.get("az") is not None
+                ):
+                    lines.append(f"  {name} ({kind}): {dev.get('az')} deg, connected")
+                elif kind == "rotator":
+                    lines.append(f"  {name} ({kind}): heading unknown, stale")
+                else:
+                    lines.append(f"  {name} ({kind}): not read yet")
+        lines.append("")
+
+    rots = report.get("rotators") or []
+    if rots and not ants:
+        lines.append("Rotators")
+        lines.append("-" * 48)
+        for r in rots:
+            if not isinstance(r, dict):
+                continue
+            name = r.get("name") or r.get("label") or r.get("id") or "Rotator"
+            if r.get("connection") == "connected" and r.get("az") is not None:
+                lines.append(f"  {name}: {r.get('az')} deg, connected")
+            else:
+                lines.append(f"  {name}: heading unknown, stale")
+        lines.append("")
 
     if not skip_wsjtx:
         wx = report.get("wsjtx") or {}

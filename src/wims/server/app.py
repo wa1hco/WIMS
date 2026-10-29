@@ -277,6 +277,8 @@ class LiveFleet:
         self._agent_prune_after = 300.0            # drop silent agents after 5 min
         # Rotators (plan §2.10 / §3.8) — sim and/or agent-reported status.
         self._rotators = RotatorRegistry()
+        from wims.integrations.antenna.board import AntennaBoard
+        self._antennas = AntennaBoard()
         self._last_rot_action: dict | None = None
         # Rate-limit id-collision warnings (two VMs same --rig-name / UDP id).
         self._id_collision_warn_ts: dict[str, float] = {}
@@ -1257,6 +1259,13 @@ class LiveFleet:
             # Optional rotators[] on the agent report → live Az ant on roster.
             n_rot = self._rotators.ingest_report(
                 stored.get("rotators"), agent_id=agent_id, now=ts)
+            # antennas[] is the product path. Host and port are stripped.
+            if "antennas" in stored:
+                from wims.integrations.antenna.model import public_antennas
+                stored["antennas"] = public_antennas(stored.get("antennas"))
+                self._agents[agent_id] = stored
+            n_ant = self._antennas.ingest(
+                stored.get("antennas"), agent_id=agent_id, now=ts)
         summary = (stored.get("summary") or {})
         return {
             "ok": True,
@@ -1264,6 +1273,7 @@ class LiveFleet:
             "severity": summary.get("severity"),
             "message": summary.get("message"),
             "rotators_ingested": n_rot,
+            "antennas_ingested": n_ant,
         }
 
     def accept_n1mm_broadcast(self, body: dict, *, now: float | None = None) -> dict:
@@ -2130,6 +2140,7 @@ class LiveFleet:
                     for mid, c in sorted(self._tx_claims.items())
                 ])
             d["rotators"] = rotators_to_dict(self._rotators, now)
+            d["antennas"] = self._antennas.snapshot(now)
             d["rotator_last_action"] = self._last_rot_action
             d["gt_bridge"] = (
                 self._gt_bridge.status_dict() if self._gt_bridge is not None else None)

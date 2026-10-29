@@ -376,6 +376,7 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 #ros-body tr.armed.workable:hover { filter: brightness(0.97); }
 .txbtn.halt { color:#fff; background:var(--dead); border-color:var(--dead); font-weight:bold; }
 .txbtn.halt:hover:not(:disabled) { background:#a40e26; }
+.rot-stale { color: #9a6700; }
 /* Rotator: Az ant italic while slewing; Az DX click-to-point button */
 .az-moving { font-style: italic; font-family: ui-monospace, Menlo, Consolas, monospace;
              color: var(--quiet); }

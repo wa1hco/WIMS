@@ -2925,14 +2925,44 @@ async function rotPost(url, payload) {
   }
 }
 
-function renderRotators(list) {
-  const body = $("rot-body");
+function antennaTableRows(s) {
+  const out = [];
+  const ants = (s && s.antennas) || [];
+  if (ants.length) {
+    for (const ant of ants) {
+      const name = ant.name || ant.id || "Antenna";
+      for (const d of (ant.devices || [])) {
+        out.push({
+          name: name,
+          kind: d.kind || "rotator",
+          az: d.az,
+          connection: d.connection,
+          detail: d.detail || "",
+        });
+      }
+    }
+    return out;
+  }
+  // Lab sim rotators use the same compact row until they sit on an antenna.
+  for (const r of (s && s.rotators) || []) {
+    const connected = r.connection === "connected" || (r.link_ok && r.az != null);
+    out.push({
+      name: r.label || r.name || r.id || "Rotator",
+      kind: "rotator",
+      az: r.az,
+      connection: connected && r.az != null ? "connected" : "stale",
+      detail: r.detail || "",
+    });
+  }
+  return out;
+}
+
+function renderAntennas(s) {
+  const body = $("ant-body");
   if (!body) return;
-  const rows = list || [];
-  const empty = $("rot-empty");
-  const section = $("rot-section") || $("rot-section-status");
-  const onOps = !!$("tx-halt");
-  // Hide Rotators until WIMS has seen at least one (Operate + Status overview).
+  const rows = antennaTableRows(s);
+  const empty = $("ant-empty");
+  const section = $("ant-section") || $("ant-section-status");
   if (section) {
     section.style.display = rows.length ? "block" : "none";
   } else if (empty) {
@@ -2940,30 +2970,20 @@ function renderRotators(list) {
   }
   body.innerHTML = "";
   for (const r of rows) {
+    const rotator = r.kind === "rotator";
+    const connected = rotator && r.connection === "connected" && r.az != null;
+    const heading = connected ? (r.az + "°") : (rotator ? "unknown" : "—");
+    const state = connected ? "connected" : "stale";
+    const detail = r.detail || (connected ? "" : (rotator ? "Heading unknown." : "Not read yet."));
     const tr = document.createElement("tr");
-    const move = r.moving ? '<span class="az-moving">slewing</span>' : "settled";
-    let tail = onOps
-      ? `<td class="act"><button type="button" class="txbtn" data-rot-stop="${esc(r.id)}">Stop</button></td>`
-      : `<td>${esc(r.source || "—")}</td>`;
     tr.innerHTML =
-      `<td>${esc(r.label || r.id)}</td>` +
-      `<td class="num">${r.az == null ? "—" : r.az + "°"}</td>` +
-      `<td class="num">${r.target_az == null ? "—" : r.target_az + "°"}</td>` +
-      `<td>${move}</td>` +
-      `<td>${esc(r.health || "?")}</td>` +
-      `<td>${esc((r.instances || []).join(", ") || "—")}</td>` +
-      tail;
+      `<td>${esc(r.name)}</td>` +
+      `<td>${esc(r.kind || "")}</td>` +
+      `<td class="num">${esc(heading)}</td>` +
+      `<td class="${connected ? "" : "rot-stale"}" title="${escAttr(detail)}">${state}</td>`;
     body.appendChild(tr);
   }
-  if (!_rotWired && onOps) {
-    _rotWired = true;
-    body.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-rot-stop]");
-      if (b) rotPost("/api/rotator/stop", {rotator_id: b.dataset.rotStop});
-    });
-  }
 }
-let _rotWired = false;
 
 function renderTxBar(tx) {
   if (!$("tx-status") && !$("tx-halt")) return;  // not on Operate
@@ -3232,7 +3252,7 @@ function render(s) {
   renderBandInventory(s);
   renderAgents(s);
   renderTxBar(s.tx);                          // before roster: rosWork() reads can_tx
-  renderRotators(s.rotators);
+  renderAntennas(s);
   renderInterlock(s.interlock, s.tx);
   _rosOffered = operateOfferedBands(s);
   renderRoster(s.roster);

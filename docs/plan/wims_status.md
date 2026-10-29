@@ -110,10 +110,11 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
   QSOs). Operator **Resync log** (DXLOG re-read) done. Remaining: give-up / run-vs-S&P,
   geometry-aware reachability (§3.14), **cross-band opportunity factor (C7)** from prior-contest
   history.
-- [ ] **M4 — multi-instance + rotator + safety.** Rotator product path is rotctld on the
-  seat agent (design §2.10, revised 2026-10-28; brief [wims_rotator.md](wims_rotator.md)).
+- [ ] **M4 — multi-instance + rotator + safety.** The antenna agent on the seat
+  (design §2.10, brief [wims_antenna.md](wims_antenna.md)) reads rotator headings
+  now. Tuner (SteppIR, USB serial owned on that PC) and switches are not built.
   The earlier Yaesu/K3NG-in-WIMS wording is superseded. Build order:
-  - [ ] **Read-only heading** — name and heading on Operate (current; target and turning blank)
+  - [x] **Read-only heading** — antenna name, rotator device, heading, connected/stale on Operate. Launcher **Antennas** checkbox, rotctld `p` only. No turn command.
   - [ ] **Manual turn** — operator enters a bearing; claim-gated; stop
   - [ ] **Auto-association** — agent proposes the instance; operator confirms once; site profile
   - [ ] **Point at a spot** — spot click prepares (QSY, rotate, Tuning/Ready); roster click starts
@@ -133,12 +134,12 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
 |---|--------|--------|-------------------|
 | 3.1 | UDP listener/parser | `[~]` | Heartbeat/Status/Decode parsed + unit-tested vs live captures (`udp/messages.py`, `udp/sink.py`); grid extracted. QSO-Logged/ADIF parsers written, not yet captured live. |
 | 3.2 | UDP controller/sender | `[~]` | `udp/controller.py` + `udp/encode.py`: `reply()` / `halt()` / grid-only `configure_grid()`. Server: `/api/tx/work\|halt` — **no global arm**; roster line click = Work (GT2). Arbiter grant/release; `test_server_tx`. Reply = echo retained Decode (CQ **or 73 tailend**). A remembered square with no grid in that decode is a following Configure (DX Grid only). Reply socket is unbound (OS picks the route; no path → plain sentence). **No product Call CQ**. Remaining: real-WSJT-X bring-up, Free Text (QSY §2.8), Replay. |
-| 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; remaining matrix: **interlock mute**, **rotator I/O**, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
+| 3.3 | Multi-instance manager | `[~]` | **Seat agent** (§3.3.1): config/setup test + report + discovery **built**; antenna side with read-only rotator heading (rotctld `p`) **built**. Remaining matrix: **interlock mute**, rotator turn, tuner (SteppIR serial), switch, thumbnails, process lifecycle, readiness, watchdog fail-safe. |
 | 3.4 | Interlock / TX arbiter | `[~]` | `interlock/arbiter.py`: `TxArbiter` (≤1/group) + `OverlapDetector`; 5000-step stress + live bench, 0 overlap. **Arbiter now gates real TX** in the server: Work does `request()`, released on Halt and on the WSJT-X `Status` TX→RX edge; `holders()` on the `tx` state block. Remaining: fast-mute path, per-group config from profiles. |
 | 3.5 | Decision / recommendation engine | `[~]` | Scoring built (`engine/scoring.py`). Contest rules are a separate object (`engine/contest_rules.py`): ARRL VHF and NY QSO Party JSON files. Setup **Goal** menu: contest, award (DXCC, WAS, VUCC), just operating (Checklist), or custom. Checklist adds continent, CQ zone, and ITU zone (overall, per band, or per mode) when `cty.dat` is present; a missing file leaves those three off with a tip. County and callsign prefix stay off (no list shipped). Logged contacts are the already-have list. A worked place that is not confirmed still shows as unconfirmed for a new station, per the line's scope (overall is any band or mode), until the log or a GridTracker LoTW file on this PC says it is confirmed. A station with no confirmed contact is not marked unconfirmed. That file confirms a matching contact (call, band, LoTW mode group, within 30 minutes) and the grid, state, and DXCC on the record. Setup names when the file was updated, or says it was not found. WIMS does not download LoTW and does not write the file. Log to use is the only log. A saved WSJT-X Colors choice is rewritten once as checklist lines. Heard grids persist, and Work sends a remembered square to that WSJT-X (10-minute rover window; roster says grid assumed only for a rover square from an earlier hearing). DX cluster spots are a separate Operate list (§2.15): any selected amateur band, mode from the comment or the frequency, needed on that spot’s band and mode, a small QSY cost when no live instance is on that band and mode, click selects only. Remaining: **advisory** run/S&P (run ≠ actuator — §2.12), give-up, geometry, **`cross_band` factor (C7)** + prior-contest station history. NYQP new-mult stays off (`per: unverified`). |
 | 3.6 | Logger interface (N1MM) | `[~]` | Log to use on the Log page: the operator’s log, or a Goal suggestion (contest → newest matching N1MM; otherwise WSJT-X). Count-since / count-until change the needed/dupe lookup. N1MM seed + live contact UDP + resync when that contest file is the log. The selected file is re-read about once a second, before the roster is scored, and a locked read does not wipe the copy. A logged contact clears needed and Mult on the next push. The mult badge names the square, the band, and the log. Per-instance `wsjtx_log.adi` discovery and Log-page warnings. **Check logs** is on the Log page (summary first; shared files count once). The N1MM tab lists several stations and stays hidden when fewer than two are heard. Remaining: native Log4OM/CQRLOG, GridTracker roster filters (L9), challenge pace UI, **prior-contest band-history seed for C7**. |
 | 3.7 | GridTracker interface | `[ ]` | — |
-| 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. That GS-232 client and `WIMS_ROTATOR_*` are a lab stand-in. Product path (design 2026-10-28, not coded): rotctld on the seat agent — read-only heading, manual turn, confirmed link, point-at-spot. See [wims_rotator.md](wims_rotator.md). |
+| 3.8 | Rotator controller | `[~]` | **Started:** `integrations/rotator/` (GS-232 dialect, SimRotator, RotatorRegistry); server `--sim-rotator`, agent `WIMS_ROTATOR_*` / report `rotators[]`; state `rotators` + roster `az_ant`/`delta_az`/`rotator_moving`; API `POST /api/rotator/point|stop`; UI Az ant (italic while slewing) + click Az DX. That GS-232 client and `WIMS_ROTATOR_*` are a lab stand-in. Product path step 1 is built: the **Antennas** checkbox starts the antenna side of the seat agent. An antenna has devices (`rotator` / `tuner` / `switch`). Only `rotator` is read (rotctld `p`: heading and connected/stale). SteppIR would be a `tuner` whose USB serial port the agent on that PC owns; that is not built. Manual turn, confirmed link, and point-at-spot are not built. No position command is sent. See [wims_antenna.md](wims_antenna.md). |
 | 3.9 | Safety / watchdog | `[ ]` | — |
 | 3.10 | State store / logger | `[~]` | log copy + dupe/mult/resync (`state/logstore.py`, SQLite). Remaining: append-only JSONL event/decision stream. |
 | 3.11 | Config | `[~]` | DX cluster host, port, band set, and QSY cost are saved from Setup in `cluster.json` (same directory as the Goal). Live-roster weights stay the defaults in `engine/scoring.py`. Instance profiles are still not files. |
@@ -189,10 +190,14 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   widget shows subscriptions. Distinct from TX claim. Design: wims_design.md §2.11 / §2.7.
 - [ ] **G5 / §2.10 — Rotator control (rotctld)** — design **revised 2026-10-28** (Jeff,
   WA1HCO). The per-PC agent speaks hamlib rotctld; GS-232 serial stays behind rotctld.
-  Operate row: current, target, turning. Fifth launcher checkbox **Rotators**. Confirm
-  the rotor-to-instance link once; multi-multi saves it in the site profile. Spot click
-  (step 4) prepares only. Az ant font while turning (`rotator_moving`). Not coded.
-  Design: wims_design.md §1.4 / §2.10 / §3.8 / §3.3.1 and [wims_rotator.md](wims_rotator.md).
+  Operate row: current, target, turning. Fifth launcher checkbox **Antennas**
+  (an antenna and its devices). Confirm the rotor-to-instance link once; multi-multi
+  saves it in the site profile. Spot click (step 4) prepares only. Az ant font while
+  turning (`rotator_moving`). **Step 1 is built** — Antennas checkbox, rotator device
+  only, rotctld `p`, Operate antenna / device / heading / connected or stale.
+  Tuner (SteppIR USB serial, owned by the agent on that PC) and switches are not
+  built. Manual turn, link confirm, and point-at-spot are not.
+  Design: wims_design.md §1.4 / §2.10 / §3.8 / §3.3.1 and [wims_antenna.md](wims_antenna.md).
 - [ ] **G6 / §2.12 — Run vs S&P + tailend boundary** — design **done** (2026-07-20, revised same
   day): S&P/tailend = WIMS Reply on retained decode (CQ **and** **73**, GT2 `initiateQso`);
   run/CQ + pile autorespond = WSJT-X UI only; no product Call CQ. Remaining code/UI: observe
@@ -200,7 +205,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   seat/RDP. Design: wims_design.md §2.12 / §1.1 / §4.2.
 - [ ] **§3.3.1 — Seat agent capability matrix (beyond config audit)** — per station agent:
   setup test (**done**); **interlock** sensor (SSB/CW CTS) + fast mute actuator (WSJT-X host);
-  **rotator** status/control (rotctld, §2.10); thumbnails; process lifecycle; local readiness; watchdog
+  **antenna** side is built for a rotator device (read-only rotctld `p`, §2.10); turn, link confirm, tuner, and switch are not; thumbnails; process lifecycle; local readiness; watchdog
   fail-safe. Design: wims_design.md §3.3.1.
 - [x] **L1 — Contest rules interface (no verdict change).** `arrl-vhf.json` is the
   default `LogStore` rule. `is_dupe` / `is_new_mult` delegate to it. Scoring tests
@@ -255,6 +260,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
 
 ## Build log
 
+- **2026-10-29** — **Antenna agent, read-only rotator heading.** The launcher **This seat will run** row gains **Antennas**. Checking it starts the antenna side of the seat agent (the same agent as WSJT-X; a PC with antennas and no WSJT-X still gets that agent). An antenna has a name and a list of devices. The kind is `rotator`, `tuner`, or `switch`. This step reads only `rotator`: the window remembers host and port, the agent polls hamlib rotctld `p` about once a second, and the report carries the antenna, the device kind, the heading, and connected or stale. Three missed polls, or a stopped rotctld, clear the heading. Operate and Status show one compact row. A remote browser sees it on the existing live update. No turn, no set-position, and no stop is sent. Port 4533 is left to the radio. A `tuner` is where SteppIR will go: the controller is USB serial, and the antenna agent on that PC would own the port. A `switch` is antenna selection. Neither is built, and neither opens a port. Tests: `tests/unit/test_rotctld.py` with a fake rotctld. Design: [wims_antenna.md](wims_antenna.md), [wims_design.md](wims_design.md) §2.10.
 - **2026-10-28** — **Design only: rotator control is rotctld on the seat agent.**
   Jeff (WA1HCO): WIMS turns rotators itself, through hamlib rotctld. WSJT-X has
   no rotator control, and the Flex is not the path. The per-PC agent finds each

@@ -74,6 +74,9 @@ class AgentState:
         self.seat_id: str | None = None
         self.presence_iface: str = "0.0.0.0"
         self.update_info: dict | None = None  # gentle mid-contest update nudge
+        self.auto_export = False
+        self.rotator_poller = None
+        self._rot_intent_was_on = False
 
     def set_update_info(self, info: dict | None) -> None:
         with self._lock:
@@ -90,9 +93,41 @@ class AgentState:
             fleet=self.fleet,
             solo=self.solo,
         )
+        poller = self.rotator_poller
         with self._lock:
+            if poller is not None:
+                rows = poller.snapshot_for_report()
+                if rows is not None:
+                    r["antennas"] = rows
+                    self._rot_intent_was_on = True
             self.report = r
         return r
+
+    def publish_antenna_cycle(self, rows: list, intent_on: bool) -> None:
+        """Fold an antenna poll into the last report and POST it.
+
+        The config scan stays on its own interval. Rotator headings go out
+        with that same report about once a second while Antennas is checked,
+        so a dropped rotctld shows as heading unknown within a few seconds.
+        """
+        with self._lock:
+            rep = self.report
+            if rep is None:
+                return
+            if not intent_on and not self._rot_intent_was_on:
+                return
+            rep = dict(rep)
+            rep["antennas"] = list(rows) if intent_on else []
+            rep["ts"] = time.time()
+            self.report = rep
+            self._rot_intent_was_on = bool(intent_on)
+            server = self.server_url
+            do_export = bool(self.auto_export)
+        if do_export and server:
+            try:
+                self.set_export(export_report(rep, server))
+            except Exception as e:
+                self.set_export({"ok": False, "error": f"rotator export: {e}"})
 
     def get_report(self) -> dict | None:
         with self._lock:
@@ -735,40 +770,52 @@ def main(argv: list[str] | None = None) -> int:
 
     if not run_daemon:
         # One-shot: full discover + report, then exit.
-        _discover_and_print(http_fallback=True)
-        rep = state.refresh()
-        print(format_report_text(rep), flush=True)
-        print(flush=True)
-        export_rc = 0
-        if state.server_url and not args.no_export:
-            result = export_report(rep, state.server_url)
-            state.set_export(result)
-            if result.get("ok"):
-                print(f"Exported OK -> {result.get('url')}")
-            else:
-                print(f"Export failed: {result}", file=sys.stderr)
-                export_rc = 2
-        elif not state.server_url:
-            print("(no site server URL — local check only, not sent to dashboard)")
-        errors = int((rep.get("wsjtx") or {}).get("error_count", 0) or 0)
-        if errors:
-            print(
-                f"\nRESULT: {errors} WSJT-X config ERROR(s) — fix the !! lines above.\n"
-                f"(exit code 1 is intentional for scripts; the agent itself ran fine.)",
-                file=sys.stderr,
-            )
+        # One position read when this seat's Rotators box is checked.
+        from wims.integrations.rotator.rotctld import AntennaPoller
+        poller = AntennaPoller()
+        try:
+            if poller.intent_enabled():
+                try:
+                    poller.poll_once()
+                except Exception as e:
+                    print(f"(rotator poll: {e})", file=sys.stderr)
+                state.rotator_poller = poller
+            _discover_and_print(http_fallback=True)
+            rep = state.refresh()
+            print(format_report_text(rep), flush=True)
+            print(flush=True)
+            export_rc = 0
+            if state.server_url and not args.no_export:
+                result = export_report(rep, state.server_url)
+                state.set_export(result)
+                if result.get("ok"):
+                    print(f"Exported OK -> {result.get('url')}")
+                else:
+                    print(f"Export failed: {result}", file=sys.stderr)
+                    export_rc = 2
+            elif not state.server_url:
+                print("(no site server URL — local check only, not sent to dashboard)")
+            errors = int((rep.get("wsjtx") or {}).get("error_count", 0) or 0)
+            if errors:
+                print(
+                    f"\nRESULT: {errors} WSJT-X config ERROR(s) — fix the !! lines above.\n"
+                    f"(exit code 1 is intentional for scripts; the agent itself ran fine.)",
+                    file=sys.stderr,
+                )
+                _print_next_steps(state)
+                return 1
+            if export_rc:
+                print(
+                    "\nRESULT: export to site server failed (agent scan OK).",
+                    file=sys.stderr,
+                )
+                _print_next_steps(state)
+                return export_rc
+            print("\nRESULT: OK (no WSJT-X config errors)")
             _print_next_steps(state)
-            return 1
-        if export_rc:
-            print(
-                "\nRESULT: export to site server failed (agent scan OK).",
-                file=sys.stderr,
-            )
-            _print_next_steps(state)
-            return export_rc
-        print("\nRESULT: OK (no WSJT-X config errors)")
-        _print_next_steps(state)
-        return 0
+            return 0
+        finally:
+            poller.close()
 
     # Singleton: refuse a second seat agent even if started outside the launcher
     # (Desktop Start-WimsAgent-Continuous.cmd, second window, etc.).
@@ -808,6 +855,11 @@ def main(argv: list[str] | None = None) -> int:
     auto_export = bool(state.server_url) and not args.no_export
     if args.export:
         auto_export = bool(state.server_url) or not args.no_export
+    from wims.integrations.rotator.rotctld import AntennaPoller
+    poller = AntennaPoller()
+    state.rotator_poller = poller
+    state.auto_export = bool(auto_export)
+    poller.start(on_cycle=state.publish_antenna_cycle)
 
     def _bootstrap() -> None:
         try:
@@ -832,6 +884,8 @@ def main(argv: list[str] | None = None) -> int:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped", flush=True)
+    finally:
+        poller.close()
     return 0
 
 def os_env_server() -> str | None:

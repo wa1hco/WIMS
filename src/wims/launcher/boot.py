@@ -29,6 +29,7 @@ from pathlib import Path
 
 from wims.launcher.assets import (
     INTENT_N1MM,
+    INTENT_ANTENNAS,
     INTENT_SERVER,
     INTENT_SSB_CW,
     INTENT_WSJT,
@@ -199,6 +200,8 @@ def resolve_boot_plan(
         notes.append("Site server intent on — WIMS launcher will start it")
     if intent.get(INTENT_SSB_CW):
         notes.append("SSB/CW KEY intent on — WIMS launcher starts N1MM agent --key")
+    if intent.get(INTENT_ANTENNAS):
+        notes.append("Antennas intent on — the seat agent reads rotator headings")
 
     return BootPlan(
         intent=intent,
