@@ -23,15 +23,18 @@ from wims.launcher.assets import (
     AGENT_SERVER,
     AGENT_WSJT,
     INTENT_N1MM,
+    INTENT_ANTENNAS,
     INTENT_SERVER,
     INTENT_SSB_CW,
     INTENT_WSJT,
     AssetSnapshot,
     agents_for_intent,
     is_wsjt_only_seat,
+    load_antennas,
     load_seat_intent,
     missing_intent_agent_labels,
     offer_site_server,
+    save_antennas,
     save_seat_intent,
     seat_intent_saved,
     seed_intent_from_assets,
@@ -95,6 +98,73 @@ class SeatIntentTests(unittest.TestCase):
     def test_ssb_cw_starts_key_agent(self):
         a = agents_for_intent({INTENT_SSB_CW: True})
         self.assertTrue(a[AGENT_KEY])
+
+    def test_antennas_alone_starts_seat_agent(self):
+        a = agents_for_intent({INTENT_ANTENNAS: True})
+        self.assertTrue(a[AGENT_WSJT])
+        self.assertFalse(a[AGENT_N1MM_SEAT])
+        self.assertFalse(a[AGENT_SERVER])
+        missing = missing_intent_agent_labels(
+            {INTENT_ANTENNAS: True},
+            n1mm_seat_up=False,
+            wsjt_up=False,
+            server_up=False,
+        )
+        self.assertEqual(missing, ["Seat agent"])
+        self.assertEqual(
+            missing_intent_agent_labels(
+                {INTENT_ANTENNAS: True, INTENT_WSJT: False},
+                n1mm_seat_up=False,
+                wsjt_up=True,
+                server_up=False,
+            ),
+            [],
+        )
+
+    def test_seed_does_not_enable_antennas(self):
+        snap = AssetSnapshot(wsjt_running=True, wsjt_ini_count=1)
+        got = seed_intent_from_assets(snap)
+        self.assertFalse(got[INTENT_ANTENNAS])
+
+    def test_antenna_roundtrip_keeps_intent_and_tuner_kind(self):
+        with tempfile.TemporaryDirectory() as td:
+            pref = Path(td) / "seat_intent.json"
+            with mock.patch.dict("os.environ", {"WIMS_SEAT_INTENT": str(pref)}):
+                save_seat_intent({
+                    INTENT_N1MM: False,
+                    INTENT_WSJT: True,
+                    INTENT_ANTENNAS: True,
+                    INTENT_SERVER: False,
+                })
+                save_antennas([{
+                    "name": "6m beam",
+                    "devices": [
+                        {
+                            "kind": "rotator",
+                            "host": "127.0.0.1",
+                            "port": "4535",
+                        },
+                        {"id": "dev-tun", "kind": "tuner"},
+                    ],
+                }])
+                got = load_antennas()
+                self.assertEqual(len(got), 1)
+                self.assertEqual(got[0]["name"], "6m beam")
+                self.assertTrue(got[0]["id"].startswith("ant-"))
+                rot = next(d for d in got[0]["devices"] if d["kind"] == "rotator")
+                tun = next(d for d in got[0]["devices"] if d["kind"] == "tuner")
+                self.assertEqual(rot["host"], "127.0.0.1")
+                self.assertEqual(rot["port"], 4535)
+                self.assertNotIn("host", tun)
+                self.assertNotIn("port", tun)
+                self.assertNotIn("serial", tun)
+                intent = load_seat_intent()
+                self.assertTrue(intent[INTENT_WSJT])
+                self.assertTrue(intent[INTENT_ANTENNAS])
+                save_seat_intent(intent)
+                again = load_antennas()
+                self.assertEqual(again[0]["id"], got[0]["id"])
+                self.assertEqual(again[0]["devices"][0]["port"], 4535)
 
     def test_save_load_intent(self):
         with tempfile.TemporaryDirectory() as td:

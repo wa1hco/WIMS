@@ -4,7 +4,8 @@
 
 This is the **requirements / goals / design** source of truth for WIMS — a supervised,
 human-in-the-loop console for multi-instance VHF contesting, plus the integration plumbing
-around N1MM+, GridTracker, and rotators (hamlib rotctld on the seat). It describes *what* WIMS must do
+around N1MM+, GridTracker, and antennas (rotctld on the seat; SteppIR and
+switches later). It describes *what* WIMS must do
 and *why*, and
 records design decisions as they're made.
 
@@ -22,7 +23,8 @@ Statement and checklist: [design-principles.md](../design-principles.md).
 consoles, **resilience & guided setup** for tired/non-expert seat ops):
 **[wims_networking.md](wims_networking.md)** (§12).
 
-**Rotator control (decided 2026-10-28):** [wims_rotator.md](wims_rotator.md) and **§2.10**.
+**Antenna agent (decided 2026-10-28, generalized 2026-10-29):** [wims_antenna.md](wims_antenna.md) and **§2.10**.
+Rotator heading is the first device kind. The older name [wims_rotator.md](wims_rotator.md) points at the antenna brief.
 The per-PC agent speaks hamlib rotctld. The console never sees a port or a serial device.
 
 **Adopted architecture direction (2026-07-30): WIMS Switchboard.**
@@ -452,7 +454,7 @@ bed (§5).
 ### 1.4 Rotator (hamlib rotctld; GS-232 behind it)
 
 Decided 2026-10-28 (Jeff, WA1HCO). Product behavior is **§2.10** and
-[wims_rotator.md](wims_rotator.md). This list is what to verify on the wire
+[wims_antenna.md](wims_antenna.md). This list is what to verify on the wire
 before trusting a controller.
 
 WIMS turns rotators itself. WSJT-X has no rotator control. The Flex radio is
@@ -888,12 +890,28 @@ does **not** force QSY or work order — click-to-work and free-text stay human-
 **Out of scope:** auto-QSY; assuming prior-contest presence means they have the band this weekend
 without showing that assumption; hiding evidence behind a single score number.
 
-### 2.10 Rotator control (rotctld)
+### 2.10 Antenna agent (rotator first)
 
-**Decided 2026-10-28 — Jeff, WA1HCO.** This section is the source of truth.
-The implementation brief is [wims_rotator.md](wims_rotator.md). Rotator TCP
-is seat-local and is not a fleet plane
-([wims_networking.md](wims_networking.md) §3.4).
+**Decided 2026-10-28, generalized 2026-10-29 — Jeff, WA1HCO.** This section
+is the source of truth. The implementation brief is
+[wims_antenna.md](wims_antenna.md). Rotator TCP is seat-local and is not a
+fleet plane ([wims_networking.md](wims_networking.md) §3.4).
+
+The seat agent’s antenna side owns the antennas on that PC. An antenna has
+a name and a list of devices. The device kind is `rotator`, `tuner`, or
+`switch`.
+
+| Kind | Meaning | This step |
+|------|---------|-----------|
+| `rotator` | Azimuth / elevation through hamlib rotctld | Read the heading only. No turn and no set-position |
+| `tuner` | A frequency-tuned antenna. The station’s SteppIR controller connects to the PC by USB serial | Not built. The antenna agent on that PC would own the serial port directly. A later step reads frequency and state, then follows the radio’s frequency |
+| `switch` | Which antenna is selected | Not built |
+
+Today the station has rotators and SteppIR. This step implements the
+rotator kind only. Tuner and switch are part of the model so the same
+antenna list can grow. There is no SteppIR code and no switch code. No
+kind sends a motion command or a set command. The console never learns a
+port, a COM device, or a serial path.
 
 WIMS turns the antennas. WSJT-X has no rotator control, so it is not in
 the path. The Flex radio is not in the path. The seat agent opens a TCP
@@ -918,13 +936,14 @@ The agent is the only process that executes a turn. The site server checks
 the claim and forwards the request. It does not speak rotctld, even when
 the server and the agent share a PC.
 
-**Launcher.** **This seat will run** gains a fifth checkbox, **Rotators**,
+**Launcher.** **This seat will run** gains a fifth checkbox, **Antennas**,
 beside N1MM, WSJT-X, SSB/CW KEY, and Site server. The rows live in
-`src/wims/launcher/home_panel.py`; the intent ids live in
-`src/wims/launcher/assets.py`. Checking **Rotators** starts the rotor side
+`src/wims/launcher/home_panel.py`; the intent id `antennas` lives in
+`src/wims/launcher/assets.py`. Checking **Antennas** starts the antenna side
 of the one agent process on that PC. Unchecking stops that side. The choice
-is remembered with the other four intents. There is no flag and no
-environment variable.
+is remembered with the other four intents. The same window remembers each
+antenna and its rotator host and port. There is no flag and no environment
+variable.
 
 **Name and link.** The antenna name is stored in the controller when the
 controller can store one. The agent proposes which WSJT-X instance the
@@ -1019,11 +1038,14 @@ this step.
    retune time. Pointing at a roster **Az DX** is the same turn command,
    still started by the operator.
 
-**Outside this decision.** Moon-track elevation. An operator-facing COM
-port, TCP port, flag, or environment variable. WIMS speaking GS-232 itself
-on the product path. The lab GS-232 helper already in the tree stays a lab
-stand-in and must not sit on the serial port beside rotctld
-([wims_rotator.md](wims_rotator.md), Developer).
+**Outside this decision.** Moon-track elevation. A flag or an environment
+variable. The console learning a port or a serial path. WIMS speaking
+GS-232 itself on the product path. The lab GS-232 helper already in the
+tree stays a lab stand-in and must not sit on the serial port beside
+rotctld ([wims_antenna.md](wims_antenna.md), Developer). The seat window
+may remember a rotator host and port; that address stays on that PC. A
+later tuner (SteppIR) is USB serial owned by the antenna agent on that
+same PC, not a port the console is told.
 
 ### 2.11 Band / station subscription → call roster population
 
@@ -1513,7 +1535,7 @@ Build and test each module independently against the test bed (§5) before integ
 | 3.5 | **Decision / recommendation engine** | **Advisory, not autonomous** — ranks & recommends for the WIMS operator, who **initiates every S&P/tailend TX by click-to-work (Reply)**; WIMS never transmits unattended. Suggest next-best **CQ or fresh-73** target, **advisory** run vs S&P (run means “use WSJT-X UI / seat”, not a WIMS actuator — §2.12), needed > dupe, give-up on **WIMS-started** QSOs. Maintains a **`call→current-grid` map** (with staleness) so a **rover** reappearing in a new grid is treated as a fresh QSO + candidate mult, ranked high; mult value is per `grid × band`. The grid map is **authoritative grid memory** (accumulated across *all* decodes, GridTracker-style but better-retained) — load-bearing because mult = grid×band and WSJT-X often lacks a station's grid in a given decode (e.g. `CALL CALL +08`); WIMS may **supply the remembered grid to WSJT-X for logging** so the QSO records the correct grid → N1MM computes the right mult (mechanism TBD, Open questions). **N1MM is the multiplier authority:** for *logged* QSOs WIMS defers to N1MM's `ismultiplier`; for *prospective* roster candidates (which N1MM can't judge until logged) WIMS self-computes new-mult with the identical `grid×band` rule and continuously **reconciles** to N1MM's verdicts. **No LoTW/eQSL/award confirmation** — that is general-operating chasing (GridTracker), not contest dupe/mult. Ranks the roster by **expected score gain** via a **scoring model** (§3.11) — QSO points + mult value per the contest. **Geometry-aware** (§3.14): only works/ranks stations a given instance's antenna can actually hear — within a fixed beam's sector, or reachable by a re-point inside the soft az limits. The scoring model is **pluggable + explainable** — score = sum of named weighted **factors** (new_mult, points, snr, cq, rover, **cross_band**) with a per-factor **breakdown** the operator sees; strategies swappable by name; **weights vary by band condition** (open/marginal/dead); dupe/non-CQ/unreachable excluded with reason. **`cross_band` (C7 / §2.9):** advisory rank boost when the same call may offer needed contacts on *other* fleet bands — evidence (a) **current contest** log/decodes, (b) **previous contest logs**. Factor is secondary: engine also emits **structured cross-band evidence** on the roster/state contract so the operator can **assess other-band ability and decide** whether to prioritize or send a QSY (§2.8). Score alone must never hide the evidence. Explainable e.g. `cross_band +12 (needed 432; prior Jun on 432)` | Decodes+grid, dupe/mult status, scoring model, instance profiles, **station history (prior contests)** | Ranked + explained targets, **cross-band evidence for operator assessment**, optional QSY *suggestions* (not auto) |
 | 3.6 | **Logger interface** (`LogSource` backend; **N1MM = first impl**) | Abstract behind a small **backend interface** so other loggers (DXLog.net, Log4OM, N3FJP, WSJT-X-native…) plug in later — the engine depends only on the normalized `LoggedQso` + interface, never on N1MM specifics. **Minimal portable contract** (because WIMS self-computes dupe/mult): `seed()` snapshot + `live_events()` add/update/delete stream + `resync()`; optional `mult/points` if the backend supplies it (N1MM does, others may not). **No dedicated WIMS N1MM** — since all contest N1MMs are networked and share one merged log, the **server reads from *any* designated networked N1MM** (e.g. the SSB/CW position's). The logger-of-record invariant (one N1MM *ingests* each WSJT-X stream) is independent of which N1MM WIMS *reads*. **N1MM impl:** seed by reading a `DXLOG` `.s3db` read-only, live via `<contactinfo>` broadcasts (12060) from any N1MM, dedup by `ID`. Maintain log copy keyed on `(call, band, grid)`; self-compute dupe + new-mult (grid×band). Logging path stays WSJT-X→logger; WIMS reads, never double-logs; grid from WSJT-X decode. **Station history for C7:** optionally seed a lightweight `call → {bands seen/worked}` map from **prior contest** `DXLOG` rows (multi-contest `.s3db` already listed on Setup) without treating them as this-contest dupes — history only feeds evidence/scoring/QSY suggestions (§2.9), never the live dupe key | seed snapshot, live log events, WSJT-X grid, **optional prior-contest DXLOG** | Log copy, dupe/mult verdicts, export trigger, **station band-history (for operator assessment)** |
 | 3.7 | **GridTracker interface** | GridTracker is an **optional, parallel read-only viewer** (multicast subscriber, §4.3) — coexists, not in WIMS's control or logging path. WIMS's own roster (§3.12) supersedes its operating role; GridTracker's residual value is its map/viz + ADIF/log-export integrations. Interface = leave the multicast open for it; optionally feed log export | Log, QSO events | (optional) export to GT |
-| 3.8 | **Rotator controller** (product path = hamlib **rotctld** over TCP; GS-232 serial only through rotctld; §2.10 / [wims_rotator.md](wims_rotator.md)) | The **per-PC agent** owns every rotor on that PC: find it, start rotctld when the controller is not already speaking rotctld, read name and heading, announce them with the WSJT-X instances, execute turn requests. One **controller-of-record per rotator** (§4.3): the agent, through one rotctld session. The site server and the console never open a serial device or a rotator port. **Status:** current heading, target, turning, link → Operate row + roster **Az ant** / **`rotator_moving`** + **Az DX** (§2.10). **Moves, in build order:** (1) read-only heading, (2) manual turn, (3) confirmed rotor-to-instance link, (4) point at a DX cluster spot (prepare only; the roster click still starts the QSO). **Soft az limits (§3.14).** Stop on disconnect, heartbeat, optional no rotation during TX. A human initiates every turn. | Target az, profile limits, claim, operator turns, rotctld session | Rotator commands, live position + moving flag |
+| 3.8 | **Rotator controller** (product path = hamlib **rotctld** over TCP; GS-232 serial only through rotctld; §2.10 / [wims_antenna.md](wims_antenna.md)) | The **per-PC agent** owns every rotor on that PC: find it, start rotctld when the controller is not already speaking rotctld, read name and heading, announce them with the WSJT-X instances, execute turn requests. One **controller-of-record per rotator** (§4.3): the agent, through one rotctld session. The site server and the console never open a serial device or a rotator port. **Status:** current heading, target, turning, link → Operate row + roster **Az ant** / **`rotator_moving`** + **Az DX** (§2.10). **Moves, in build order:** (1) read-only heading, (2) manual turn, (3) confirmed rotor-to-instance link, (4) point at a DX cluster spot (prepare only; the roster click still starts the QSO). **Soft az limits (§3.14).** Stop on disconnect, heartbeat, optional no rotation during TX. A human initiates every turn. | Target az, profile limits, claim, operator turns, rotctld session | Rotator commands, live position + moving flag |
 | 3.9 | **Safety / watchdog** | Heartbeats, runaway detector, sanity limits, fail-safe (TX off). Detects faults by comparing live behavior to each instance's **fault baselines (§3.14)** (silence, freq drift, stuck rotator, PTT-duty, comm-loss). On any fault, trigger the §3.4 fast mute on every host before slower Halt Tx/PTT-down | All module health, instance baselines | Alerts, kill signals, fast-mute trigger |
 | 3.10 | **State store / logger** | Single source of truth + audit log of every decision; internal log copy + roster keyed on **`(call, band, grid)`** so rovers aren't collapsed into dupes. **Persistence: own `wims.db` (SQLite, stdlib, WAL)** for queryable state (indexed dupe/mult lookups) + **append-only JSONL** for the raw event/decision stream (replay/audit). SQLite is the derived view, rebuildable from JSONL + N1MM seed. WIMS writes only `wims.db`; never N1MM's `.s3db` | All events | Persisted state, logs |
 | 3.11 | **Config** | Per-instance **Instance Profile** (§3.14), strategy/parameter selection, antenna↔rotator map, and the **per-contest scoring model** feeding §3.5 — selects the scoring strategy by name + the per-condition weight sets | Config files / setup form | Runtime config |

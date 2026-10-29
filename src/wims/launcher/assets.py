@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,16 +29,22 @@ AGENT_SERVER = "server"
 INTENT_N1MM = "n1mm"
 INTENT_WSJT = "wsjt"
 INTENT_SSB_CW = "ssb_cw"
+INTENT_ANTENNAS = "antennas"
 INTENT_SERVER = "server"
 
 _ALL_AGENTS = (AGENT_LOG, AGENT_WSJT, AGENT_KEY, AGENT_N1MM_SEAT, AGENT_SERVER)
-_ALL_INTENTS = (INTENT_N1MM, INTENT_WSJT, INTENT_SSB_CW, INTENT_SERVER)
+_ALL_INTENTS = (
+    INTENT_N1MM, INTENT_WSJT, INTENT_SSB_CW, INTENT_ANTENNAS, INTENT_SERVER,
+)
 
-# Intent → agent to start/stop (N1MM + SSB/CW share one seat process).
+# Intent → agent to start/stop.
+# N1MM + SSB/CW share one seat process. Antennas is the antenna side of
+# that same seat agent (it does not start a second program).
 INTENT_TO_AGENT: dict[str, str] = {
     INTENT_N1MM: AGENT_N1MM_SEAT,
     INTENT_WSJT: AGENT_WSJT,
     INTENT_SSB_CW: AGENT_N1MM_SEAT,
+    INTENT_ANTENNAS: AGENT_WSJT,
     INTENT_SERVER: AGENT_SERVER,
 }
 
@@ -115,7 +122,8 @@ def seed_intent_from_assets(snap: AssetSnapshot) -> dict[str, bool]:
 
     N1MM installed/running → N1MM agent. WSJT-X running, or WSJT-X present
     on a non-N1MM PC (ini on disk) → Seat agent. Never auto-enables KEY
-    (needs a COM pick) or Site server (one per LAN).
+    (needs a COM pick), Antennas (needs a rotator address), or Site server
+    (one per LAN).
     """
     n1mm = bool(snap.n1mm_present)
     wsjt = bool(snap.wsjt_running) or (bool(snap.wsjt_present) and not n1mm)
@@ -123,6 +131,7 @@ def seed_intent_from_assets(snap: AssetSnapshot) -> dict[str, bool]:
         INTENT_N1MM: n1mm,
         INTENT_WSJT: wsjt,
         INTENT_SSB_CW: False,
+        INTENT_ANTENNAS: False,
         INTENT_SERVER: False,
     }
 
@@ -138,7 +147,7 @@ def missing_intent_agent_labels(
     missing: list[str] = []
     if (intent.get(INTENT_N1MM) or intent.get(INTENT_SSB_CW)) and not n1mm_seat_up:
         missing.append("N1MM agent")
-    if intent.get(INTENT_WSJT) and not wsjt_up:
+    if (intent.get(INTENT_WSJT) or intent.get(INTENT_ANTENNAS)) and not wsjt_up:
         missing.append("Seat agent")
     if (
         intent.get(INTENT_SERVER)
@@ -163,6 +172,137 @@ def load_key_device() -> str:
         return env
     raw = _read_pref_raw()
     return str(raw.get("key_device") or "").strip()
+
+
+def new_antenna_id() -> str:
+    """Opaque id for one remembered antenna. Not a host or a port."""
+    return "ant-" + uuid.uuid4().hex[:8]
+
+
+def new_device_id() -> str:
+    """Opaque id for one device on an antenna."""
+    return "dev-" + uuid.uuid4().hex[:8]
+
+
+def _clean_opaque_id(raw_id: object, used: set[str], prefix: str) -> str:
+    rid = str(raw_id or "").strip()
+    if not rid or ":" in rid or rid in used or len(rid) > 32:
+        rid = prefix + uuid.uuid4().hex[:8]
+        while rid in used:
+            rid = prefix + uuid.uuid4().hex[:8]
+    return rid
+
+
+def _port_of(raw: dict) -> int | None:
+    port_raw = raw.get("port")
+    if port_raw is None or str(port_raw).strip() == "":
+        return None
+    try:
+        port_i = int(str(port_raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if 1 <= port_i <= 65535:
+        return port_i
+    return None
+
+
+def _remembered_device(raw: object, used: set[str]) -> dict | None:
+    """One device on an antenna.
+
+    Rotator devices remember host and port for rotctld. Tuner and switch
+    are kept as a kind only — this step does not store a serial path and
+    does not open one.
+    """
+    if not isinstance(raw, dict):
+        return None
+    from wims.integrations.antenna.model import DEVICE_KINDS, KIND_ROTATOR
+    kind = str(raw.get("kind") or "").strip().lower()
+    if kind not in DEVICE_KINDS:
+        if raw.get("host") or raw.get("port") is not None:
+            kind = KIND_ROTATOR
+        else:
+            return None
+    rid = _clean_opaque_id(raw.get("id"), used, "dev-")
+    used.add(rid)
+    entry: dict = {"id": rid, "kind": kind}
+    if kind != KIND_ROTATOR:
+        return entry
+    host = str(raw.get("host") or "").strip()[:253]
+    if any(ch.isspace() for ch in host):
+        host = ""
+    entry["host"] = host
+    port = _port_of(raw)
+    if port is not None:
+        entry["port"] = port
+    return entry
+
+
+def _remembered_antenna(raw: object, used_ant: set[str], used_dev: set[str]) -> dict | None:
+    """One antenna and its devices. A half-typed name is kept."""
+    if not isinstance(raw, dict):
+        return None
+    name = " ".join(str(raw.get("name") or "").split())[:24]
+    devices: list[dict] = []
+    raw_devices = raw.get("devices")
+    if isinstance(raw_devices, list):
+        for item in raw_devices:
+            dev = _remembered_device(item, used_dev)
+            if dev:
+                devices.append(dev)
+    if not name and not devices:
+        return None
+    rid = _clean_opaque_id(raw.get("id"), used_ant, "ant-")
+    used_ant.add(rid)
+    return {"id": rid, "name": name, "devices": devices}
+
+
+def _clean_antennas(items: object) -> list[dict]:
+    if not isinstance(items, list):
+        return []
+    used_ant: set[str] = set()
+    used_dev: set[str] = set()
+    out: list[dict] = []
+    for item in items:
+        ant = _remembered_antenna(item, used_ant, used_dev)
+        if ant:
+            out.append(ant)
+    return out
+
+
+def load_antennas() -> list[dict]:
+    """Remembered antennas on this PC (name, and each device)."""
+    raw = _read_pref_raw()
+    return _clean_antennas(raw.get("antennas"))
+
+
+def save_antennas(items: list) -> None:
+    """Persist antennas beside seat intent. No flag and no env var."""
+    raw = _read_pref_raw()
+    raw["schema"] = max(2, int(raw.get("schema") or 1))
+    if not isinstance(raw.get("intent"), dict):
+        raw["intent"] = {k: False for k in _ALL_INTENTS}
+    raw["antennas"] = _clean_antennas(items)
+    _write_pref_raw(raw)
+
+
+def load_antenna_side() -> tuple[bool, list[dict]] | None:
+    """``(antennas_checked, antennas)``.
+
+    ``None`` when the seat file exists but could not be read (a save in
+    progress). A missing file is Antennas off and an empty list.
+    """
+    path = _intent_pref_path()
+    if not path.is_file():
+        return False, []
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(raw, dict):
+        return None
+    intent = raw.get("intent") if isinstance(raw.get("intent"), dict) else {}
+    on = bool(intent.get(INTENT_ANTENNAS))
+    return on, _clean_antennas(raw.get("antennas"))
 
 
 def save_key_device(device: str) -> None:
@@ -235,7 +375,7 @@ def agents_for_intent(intent: dict[str, bool]) -> dict[str, bool]:
     """Which agents should be running given seat intent."""
     want_server = bool(intent.get(INTENT_SERVER)) and not is_wsjt_only_seat(intent)
     want: dict[str, bool] = {
-        AGENT_WSJT: bool(intent.get(INTENT_WSJT)),
+        AGENT_WSJT: bool(intent.get(INTENT_WSJT) or intent.get(INTENT_ANTENNAS)),
         AGENT_SERVER: want_server,
         AGENT_N1MM_SEAT: bool(intent.get(INTENT_N1MM) or intent.get(INTENT_SSB_CW)),
         # Legacy keys for older UI/tests — same process as n1mm_seat.

@@ -210,7 +210,8 @@ ROLES: tuple[Role, ...] = (
             "Not required for decode or TX. Exists so the fleet can see seat health "
             "and so settings drift is caught.\n\n"
             "Daemon + local UI (http://127.0.0.1:8790/) + optional export to the "
-            "site server. Same scoped WSJT checks as “WSJT seat check,” repeated."
+            "site server. Same scoped WSJT checks as “WSJT seat check,” repeated.\n\n"
+            "When Antennas is checked, this same agent reads each rotator heading."
         ),
         button="Start WSJT monitor",
         recommended=False,

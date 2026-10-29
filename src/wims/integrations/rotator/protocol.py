@@ -29,6 +29,7 @@ class RotatorState:
     source: str = "unknown"       # sim | agent | tcp
     agent_id: str | None = None
     ts: float = 0.0               # last update epoch
+    detail: str = ""              # plain reason when the heading is unknown
 
     def clamp_az(self, az: float) -> tuple[float, str | None]:
         """Apply soft limits. Returns (clamped_az, reason_or_None)."""

@@ -401,15 +401,26 @@ def rotators_to_dict(registry, now: float) -> list:
     out = []
     for st in sorted(registry.all(), key=lambda s: s.id):
         age = None if not st.ts else round(now - st.ts, 1)
+        live = (
+            bool(st.link_ok)
+            and st.health not in ("STALE", "DEAD", "FAULT", "UNKNOWN")
+            and st.az is not None
+        )
+        # Step 1 readout is name, heading, and connected/stale. A down link
+        # does not keep the last number. Host and port stay on the seat.
         out.append({
             "id": st.id,
+            "name": st.label or st.id,
             "label": st.label or st.id,
-            "az": None if st.az is None else round(float(st.az)),
-            "el": None if st.el is None else round(float(st.el)),
+            "az": None if not live else round(float(st.az)),
+            "el": None if not live or st.el is None else round(float(st.el)),
             "target_az": None if st.target_az is None else round(float(st.target_az)),
-            "moving": bool(st.moving),
+            "moving": bool(st.moving) if live else False,
             "health": st.health,
-            "link_ok": bool(st.link_ok),
+            "link_ok": live,
+            "link": "up" if live else "down",
+            "connection": "connected" if live else "stale",
+            "detail": "" if live else (st.detail or "Heading unknown."),
             "instances": list(st.instances or []),
             "source": st.source,
             "agent_id": st.agent_id,

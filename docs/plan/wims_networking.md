@@ -507,7 +507,7 @@ is the client.
 | Turn | Operate → site server (control claim) → owning agent → rotctld |
 | GS-232 serial | rotctld only. The agent does not open the serial device |
 
-Design: [wims_design.md](wims_design.md) §2.10 and [wims_rotator.md](wims_rotator.md).
+Design: [wims_design.md](wims_design.md) §2.10 and [wims_antenna.md](wims_antenna.md).
 
 **Port 4533 is the radio** on the preferred Icom seat (§3.3, wfview RigCtld).
 Hamlib’s rotctld default is that same port. The agent does not put a rotor

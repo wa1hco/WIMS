@@ -122,17 +122,16 @@
     </details>
   </section>
 
-  <div id="rot-section" style="display:none">
-    <h2>Rotators</h2>
-    <p class="hint">Live headings reported to WIMS. Stop cancels a slew.</p>
-    <table id="rot" class="tight">
+  <div id="ant-section" style="display:none">
+    <h2>Antennas</h2>
+    <p class="hint">Rotator heading from this seat. Stale means the heading is unknown.</p>
+    <table id="ant" class="tight">
       <thead><tr>
-        <th>Rotator</th><th class="num">Az</th><th class="num">Target</th>
-        <th>Motion</th><th>Health</th><th>Instances</th><th></th>
+        <th>Antenna</th><th>Device</th><th class="num">Heading</th><th>State</th>
       </tr></thead>
-      <tbody id="rot-body"></tbody>
+      <tbody id="ant-body"></tbody>
     </table>
-    <div id="rot-empty" class="empty" style="display:none"></div>
+    <div id="ant-empty" class="empty" style="display:none"></div>
   </div>
 </main>
 <script src="/wims.js"></script>

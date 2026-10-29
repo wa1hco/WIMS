@@ -60,6 +60,7 @@ from wims.launcher.assets import (
     AGENT_SERVER,
     AGENT_WSJT,
     INTENT_N1MM,
+    INTENT_ANTENNAS,
     INTENT_SERVER,
     INTENT_SSB_CW,
     INTENT_TO_AGENT,
@@ -68,12 +69,14 @@ from wims.launcher.assets import (
     detect_assets,
     is_wsjt_only_seat,
     load_key_device,
+    load_antennas,
     AssetSnapshot,
     load_seat_intent,
     missing_intent_agent_labels,
     n1mm_seat_flags,
     offer_site_server,
     save_key_device,
+    save_antennas,
     save_seat_intent,
     seat_intent_saved,
     seed_intent_from_assets,
@@ -839,6 +842,7 @@ class LauncherApp:
             INTENT_N1MM: tk.BooleanVar(value=bool(self._intent.get(INTENT_N1MM))),
             INTENT_WSJT: tk.BooleanVar(value=bool(self._intent.get(INTENT_WSJT))),
             INTENT_SSB_CW: tk.BooleanVar(value=bool(self._intent.get(INTENT_SSB_CW))),
+            INTENT_ANTENNAS: tk.BooleanVar(value=bool(self._intent.get(INTENT_ANTENNAS))),
             INTENT_SERVER: tk.BooleanVar(value=bool(self._intent.get(INTENT_SERVER))),
         }
         # KEY/CTS device — persisted; mirrored to WIMS_KEY_DEVICE for seat child.
@@ -1033,6 +1037,8 @@ class LauncherApp:
             key_device_var=self._key_device_var,
             on_key_device_change=self._on_key_device_change,
             on_refresh_key_ports=self._refresh_key_ports,
+            antennas=load_antennas(),
+            on_antennas_change=self._on_antennas_change,
         )
         if is_wsjt_only_seat(self._current_intent()):
             self._home_panel.set_server_intent_visible(False)
@@ -1046,6 +1052,9 @@ class LauncherApp:
         self._refresh_key_ports()
         self._home_panel.show_key_device_row(
             bool(self._intent_vars[INTENT_SSB_CW].get()),
+        )
+        self._home_panel.show_antenna_settings(
+            bool(self._intent_vars[INTENT_ANTENNAS].get()),
         )
         self.root.after(1500, self._pulse_key_cts)
 
@@ -1203,6 +1212,7 @@ class LauncherApp:
             f"N1MM={'on' if self._intent.get(INTENT_N1MM) else 'off'} "
             f"WSJT={'on' if self._intent.get(INTENT_WSJT) else 'off'} "
             f"KEY={'on' if self._intent.get(INTENT_SSB_CW) else 'off'} "
+            f"Antennas={'on' if self._intent.get(INTENT_ANTENNAS) else 'off'} "
             f"Server={'on' if self._intent.get(INTENT_SERVER) else 'off'}"
         )
         seed_note = " (first-run, from apps on this PC)" if self._intent_seeded else ""
@@ -1956,6 +1966,19 @@ class LauncherApp:
                 lambda: self._start_agent(AGENT_N1MM_SEAT, open_browser=False),
             )
 
+    def _on_antennas_change(self, rows: list) -> None:
+        """Remember antennas. The running agent reads the same file."""
+        save_antennas(rows)
+
+    def _sync_wsjt_agent(self, *, open_browser: bool) -> None:
+        """Start or stop the seat agent for WSJT-X and/or Rotators."""
+        want = bool(agents_for_intent(self._current_intent()).get(AGENT_WSJT))
+        if want:
+            if not self._agent_running(AGENT_WSJT):
+                self._start_agent(AGENT_WSJT, open_browser=open_browser)
+        elif self._agent_running(AGENT_WSJT):
+            self._stop_agent(AGENT_WSJT, explicit=True)
+
     def _close_cts_monitor(self) -> None:
         mon = self._cts_monitor
         self._cts_monitor = None
@@ -2121,6 +2144,15 @@ class LauncherApp:
             )
             # Ensure child sees current device before seat start/restart.
             save_key_device((self._key_device_var.get() or "").strip())
+        if intent_id == INTENT_ANTENNAS:
+            self._home_panel.show_antenna_settings(
+                bool(self._intent_vars[INTENT_ANTENNAS].get()),
+            )
+            # Same seat agent as WSJT-X. Unchecking stops only this side
+            # unless WSJT-X is off too. The agent reads the intent file.
+            self._sync_wsjt_agent(open_browser=False)
+            self._refresh_status()
+            return
         agent_id = INTENT_TO_AGENT[intent_id]
         if agent_id == AGENT_N1MM_SEAT:
             # N1MM / SSB-CW share one process — sync flags (may restart).
@@ -2132,6 +2164,13 @@ class LauncherApp:
                 self._server_start_blocked = False
             self._start_agent(agent_id, open_browser=True)
         else:
+            # WSJT-X off while Rotators stays on: keep the seat agent.
+            if (
+                intent_id == INTENT_WSJT
+                and self._current_intent().get(INTENT_ANTENNAS)
+            ):
+                self._refresh_status()
+                return
             # Explicit operator uncheck — for site server, stop owned *or* local
             # orphan server on this PC (user asked). Sync must never do that alone.
             self._stop_agent(agent_id, explicit=True)
@@ -2415,7 +2454,8 @@ class LauncherApp:
         )
         want_any = bool(
             intent.get(INTENT_N1MM) or intent.get(INTENT_WSJT)
-            or intent.get(INTENT_SSB_CW) or intent.get(INTENT_SERVER)
+            or intent.get(INTENT_SSB_CW) or intent.get(INTENT_ANTENNAS)
+            or intent.get(INTENT_SERVER)
         )
         seat_up = self._agent_running(AGENT_WSJT)
         n1mm_seat_up = self._agent_running(AGENT_N1MM_SEAT)
@@ -2479,7 +2519,7 @@ class LauncherApp:
             self._set_banner(
                 "busy",
                 "Set seat intent below",
-                "Check N1MM / WSJT-X / SSB-CW KEY / Site server for what this PC will run.",
+                "Check N1MM / WSJT-X / SSB-CW KEY / Antennas / Site server for what this PC will run.",
             )
         elif missing:
             self._set_banner(
@@ -2596,7 +2636,7 @@ class LauncherApp:
             self._set_banner(
                 "warn",
                 "Seat agent is not running",
-                "Check WSJT-X to start the seat agent, then Open local status.",
+                "Check WSJT-X or Antennas to start the seat agent, then Open local status.",
             )
             return
 
