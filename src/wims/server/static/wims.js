@@ -1918,8 +1918,10 @@ function rosChase(c) {
   if (!c || (c.chase !== "unconfirmed" && c.chase !== "needed")) return "";
   const open = c.chase === "unconfirmed";
   const tip = c.need_reason || (open ? "Worked but not confirmed." : "Not in the log yet.");
-  const word = open ? "unconfirmed" : "needed";
-  return '<span class="badge ' + word + '" title="' + escAttr(tip) + '">' + word + '</span>';
+  // One place. The score already counted a new multiplier once.
+  const word = open ? "unconfirmed" : (String(c.need_label || "").trim() || "needed");
+  const cls = open ? "unconfirmed" : "needed";
+  return '<span class="badge ' + cls + '" title="' + escAttr(tip) + '">' + esc(word) + '</span>';
 }
 
 function rosCountryTip(c) {

@@ -48,6 +48,10 @@ class Verdict:
     # "" | "needed" | "unconfirmed". Award and checklist rows set this.
     # Contest rows leave it empty. The roster shows the word.
     chase: str = ""
+    # Short badge when chase is "needed": grid, state, DXCC, CQ zone,
+    # ITU zone, continent, or call. Empty on contest rows and on
+    # unconfirmed rows. One label; see goal_rules.NEED_LABEL_PRIORITY.
+    need_label: str = ""
 
 
 def _upper(value) -> str:

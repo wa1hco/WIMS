@@ -115,9 +115,12 @@ def test_kg4ldk_on_10m_is_not_a_new_mult_or_a_needed_grid():
 
 
 def test_short_kg4_on_10m_is_still_guantanamo():
-    verdict = _store().classify("KG4AA", "10m", "FK00", "FT8")
+    # EM85 is already in the log, so the badge is the new entity.
+    # A new square would be the more specific label and would hide this.
+    verdict = _store().classify("KG4AA", "10m", "EM85", "FT8")
     assert verdict.is_new_mult is True
     assert verdict.chase == "needed"
+    assert verdict.need_label == "DXCC"
     assert "Guantanamo Bay" in verdict.need_reason
     assert "Guantanamo Bay" in verdict.mult_reason
     assert "10m" in verdict.mult_reason
