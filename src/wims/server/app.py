@@ -2251,7 +2251,9 @@ class LiveFleet:
             return self._log.classify(call, band, grid, mode)
 
         def grid_for(call):
-            return self._heard.lookup(call, now).grid or ""
+            # The heard-grid lookup, not only the square, so a remembered
+            # spot grid uses the same hover as the roster.
+            return self._heard.lookup(call, now)
 
         def rover_for(call):
             return self._heard.is_rover(call, now)

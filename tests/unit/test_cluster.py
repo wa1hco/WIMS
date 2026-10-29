@@ -18,6 +18,7 @@
 
 """DX cluster spots: parse, read-only login, filter, score, QSY flag."""
 
+import re
 import socket
 import sys
 import tempfile
@@ -29,7 +30,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.engine import scoring as S  # noqa: E402
 from wims.engine.contest_rules import load_builtin  # noqa: E402
-from wims.engine.geo import distance_km  # noqa: E402
+from wims.engine.geo import bearing, distance_km  # noqa: E402
+from wims.engine.goal_rules import ChecklistRules  # noqa: E402
+from wims.lotw import use_paths  # noqa: E402
+from wims.rules.cty import CtyIndex  # noqa: E402
 from wims.integrations.cluster.client import (  # noqa: E402
     BACKOFF_START, LOGIN_WAIT_S, ClusterLink, ClusterService, is_login_prompt,
     next_backoff, sent_text,
@@ -687,6 +691,270 @@ def test_thread_stops():
         assert started.wait(2)
         svc.stop()
         assert svc._thread is None or not svc._thread.is_alive()
+
+
+# Not a copy of cty.dat. Enough for the one-place badge.
+_CTY = """\
+United States:5:8:NA:43.00:-87.90:0.0:K:
+    K,W,N,AA;
+Italy:15:28:EU:42.00:12.00:0.0:I:
+    I;
+Federal Republic of Germany:14:28:EU:51.00:10.00:0.0:DL:
+    DL,DA;
+"""
+
+_ALL_LINES = {
+    "grid": {"enabled": True, "scope": "overall"},
+    "state": {"enabled": True, "scope": "overall"},
+    "dxcc": {"enabled": True, "scope": "overall"},
+    "continent": {"enabled": True, "scope": "overall"},
+    "cq": {"enabled": True, "scope": "overall"},
+    "itu": {"enabled": True, "scope": "overall"},
+    "call": {"enabled": True, "scope": "overall"},
+}
+
+
+def _checklist(items, rows, *, cty=True):
+    use_paths([])
+    store = LogStore(":memory:")
+    store.rules = ChecklistRules(
+        items, title="Checklist",
+        cty=CtyIndex.parse(_CTY) if cty else None,
+        log_label="the log",
+    )
+    for row in rows:
+        store.upsert(row)
+    return store
+
+
+def test_spot_badge_is_the_roster_label_for_that_band_and_mode():
+    """One place, from classify, on the spot's own band and mode.
+
+    The order lives in the roster rules. A spot does not invent a second
+    one. A contest row leaves the place badge off. The mult reason stays.
+    """
+    wide = _checklist(_ALL_LINES, [])
+    fresh, _drops = _rows(
+        ["DX de K1TTT: 14074.0 DL1ABC JO62 FT8 1734Z"],
+        log=wide,
+    )
+    assert len(fresh) == 1
+    hit = fresh[0]
+    assert hit["chase"] == "needed"
+    assert hit["need_label"] == "grid"
+    assert hit["why"] == "grid"
+    assert hit["is_new_mult"] is True
+    assert "JO62" in hit["need_reason"]
+    for other in ("Germany", "Europe", "CQ zone", "ITU zone", "new call"):
+        assert other not in hit["need_reason"], other
+    assert sum(1 for f in hit["factors"] if f["name"] == "need_new") == 1
+
+    worked = _checklist(_ALL_LINES, [
+        LoggedQso(
+            id="q-us", call="K1ABC", band="6m", grid="FN42", mode="FT8",
+            points=1, is_mult=False, contest="T", timestamp="", operator="",
+            rover_location=None, source="test",
+        ),
+    ])
+    call_only, _drops = _rows(
+        ["DX de K1TTT: 50313.0 N1NEW FN42 FT8 1734Z"],
+        log=worked,
+    )
+    assert len(call_only) == 1
+    assert call_only[0]["need_label"] == "call"
+    assert call_only[0]["why"] == "call"
+    assert call_only[0]["is_new_mult"] is False
+    assert "N1NEW" in call_only[0]["need_reason"]
+
+    banded = _checklist(
+        {"grid": {"enabled": True, "scope": "band"}},
+        [LoggedQso(
+            id="q-6", call="K1ABC", band="6m", grid="FN42", mode="FT8",
+            points=1, is_mult=False, contest="T", timestamp="", operator="",
+            rover_location=None, source="test",
+        )],
+        cty=False,
+    )
+    both, drops = _rows(
+        [
+            "DX de K1TTT: 50313.0 K1ABC FN42 FT8 1734Z",
+            "DX de K1TTT: 144174.0 K1ABC FN42 FT8 1734Z",
+        ],
+        log=banded,
+    )
+    assert [row["band"] for row in both] == ["2m"]
+    assert both[0]["need_label"] == "grid"
+    assert "2m" in both[0]["need_reason"]
+    assert "6m" not in both[0]["need_reason"]
+    assert drops["worked"] == 1
+
+    modes = _checklist(
+        {"call": {"enabled": True, "scope": "mode"}},
+        [LoggedQso(
+            id="q-ft8", call="K1ABC", band="10m", grid="FN42", mode="FT8",
+            points=1, is_mult=False, contest="T", timestamp="", operator="",
+            rover_location=None, source="test",
+        )],
+        cty=False,
+    )
+    same_mode, same_drops = _rows(
+        ["DX de K1TTT: 28074.0 K1ABC FN42 FT8 1734Z"],
+        log=modes,
+    )
+    assert same_mode == []
+    assert same_drops["worked"] == 1
+    other_mode, _drops = _rows(
+        ["DX de K1TTT: 28025.0 K1ABC CW 1734Z"],
+        log=modes,
+        heard=_heard("K1ABC", "FN42"),
+    )
+    assert len(other_mode) == 1
+    assert other_mode[0]["mode"] == "CW"
+    assert other_mode[0]["need_label"] == "call"
+    assert "CW" in other_mode[0]["need_reason"]
+
+    open_store = _checklist(
+        {"grid": {"enabled": True, "scope": "overall"}},
+        [LoggedQso(
+            id="q-open", call="K1ABC", band="6m", grid="FN42", mode="FT8",
+            points=1, is_mult=False, contest="T", timestamp="", operator="",
+            rover_location=None, source="test", confirmed=False,
+        )],
+        cty=False,
+    )
+    opened, _drops = _rows(
+        ["DX de K1TTT: 14074.0 W1AW FN42 FT8 1734Z"],
+        log=open_store,
+    )
+    assert len(opened) == 1
+    assert opened[0]["chase"] == "unconfirmed"
+    assert opened[0]["need_label"] == ""
+    assert opened[0]["why"] == "unconfirmed"
+
+    contest, _drops = _rows(["DX de K1TTT: 50313.0 K1ABC FN42 FT8 1734Z"])
+    assert contest[0]["need_label"] == ""
+    assert contest[0]["chase"] == ""
+    assert contest[0]["why"] == ""
+    assert contest[0]["is_new_mult"] is True
+    assert "FN42" in contest[0]["mult_reason"]
+
+
+def test_spot_row_uses_roster_fields_and_keeps_spot_extras():
+    rows, _drops = _rows(
+        ["DX de K1TTT: 50313.0 K1ABC FN42 FT8 1734Z"],
+        operations=[OnAir("6m", "FT8")],
+    )
+    row = rows[0]
+    assert row["country"] == "United States"
+    assert row["band"] == "6m" and row["mode"] == "FT8"
+    assert row["grid"] == "FN42"
+    assert row["freq_hz"] == 50_313_000
+    assert row["az"] == round(bearing(HOME, "FN42"))
+    assert row["distance_km"] == round(distance_km(HOME, "FN42"), 1)
+    assert row["age"] == 0
+    assert row["spotter"] == "K1TTT"
+    assert row["spotters"] == 1
+    assert row["qsy"] == "on band"
+    assert row["where"] == "on band"
+    assert row["needs_qsy"] is False
+    assert row["qsy_points"] == 0
+    assert "rotator_id" not in row
+    assert row["is_rover"] is False
+
+    class Found:
+        grid = "FN20"
+        remembered = True
+        assumed = True
+        tip = "Grid assumed. FN20, heard on 2m at 17:36 UTC."
+        stale = False
+
+    class Near:
+        grid = "FN42"
+        remembered = False
+
+    remembered, drops = build_list(
+        _book(["DX de K2SPO: 144174.0 W2XYZ 1736Z"]).rows(),
+        now=NOW, ttl_s=15 * 60, our_grid=HOME, allowed=None,
+        operations=[], classify=_log().classify,
+        grid_for=lambda _call: Found(),
+        spotter_grid=lambda _call: Near(),
+    )
+    assert drops["no_grid"] == 0
+    assert remembered[0]["grid"] == "FN20"
+    assert remembered[0]["grid_assumed"] is True
+    assert remembered[0]["grid_remembered"] is True
+    assert "Grid assumed" in remembered[0]["grid_tip"]
+    assert any(f["name"] == "spotter_near" for f in remembered[0]["factors"])
+
+    class Stale:
+        grid = None
+        remembered = False
+        assumed = False
+        tip = "too old"
+        stale = True
+
+    gone, gone_drops = build_list(
+        _book(["DX de K2SPO: 144174.0 W2XYZ 1736Z"]).rows(),
+        now=NOW, ttl_s=15 * 60, our_grid=HOME, allowed=None,
+        operations=[], classify=_log().classify,
+        grid_for=lambda _call: Stale(),
+    )
+    assert gone == []
+    assert gone_drops["no_grid"] == 1
+
+    qsy, _drops = _rows(["DX de K1TTT: 50313.0 K1ABC FN42 FT8 1734Z"])
+    assert qsy[0]["qsy"] == "QSY"
+    assert qsy[0]["qsy_points"] == -8
+
+
+def test_spot_columns_match_the_roster():
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "src/wims/server/static/wims.js").read_text(encoding="utf-8")
+    html = (root / "src/wims/server/static/ops.html").read_text(encoding="utf-8")
+    view = (root / "src/wims/integrations/cluster/view.py").read_text(encoding="utf-8")
+    css = (root / "src/wims/server/static/wims.css").read_text(encoding="utf-8")
+
+    ros = js.split("const ROS_COLS = [", 1)[1].split("\n];", 1)[0]
+    ros_keys = re.findall(r'\{key:"([a-z0-9_]+)"', ros)
+    labels = dict(re.findall(
+        r'\{key:"([a-z0-9_]+)",\s+label:"([^"]*)"', ros,
+    ))
+    spot = re.search(r"const SPOT_COL_KEYS = \[([^\]]+)\]", js)
+    assert spot, "SPOT_COL_KEYS missing"
+    spot_keys = re.findall(r'"([a-z0-9_]+)"', spot.group(1))
+    shared = [key for key in spot_keys if key in ros_keys]
+    assert shared == [key for key in ros_keys if key in set(shared)]
+    assert spot_keys[spot_keys.index("band") + 1] == "spotter"
+    assert spot_keys[spot_keys.index("spotter") + 1] == "mode"
+    assert spot_keys[spot_keys.index("score") - 1] == "qsy"
+    for skip in ("to_call", "msg", "instance", "snr", "az_ant", "delta_az"):
+        assert skip not in spot_keys, skip
+    extra = js.split("const SPOT_EXTRA = {", 1)[1].split("\n};", 1)[0]
+    for key in shared:
+        assert f'key: "{key}"' not in extra
+        assert labels[key]
+    assert 'label: "Spotter"' in extra
+    assert 'label: "QSY"' in extra
+    picker = js.split("function spotCols", 1)[1].split("function spotTitle", 1)[0]
+    assert "ROS_COLS.find" in picker
+    assert js.count("function rosChase") == 1
+    chase = js.split("function rosChase", 1)[1].split("function rosCountryTip", 1)[0]
+    assert "need_label" in chase
+    draw = js.split("function renderSpotted", 1)[1].split("function clusterReadForm", 1)[0]
+    assert "item.cell(row)" in draw
+    assert "need_label" not in draw
+    assert "rosFitColumns" in draw
+    fit = js.split("function fitOperateColumns", 1)[1].split("function rosFitColumns", 1)[0]
+    assert '$("ros")' in fit and '$("spot")' in fit
+    assert "Math.max" in fit
+    assert "#ros, #spot" in css
+    assert "#ros th, #ros td, #spot th, #spot td" in css
+    assert 'id="spot-head"' in html
+    spot_html = html.split('id="spot"', 1)[1].split("</table>", 1)[0]
+    assert "Why" not in spot_html
+    assert "MHz" not in spot_html
+    assert "def short_why" not in view
+    assert "NEED_LABEL" not in view
 
 
 if __name__ == "__main__":

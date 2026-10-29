@@ -1854,6 +1854,14 @@ const ROS_COLS = [
 const ROS_COLS_DEFAULT = [
   "call", "country", "to_call", "msg", "band", "grid", "snr", "az", "age", "score",
 ];
+// Spotted columns. Same keys, in this same order, wherever a spot has that
+// fact. Calling, Message, Source, dB, Az ant, and Δaz are a decode or a
+// radio, so they are not on this list. Spotter fills the Source slot.
+// QSY sits just before Score: the retune mark. The points are already in Score.
+const SPOT_COL_KEYS = [
+  "call", "country", "band", "spotter", "mode", "grid",
+  "freq_hz", "az", "distance_km", "age", "qsy", "score",
+];
 // Visible Message text. Longer QSY / free text is cut here so rosFitColumns
 // measures a short cell; the title attribute keeps the full decode.
 const ROS_MSG_SHOW = 14;
@@ -2128,27 +2136,23 @@ function rosBuildHead() {
   }).join("");
 }
 
-/** Measure content and pin each roster column to the narrowest width that still
- *  shows its cells (no wrap). Re-run after data, visible-column, or zoom/resize. */
-function rosFitColumns() {
-  const table = $("ros");
-  const head = $("ros-head");
-  const body = $("ros-body");
-  if (!table || !head) return;
-  const ths = [...head.children];
+/** Natural content width of each header cell, after dropping a prior pin. */
+function measureTableColumns(table) {
+  const head = table && table.tHead && table.tHead.rows[0];
+  if (!table || !head) return null;
+  const ths = [...head.cells];
   const n = ths.length;
-  if (!n) return;
-
-  // Natural measure pass: drop prior col widths so scrollWidth reflects content.
-  const old = table.querySelector("colgroup.ros-fit");
+  if (!n) return null;
+  const old = table.querySelector("colgroup.col-fit, colgroup.ros-fit");
   if (old) old.remove();
   table.style.width = "max-content";
   table.style.tableLayout = "auto";
-
+  const keys = ths.map(th => th.dataset.key || "");
   const widths = new Array(n).fill(0);
   for (let i = 0; i < n; i++) {
     widths[i] = Math.ceil(ths[i].getBoundingClientRect().width);
   }
+  const body = table.tBodies[0];
   if (body) {
     for (const tr of body.rows) {
       const cells = tr.cells;
@@ -2157,18 +2161,63 @@ function rosFitColumns() {
       }
     }
   }
+  return {keys, widths};
+}
 
+function applyTableColumnWidths(table, keys, widths) {
+  const old = table.querySelector("colgroup.col-fit, colgroup.ros-fit");
+  if (old) old.remove();
   const cg = document.createElement("colgroup");
-  cg.className = "ros-fit";
-  for (const w of widths) {
+  cg.className = "col-fit";
+  for (let i = 0; i < keys.length; i++) {
     const col = document.createElement("col");
+    if (keys[i]) col.dataset.key = keys[i];
     // +1px avoids occasional ellipsis/clip from subpixel rounding after zoom.
-    col.style.width = (w + 1) + "px";
+    col.style.width = (widths[i] + 1) + "px";
     cg.appendChild(col);
   }
   table.insertBefore(cg, table.firstChild);
   table.style.tableLayout = "fixed";
   table.style.width = "max-content";
+}
+
+/** Pin the call roster and the Spotted list. A column key that is on both
+ *  tables uses the wider of the two, so DX, Country, Band, and the rest
+ *  share one width. Spotter and QSY stay on the spot list only. */
+function fitOperateColumns() {
+  const tables = [];
+  const ros = $("ros");
+  const spot = $("spot");
+  if (ros) tables.push(ros);
+  if (spot && !spot.hidden) tables.push(spot);
+  const measured = [];
+  for (const table of tables) {
+    const got = measureTableColumns(table);
+    if (got) measured.push({table, keys: got.keys, widths: got.widths});
+  }
+  const present = {};
+  for (const item of measured) {
+    item.keys.forEach((key, i) => {
+      if (!key) return;
+      if (!present[key]) present[key] = [];
+      present[key].push(item.widths[i]);
+    });
+  }
+  for (const item of measured) {
+    const widths = item.widths.map((w, i) => {
+      const all = present[item.keys[i]];
+      if (!all || all.length < 2) return w;
+      return Math.max.apply(null, all);
+    });
+    applyTableColumnWidths(item.table, item.keys, widths);
+  }
+}
+
+/** Measure content and pin each roster column to the narrowest width that still
+ *  shows its cells (no wrap). The Spotted list is measured in the same pass.
+ *  Re-run after data, visible-column, or zoom/resize. */
+function rosFitColumns() {
+  fitOperateColumns();
 }
 
 let _rosFitTimer = 0;
@@ -2597,7 +2646,7 @@ function rosDraw() {
   $("ros-empty").style.display = rows.length ? "none" : "block";
   // Drop prior fit widths before painting new cells so measure sees content.
   const table = $("ros");
-  const oldFit = table && table.querySelector("colgroup.ros-fit");
+  const oldFit = table && table.querySelector("colgroup.col-fit, colgroup.ros-fit");
   if (oldFit) oldFit.remove();
   if (table) table.style.tableLayout = "auto";
   const canWorkBase = !!( _txState && _txState.can_tx );
@@ -3024,11 +3073,54 @@ function renderTxBar(tx) {
 }
 
 // -- DX cluster spots (separate from the live roster) ----------------------- //
+// Columns reuse the roster's header, class, and cell. The callsign badge is
+// rosCall → rosChase (one place, mult stays mult). A click only selects.
 
-function spotAge(s) {
-  s = Math.max(0, Math.round(Number(s) || 0));
-  if (s < 60) return s + "s";
-  return Math.round(s / 60) + "m";
+function spotSpotter(row) {
+  const calls = row.spotter_calls || [];
+  const n = Number(row.spotters);
+  const count = Number.isFinite(n) && n > 0 ? n : calls.length;
+  const primary = String(row.spotter || calls[0] || "").trim();
+  const tip = calls.length ? calls.join(", ") : primary;
+  if (!count && !primary) return "-";
+  const label = count > 1 && primary
+    ? (primary + " +" + (count - 1))
+    : (primary || String(count));
+  const title = tip ? ` title="${escAttr(tip)}"` : "";
+  return `<span${title}>${esc(label)}</span>`;
+}
+
+function spotQsy(row) {
+  const word = row.qsy || row.where || "";
+  const cls = row.needs_qsy ? "spot-qsy" : "spot-here";
+  let tip = row.needs_qsy
+    ? "No live radio is on this band and mode."
+    : "A live radio is already on this band and mode.";
+  const cost = Number(row.qsy_points);
+  if (row.needs_qsy && cost) {
+    tip += " Score loses " + String(Math.abs(cost)) + ".";
+  }
+  return `<span class="${cls}" title="${escAttr(tip)}">${esc(word)}</span>`;
+}
+
+const SPOT_EXTRA = {
+  spotter: {
+    key: "spotter", label: "Spotter", cls: "",
+    hint: "Who posted this. A plus count means more than one. Hover lists them.",
+    cell: spotSpotter,
+  },
+  qsy: {
+    key: "qsy", label: "QSY", cls: "",
+    hint: "Retune. QSY means no live radio is on this band and mode. On band means one is. Score already includes that cost.",
+    cell: spotQsy,
+  },
+};
+
+function spotCols() {
+  return SPOT_COL_KEYS.map(key => {
+    if (SPOT_EXTRA[key]) return SPOT_EXTRA[key];
+    return ROS_COLS.find(c => c.key === key);
+  }).filter(Boolean);
 }
 
 function spotTitle(row) {
@@ -3038,8 +3130,11 @@ function spotTitle(row) {
     return f.name + " " + sign + n + (f.detail ? " (" + f.detail + ")" : "");
   }).join(" · ");
   const who = (row.spotter_calls || []).join(", ");
+  const reason = row.need_reason || row.why_full || "";
+  const mult = row.mult_reason && row.mult_reason !== reason ? row.mult_reason : "";
   return [
-    row.why_full || row.why || "",
+    reason,
+    mult,
     factors,
     row.km != null ? (row.km + " km") : "",
     who ? ("Spotters: " + who) : "",
@@ -3047,11 +3142,27 @@ function spotTitle(row) {
   ].filter(Boolean).join("\n");
 }
 
+let _spotData = null;
+let _spotSort = {key: "score", dir: -1};
 let _spotWired = false;
 function spotWire() {
   const body = $("spot-body");
   if (!body || _spotWired) return;
   _spotWired = true;
+  const head = $("spot-head");
+  if (head) {
+    head.addEventListener("click", (e) => {
+      const th = e.target.closest("th");
+      if (!th || !th.dataset.key) return;
+      const key = th.dataset.key;
+      if (_spotSort.key === key) _spotSort.dir *= -1;
+      else {
+        const col = spotCols().find(c => c.key === key) || {};
+        _spotSort = {key, dir: col.num ? -1 : 1};
+      }
+      if (_spotData) renderSpotted(_spotData);
+    });
+  }
   body.addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-call]");
     if (!tr) return;
@@ -3073,10 +3184,23 @@ function spotWire() {
   });
 }
 
+function spotBuildHead() {
+  const head = $("spot-head");
+  if (!head) return;
+  const cols = spotCols();
+  head.innerHTML = cols.map(col => {
+    const active = col.key === _spotSort.key;
+    const arrow = active ? (_spotSort.dir < 0 ? " ▾" : " ▴") : "";
+    const hint = col.hint ? ` title="${escAttr(col.hint)}"` : "";
+    return `<th data-key="${col.key}" class="${col.cls}${active ? " sort" : ""}"${hint}>${col.label}${arrow}</th>`;
+  }).join("");
+}
+
 function renderSpotted(c) {
   const status = $("spot-status");
   if (!status) return;
   c = c || {};
+  _spotData = c;
   status.textContent = c.status_line || "Cluster: off. Turn it on in Setup.";
   if (c.detail) status.title = c.detail;
   const note = $("spot-note");
@@ -3085,25 +3209,38 @@ function renderSpotted(c) {
   const body = $("spot-body");
   if (!table || !body) return;
   spotWire();
-  const rows = c.rows || [];
+  const cols = spotCols();
+  const col = cols.find(item => item.key === _spotSort.key) || cols[cols.length - 1];
+  const rows = (c.rows || []).slice();
+  const val = (row) => {
+    if (!col) return "";
+    const v = row[col.key];
+    if (col.num) return v == null ? -Infinity : v;
+    return (v || "").toString().toUpperCase();
+  };
+  rows.sort((a, b) => {
+    const x = val(a), y = val(b);
+    return (x < y ? -1 : x > y ? 1 : 0) * _spotSort.dir;
+  });
+  const oldFit = table.querySelector("colgroup.col-fit, colgroup.ros-fit");
+  if (oldFit) oldFit.remove();
+  table.style.tableLayout = "auto";
+  spotBuildHead();
   table.hidden = rows.length === 0;
   const selCall = (c.selected && c.selected.call) || "";
   const selBand = (c.selected && c.selected.band) || "";
   body.innerHTML = rows.map(row => {
-    const on = selCall && row.call === selCall && row.band === selBand;
-    const whereCls = row.needs_qsy ? "qsy" : "here";
-    return `<tr class="${on ? "spot-sel" : ""}" data-call="${escAttr(row.call)}" ` +
+    const classes = [];
+    if (selCall && row.call === selCall && row.band === selBand) classes.push("spot-sel");
+    if (row.is_new_mult) classes.push("mult");
+    if (row.chase === "unconfirmed") classes.push("unconfirmed");
+    return `<tr class="${classes.join(" ")}" data-call="${escAttr(row.call)}" ` +
       `data-grid="${escAttr(row.grid || "")}" data-band="${escAttr(row.band || "")}" ` +
       `data-mode="${escAttr(row.mode || "")}" title="${escAttr(spotTitle(row))}">` +
-      `<td>${esc(row.call)}</td><td>${esc(row.grid || "")}</td>` +
-      `<td>${esc(fmtBand(row.band))}</td><td>${esc(row.mode || "")}</td>` +
-      `<td class="num">${esc(row.freq || "")}</td>` +
-      `<td class="${whereCls}">${esc(row.where || "")}</td>` +
-      `<td>${esc(row.why || "")}</td>` +
-      `<td class="num">${row.score == null ? "" : row.score}</td>` +
-      `<td class="num">${spotAge(row.age_s)}</td>` +
-      `<td class="num">${row.spotters == null ? "" : row.spotters}</td></tr>`;
+      cols.map(item => `<td class="${item.cls}">${item.cell(row)}</td>`).join("") +
+      `</tr>`;
   }).join("");
+  requestAnimationFrame(() => rosFitColumns());
 }
 
 function clusterReadForm() {
