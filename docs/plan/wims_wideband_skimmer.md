@@ -6,7 +6,7 @@ on its own.
 operating mode 2026-11-10).  
 **Spotted list:** [wims_design.md](wims_design.md) §2.15.  
 **Click-to-work for a Flex skimmer spot:** this brief (tune the
-slice, wait for a WSJT-X decode, then UDP Reply).  
+slice, then immediately send UDP Reply from the skimmer decode).  
 **Watering holes and spot score:** [scoring.md](scoring.md).  
 **Antenna moves:** [wims_antenna.md](wims_antenna.md).
 
@@ -66,9 +66,9 @@ it is never claimed, never armed, and never transmits, and it does
 not join a TX resource group.
 
 A click on a Flex skimmer spot can start work on that tied WSJT-X
-instance, but only after WSJT-X itself decodes the station. WIMS
-never presses Enable TX. The skimmer is never the target of a claim
-or a Reply.
+instance. The primary path sends Reply from the skimmer's own live
+decode after the slice is retuned. WIMS never presses Enable TX.
+The skimmer is never the target of a claim or a Reply.
 
 ## Flex operating mode
 
@@ -154,10 +154,9 @@ remember the grid, as they do today (§2.15).
 
 UDP cannot set the TX frequency. `Configure` has no TX-frequency
 field, and for a station outside the current WSJT-X audio channel
-the operator has not picked a TX frequency yet. The way through is
-to move the station into that channel, wait until WSJT-X itself
-decodes it, and then send the same Reply WSJT-X already knows how
-to honor.
+the operator has not picked a TX frequency yet. Waiting for
+WSJT-X to decode the station in the next period costs about 30 s
+in practice, which is too slow for the primary path.
 
 Limits, all of which must be true or nothing moves:
 
@@ -170,24 +169,29 @@ On a click that passes those limits:
 
 1. Retune the Flex slice through CAT so the spot lands at a fixed
    audio offset, about 1500 Hz. WSJT-X follows the rig.
-2. Wait for that WSJT-X instance to decode the station in the next
-   period. WIMS matches the decode by call and frequency. If a
-   matching decode is already in hand, skip the wait.
-3. Automatically send the UDP Reply message (type 4) built from
-   that WSJT-X decode. This acts like the operator double-clicking
-   the line: with Hold Tx Freq off, TX moves to the DX station’s
-   frequency and the DX call and grid are loaded.
+2. Immediately send the UDP Reply message (type 4) built from the
+   skimmer’s live decode: message text, time, SNR, and DT come
+   from the skimmer, and delta frequency is set to the new audio
+   offset (about 1500 Hz). This acts like the operator
+   double-clicking the line: with Hold Tx Freq off, TX moves to
+   the DX station’s frequency and the DX call and grid are loaded.
 
-The cost of the wait is one period: about 15 s for FT8, 7.5 s for
-FT4.
+It is an open question, to be tested on this station, whether
+WSJT-X accepts a Reply for a message that is not in its own decode
+list. It may match Reply only against its own decodes.
+
+If WSJT-X rejects that instant Reply, fall back to the slower
+path: wait for that WSJT-X instance to decode the station in the
+next period, match the decode by call and frequency, and then send
+Reply built from WSJT-X’s own decode. If the station is not
+decoded within N periods, cancel and show a short status line. N
+is a GUI setting; the default is 2. Use this wait only as the
+fallback. It costs about 30 s in practice.
 
 WIMS never transmits blind, and it never presses Enable TX. Whether
 TX turns on follows the operator’s own WSJT-X double-click setting.
 That is the same project rule as everywhere else: no automated
 transmit.
-
-If the station is not decoded within N periods, cancel and show a
-short status line. N is a GUI setting; the default is 2.
 
 A B210 spot that is not inside the current DAX IQ window cannot use
 this path. The click then only selects the station, the same way a
@@ -198,9 +202,8 @@ the rotator and SteppIR may move as part of the same click. That
 move is not required for Reply, and it does not bypass the limits
 above.
 
-Open question, to be tested on this station: does Reply move TX when
-Hold Tx Freq is on, and what happens with split (“Rig” or “Fake
-It”)?
+Also to be tested on this station: does Reply move TX when Hold Tx
+Freq is on, and what happens with split (“Rig” or “Fake It”)?
 
 ## Settings and launcher
 
@@ -225,7 +228,7 @@ antenna**.
 | 2. Spot source | WIMS shows those decodes as a receive-only **skimmer** source on the Spotted list | Source is skimmer. The skimmer instance cannot be claimed or used to Work. Free text does not create a station. |
 | 3. Cancellation and both modes | Subtract and search again, FT8 and FT4 in the same pass, absolute RF, **off-freq** marker | A station off the usual dial is listed, with its true frequency and the marker. A weaker station under a strong one can be decoded. |
 | 4. Flex operating mode | Follow WSJT-X Status; DAX IQ is centered on that dial; spots are tied to that instance | A band or mode change in WSJT-X moves the IQ window and drops the old spots. The B210 still uses its own GUI settings. |
-| 5. Click-to-work | Retune the slice so the spot is at about 1500 Hz, wait for a WSJT-X decode, send Reply | The next period’s decode is matched by call and frequency, then Reply is sent. TX turns on only if the operator’s WSJT-X double-click setting would. Enable TX is never sent. A miss after N periods cancels with a short status line. Blocked outside the DAX IQ window, on a different band or mode, during TX, or under a foreign claim. |
+| 5. Click-to-work | Retune the slice so the spot is at about 1500 Hz, then immediately send Reply from the skimmer decode | Reply uses the skimmer’s message, time, SNR, and DT, with delta frequency set to about 1500 Hz. TX turns on only if the operator’s WSJT-X double-click setting would. Enable TX is never sent. If WSJT-X rejects that Reply, fall back to waiting for WSJT-X’s own decode, up to N periods. Blocked outside the DAX IQ window, on a different band or mode, during TX, or under a foreign claim. |
 | 6. Antenna | Rotator heading and SteppIR band, through the per-PC antenna agent | Moves only when the antenna checkbox is on and antenna control exists. Still no Enable TX from WIMS. |
 
 Each step is a small job. None of this is built yet.
@@ -251,15 +254,19 @@ Each step is a small job. None of this is built yet.
 - Whether a valid skimmer decode should also appear as a heard
   station on a subscribed roster, or only on the Spotted list.
 - When to add MSK144, Q65, and other modes.
+- Does WSJT-X accept a UDP Reply built from a skimmer decode that
+  is not in WSJT-X’s own decode list? It may match Reply only
+  against its own decodes. Test this on the station; the wait-for-
+  WSJT-X-decode path is only the fallback if it refuses.
 - Does Reply move TX when Hold Tx Freq is on, and what happens with
   split (“Rig” or “Fake It”)? Test this on the station before the
   click-to-work path is treated as settled.
-- Whether WSJT-X reliably follows a CAT retune of its Flex slice in
-  time for the next period.
+- Whether WSJT-X follows a CAT retune of its Flex slice in time for
+  an immediate Reply.
 - Reconcile §2.10 step 4’s “QSY over the WSJT-X UDP path” with this
   brief: UDP has no TX-frequency command, so a Flex skimmer click
-  retunes the slice through CAT, waits for a WSJT-X decode, and
-  then sends Reply.
+  retunes the slice through CAT and immediately sends Reply from
+  the skimmer decode.
 
 ## Cross-links
 
