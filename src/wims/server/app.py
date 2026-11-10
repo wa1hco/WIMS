@@ -2290,6 +2290,7 @@ class LiveFleet:
             "host": saved["host"],
             "port": saved["port"],
             "bands": saved["bands"],
+            "modes": saved["modes"],
             "qsy_cost": saved["qsy_cost"],
         }
 

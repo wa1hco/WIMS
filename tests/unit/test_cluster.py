@@ -42,11 +42,11 @@ from wims.integrations.cluster.modes import infer_mode  # noqa: E402
 from wims.integrations.cluster.parse import parse_spot  # noqa: E402
 from wims.integrations.cluster.ranges import in_range  # noqa: E402
 from wims.integrations.cluster.settings import (  # noqa: E402
-    DEFAULT_HOST, DEFAULT_PORT, all_bands, load, save,
+    DEFAULT_HOST, DEFAULT_PORT, MODE_FILTERS, all_bands, load, save, sanitize,
 )
 from wims.integrations.cluster.telnet import strip_telnet  # noqa: E402
 from wims.integrations.cluster.view import (  # noqa: E402
-    OnAir, SpotBook, build_list, status_line,
+    OnAir, SpotBook, build_list, mode_bucket, mode_choices, status_line,
 )
 from wims.integrations.n1mm.qso import LoggedQso  # noqa: E402
 from wims.state.heard_grids import HeardGrids  # noqa: E402
@@ -75,8 +75,8 @@ def _book(lines, now=NOW):
     return book
 
 
-def _rows(lines, *, operations=None, allowed=None, grid=HOME, heard=None,
-          qsy_cost=8, now=NOW, received=None, log=None):
+def _rows(lines, *, operations=None, allowed=None, allowed_modes=None,
+          grid=HOME, heard=None, qsy_cost=8, now=NOW, received=None, log=None):
     store = log if log is not None else _log()
     memory = heard
 
@@ -92,7 +92,7 @@ def _rows(lines, *, operations=None, allowed=None, grid=HOME, heard=None,
         _book(lines, now if received is None else received).rows(),
         now=now, ttl_s=15 * 60, our_grid=grid,
         allowed=allowed, operations=operations or [], classify=classify,
-        grid_for=grid_for, qsy_cost=qsy_cost,
+        grid_for=grid_for, qsy_cost=qsy_cost, allowed_modes=allowed_modes,
     )
     return rows, drops
 
@@ -366,6 +366,11 @@ def test_status_lines_name_the_next_step():
         callsign="WA1HCO", retry_s=0, reason="", spot_count=0, needed_count=0,
         bands_empty=True, have_grid=True,
     )
+    assert "Choose modes on Operate" in status_line(
+        enabled=True, phase="connected", host=DEFAULT_HOST, port=23,
+        callsign="WA1HCO", retry_s=0, reason="", spot_count=0, needed_count=0,
+        bands_empty=False, have_grid=True, modes_empty=True,
+    )
     assert "No grid from WSJT-X" in status_line(
         enabled=True, phase="connected", host=DEFAULT_HOST, port=23,
         callsign="WA1HCO", retry_s=0, reason="", spot_count=4, needed_count=0,
@@ -390,6 +395,7 @@ def test_settings_default_all_bands_and_node():
         assert fresh["port"] == 7373
         assert fresh["node"] == "k1ttt"
         assert fresh["bands"] == "all"
+        assert fresh["modes"] == "all"
         assert fresh["qsy_cost"] == 8
         save({"enabled": True, "host": "bad host", "port": 23,
               "bands": ["10m", "nope", "6m"], "qsy_cost": 12}, path)
@@ -397,6 +403,7 @@ def test_settings_default_all_bands_and_node():
         assert again["enabled"] is True
         assert again["host"] == DEFAULT_HOST
         assert again["bands"] == ["10m", "6m"]
+        assert again["modes"] == "all"
         assert again["qsy_cost"] == 12
         assert "160m" in all_bands() and "2m" in all_bands() and "70cm" in all_bands()
         old = Path(tmp) / "old.json"
@@ -408,6 +415,7 @@ def test_settings_default_all_bands_and_node():
         moved = load(old)
         assert moved["host"] == "k1ttt.net" and moved["port"] == 7373
         assert moved["node"] == "k1ttt"
+        assert moved["modes"] == "all"
         kept = Path(tmp) / "kept.json"
         kept.write_text(
             '{"schema": 2, "node": "ve7cc", "enabled": true, '
@@ -417,6 +425,7 @@ def test_settings_default_all_bands_and_node():
         stay = load(kept)
         assert stay["node"] == "ve7cc"
         assert stay["host"] == "dxc.ve7cc.net" and stay["port"] == 23
+        assert stay["modes"] == "all"
 
 
 def test_reconnect_waits_out_the_backoff():
@@ -907,6 +916,151 @@ def test_spot_row_uses_roster_fields_and_keeps_spot_extras():
     assert qsy[0]["qsy_points"] == -8
 
 
+def test_spot_call_hides_mult_when_need_label_shown():
+    """Spotted DX cell hides generic mult when the place word is shown.
+
+    Contest rows have no need_label, so mult stays. The call roster still
+    uses rosCall unchanged.
+    """
+    root = Path(__file__).resolve().parents[2]
+    js = (root / "src/wims/server/static/wims.js").read_text(encoding="utf-8")
+    ros = js.split("function rosCall", 1)[1].split("function rosChase", 1)[0]
+    assert ">mult</span>" in ros
+    assert "need_label" not in ros
+    assert js.count("function rosCall(") == 1
+    assert "function spotCall" in js
+    body = js.split("function spotCall", 1)[1].split("function spotCols", 1)[0]
+    assert "need_label" in body
+    assert "is_new_mult" in body
+    assert "rosCall" in body
+    assert "is_new_mult: false" in body
+    picker = js.split("function spotCols", 1)[1].split("function spotTitle", 1)[0]
+    assert "spotCall" in picker
+    assert 'key === "call"' in picker
+    ros_cols = js.split("const ROS_COLS = [", 1)[1].split("\n];", 1)[0]
+    assert "rosCall" in ros_cols
+    assert "spotCall" not in ros_cols
+
+
+def test_mode_filter_settings_round_trip_and_old_files():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "cluster.json"
+        fresh = load(path)
+        assert fresh["modes"] == "all"
+        save({"enabled": True, "modes": ["cw", "FT8", "nope", "Other", "FT8"]}, path)
+        again = load(path)
+        assert again["modes"] == ["CW", "FT8", "Other"]
+        assert sanitize({"modes": "all"})["modes"] == "all"
+        assert sanitize({"modes": "*"})["modes"] == "all"
+        assert sanitize({"modes": []})["modes"] == []
+        assert sanitize(None)["modes"] == "all"
+        old = Path(tmp) / "legacy.json"
+        old.write_text(
+            '{"schema": 2, "enabled": true, "host": "k1ttt.net", '
+            '"port": 7373, "bands": ["6m", "2m"], "qsy_cost": 8}\n',
+            encoding="utf-8",
+        )
+        legacy = load(old)
+        assert "modes" not in old.read_text(encoding="utf-8")
+        assert legacy["modes"] == "all"
+        assert legacy["bands"] == ["6m", "2m"]
+
+
+def test_mode_filter_other_unknown_and_status_counts():
+    assert mode_bucket("FT8") == "FT8"
+    assert mode_bucket("ft4") == "FT4"
+    assert mode_bucket("SSB") == "SSB"
+    assert mode_bucket("USB") == "SSB"
+    assert mode_bucket("CW") == "CW"
+    assert mode_bucket("MSK144") == "Other"
+    assert mode_bucket("Q65") == "Other"
+    assert mode_bucket("FM") == "Other"
+    assert mode_bucket("data") == "Other"
+    assert mode_bucket("WSPR") == "Other"
+    assert mode_bucket("mystery") == "Other"
+    assert mode_bucket("") == "Other"
+    choices = mode_choices("all")
+    assert [item["mode"] for item in choices] == list(MODE_FILTERS)
+    assert all(item["on"] for item in choices)
+    partial = mode_choices(["CW", "Other"])
+    assert {item["mode"]: item["on"] for item in partial} == {
+        "SSB": False, "CW": True, "FT8": False, "FT4": False, "Other": True,
+    }
+
+    lines = [
+        "DX de K1TTT: 14074.0 DL1ABC JO62 FT8 1734Z",
+        "DX de K1TTT: 14025.0 G4ABC IO91 CW 1734Z",
+        "DX de K1TTT: 14100.0 K1DAT FN42 data 1734Z",
+        "DX de K1TTT: 50260.0 K1MSK FN20 MSK144 1734Z",
+        "DX de K1TTT: 144120.0 W2Q65 FN20 Q65 1734Z",
+        "DX de K1TTT: 146520.0 K1FM FN42 FM 1734Z",
+        "DX de K1TTT: 14095.6 W1SPR FN42 WSPR 1734Z",
+    ]
+    ft8, ft8_drops = _rows(lines, allowed_modes={"FT8"})
+    assert [row["mode"] for row in ft8] == ["FT8"]
+    assert ft8_drops["spot_count"] == 1
+    cw, cw_drops = _rows(lines, allowed_modes={"CW"})
+    assert [row["mode"] for row in cw] == ["CW"]
+    assert cw_drops["spot_count"] == 1
+    other, other_drops = _rows(lines, allowed_modes={"Other"})
+    modes = {row["mode"] for row in other}
+    for wanted in ("data", "MSK144", "Q65", "FM", "WSPR"):
+        assert wanted in modes, wanted
+    assert "FT8" not in modes and "CW" not in modes
+    assert other_drops["spot_count"] == len(other)
+    none, none_drops = _rows(lines, allowed_modes=set())
+    assert none == []
+    assert none_drops["spot_count"] == 0
+    both, both_drops = _rows(lines, allowed_modes={"FT8", "CW"})
+    assert {row["mode"] for row in both} == {"FT8", "CW"}
+    assert both_drops["spot_count"] == 2
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "cluster.json"
+        svc = ClusterService(path=path)
+        svc.update({"enabled": True, "bands": "all", "modes": ["FT8"]})
+        for line in lines:
+            svc.ingest(line, NOW)
+        with svc._lock:
+            svc.phase = "connected"
+        log = _log()
+
+        def classify(call, band, grid, mode):
+            return log.classify(call, band, grid, mode)
+
+        view = svc.public(
+            now=NOW, callsign="WA1HCO", our_grid=HOME,
+            operations=[], classify=classify,
+        )
+        assert view["modes"] == ["FT8"]
+        assert view["all_modes"] is False
+        assert [row["mode"] for row in view["rows"]] == ["FT8"]
+        assert view["spot_count"] == 1
+        assert view["needed_count"] == 1
+        assert view["status_line"] == "Cluster: logged in, 1 spots, 1 needed"
+        assert "Modes: FT8." in view["detail"]
+
+        svc.update({"modes": []})
+        empty = svc.public(
+            now=NOW, callsign="WA1HCO", our_grid=HOME,
+            operations=[], classify=classify,
+        )
+        assert empty["rows"] == []
+        assert empty["modes"] == []
+        assert "Choose modes on Operate" in empty["status_line"]
+
+        svc.update({"modes": "all"})
+        full = svc.public(
+            now=NOW, callsign="WA1HCO", our_grid=HOME,
+            operations=[], classify=classify,
+        )
+        assert full["all_modes"] is True
+        assert full["modes"] == "all"
+        assert full["needed_count"] == full["spot_count"]
+        assert f"{full['spot_count']} spots, {full['needed_count']} needed" in full["status_line"]
+        assert "Modes: every mode." in full["detail"]
+
+
 def test_spot_columns_match_the_roster():
     root = Path(__file__).resolve().parents[2]
     js = (root / "src/wims/server/static/wims.js").read_text(encoding="utf-8")
@@ -937,6 +1091,7 @@ def test_spot_columns_match_the_roster():
     assert 'label: "QSY"' in extra
     picker = js.split("function spotCols", 1)[1].split("function spotTitle", 1)[0]
     assert "ROS_COLS.find" in picker
+    assert "spotCall" in picker
     assert js.count("function rosChase") == 1
     chase = js.split("function rosChase", 1)[1].split("function rosCountryTip", 1)[0]
     assert "need_label" in chase
@@ -950,6 +1105,8 @@ def test_spot_columns_match_the_roster():
     assert "#ros, #spot" in css
     assert "#ros th, #ros td, #spot th, #spot td" in css
     assert 'id="spot-head"' in html
+    assert 'id="spot-modes"' in html
+    assert 'class="band-checks"' in html.split('id="spot-modes"', 1)[1]
     spot_html = html.split('id="spot"', 1)[1].split("</table>", 1)[0]
     assert "Why" not in spot_html
     assert "MHz" not in spot_html

@@ -3116,8 +3116,24 @@ const SPOT_EXTRA = {
   },
 };
 
+function spotCall(c) {
+  // Spotted list only: the place word already says why the row is needed,
+  // so hide the generic mult badge when need_label is shown. Contest rows
+  // have no place word, so mult stays. The call roster still uses rosCall.
+  const labeled = String((c && c.need_label) || "").trim() !== "";
+  if (labeled && c && c.is_new_mult) {
+    const copy = Object.assign({}, c, {is_new_mult: false});
+    return rosCall(copy);
+  }
+  return rosCall(c);
+}
+
 function spotCols() {
   return SPOT_COL_KEYS.map(key => {
+    if (key === "call") {
+      const col = ROS_COLS.find(c => c.key === "call");
+      return col ? Object.assign({}, col, {cell: spotCall}) : SPOT_EXTRA[key];
+    }
     if (SPOT_EXTRA[key]) return SPOT_EXTRA[key];
     return ROS_COLS.find(c => c.key === key);
   }).filter(Boolean);
@@ -3196,11 +3212,63 @@ function spotBuildHead() {
   }).join("");
 }
 
+const SPOT_MODE_FILTERS = ["SSB", "CW", "FT8", "FT4", "Other"];
+let _spotModesWired = false;
+
+function spotModeChoices(c) {
+  const choices = c && c.mode_choices;
+  if (choices && choices.length) return choices;
+  return SPOT_MODE_FILTERS.map(mode => ({mode, on: true}));
+}
+
+function spotReadModes() {
+  const wrap = $("spot-modes");
+  if (!wrap) return "all";
+  const boxes = [...wrap.querySelectorAll("input[data-mode]")];
+  const on = boxes.filter(box => box.checked).map(box => box.dataset.mode);
+  if (on.length && on.length === boxes.length) return "all";
+  return on;
+}
+
+function spotSaveModes() {
+  fetch("/api/cluster", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({modes: spotReadModes()}),
+  }).catch(() => {});
+}
+
+function spotSyncModeChecks(c) {
+  const wrap = $("spot-modes");
+  if (!wrap) return;
+  const choices = spotModeChoices(c);
+  const key = choices.map(item => item.mode).join("|");
+  if (wrap.dataset.key !== key) {
+    wrap.dataset.key = key;
+    wrap.innerHTML = choices.map(item =>
+      `<label><input type="checkbox" data-mode="${escAttr(item.mode)}" ${item.on ? "checked" : ""}> ` +
+      `${esc(item.mode)}</label>`
+    ).join("");
+  } else {
+    for (const item of choices) {
+      const box = wrap.querySelector('input[data-mode="' + item.mode + '"]');
+      if (box) box.checked = !!item.on;
+    }
+  }
+  if (_spotModesWired) return;
+  _spotModesWired = true;
+  wrap.addEventListener("change", (e) => {
+    if (!e.target.closest("input[data-mode]")) return;
+    spotSaveModes();
+  });
+}
+
 function renderSpotted(c) {
   const status = $("spot-status");
   if (!status) return;
   c = c || {};
   _spotData = c;
+  spotSyncModeChecks(c);
   status.textContent = c.status_line || "Cluster: off. Turn it on in Setup.";
   if (c.detail) status.title = c.detail;
   const note = $("spot-note");
