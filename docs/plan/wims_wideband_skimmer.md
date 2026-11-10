@@ -1,7 +1,7 @@
 # WIMS wideband skimmer — design brief
 
 **Status:** Designed, not built. Docs only. Nothing here transmits.  
-**Decided by:** Jeff, WA1HCO (2026-11-09).  
+**Decided by:** Jeff, WA1HCO (2026-11-09; whole-band decode 2026-11-10).  
 **Spotted list and prepare-on-click:** [wims_design.md](wims_design.md)
 §2.15 and §2.10 step 4.  
 **Watering holes and spot score:** [scoring.md](scoring.md).  
@@ -10,17 +10,49 @@
 A receive-only wideband skimmer for the station’s FlexRadio Flex 8600
 (DAX IQ) and Ettus B210 (SoapySDR / UHD). It decodes FT8 and FT4
 across the receiver passband — including DX on nonstandard frequencies
-— by running `jt9`-style decoders on many slices, and it emits
-standard WSJT-X UDP messages (Heartbeat, Status, Decode) so WIMS can
-treat it as a spotting source with little new code. Other WSJT modes
-can be added later.
+— by a whole-band search, not by slicing the band into `jt9` windows,
+and it emits standard WSJT-X UDP messages (Heartbeat, Status, Decode)
+so WIMS can treat it as a spotting source with little new code. Other
+WSJT modes can be added later.
 
 ## MAP144
 
 [MAP144](https://github.com/wa1hco/map144) is the planned starting
 framework. It is a separate project, not in this tree, and this brief
-does not assume its internals. How much of its wideband input and
-decoder pipeline to reuse is an open question.
+does not assume its internals. How it should host or wrap the
+whole-band decoder is an open question.
+
+## Whole-band decode
+
+The skimmer does not cut the band into 3 kHz slices and run `jt9` on
+each one. It searches the whole capture at once.
+
+For each period, capture the full 48 kHz IQ, lined up with the UTC
+slot boundaries: 15 s for FT8, 7.5 s for FT4. Time sync matters. A
+clock that is off will miss or weaken the Costas peaks.
+
+Then, in one pass:
+
+1. Make one spectrogram of the whole band (3.125 Hz bins for FT8) and
+   correlate the Costas sync pattern at every frequency bin and time
+   offset. That gives a candidate list with no fixed sub-band slots.
+2. For each candidate: mix it down, filter and decimate to about
+   200 Hz, then run the LDPC decode.
+3. Subtract each decoded signal and search again so weaker stations
+   under strong ones are caught.
+4. Search for FT4 in the same pass, with its own sync pattern,
+   timing, and bin size.
+
+There are no losses at slice edges and no duplicate decodes from
+overlapping windows. CPU only goes where there are signals: the
+Costas search finds the candidates, and the LDPC decoder runs on
+those, not on empty spectrum. FT8 plus FT4 over 48 kHz should fit
+within each period on a modern PC. That is an estimate, to be
+checked on the station PC.
+
+Code to start from: MAP65 and QMAP in the WSJT-X source tree,
+ka9q-radio’s `ft8-decoded`, and `ft8_lib` in C. MAP144 stays the
+planned framework around that work.
 
 ## Receive-only
 
@@ -34,43 +66,39 @@ cluster spot works today (§2.15).
 
 A WSJT-X Decode carries only an audio offset (`df`) from the dial
 frequency in Status. The roster already computes RF as dial + `df`. A
-wide passband does not fit in one ordinary audio offset, so the
+48 kHz capture does not fit in one ordinary audio offset, so the
 skimmer has to say what the true RF is.
 
-| Option | How | Trade-off |
-|--------|-----|-----------|
-| **A. One Status per slice** | Each ~3 kHz slice is a logical instance with its own dial. RF = dial + `df`, as today. Stock listeners get the right frequency with no new fields. | A 192 kHz IQ stream could mean dozens of instance ids, heartbeats, and Operate rows unless WIMS collapses them. The id would no longer be the single name `SKIM-B210-2m`. |
-| **B. One instance per receiver, plus an extension** | One id, one Heartbeat and Status. Each Decode keeps the standard fields and then an optional extra field with the absolute RF in hertz. WIMS uses that field for Freq. A listener that ignores the trailing field still parses the standard prefix. | Stock listeners that use only dial + `df` will not show the true RF until they learn the field. WIMS must understand it. |
+**Recommend one instance per receiver, plus an extension.** One id
+(`SKIM-B210-2m`), one Heartbeat and Status. Each Decode keeps the
+standard fields and then an optional extra field with the absolute RF
+in hertz. WIMS uses that field for Freq. A listener that ignores the
+trailing field still parses the standard prefix, but will not show
+the true RF until it learns the field.
 
-**Recommend B.** The operator already named the instance as one
-receive-only id per receiver, and WIMS is the primary consumer.
-Operate stays uncluttered. Step 1 can ship a single slice with
-ordinary dial + `df`, and add the extension when full-passband
-slicing lands. Option A stays a fallback if the extension proves
-awkward; WIMS would then group those slices under one skimmer row.
+A 48 kHz capture needs that extension from the first decode step.
+Splitting the band into many logical Status instances, one per 3 kHz
+window, is not part of this plan: the decoder has no slices to hang
+them on, and Operate would fill with instance rows.
 
 ## Nonstandard frequencies
 
-DX often runs off the usual FT8 and FT4 dials. The skimmer decodes
-the **full receiver passband**, not only the watering holes in
-[scoring.md](scoring.md).
+DX often runs off the usual FT8 and FT4 dials. The whole-band Costas
+search already looks at every frequency bin in the 48 kHz capture, so
+those stations fall out of the same pass as everyone else. There is
+no separate off-frequency hunt, and no slice-edge loss.
 
-- Slice the passband into overlapping windows (about 3 kHz wide, with
-  enough overlap that a signal on a slice edge is not lost).
-- Dedupe the same station heard on two overlapping slices in the same
-  period, by call + time + frequency (within a small hertz window).
-  Keep the stronger decode.
-- Report each decode’s absolute RF on the spot row.
-- WIMS flags a spot whose RF is outside the usual watering-hole
-  window for that mode (the same ±2.5 kHz FT8 / narrower FT4 windows
-  already used to infer cluster mode). The Spotted list shows an
-  **off-freq** marker. The frequency itself stays in the Freq column.
+WIMS still flags a spot whose RF is outside the usual watering-hole
+window for that mode (the same ±2.5 kHz FT8 / narrower FT4 windows
+already used to infer cluster mode in [scoring.md](scoring.md)). The
+Spotted list shows an **off-freq** marker. The frequency itself stays
+in the Freq column.
 
-CPU cost is slices × decoder runs per period, on every cycle. Limit
-it from Setup, with no flags and no environment variables: choose
-which sub-bands to skim, run a decoder only on slices that have
-signal (energy detection), and offer a shallower decoder depth when
-the machine is busy.
+If the machine is busy, Setup can limit the work without flags or
+environment variables: choose which band to skim, cap cancellation
+passes or candidate count, and show whether the clock is in sync.
+CPU should still stay inside the period on a modern PC; that estimate
+is checked on the station, not assumed.
 
 ## Feeding WIMS
 
@@ -138,18 +166,18 @@ operator. The skimmer gets a double-click launcher under
 `scripts/`, like the other seat programs. Typed commands, if any,
 belong only in a **Developer** section.
 
-Settings include: which radio (Flex DAX IQ or B210), which band and
-sub-bands, slice width and overlap, energy detection, decoder depth,
-the instance id, the UDP destination WIMS already uses, and the two
-spot-click checkboxes above.
+Settings include: which radio (Flex DAX IQ or B210), which band, the
+48 kHz capture, cancellation-pass or candidate limits, a visible
+clock-sync status, the instance id, the UDP destination WIMS already
+uses, and the two spot-click checkboxes above.
 
 ## Build order
 
 | Step | Ships | Acceptance |
 |------|--------|------------|
-| 1. One slice set | The skimmer emits Heartbeat, Status, and Decode for one slice on one radio | A stock UDP listener, and WIMS, see decodes. Nothing transmits. |
+| 1. One period | Capture 48 kHz IQ on the UTC slot for one radio, Costas search, LDPC on candidates, emit Heartbeat, Status, and Decode | A stock UDP listener, and WIMS, see decodes. Nothing transmits. |
 | 2. Spot source | WIMS shows those decodes as a receive-only **skimmer** source on the Spotted list | Source is skimmer. The instance cannot be claimed or used to Work. Free text does not create a station. |
-| 3. Full passband | Overlapping slices, dedupe, absolute RF, **off-freq** marker | A station off the usual dial is listed, with its true frequency and the marker. CPU can be limited from Setup. |
+| 3. Cancellation and both modes | Subtract and search again, FT8 and FT4 in the same pass, absolute RF, **off-freq** marker | A station off the usual dial is listed, with its true frequency and the marker. A weaker station under a strong one can be decoded. |
 | 4. Click fills WSJT-X | Mode, DX call, and grid over `Configure` | The operating instance shows the call and mode. No Reply. |
 | 5. Rig frequency | After mode, set the radio through CAT | The operating WSJT-X follows the rig onto the spot’s dial. Blocked during TX or a foreign claim. |
 | 6. Antenna | Rotator heading and SteppIR band, through the per-PC antenna agent | Moves only when the antenna checkbox is on and antenna control exists. Still no transmit. |
@@ -158,8 +186,10 @@ Each step is a small job. None of this is built yet.
 
 ## Open questions
 
-- How MAP144’s input and decoder pipeline should be reused, and what
-  it already does for IQ, slicing, and `jt9`.
+- How MAP144 should host or wrap this pipeline.
+- How much to take from MAP65, QMAP, ka9q-radio’s `ft8-decoded`, and
+  `ft8_lib`, and how those pieces are licensed and bundled without
+  asking the operator for a path.
 - Whether a UDP `Configure` mode change jumps the radio to the
   default frequency the same way a screen mode change does. Test
   this before relying on the retune order.
@@ -167,13 +197,16 @@ Each step is a small job. None of this is built yet.
   stock listener is broken by a trailing field.
 - How the Flex DAX IQ stream and the B210 SoapySDR / UHD stream are
   opened on the seat PC (sample rate, center frequency, which PC
-  runs the skimmer).
+  runs the skimmer), and whether a capture wider than 48 kHz is
+  useful later.
+- How the skimmer PC stays in UTC sync, and how Setup shows a clock
+  that is off.
+- Whether FT8 plus FT4 over 48 kHz finishes inside the period on
+  this station’s PC, as estimated.
 - The off-freq threshold: keep the watering-hole windows in
   [scoring.md](scoring.md), or a Setup value.
 - Whether a valid skimmer decode should also appear as a heard
   station on a subscribed roster, or only on the Spotted list.
-- Bundling or locating the `jt9` decoder, in the launcher, without
-  asking the operator for a path.
 - When to add MSK144, Q65, and other modes.
 - Reconcile §2.10 step 4’s “QSY over the WSJT-X UDP path” with the
   fact that UDP has no dial-frequency command. This brief is the
