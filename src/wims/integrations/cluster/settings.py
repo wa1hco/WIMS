@@ -26,6 +26,9 @@ The usual node is K1TTT (``k1ttt.net`` port 7373), an AR-Cluster that
 sends a banner and then spots. Setup also lists NC7J, W3LPL, and VE7CC,
 or a host and port the operator types. Spots stay off until Setup turns
 them on. The band set defaults to every amateur band WIMS already names.
+The mode filter (SSB, CW, FT8, FT4, Other) lives on Operate and is
+saved here too. Other is MSK144, Q65, FM, data, and any unknown mode.
+A file with no modes key is treated as all modes.
 
 A saved file from the first cluster build used VE7CC on port 23, which
 accepted the connection and sent nothing. That factory pair is moved to
@@ -62,6 +65,9 @@ DEFAULT_QSY_COST = 8
 _HOST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$")
 _ALL = tuple(BAND_ORDER)
 
+# Operate mode filter. Other is everything that is not SSB, CW, FT8, or FT4.
+MODE_FILTERS = ("SSB", "CW", "FT8", "FT4", "Other")
+
 
 def default_path() -> Path:
     from wims.rules.choice import config_dir
@@ -80,6 +86,7 @@ def default_settings() -> dict:
         "host": DEFAULT_HOST,
         "port": DEFAULT_PORT,
         "bands": "all",
+        "modes": "all",
         "qsy_cost": DEFAULT_QSY_COST,
     }
 
@@ -138,6 +145,27 @@ def _clean_bands(value) -> str | list[str]:
     return out
 
 
+def _clean_modes(value) -> str | list[str]:
+    if value is None or value == "all":
+        return "all"
+    if isinstance(value, str):
+        text = value.strip()
+        if text.lower() in {"", "all", "*"}:
+            return "all"
+        value = [part.strip() for part in text.split(",")]
+    if not isinstance(value, (list, tuple)):
+        return "all"
+    known = {name.lower(): name for name in MODE_FILTERS}
+    out = []
+    seen = set()
+    for item in value:
+        mode = known.get(str(item or "").strip().lower())
+        if mode and mode not in seen:
+            seen.add(mode)
+            out.append(mode)
+    return out
+
+
 def _clean_qsy(value) -> int:
     try:
         cost = float(value)
@@ -185,6 +213,7 @@ def sanitize(data: dict | None) -> dict:
         out["port"] = _clean_port(raw.get("port"))
         out["node"] = match_node(out["host"], out["port"])
     out["bands"] = _clean_bands(raw.get("bands", "all"))
+    out["modes"] = _clean_modes(raw.get("modes", "all"))
     if "qsy_cost" in raw:
         out["qsy_cost"] = _clean_qsy(raw.get("qsy_cost"))
     return out
@@ -196,6 +225,14 @@ def allowed_bands(settings: dict) -> set[str] | None:
     if bands == "all":
         return None
     return set(bands or [])
+
+
+def allowed_modes(settings: dict) -> set[str] | None:
+    """Mode boxes the operator left on. None means every mode."""
+    modes = (settings or {}).get("modes", "all")
+    if modes == "all":
+        return None
+    return set(modes or [])
 
 
 def load(path: Path | str | None = None) -> dict:

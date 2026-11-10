@@ -22,7 +22,7 @@ Login is the callsign and nothing else. A blank line is sent once when the
 socket opens, so a node that waits for the client will speak. Telnet option
 refusals are sent because the socket will not stay in plain text without
 them. No spot, no announcement, no ``set/`` filter, no ``sh/dx``. The node
-streams every spot after login. WIMS chooses bands locally.
+streams every spot after login. WIMS chooses bands and modes locally.
 
 AR-Cluster asks ``Please enter your call:``. DX-Spider asks ``login:``.
 CC Cluster asks the same kind of call prompt. The match is any case.
@@ -43,11 +43,12 @@ from collections.abc import Callable
 from wims.engine import scoring as S
 from wims.integrations.cluster.parse import parse_spot, valid_login_call
 from wims.integrations.cluster.settings import (
-    DEFAULT_TTL_S, allowed_bands, known_nodes, load, save, sanitize,
+    DEFAULT_TTL_S, MODE_FILTERS, allowed_bands, allowed_modes, known_nodes,
+    load, save, sanitize,
 )
 from wims.integrations.cluster.telnet import plaintext, strip_telnet
 from wims.integrations.cluster.view import (
-    SpotBook, band_choices, build_list, status_detail, status_line,
+    SpotBook, band_choices, build_list, mode_choices, status_detail, status_line,
 )
 
 # A prompt that means "send the callsign". Any case. AR-Cluster says
@@ -264,7 +265,7 @@ class ClusterService:
         current = self.settings()
         merged = dict(current)
         if isinstance(body, dict):
-            for key in ("enabled", "node", "host", "port", "bands", "qsy_cost"):
+            for key in ("enabled", "node", "host", "port", "bands", "modes", "qsy_cost"):
                 if key in body:
                     merged[key] = body[key]
         cleaned = sanitize(merged)
@@ -322,26 +323,33 @@ class ClusterService:
             login_sent = self.login_sent
             last_spot_at = self.last_spot_at
         allowed = allowed_bands(settings)
+        modes = allowed_modes(settings)
         bands_empty = allowed is not None and not allowed
+        modes_empty = modes is not None and not modes
         if not settings.get("enabled"):
             phase = "off"
         elif phase == "off":
             phase = "need_call" if not valid_login_call(callsign) else "connecting"
         rows, drops = ([], {"spot_count": 0})
-        if settings.get("enabled") and not bands_empty and phase == "connected":
+        can_list = (
+            settings.get("enabled") and not bands_empty and not modes_empty
+        )
+        if can_list and phase == "connected":
             rows, drops = build_list(
                 groups, now=now, ttl_s=DEFAULT_TTL_S, our_grid=our_grid,
                 allowed=allowed, operations=operations, classify=classify,
                 grid_for=grid_for, rover_for=rover_for, spotter_grid=spotter_grid,
                 qsy_cost=settings.get("qsy_cost", 8),
+                allowed_modes=modes,
             )
-        elif settings.get("enabled") and not bands_empty and groups:
+        elif can_list and groups:
             # Still show spots we already have while reconnecting.
             rows, drops = build_list(
                 groups, now=now, ttl_s=DEFAULT_TTL_S, our_grid=our_grid,
                 allowed=allowed, operations=operations, classify=classify,
                 grid_for=grid_for, rover_for=rover_for, spotter_grid=spotter_grid,
                 qsy_cost=settings.get("qsy_cost", 8),
+                allowed_modes=modes,
             )
         spot_count = int(drops.get("spot_count") or 0)
         have_grid = bool((our_grid or "").strip())
@@ -353,7 +361,7 @@ class ClusterService:
             callsign=login, retry_s=retry_s, reason=reason,
             spot_count=spot_count, needed_count=len(rows),
             bands_empty=bands_empty, have_grid=have_grid,
-            have_lines=saw_lines,
+            have_lines=saw_lines, modes_empty=modes_empty,
         )
         weights = S.cluster_weights(settings.get("qsy_cost", 8))
         last_age = None if last_spot_at is None else max(0.0, now - last_spot_at)
@@ -363,6 +371,9 @@ class ClusterService:
             bands=None if allowed is None else sorted(allowed),
             ttl_s=DEFAULT_TTL_S, drops=drops, weights=weights,
             last_spot_age=last_age, node_spoke=node_spoke, login_sent=login_sent,
+            modes=None if modes is None else [
+                name for name in MODE_FILTERS if name in modes
+            ],
         )
         selected_line = ""
         if selected and selected.get("call"):
@@ -376,6 +387,11 @@ class ClusterService:
             "bands": "all" if allowed is None else sorted(allowed),
             "all_bands": allowed is None,
             "band_choices": band_choices(settings.get("bands")),
+            "modes": "all" if modes is None else [
+                name for name in MODE_FILTERS if name in modes
+            ],
+            "all_modes": modes is None,
+            "mode_choices": mode_choices(settings.get("modes")),
             "qsy_cost": int(settings.get("qsy_cost") or 0),
             "callsign": login,
             "phase": phase,

@@ -19,7 +19,7 @@
 """Turn stored spots into the Operate list.
 
 A spot on another band or mode stays. It is marked QSY and the score pays
-the QSY cost. It is not dropped for that. Dropped spots are: off the bands
+the QSY cost. It is not dropped for that. Dropped spots are: off the bands or modes
 the operator selected, older than 15 minutes, no grid, out of range for that
 band, or not needed under the Goal (already worked, or a mode the Goal
 does not count).
@@ -35,7 +35,9 @@ from wims.engine.geo import bearing, distance_km
 from wims.integrations.cluster.modes import canonical_mode, infer_mode
 from wims.integrations.cluster.parse import ParsedSpot
 from wims.integrations.cluster.ranges import distance_fit, in_range, spotter_near_amount
-from wims.integrations.cluster.settings import DEFAULT_TTL_S, all_bands
+from wims.integrations.cluster.settings import (
+    DEFAULT_TTL_S, MODE_FILTERS, all_bands,
+)
 
 
 @dataclass
@@ -158,11 +160,30 @@ def _retry_wait(retry_s: float) -> str:
     return f" Trying again in {max(0, int(retry_s))} seconds."
 
 
+def mode_bucket(mode: str) -> str:
+    """SSB, CW, FT8, FT4, or Other. Other is every other inferred mode."""
+    token = canonical_mode(mode)
+    if token.upper() in {"SSB", "CW", "FT8", "FT4"}:
+        return token.upper()
+    return "Other"
+
+
+def mode_choices(selected) -> list[dict]:
+    chosen = None if selected == "all" else set(selected or [])
+    out = []
+    for mode in MODE_FILTERS:
+        out.append({
+            "mode": mode,
+            "on": chosen is None or mode in chosen,
+        })
+    return out
+
+
 def status_line(*, enabled: bool, phase: str, host: str, port: int,
                 callsign: str, retry_s: float, reason: str,
                 spot_count: int, needed_count: int,
                 bands_empty: bool, have_grid: bool,
-                have_lines: bool = False) -> str:
+                have_lines: bool = False, modes_empty: bool = False) -> str:
     """One line for Operate. A failure names what to do next.
 
     ``connected, N spots`` is only for a session that has received spot
@@ -172,6 +193,8 @@ def status_line(*, enabled: bool, phase: str, host: str, port: int,
         return "Cluster: off. Turn it on in Setup."
     if bands_empty:
         return "Cluster: no bands are selected. Choose bands in Setup."
+    if modes_empty:
+        return "Cluster: no modes are selected. Choose modes on Operate."
     if phase == "need_call":
         return "Cluster: waiting for your callsign. WSJT-X has not sent one yet."
     if phase in {"off", "connecting"}:
@@ -222,13 +245,20 @@ def status_line(*, enabled: bool, phase: str, host: str, port: int,
 def status_detail(*, host: str, port: int, callsign: str, qsy_cost: int,
                   bands, ttl_s: int, drops: dict, weights: dict,
                   last_spot_age: float | None = None,
-                  node_spoke: bool = False, login_sent: bool = False) -> str:
+                  node_spoke: bool = False, login_sent: bool = False,
+                  modes=None) -> str:
     if bands is None:
         band_words = "every amateur band"
     elif not bands:
         band_words = "no bands"
     else:
         band_words = ", ".join(bands)
+    if modes is None:
+        mode_words = "every mode"
+    elif not modes:
+        mode_words = "no modes"
+    else:
+        mode_words = ", ".join(modes)
     parts = [
         f"Node {host} port {port}.",
         f"Login {callsign}." if callsign else "No callsign yet.",
@@ -242,6 +272,7 @@ def status_detail(*, host: str, port: int, callsign: str, qsy_cost: int,
         "QSY means no live WSJT-X is on that band and mode. On band means one is.",
         f"QSY cost is {qsy_cost} points.",
         f"Bands: {band_words}.",
+        f"Modes: {mode_words}.",
     ]
     if drops:
         bits = []
@@ -275,6 +306,7 @@ def build_list(
     rover_for=None,
     spotter_grid=None,
     qsy_cost: float = 8,
+    allowed_modes: set[str] | None = None,
 ) -> tuple[list[dict], dict]:
     """Rows for the Spotted list, and counts of why others were left off.
 
@@ -283,8 +315,8 @@ def build_list(
     ``need_label``, ``chase``, and reasons so the Operate badge is the one
     the roster already draws. This does not invent a second place order.
 
-    ``spot_count`` is every fresh spot on a selected band. ``needed`` is the
-    list the operator sees.
+    ``spot_count`` is every fresh spot on a selected band and mode. ``needed``
+    is the list the operator sees.
     """
     weights = S.cluster_weights(qsy_cost)
     rows: list[dict] = []
@@ -295,6 +327,8 @@ def build_list(
         if age > ttl_s or age < -5:
             continue
         if allowed is not None and group.band not in allowed:
+            continue
+        if allowed_modes is not None and mode_bucket(group.mode) not in allowed_modes:
             continue
         drops["spot_count"] += 1
         grid = (group.grid or "").strip().upper() or None

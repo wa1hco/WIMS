@@ -594,12 +594,17 @@ SSB/CW or hand off to a 2nd op.
   retune cost. On an award or a checklist the DX badge is the same single
   word as the roster (grid, state, DXCC, CQ zone, ITU zone, continent, or
   call), from the same check, judged on **that spot’s** band and mode.
-  The mult badge stays the word mult. Unconfirmed stays the word
-  unconfirmed. A contest row leaves the place badge off. A click selects
-  the station and remembers the grid. It does not transmit and it does not
-  retune a radio. A later rotator step (§2.10) makes that click prepare
-  the instance — QSY and rotate — and still waits for a roster click
-  before any transmission.
+  The place word is the reason the row is needed, so the generic mult
+  badge is hidden when that word is shown. A contest row has no place
+  word, so **mult** stays. Unconfirmed stays the word unconfirmed. The
+  call roster still shows both badges. Mode checkboxes under the heading
+  (SSB, CW, FT8, FT4, Other; all on by default) hide spots whose inferred
+  mode is unchecked. Other is MSK144, Q65, FM, data, and any unknown mode.
+  The choice is saved in `cluster.json` next to the band set. A click
+  selects the station and remembers the grid. It does not transmit and it
+  does not retune a radio. A later rotator step (§2.10) makes that click
+  prepare the instance — QSY and rotate — and still waits for a roster
+  click before any transmission.
 - **N1MM sync status** — `contactinfo` feed alive? log-copy freshness, last log update, last
   resync; plus the startup `.s3db` seed (so the existing log is visibly pulled in before any live
   broadcast). N1MM has no heartbeat — "no recent packet" means quiet, not a fault.
@@ -1474,8 +1479,10 @@ node chosen on Setup. The usual node is K1TTT, `k1ttt.net` port 7373
 (AR-Cluster). The list also offers NC7J (`dxc.nc7j.com` port 7373), W3LPL
 (`w3lpl.net` port 7373, DX-Spider), VE7CC (`dxc.ve7cc.net` port 23, CC
 Cluster), or a host and port the operator types. Spots stay off until Setup
-checks **Show spots**. The choice is saved beside the Goal (`cluster.json` in
-the same directory). There is no command-line flag and no environment variable.
+checks **Show spots**. The host, port, band set, mode filter, and QSY cost
+are saved beside the Goal (`cluster.json` in the same directory). Bands
+are chosen on Setup; modes are chosen on Operate. There is no
+command-line flag and no environment variable.
 
 A field check from FN42 found that VE7CC port 23 can complete TCP and then
 send no bytes. That is not a working login. The first saved copy of that
@@ -1503,6 +1510,9 @@ A spot is kept when all of these are true:
 - The frequency is on an amateur band the operator left checked. The set
   defaults to every band WIMS already names (160 m through 1.2 cm). Saving
   with every box checked stores “all”, so a band added later stays included.
+- The inferred mode is one the operator left checked on Operate (SSB, CW,
+  FT8, FT4, or Other). All start on. Saving with every box checked stores
+  “all”. A file with no modes key is treated as all modes.
 - The station is still needed on **that spot’s** band and mode under the
   current Goal. The same classify path as the roster decides this. A dupe is
   not listed.

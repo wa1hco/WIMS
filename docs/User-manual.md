@@ -105,7 +105,9 @@ A group with more than one instance is the multi-op case: the closed **TX groups
 
 **Spotted**, under the roster, is a DX cluster list. It is not the live roster. Each line is one station on one band: call, grid, band, mode, frequency, **QSY** or **on band**, why it is needed, score, age, and how many stations spotted it. **On band** means a WSJT-X you already have running is on that band and that mode. **QSY** means it is not, so you would move a radio if the spot is worth it. The line stays either way. Spots that are already worked, have no grid, or are too far for that band are left off. They drop off after 15 minutes.
 
-The line above the list is the connection, such as `Cluster: connected, 12 spots, 3 needed`. Hover it for the node, the login, and why some spots were left off. A failure names the next step. Spots stay off until Setup turns them on (`Cluster: off. Turn it on in Setup.`).
+Under the heading, checkboxes for **SSB**, **CW**, **FT8**, **FT4**, and **Other** hide spots that are not that mode. All start on. **Other** is MSK144, Q65, FM, data, and anything else. The choice is kept with the cluster settings. The count on the status line follows the boxes. When the badge names the place that is needed (grid, state, DXCC, and so on), the generic **mult** badge is left off, because that word already says why the row is there. In a contest, only **mult** shows.
+
+The line above the list is the connection, such as `Cluster: logged in, 12 spots, 3 needed`. Hover it for the node, the login, and why some spots were left off. A failure names the next step. Spots stay off until Setup turns them on (`Cluster: off. Turn it on in Setup.`).
 
 Click a Spotted line to select that station. The radio is not retuned and nothing is transmitted. Work still needs a live decode on the roster.
 
@@ -224,6 +226,7 @@ Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you 
 
 | Date | Note |
 |------|------|
+| 2026-11-10 | Spotted mode checkboxes, and hide a redundant mult badge |
 | 2026-10-28 | DX cluster node list. Usual node is K1TTT. A silent node says so |
 | 2026-10-27 | Operate Spotted list and Setup DX cluster (other bands, QSY cost, click does not transmit) |
 | 2026-10-19 | Operate TX groups: hidden until a shared group or a conflict; one-line banner |
