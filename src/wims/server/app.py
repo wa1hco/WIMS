@@ -569,6 +569,16 @@ class LiveFleet:
         return {"ok": True, "seeded": summary["total"],
                 "files": [str(p) for p in files]}
 
+    def _entity_latlon(self, call: str | None):
+        """DXCC entity centroid (lat, lon east), or None when unknown."""
+        index = self._country_index()
+        if index is None:
+            return None
+        try:
+            return index.centroid(call)
+        except Exception:
+            return None
+
     def _country_index(self):
         """The WSJT-X country file, or None when this computer does not have one."""
         from wims.rules.cty import CtyIndex, find_cty_dat
@@ -2107,7 +2117,8 @@ class LiveFleet:
                                          condition=self._condition,
                                          strategy=self._roster.strategy.name,
                                          nodes=self._tracker.nodes,
-                                         rotators=self._rotators)
+                                         rotators=self._rotators,
+                                         entity_latlon=self._entity_latlon)
             # One activity tile per live instance (including empty / no decodes).
             live_ids = set(self._tracker.nodes)
             d["activity"] = [activity_to_dict(self._maps[mid], now=now)
@@ -2267,6 +2278,7 @@ class LiveFleet:
             grid_for=grid_for,
             rover_for=rover_for,
             spotter_grid=grid_for,
+            entity_latlon=self._entity_latlon,
         )
 
     def start_cluster(self) -> None:
@@ -2669,9 +2681,11 @@ class LiveFleet:
                       az: float | None = None,
                       row_id: str | None = None) -> dict:
         """Human click-to-point: set rotator to az, or to roster row Az DX."""
-        from wims.engine.geo import bearing
+        from wims.engine.geo import aim
         with self._lock:
             rid = (rotator_id or "").strip() or None
+            approximate = False
+            bearing_source = None
             if row_id:
                 entry = self._roster.entry_for(row_id)
                 if entry is None:
@@ -2679,11 +2693,22 @@ class LiveFleet:
                             "detail": "Roster row gone — pick a fresh line."}
                 inst = getattr(entry.decode, "id", None) or "?"
                 grid = getattr(entry, "grid", None) or getattr(entry.decode, "grid", None)
-                az_dx = bearing(entry.de_grid, grid)
+                remembered = bool(getattr(entry, "grid_remembered", False))
+                call = getattr(entry.decode, "dx_call", None) or ""
+                latlon = None
+                if not grid:
+                    latlon = self._entity_latlon(call)
+                az_dx, _km, bearing_source = aim(
+                    entry.de_grid, None if remembered else grid,
+                    heard_grid=grid if remembered else None,
+                    entity_latlon=latlon,
+                )
                 if az_dx is None:
                     return {"ok": False, "error": "no_bearing",
                             "detail": "Need de_grid + DX grid for Az DX."}
-                az = az_dx
+                # Match the integer degrees shown in Az DX.
+                az = round(az_dx)
+                approximate = bearing_source == "dxcc"
                 if not rid:
                     rst = self._rotators.for_instance(inst)
                     rid = rst.id if rst else None
@@ -2704,6 +2729,22 @@ class LiveFleet:
                         "detail": "Provide az degrees or a row_id with Az DX."}
             result = self._rotators.point(rid, float(az))
             if result.get("ok"):
+                if row_id:
+                    result["approximate"] = bool(approximate)
+                    if bearing_source:
+                        result["bearing_source"] = bearing_source
+                    if approximate and not result.get("detail"):
+                        index = self._country_index()
+                        name = ""
+                        if index is not None:
+                            try:
+                                name = index.entity_name(call) or ""
+                            except Exception:
+                                name = ""
+                        who = name or "the DXCC entity"
+                        result["detail"] = (
+                            f"Approximate heading from {who} (country file)"
+                        )
                 self._last_rot_action = {
                     "action": "point", "rotator": rid, "az": result.get("az"),
                     "ts": time.time(),

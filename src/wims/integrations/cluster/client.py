@@ -308,7 +308,7 @@ class ClusterService:
 
     def public(self, *, now: float, callsign: str, our_grid: str | None,
                operations, classify, grid_for=None, rover_for=None,
-               spotter_grid=None) -> dict:
+               spotter_grid=None, entity_latlon=None) -> dict:
         with self._lock:
             settings = dict(self._settings)
             self._book.prune(now, DEFAULT_TTL_S)
@@ -341,6 +341,7 @@ class ClusterService:
                 grid_for=grid_for, rover_for=rover_for, spotter_grid=spotter_grid,
                 qsy_cost=settings.get("qsy_cost", 8),
                 allowed_modes=modes,
+                entity_latlon=entity_latlon,
             )
         elif can_list and groups:
             # Still show spots we already have while reconnecting.
@@ -350,6 +351,7 @@ class ClusterService:
                 grid_for=grid_for, rover_for=rover_for, spotter_grid=spotter_grid,
                 qsy_cost=settings.get("qsy_cost", 8),
                 allowed_modes=modes,
+                entity_latlon=entity_latlon,
             )
         spot_count = int(drops.get("spot_count") or 0)
         have_grid = bool((our_grid or "").strip())

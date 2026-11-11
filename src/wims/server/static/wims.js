@@ -1845,7 +1845,7 @@ const ROS_COLS = [
   {key:"az",            label:"Az DX",   cls:"num", num:1, cell:rosAzDx},
   {key:"az_ant",        label:"Az ant",  cls:"num", num:1, cell:rosAzAnt},
   {key:"delta_az",      label:"Δaz",     cls:"num", num:1, cell:c=>c.delta_az==null?"-":c.delta_az+"°"},
-  {key:"distance_km",   label:"km",      cls:"num", num:1, cell:c=>c.distance_km==null?"-":c.distance_km},
+  {key:"distance_km",   label:"km",      cls:"num", num:1, cell:rosKm},
   {key:"age",           label:"Age",     cls:"num", num:1, cell:c=>age(c.age)},
   {key:"score",         label:"Score",   cls:"num score", num:1, cell:c=>c.score.toFixed(1)},
 ];
@@ -2009,14 +2009,45 @@ function rosSource(c) {
   if (!raw || short === raw) return esc(short) + mark;
   return `<span title="${esc(raw)}">${esc(short)}</span>${mark}`;
 }
+function bearingApprox(c) {
+  return c && c.bearing_source === "dxcc";
+}
+function azText(c) {
+  if (c.az == null) return "";
+  return (bearingApprox(c) ? "~" : "") + c.az + "°";
+}
+function approxTip(c, kind) {
+  // kind is "heading" or "distance". Same country-file wording.
+  const who = (c.country || "the DXCC entity");
+  const what = kind === "distance" ? "distance" : "heading";
+  return "Approximate " + what + " from " + who + " (country file)";
+}
 function rosAzDx(c) {
   // Clickable when a rotator is mapped — point antenna to this Az DX.
+  // A DXCC-centroid heading is marked ~ and explained in the tooltip.
   if (c.az == null) return "-";
+  const text = azText(c);
+  const approx = bearingApprox(c);
+  const tip = approx ? approxTip(c, "heading") : "";
   if (c.rotator_id) {
-    return `<button type="button" class="azbtn" data-point-row="${esc(c.id||"")}" ` +
-           `title="Point ${esc(c.rotator_id)} to ${c.az}°">${c.az}°</button>`;
+    const point = "Point " + (c.rotator_id || "") + " to " + text;
+    const title = tip ? (point + ". " + tip) : point;
+    const cls = approx ? "azbtn az-approx" : "azbtn";
+    return `<button type="button" class="${cls}" data-point-row="${esc(c.id||"")}" ` +
+           `title="${escAttr(title)}">${esc(text)}</button>`;
   }
-  return c.az + "°";
+  if (tip) {
+    return `<span class="az-approx" title="${escAttr(tip)}">${esc(text)}</span>`;
+  }
+  return text;
+}
+function rosKm(c) {
+  if (c.distance_km == null) return "-";
+  if (bearingApprox(c)) {
+    const text = "~" + c.distance_km;
+    return `<span class="az-approx" title="${escAttr(approxTip(c, "distance"))}">${esc(text)}</span>`;
+  }
+  return String(c.distance_km);
 }
 function rosAzAnt(c) {
   if (c.az_ant == null) return "—";
@@ -2966,9 +2997,10 @@ async function rotPost(url, payload) {
     const j = await r.json().catch(() => ({}));
     const m = $("tx-meta");
     if (m) {
+      const mark = j.approximate ? "~" : "";
       const text = j.ok
         ? (j.az != null
-          ? `→ Point ${j.rotator || "?"} to ${j.az}°` + (j.detail ? ` (${j.detail})` : "")
+          ? `→ Point ${j.rotator || "?"} to ${mark}${j.az}°` + (j.detail ? ` (${j.detail})` : "")
           : (j.detail || "rotator ok"))
         : `Point failed: ${j.detail || j.error || "failed"}`;
       // Same Point wording as before. This only replaces a Work/Halt note.
@@ -3141,7 +3173,7 @@ function spotTitle(row) {
     reason,
     mult,
     factors,
-    row.km != null ? (row.km + " km") : "",
+    row.km != null ? ((row.bearing_source === "dxcc" ? "~" : "") + row.km + " km") : "",
     who ? ("Spotters: " + who) : "",
     "Click selects this station. It does not transmit or retune. Work needs a live decode.",
   ].filter(Boolean).join("\n");

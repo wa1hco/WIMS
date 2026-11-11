@@ -79,7 +79,13 @@ _SUFFIXES = frozenset({
 
 @dataclass(frozen=True)
 class Hit:
-    """One prefix match. ``cq`` / ``itu`` are None when the grid must decide."""
+    """One prefix match. ``cq`` / ``itu`` are None when the grid must decide.
+
+    ``lat`` / ``lon`` are the entity centroid from the country file, with
+    longitude in degrees east. The file stores longitude positive-west;
+    the sign is flipped when the line is parsed. Either is None when the
+    line had no usable coordinates.
+    """
 
     name: str
     continent: str
@@ -87,6 +93,8 @@ class Hit:
     itu: int | None
     cq_from_grid: bool
     itu_from_grid: bool
+    lat: float | None = None
+    lon: float | None = None
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,8 @@ class _Ent:
     itu: int
     primary: str
     prefs: list
+    lat: float | None = None
+    lon_west: float | None = None
 
 
 def continent_name(code: str | None) -> str:
@@ -209,8 +219,24 @@ def _parse_primary(line: str) -> _Ent | None:
     cont = parts[3].strip().upper()
     if cont not in CONTINENTS:
         return None
+    # parts[4:7] are lat, lon (positive west), and UTC offset.
+    lat = None
+    lon_west = None
+    if len(parts) >= 6:
+        try:
+            lat_val = float(parts[4])
+            lon_val = float(parts[5])
+        except ValueError:
+            lat_val = None
+            lon_val = None
+        if lat_val is not None and -90.0 <= lat_val <= 90.0:
+            lat = lat_val
+            lon_west = lon_val
+        else:
+            lat = None
+            lon_west = None
     primary = parts[7].strip().upper() if len(parts) >= 8 else ""
-    return _Ent(name, cont, cq, itu, primary, [])
+    return _Ent(name, cont, cq, itu, primary, [], lat, lon_west)
 
 
 class CtyIndex:
@@ -292,7 +318,9 @@ class CtyIndex:
                 itu, itu_grid = None, True
             else:
                 itu, itu_grid = ent.itu, False
-            hit = Hit(ent.name, ent.continent, cq, itu, cq_grid, itu_grid)
+            lon = None if ent.lon_west is None else -float(ent.lon_west)
+            hit = Hit(ent.name, ent.continent, cq, itu, cq_grid, itu_grid,
+                      ent.lat, lon)
             if pref.exact:
                 self.exact[pref.text] = hit
             else:
@@ -349,6 +377,13 @@ class CtyIndex:
         if hit is None:
             return None
         return hit.name
+
+    def centroid(self, call: str | None) -> tuple[float, float] | None:
+        """Entity centroid as (lat, lon east), or None when unknown or unlocated."""
+        hit = self.lookup(call)
+        if hit is None or hit.lat is None or hit.lon is None:
+            return None
+        return (hit.lat, hit.lon)
 
     def describe(
         self,

@@ -551,8 +551,15 @@ SSB/CW or hand off to a 2nd op.
   band and the time. **grid assumed** is only a rover square from an earlier
   hearing, not this QSO — see the Grid → WSJT-X resolution) **· dB · Freq**
   (RF = instance dial + decode audio df) **· Az DX**
-  (great-circle bearing **from our receiving instance’s `de_grid` to the DX grid**) **· km**
-  (great-circle distance) **· Age · Op** (band manager — stubbed until §3.14) **· Score**.
+  (great-circle bearing **from our receiving instance’s `de_grid` to the DX grid**,
+  or, when no real or remembered grid is known, an *approximate* bearing to the
+  DXCC entity centroid from the country file, shown as `~260°` with a tooltip.
+  A missing country file, or a missing home grid, leaves Az DX blank, as today.
+  No grid square is ever estimated from the entity; the Grid cell stays empty
+  until a real or heard square is known, and that empty grid is what classify,
+  Work, ADIF, and `heard_grids.json` see) **· km**
+  (great-circle distance, similarly marked `~` when it is from the centroid)
+  **· Age · Op** (band manager — stubbed until §3.14) **· Score**.
   **UTC column dropped** from the default table (Age is enough; `ts` remains on the wire).
   **No Work button** — click the **row** to Work (GT2-style). **Highlights:** **calling-us**
   (red background — station’s `to_call` matches instance `de_call`, like WSJT-X Band Activity
@@ -602,7 +609,12 @@ SSB/CW or hand off to a 2nd op.
   Unconfirmed stays the word unconfirmed. Mode checkboxes under the heading
   (SSB, CW, FT8, FT4, Other; all on by default) hide spots whose inferred
   mode is unchecked. Other is MSK144, Q65, FM, data, and any unknown mode.
-  The choice is saved in `cluster.json` next to the band set. A click
+  The choice is saved in `cluster.json` next to the band set. Under a VUCC
+  or other grid-only Goal, a spot with no grid is still left off. Under a
+  DXCC or checklist Goal that can need a station without a grid, that spot
+  stays, with an approximate Az DX from the entity centroid, and centroid
+  distance is not used as a hard in-range gate. Classify still receives
+  `grid=None`. A click
   selects the station and remembers the grid. It does not transmit and it
   does not retune a radio. A later rotator step (§2.10) makes that click
   prepare the instance — QSY and rotate — and still waits for a roster
@@ -1000,13 +1012,16 @@ font (italic until Phase 2 picks a face). Color is already busy for
 need, dupe, and TX, so the cue is the font. The state contract carries
 `rotator_moving` so the page does not infer motion itself. Settled Az ant
 uses the normal font. **Az DX** remains the great-circle bearing from the
-instance grid to the other station. A later point command uses that bearing.
-A shortest-arc delta, or an “already in the beam” cue, can wait.
+instance grid to the other station. When no DX grid is known, it may fall
+back to the DXCC entity centroid and is marked approximate (`~`). A later
+point command uses that same bearing, including the approximate fallback,
+and tells the operator when the heading is approximate. A shortest-arc
+delta, or an “already in the beam” cue, can wait.
 
 | Column | Value | Notes |
 |--------|--------|--------|
 | **Az ant** | Live antenna azimuth (the Operate **current** heading) | Shown when the instance has a confirmed rotor; fixed beams show `—` |
-| **Az DX** | Great-circle bearing from `de_grid` to the DX grid | Shown when the grid is known. Already carried as `az` |
+| **Az DX** | Great-circle bearing from `de_grid` to the DX grid, or an approximate bearing to the DXCC entity centroid when no grid is known | Shown when a grid or a country-file centroid is available, and the home grid is known. Approximate values are marked `~` and carried with `bearing_source=dxcc`. No grid is estimated. Already carried as `az` |
 
 **Claims.** A turn uses the existing control claim (§4.5). On a linked
 rotor, turning is an action on that instance: the console that holds the

@@ -138,7 +138,9 @@ through the live state. On one PC that directory is the profile. The
 operator does not edit the file.
 
 A fixed beam has no row. Roster **Az DX** still shows the bearing to the
-other station.
+other station. When no DX grid is known, that bearing may be the
+approximate heading to the DXCC entity in the country file, marked `~`.
+No grid square is estimated from the entity.
 
 ## Operate readout
 
@@ -156,7 +158,9 @@ instances, so a remote browser shows it with no extra channel:
 Roster **Az ant** mirrors Current on a linked instance. While Turning is
 yes, Az ant is a different font (italic until a later face is chosen).
 The state field is `rotator_moving`. The page does not compute motion
-itself. **Az DX** stays the bearing from the instance grid to the DX grid.
+itself. **Az DX** stays the bearing from the instance grid to the DX grid,
+or an approximate heading to the DXCC entity centroid when no grid is known
+(marked `~`; never an estimated grid).
 
 A turn is an action on the linked instance under the existing soft claim
 (design §4.5). The console that holds the claim may turn. A turn takes the
@@ -172,7 +176,10 @@ Build step 4. A click on a DX cluster spot prepares the linked instance:
   control path it already uses. The ask is claim-gated. It does not enable
   transmit.
 - The server asks the owning agent to rotate to the great-circle bearing
-  from the station grid to the spot grid.
+  from the station grid to the spot grid, or, when the spot has no grid, to
+  the approximate heading from the DXCC entity centroid. That case is
+  flagged approximate in the status line. A missing home grid leaves the
+  heading blank, as today.
 - The instance shows **Tuning** while the radio or the rotor is still
   moving, and **Ready** when the dial is on the spot and the rotor has
   settled (a fixed beam is Ready on the radio alone).
