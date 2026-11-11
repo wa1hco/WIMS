@@ -573,10 +573,12 @@ SSB/CW or hand off to a 2nd op.
   continent, then call. A new call is last because it is not a multiplier.
   The score adds the new-multiplier weight once when any multiplier place is
   new. That weight is not added again for each extra place, so the badge names
-  one place. Hover keeps the one sentence for the place that won. The **mult**
-  badge stays the word mult, with its own hover. **Unconfirmed** stays the word
+  one place. Hover keeps the one sentence for the place that won. The
+  place word is the reason the row is needed, so the generic **mult**
+  badge is hidden when that word is shown. A contest row has no place
+  word, so **mult** stays, with its own hover. **Unconfirmed** stays the word
   unconfirmed. County and callsign prefix are not computed, so they are not
-  labels. A contest row leaves this badge off; a new grid there is still
+  labels. A contest row leaves the place badge off; a new grid there is still
   **mult**.
   Rover new grid = fresh mult row; worked stations dimmed per band×grid. Contract fields include
   `need_label`, `is_calling_us`, `is_armed`, `az` (Az DX), `distance_km`, `ts`, `to_call`,
@@ -595,9 +597,9 @@ SSB/CW or hand off to a 2nd op.
   word as the roster (grid, state, DXCC, CQ zone, ITU zone, continent, or
   call), from the same check, judged on **that spot’s** band and mode.
   The place word is the reason the row is needed, so the generic mult
-  badge is hidden when that word is shown. A contest row has no place
-  word, so **mult** stays. Unconfirmed stays the word unconfirmed. The
-  call roster still shows both badges. Mode checkboxes under the heading
+  badge is hidden when that word is shown, the same rule as the call
+  roster. A contest row has no place word, so **mult** stays.
+  Unconfirmed stays the word unconfirmed. Mode checkboxes under the heading
   (SSB, CW, FT8, FT4, Other; all on by default) hide spots whose inferred
   mode is unchecked. Other is MSK144, Q65, FM, data, and any unknown mode.
   The choice is saved in `cluster.json` next to the band set. A click

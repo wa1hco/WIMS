@@ -3,11 +3,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The needed badge names one place. The mult badge stays mult.
+"""The needed badge names one place.
 
 Priority, most specific first: grid, state, DXCC, CQ zone, ITU zone,
 continent, call. A new call is last because it is not a multiplier.
-The score adds the new-mult weight once.
+The score adds the new-mult weight once. The generic mult badge is
+hidden when that place word is shown, and stays when there is none.
 """
 
 import sys
@@ -306,10 +307,14 @@ def test_roster_json_carries_one_label():
 
 
 def test_badge_text_uses_the_label_and_mult_stays_mult():
+    # Generic mult is hidden when a place word is shown, and stays when
+    # need_label is empty (contest rows). us, TX, and R stay either way.
     js = (ROOT / "src" / "wims" / "server" / "static" / "wims.js").read_text(encoding="utf-8")
     call = js.split("function rosCall", 1)[1].split("function rosChase", 1)[0]
     assert ">mult</span>" in call
-    assert "need_label" not in call
+    assert "need_label" in call
+    assert "is_new_mult && !labeled" in call
+    assert "callus" in call and "armed" in call and "rover" in call
     chase = js.split("function rosChase", 1)[1].split("function rosCountryTip", 1)[0]
     assert "need_label" in chase
     assert "unconfirmed" in chase

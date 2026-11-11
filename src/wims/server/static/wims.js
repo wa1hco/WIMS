@@ -1910,10 +1910,14 @@ const ROS_AGE_DEFAULT = 120; // match GridTracker-ish “last ~2 minutes” feel
 let _rosColsBuilt = false;
 
 function rosCall(c) {
+  // The place word already says why the row is needed, so hide the
+  // generic mult badge when need_label is shown. Contest rows have no
+  // place word, so mult stays. us, TX, and R are unchanged.
+  const labeled = String((c && c.need_label) || "").trim() !== "";
   const badges =
     (c.is_calling_us ? '<span class="badge callus">us</span>' : '') +
     (c.is_armed ? '<span class="badge armed">TX</span>' : '') +
-    (c.is_new_mult ? '<span class="badge" title="' + escAttr(c.mult_reason || '') + '">mult</span>' : '') +
+    (c.is_new_mult && !labeled ? '<span class="badge" title="' + escAttr(c.mult_reason || '') + '">mult</span>' : '') +
     rosChase(c) +
     (c.is_rover ? '<span class="badge rover">R</span>' : '');
   return `${esc(c.call)}${badges}`;
@@ -3074,7 +3078,8 @@ function renderTxBar(tx) {
 
 // -- DX cluster spots (separate from the live roster) ----------------------- //
 // Columns reuse the roster's header, class, and cell. The callsign badge is
-// rosCall → rosChase (one place, mult stays mult). A click only selects.
+// rosCall → rosChase (one place; hide generic mult when a place word is
+// shown). A click only selects.
 
 function spotSpotter(row) {
   const calls = row.spotter_calls || [];
@@ -3116,24 +3121,8 @@ const SPOT_EXTRA = {
   },
 };
 
-function spotCall(c) {
-  // Spotted list only: the place word already says why the row is needed,
-  // so hide the generic mult badge when need_label is shown. Contest rows
-  // have no place word, so mult stays. The call roster still uses rosCall.
-  const labeled = String((c && c.need_label) || "").trim() !== "";
-  if (labeled && c && c.is_new_mult) {
-    const copy = Object.assign({}, c, {is_new_mult: false});
-    return rosCall(copy);
-  }
-  return rosCall(c);
-}
-
 function spotCols() {
   return SPOT_COL_KEYS.map(key => {
-    if (key === "call") {
-      const col = ROS_COLS.find(c => c.key === "call");
-      return col ? Object.assign({}, col, {cell: spotCall}) : SPOT_EXTRA[key];
-    }
     if (SPOT_EXTRA[key]) return SPOT_EXTRA[key];
     return ROS_COLS.find(c => c.key === key);
   }).filter(Boolean);

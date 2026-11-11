@@ -87,6 +87,7 @@ One **site server** per contest LAN. Top nav:
 - **Halt TX** = stop Work started from **this** browser. Other operators’ QSOs and local WSJT-X CQ are left running. If this console started two bands, Halt stops both.
 - **Message**, next to Calling, is the rest of that decode: a report such as R-12, a sign-off such as 73, a grid, or the leftover text of a QSY. Hover the cell for the whole line. A long line is shortened on the row.
 - **Show** is Needed, Needed and CQ, Needed and CQ or 73, or All. Hover an item for what it keeps. The choice stays in this browser.
+- When the badge names the place that is needed (grid, state, DXCC, and so on), the generic **mult** badge is left off, because that word already says why the row is there. In a contest, only **mult** shows.
 - A tail-end often has no grid, as in `W1XX CX4BAN R-10`. WIMS remembers the last grid it heard for that station and shows that square as the grid. Hover it (the dotted line) for the band and the time, such as `Grid from 20m at 14:10 UTC (GF15)`. A station that is not a rover stays in the grid it already gave. A rover is a call ending in `/R`, or a station heard in two different squares. The grid that rover sent earlier in this contact is also certain: this contact is the exchange with you, from your first message to them or their first message to you, including the call just before that. That square is shown as the grid. **grid assumed**, in italics, is only a rover square from an earlier hearing. Check that one before you log. A rover's grid is filled only when it was heard in the last 10 minutes; otherwise the cell stays blank and the hover says why. Work sends the square to the WSJT-X you are working, so its DX Grid box and the logged contact can carry it. WIMS does not change the WSJT-X log file. If that station sends a grid while the contact is still open, the roster and WSJT-X take the new square. The record says **grid remembered** only when a rover's square came from an earlier hearing. A fixed station, and a rover square from this contact, are logged as the grid with no extra comment.
 
 **TX groups** (under the roster) stays off a simple station. A group is a set of WSJT-X instances that must not transmit at the same time. Hover the **TX groups** label for that sentence. WIMS still refuses Work when another instance in the group already holds TX — this block only changes what you see.
@@ -105,7 +106,7 @@ A group with more than one instance is the multi-op case: the closed **TX groups
 
 **Spotted**, under the roster, is a DX cluster list. It is not the live roster. Each line is one station on one band: call, grid, band, mode, frequency, **QSY** or **on band**, why it is needed, score, age, and how many stations spotted it. **On band** means a WSJT-X you already have running is on that band and that mode. **QSY** means it is not, so you would move a radio if the spot is worth it. The line stays either way. Spots that are already worked, have no grid, or are too far for that band are left off. They drop off after 15 minutes.
 
-Under the heading, checkboxes for **SSB**, **CW**, **FT8**, **FT4**, and **Other** hide spots that are not that mode. All start on. **Other** is MSK144, Q65, FM, data, and anything else. The choice is kept with the cluster settings. The count on the status line follows the boxes. When the badge names the place that is needed (grid, state, DXCC, and so on), the generic **mult** badge is left off, because that word already says why the row is there. In a contest, only **mult** shows.
+Under the heading, checkboxes for **SSB**, **CW**, **FT8**, **FT4**, and **Other** hide spots that are not that mode. All start on. **Other** is MSK144, Q65, FM, data, and anything else. The choice is kept with the cluster settings. The count on the status line follows the boxes. The **mult** badge on a Spotted line follows the same rule as the call roster: it is left off when the place word is shown, and in a contest only **mult** shows.
 
 The line above the list is the connection, such as `Cluster: logged in, 12 spots, 3 needed`. Hover it for the node, the login, and why some spots were left off. A failure names the next step. Spots stay off until Setup turns them on (`Cluster: off. Turn it on in Setup.`).
 
@@ -226,6 +227,7 @@ Images: [manual/images/](manual/images/) — Markdown paths stay fixed when you 
 
 | Date | Note |
 |------|------|
+| 2026-11-11 | Hide a redundant mult badge on the call roster too, when a place word is shown |
 | 2026-11-10 | Spotted mode checkboxes, and hide a redundant mult badge |
 | 2026-10-28 | DX cluster node list. Usual node is K1TTT. A silent node says so |
 | 2026-10-27 | Operate Spotted list and Setup DX cluster (other bands, QSY cost, click does not transmit) |
