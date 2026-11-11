@@ -28,8 +28,7 @@ from __future__ import annotations
 
 from wims.engine.dxcc import country_fields as _country_fields
 from wims.engine.geo import (
-    bearing as _bearing, distance_km as _distance_km, base_call as _base_call,
-    delta_az as _delta_az,
+    aim as _aim, base_call as _base_call, delta_az as _delta_az,
 )
 from wims.udp.messages import (
     _interpret_decode as _interpret_decode,
@@ -238,12 +237,16 @@ def interlock_to_dict(detector, group_of, grouping: str,
 def roster_to_dict(scored_rows, not_needed: int, now: float,
                    *, condition: str, strategy: str,
                    nodes: dict | None = None,
-                   rotators=None) -> dict:
+                   rotators=None,
+                   entity_latlon=None) -> dict:
     """Snapshot the GridTracker-style call roster (plan §3.5 / §2.2) for the console.
 
     Columns include **Az DX** (`az`), **Az ant** / **Δaz** when a rotator maps to the
     row's instance, **distance_km**, **is_calling_us**, **is_armed**. `rotators` is a
-    `RotatorRegistry` (optional).
+    `RotatorRegistry` (optional). ``entity_latlon(call)`` is an optional lookup
+    of the DXCC entity centroid used only when no real or remembered grid is
+    known. That heading is marked ``bearing_source="dxcc"``. The ``grid`` field
+    stays empty in that case; a centroid is never turned into a square.
 
     ``msg`` / ``message_tail`` is the exchange text after the callsigns (report,
     grid, sign-off, or leftover QSY / free text). ``message`` is the original
@@ -257,8 +260,18 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
         c = sc.candidate
         d = e.decode
         freq_hz = (e.dial_hz + d.delta_frequency) if e.dial_hz else None
-        dist = _distance_km(e.de_grid, c.grid)
-        az_dx = _bearing(e.de_grid, c.grid)
+        remembered = bool(getattr(e, "grid_remembered", False))
+        latlon = None
+        if not c.grid and entity_latlon is not None:
+            try:
+                latlon = entity_latlon(c.call)
+            except Exception:
+                latlon = None
+        az_dx, dist, bearing_source = _aim(
+            e.de_grid, None if remembered else c.grid,
+            heard_grid=c.grid if remembered else None,
+            entity_latlon=latlon,
+        )
         node = (nodes or {}).get(c.instance_id) if nodes is not None else None
         de = getattr(node, "de_call", None) if node else None
         to = getattr(d, "to_call", None)
@@ -336,6 +349,7 @@ def roster_to_dict(scored_rows, not_needed: int, now: float,
             "rotator_moving": rotator_moving,
             "rotator_id": rotator_id,
             "distance_km": None if dist is None else round(dist, 1),
+            "bearing_source": bearing_source,  # grid | heard | dxcc | None
             "score": round(sc.total, 1),
             "is_needed": not c.is_dupe,
             # "needed" is a new place. "unconfirmed" is worked, not confirmed,

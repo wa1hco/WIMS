@@ -435,6 +435,31 @@ def test_closed_contact_does_not_send_a_later_grid():
     assert not any(s[0] == "grid" for s in tx.sent)
 
 
+def test_work_does_not_send_a_centroid_as_a_grid():
+    """A heading from the country file must never fill DX Grid."""
+    from wims.rules.cty import CtyIndex
+    cty = CtyIndex.parse(
+        "England:                  14:  27:  EU:   52.77:     1.47:     0.0:  G:\n"
+        "    G,G4,M;\n"
+    )
+    tx = _FakeTx()
+    live = LiveFleet(tx_controller=tx)
+    live._country_index = lambda: cty
+    now = time.time()
+    _hear(live, MID, "CQ G4ABC", 14_074_000, now)
+    snap = live.snapshot(now)
+    row = next(c for c in snap["roster"]["candidates"] if c["call"] == "G4ABC")
+    assert row["bearing_source"] == "dxcc"
+    assert not row["grid"]
+    result = live.work_station(row["id"])
+    assert result["ok"]
+    assert result.get("grid") in (None, "")
+    assert not any(s[0] == "grid" for s in tx.sent)
+    for sent in tx.sent:
+        if sent[0] == "configure":
+            assert not sent[3]
+
+
 if __name__ == "__main__":
     import traceback
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

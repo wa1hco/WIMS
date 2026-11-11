@@ -383,3 +383,4 @@ tr.stale-op .idle { color:var(--stale); font-weight:bold; }
 button.azbtn { font: inherit; font-size: 11px; padding: 0 4px; border: 1px solid var(--line);
                border-radius: 4px; background: var(--panel); color: var(--accent); cursor: pointer; }
 button.azbtn:hover { background: #eef4fb; }
+.az-approx { font-style: italic; }

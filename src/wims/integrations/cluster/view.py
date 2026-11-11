@@ -20,9 +20,14 @@
 
 A spot on another band or mode stays. It is marked QSY and the score pays
 the QSY cost. It is not dropped for that. Dropped spots are: off the bands or modes
-the operator selected, older than 15 minutes, no grid, out of range for that
-band, or not needed under the Goal (already worked, or a mode the Goal
-does not count).
+the operator selected, older than 15 minutes, out of range for that
+band when a real or remembered grid is known, or not needed under the Goal
+(already worked, a mode the Goal does not count, or no grid when the Goal
+can only need a grid — VUCC, or a checklist or contest that is only counting
+squares). Under a DXCC or checklist Goal that can need a station without a
+grid, a no-grid spot stays, with an approximate heading from the country-file
+entity centroid. That heading is marked approximate. Centroid distance is
+never a hard in-range gate, and no grid is ever estimated from the entity.
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ from dataclasses import dataclass, field
 
 from wims.engine import scoring as S
 from wims.engine.dxcc import country_fields
-from wims.engine.geo import bearing, distance_km
+from wims.engine.geo import aim, distance_km
 from wims.integrations.cluster.modes import canonical_mode, infer_mode
 from wims.integrations.cluster.parse import ParsedSpot
 from wims.integrations.cluster.ranges import distance_fit, in_range, spotter_near_amount
@@ -143,6 +148,24 @@ def _as_grid(found) -> tuple[str, dict]:
         if tip:
             extra["grid_tip"] = tip
     return grid, extra
+
+
+def _needed_without_grid(verdict) -> bool:
+    """True when this Goal can still need the station with no Maidenhead grid.
+
+    VUCC and a grid-only checklist return not-needed, so those spots stay
+    dropped. A contest row has no chase word, so it also stays dropped.
+    DXCC, and a checklist line such as DXCC or continent, can be needed
+    without a square.
+    """
+    if verdict is None or getattr(verdict, "is_dupe", True):
+        return False
+    chase = getattr(verdict, "chase", "") or ""
+    if chase not in ("needed", "unconfirmed"):
+        return False
+    if chase == "needed" and (getattr(verdict, "need_label", "") or "") == "grid":
+        return False
+    return True
 
 
 def _ago(age_s: float | None) -> str:
@@ -307,6 +330,7 @@ def build_list(
     spotter_grid=None,
     qsy_cost: float = 8,
     allowed_modes: set[str] | None = None,
+    entity_latlon=None,
 ) -> tuple[list[dict], dict]:
     """Rows for the Spotted list, and counts of why others were left off.
 
@@ -339,17 +363,34 @@ def build_list(
         if not home:
             drops["no_station_grid"] += 1
             continue
+        latlon = None
         if not grid:
-            drops["no_grid"] += 1
-            continue
-        km = distance_km(home, grid)
-        if not in_range(km, group.band, group.mode):
-            drops["range"] += 1
-            continue
-        verdict = classify(group.call, group.band, grid, group.mode)
-        if getattr(verdict, "is_dupe", False):
-            drops["worked"] += 1
-            continue
+            # Still pass grid=None into classify. Never invent a square.
+            verdict = classify(group.call, group.band, None, group.mode)
+            if not _needed_without_grid(verdict):
+                drops["no_grid"] += 1
+                continue
+            if entity_latlon is not None:
+                try:
+                    latlon = entity_latlon(group.call)
+                except Exception:
+                    latlon = None
+            az_dx, km, bearing_source = aim(home, None, entity_latlon=latlon)
+            # Centroid distance is not a hard in-range gate.
+        else:
+            km = distance_km(home, grid)
+            if not in_range(km, group.band, group.mode):
+                drops["range"] += 1
+                continue
+            verdict = classify(group.call, group.band, grid, group.mode)
+            if getattr(verdict, "is_dupe", False):
+                drops["worked"] += 1
+                continue
+            from_memory = bool(remembered.get("grid_remembered"))
+            az_dx, km, bearing_source = aim(
+                home, None if from_memory else grid,
+                heard_grid=grid if from_memory else None,
+            )
         needs_qsy = not on_band(group.band, group.mode, operations)
         rover = "/R" in group.call.upper()
         if not rover and rover_for is not None:
@@ -372,7 +413,16 @@ def build_list(
         if best is not None:
             near_amt = spotter_near_amount(best)
             near_detail = f"{best_call} {int(best)} km away"
-        fit = distance_fit(km, group.band, group.mode)
+        if bearing_source == "dxcc":
+            # Do not score an untrustworthy centroid distance.
+            fit = 0.0
+            if km is None:
+                distance_detail = ""
+            else:
+                distance_detail = f"approx {int(round(km))} km"
+        else:
+            fit = distance_fit(km, group.band, group.mode)
+            distance_detail = f"{int(km)} km" if km is not None else ""
         scored = S.score_spot(S.SpotFeatures(
             is_new_mult=bool(getattr(verdict, "is_new_mult", False)),
             chase=getattr(verdict, "chase", "") or "",
@@ -386,7 +436,7 @@ def build_list(
             need_detail=getattr(verdict, "need_reason", "") or "",
             mult_detail=getattr(verdict, "mult_reason", "") or "",
             near_detail=near_detail,
-            distance_detail=f"{int(km)} km",
+            distance_detail=distance_detail,
         ), weights)
         chase = getattr(verdict, "chase", "") or ""
         need_label = getattr(verdict, "need_label", "") or ""
@@ -402,7 +452,6 @@ def build_list(
         else:
             why = ""
         place = country_fields(group.call)
-        az_dx = bearing(home, grid)
         qsy_points = 0.0
         for factor in scored.factors:
             if factor.name == "qsy":
@@ -424,6 +473,7 @@ def build_list(
             "freq": _mhz(group.freq_hz),
             "az": None if az_dx is None else round(az_dx),
             "distance_km": None if km is None else round(km, 1),
+            "bearing_source": bearing_source,
             "where": where,
             "qsy": where,
             "needs_qsy": needs_qsy,
@@ -444,7 +494,7 @@ def build_list(
             "spotter": _latest_spotter(group.spotters),
             "spotters": len(group.spotters),
             "spotter_calls": sorted(group.spotters),
-            "km": int(round(km or 0)),
+            "km": None if km is None else int(round(km)),
             "factors": [
                 {"name": f.name, "contribution": f.contribution, "detail": f.detail}
                 for f in scored.factors
