@@ -917,26 +917,25 @@ def test_spot_row_uses_roster_fields_and_keeps_spot_extras():
 
 
 def test_spot_call_hides_mult_when_need_label_shown():
-    """Spotted DX cell hides generic mult when the place word is shown.
+    """Both lists hide generic mult when the place word is shown.
 
-    Contest rows have no need_label, so mult stays. The call roster still
-    uses rosCall unchanged.
+    The rule lives in rosCall, shared by the call roster and the Spotted
+    list. Contest rows have no need_label, so mult stays. The spotCall
+    wrapper is gone.
     """
     root = Path(__file__).resolve().parents[2]
     js = (root / "src/wims/server/static/wims.js").read_text(encoding="utf-8")
     ros = js.split("function rosCall", 1)[1].split("function rosChase", 1)[0]
     assert ">mult</span>" in ros
-    assert "need_label" not in ros
+    assert "need_label" in ros
+    assert "is_new_mult && !labeled" in ros
     assert js.count("function rosCall(") == 1
-    assert "function spotCall" in js
-    body = js.split("function spotCall", 1)[1].split("function spotCols", 1)[0]
-    assert "need_label" in body
-    assert "is_new_mult" in body
-    assert "rosCall" in body
-    assert "is_new_mult: false" in body
+    assert "function spotCall" not in js
+    assert "spotCall" not in js
     picker = js.split("function spotCols", 1)[1].split("function spotTitle", 1)[0]
-    assert "spotCall" in picker
-    assert 'key === "call"' in picker
+    assert "ROS_COLS.find" in picker
+    assert "spotCall" not in picker
+    assert 'key === "call"' not in picker
     ros_cols = js.split("const ROS_COLS = [", 1)[1].split("\n];", 1)[0]
     assert "rosCall" in ros_cols
     assert "spotCall" not in ros_cols
@@ -1091,7 +1090,7 @@ def test_spot_columns_match_the_roster():
     assert 'label: "QSY"' in extra
     picker = js.split("function spotCols", 1)[1].split("function spotTitle", 1)[0]
     assert "ROS_COLS.find" in picker
-    assert "spotCall" in picker
+    assert "spotCall" not in picker
     assert js.count("function rosChase") == 1
     chase = js.split("function rosChase", 1)[1].split("function rosCountryTip", 1)[0]
     assert "need_label" in chase
