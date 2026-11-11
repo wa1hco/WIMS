@@ -1170,9 +1170,14 @@ function renderContestRules(s) {
     : (rules.summary || "");
   if (rules.suggested_note) line += " " + rules.suggested_note;
   if (rules.n1mm_line) line += " " + rules.n1mm_line;
-  for (const id of ["contest-summary", "ros-rules", "n1mm-rules-line"]) {
+  for (const id of ["contest-summary", "n1mm-rules-line"]) {
     const el = $(id);
     if (el) el.textContent = line;
+  }
+  const rosHeading = $("ros-heading");
+  if (rosHeading) {
+    if (line) rosHeading.title = line;
+    else rosHeading.removeAttribute("title");
   }
   const logs = $("contest-logs");
   if (logs) {

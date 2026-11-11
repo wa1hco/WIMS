@@ -41,6 +41,13 @@ header nav a:hover { color:var(--text); }
 main { padding:8px 12px; }
 h2 { font-size:11px; text-transform:uppercase; letter-spacing:1px; color:var(--dim);
      margin:12px 0 4px; }
+/* Call roster heading: the contest-rules line that used to sit under the
+   heading now lives in the title. The dotted underline is the hover cue. */
+#ros-heading[title]:not([title=""]) {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
 table { width:100%; border-collapse:collapse; }
 th,td { text-align:left; padding:2px 8px; border-bottom:1px solid var(--line);
         white-space:nowrap; }
