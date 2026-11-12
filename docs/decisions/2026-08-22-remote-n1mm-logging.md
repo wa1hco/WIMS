@@ -80,7 +80,7 @@ Ops risk: silent failure if helper isn’t up after reboot. Prefer agent that:
 - Filters to **this N1MM’s band**
 - Forwards to **localhost** N1MM (no remote 2333)
 
-→ `testbed/log_agent.py` (2026-08-23).
+→ `tools/testbed/log_agent.py` (2026-08-23).
 
 ---
 
@@ -111,7 +111,7 @@ Roger’s architecture (helper on N1MM PC) stands either way; only the **localho
 
 ## What code does today
 
-`testbed/log_agent.py` / `Start-LogAgent.cmd`:
+`tools/testbed/log_agent.py` / `Start-LogAgent.cmd`:
 
 - Join `224.0.0.73:2237`
 - Band-pin from hostname / `--band`

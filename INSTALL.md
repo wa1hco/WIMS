@@ -76,10 +76,10 @@ Typed commands are for people changing WS Hub or installing from a shell.
 git clone https://github.com/wa1hco/WS-Hub.git
 cd WS-Hub
 sudo apt install -y python3 python3-tk   # Debian or Ubuntu; Fedora: python3-tkinter
-./install.sh                            # same as double-clicking Install WS Hub; a clone stays in place
+scripts/install-linux.sh                # same as double-clicking Install WS Hub; a clone stays in place
 ```
 
-A rolling, unversioned [ZIP of main](https://github.com/wa1hco/WS-Hub/archive/refs/heads/main.zip) also works. Release packages leave out `hardware/` (Keyline firmware and KiCad); the key-line software is in `src/`.
+A rolling, unversioned [ZIP of main](https://github.com/wa1hco/WS-Hub/archive/refs/heads/main.zip) also works. Release packages leave out `tools/` (lab benches in `tools/testbed/`, Keyline KiCad and flashing in `tools/hardware/`); the key-line software is in `src/`. On Windows, `scripts\windows\install.ps1` is the PowerShell install entry (before 1.0.20 it was `install.ps1` at the top of the folder).
 
 Sibling digital-mode builds (patched WSJT-X with transmit inhibit): [wsjtx-inhibit Releases](https://github.com/wa1hco/wsjtx-inhibit/releases).
 

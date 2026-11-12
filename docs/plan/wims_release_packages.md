@@ -18,7 +18,7 @@ Contest PCs at W2SZ already run WSJT-X (or wsjtx-inhibit) and N1MM+. Operators n
 This design defines **release packages** for Windows (primary) and Linux (secondary). The installer story centers on **dependency policy**: what is bundled, what is assumed present, and what is detected but never installed. Packaging reuses the **wsjtx-inhibit release process** (tag → CI gate → GitHub Releases). It does **not** reuse CMake/CPack/NSIS as the WIMS toolchain.
 
 **Contest Windows default install root:** `C:\WIMS`.  
-**Release zips hard-omit** the entire `hardware/` tree.  
+**Release zips hard-omit** the entire `hardware/` tree (in the repo since 1.0.20: `tools/hardware/`; nothing under `tools/` ships).  
 **First public tag:** `v1.0.0` (GA). Earlier design draft used `v0.1.0-tester`.
 
 ---
@@ -117,7 +117,7 @@ flowchart TB
   KEYSW -->|"uses if present"| KLHW
 ```
 
-**Hard rule:** release zip/tar/deb **must not** contain `hardware/` at all. Operators who need Keyline flash use the git repo + [eeprom README](https://github.com/wa1hco/WS-Hub/tree/main/hardware/keyline_interface/eeprom) on a builder machine — not the contest USB image.
+**Hard rule:** release zip/tar/deb **must not** contain `hardware/` at all. Operators who need Keyline flash use the git repo + [eeprom README](https://github.com/wa1hco/WS-Hub/tree/main/tools/hardware/keyline_interface/eeprom) on a builder machine — not the contest USB image.
 
 ### Artifact matrix
 
@@ -261,7 +261,7 @@ Packaging is an **allow-list**, not “repo minus deny-list.”
 | `src/` | Full package tree (includes `server/static/`) |
 | `scripts/` | **All** of `scripts/` (Windows + Linux helpers) |
 | `docs/` | Operator + plan docs (optional later trim of noisy plan drafts — not required for v1) |
-| `config/` | Include if present in tree at pack time |
+| `config/` | Removed 1.0.20 (it held only a placeholder) |
 | `manifest.json` | Written by packaging |
 | `runtime/` | Windows only — embed + Tk overlay |
 
@@ -270,9 +270,9 @@ Packaging is an **allow-list**, not “repo minus deny-list.”
 | Exclude | Why |
 |---------|-----|
 | `tests/` | Dev-only; omit from tired-op USB |
-| `testbed/` | Lab simulators/benches; omit from contest USB |
+| `tools/testbed/` | Lab simulators/benches; omit from contest USB |
 | `.github/` | CI only |
-| `dashboard/` | Not part of operator runtime path |
+| `dashboard/` | Removed 1.0.20 (empty placeholder) |
 | Entire `hardware/` | Flash/udev/KiCad — hard omit |
 | `flash_keyline.py`, `99-keyline.rules`, eeprom `*.bin` | Deny-list belt-and-suspenders |
 | `.git/`, `scratch/`, `__pycache__/` | VCS / local junk |
@@ -286,7 +286,6 @@ wims-<ver>-windows-x86_64/
   src/wims/                   # full package incl. server/static/
   scripts/                    # all scripts (windows + linux)
   docs/
-  config/                     # if present
   runtime/
     python/                   # embeddable 3.12 + Tk overlay
     PYTHON_VERSION.txt
@@ -294,7 +293,7 @@ wims-<ver>-windows-x86_64/
   manifest.json
 ```
 
-**Deny-list (CI must fail if any match inside the artifact):** same as the exclude rows for `hardware/`, flash tools, `.git/`, `scratch/`, `__pycache__/`, plus assert `tests/`, `testbed/`, `.github/`, `dashboard/` are absent.
+**Deny-list (CI must fail if any match inside the artifact):** same as the exclude rows for `hardware/`, flash tools, `.git/`, `scratch/`, `__pycache__/`, plus assert `tests/`, `tools/testbed/`, `.github/`, `dashboard/` are absent.
 
 ### Dependency policy table
 
@@ -791,14 +790,14 @@ Ordered, independently reviewable PRs. Each should leave `main` green.
 - **Title:** `ci: package Windows release zip with bundled CPython+Tk`
 - **Files/components:** packaging workflow job on `windows-latest`, `tools/dev/packaging/build_windows_zip.*`, deny-list test
 - **Dependencies:** **PR 0 (spike)**, PR 1, PR 2
-- **Description:** Automate overlay from spike recipe (`msiexec /a` or cached donor tree — not `/layout` as file source); hash-verify upstreams; smoke standard command; package by **allow-list** (fail if `tests/`/`testbed/`/`.github/`/`dashboard/`/`hardware/` present). `workflow_dispatch` may upload Windows-only draft for lab USB before Linux gate exists.
+- **Description:** Automate overlay from spike recipe (`msiexec /a` or cached donor tree — not `/layout` as file source); hash-verify upstreams; smoke standard command; package by **allow-list** (fail if `tests/`/`tools/testbed/`/`.github/`/`dashboard/`/`hardware/` present). `workflow_dispatch` may upload Windows-only draft for lab USB before Linux gate exists.
 
 ### PR 6 — CI: Linux tarball artifact
 
 - **Title:** `ci: package Linux release tarball`
 - **Files/components:** packaging scripts, workflow job, allow-list + deny-list checks
 - **Dependencies:** PR 4
-- **Description:** `tar.gz` from same allow-list as Windows (no `runtime/`); assert `tests/`/`testbed/`/`.github/`/`dashboard/`/`hardware/` absent; include `manifest.json`.
+- **Description:** `tar.gz` from same allow-list as Windows (no `runtime/`); assert `tests/`/`tools/testbed/`/`.github/`/`dashboard/`/`hardware/` absent; include `manifest.json`.
 
 ### PR 7 — Release workflow: tag gate + GitHub Releases
 

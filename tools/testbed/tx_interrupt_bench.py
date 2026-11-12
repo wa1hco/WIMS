@@ -12,8 +12,8 @@ cost of that gap at the far end:
      unpunctured control.
 
 Usage:
-  python testbed/tx_interrupt_bench.py            # full sweep (a few minutes)
-  python testbed/tx_interrupt_bench.py --quick    # small matrix, sanity check
+  python tools/testbed/tx_interrupt_bench.py            # full sweep (a few minutes)
+  python tools/testbed/tx_interrupt_bench.py --quick    # small matrix, sanity check
 
 All wav/CSV output lands under scratch/tx_interrupt/ (gitignored). Exits with
 status 2 and a SKIP message if ft8sim/jt9 are not available (same spirit as the
@@ -39,7 +39,7 @@ import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 # ---------------------------------------------------------------------------
 # FT8 timing (WSJT-X constants): 79 symbols x 1920/12000 s, starting 0.5 s

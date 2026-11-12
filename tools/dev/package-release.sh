@@ -64,14 +64,14 @@ copy_tree() {
     mkdir -p "$dest_root"
 
     # Top-level identity files
-    for f in LICENSE pyproject.toml README.md INSTALL.md install.sh install.ps1; do
+    for f in LICENSE pyproject.toml README.md INSTALL.md; do
         if [ -e "$ROOT/$f" ]; then
             cp -a "$ROOT/$f" "$dest_root/"
         fi
     done
 
     # Directories (allow-list)
-    for d in src scripts docs config; do
+    for d in src scripts docs; do
         if [ -d "$ROOT/$d" ]; then
             rsync -a \
                 --exclude '__pycache__/' \
@@ -97,11 +97,11 @@ Windows (contest seat):
   1. Extract this folder to C:\\WIMS
   2. If Windows blocks scripts (unsigned / downloaded zip):
        - Prefer Install-Wims.cmd (not bare .ps1)
-       - SmartScreen: More info -> Run anyway (if you trust wa1hco/WIMS)
+       - SmartScreen: More info -> Run anyway (if you trust wa1hco/WS-Hub)
        - Properties -> Unblock on the zip or .cmd/.ps1 files
-       - Or: powershell -NoProfile -ExecutionPolicy Bypass -File .\\install.ps1
+       - Or: powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\windows\\install.ps1
   3. Double-click scripts\\windows\\Install-Wims.cmd (allow UAC)
-  4. Start Desktop "WIMS"
+  4. Start Desktop "WS Hub"
 
   Bundled private Python runtime (offline) ships in a later release
   build. Until then Install uses/finds system Python >= 3.10.
@@ -162,7 +162,7 @@ deny_check() {
         "scripts/Install WS Hub.desktop" \
         "scripts/add-wims-to-desktop.sh" \
         "scripts/start-wims.sh" \
-        "install.sh" \
+        "scripts/install-linux.sh" \
         "INSTALL.md" \
         "manifest.json" \
         "README-INSTALL.txt"
@@ -196,7 +196,6 @@ linux_exec_bits() {
     local root="$1"
     local f
     for f in \
-        "install.sh" \
         "scripts/Install WS Hub.desktop" \
         "scripts/add-wims-to-desktop.sh" \
         "scripts/install-linux.sh" \

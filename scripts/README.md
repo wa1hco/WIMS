@@ -14,7 +14,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `assets/wims.png` — Icon used on the Linux desktop entry.
 - `_resolve-python.sh` — Finds Python for the other Linux start files.
 - `_say.sh` — Shows a plain message in a window when this PC has one.
-- `install-linux.sh` — Shell entry for a Linux install. Double-click Install WS Hub.desktop instead.
+- `install-linux.sh` — Shell entry for a Linux install (was `install.sh` at the top of the folder before 1.0.20). Double-click Install WS Hub.desktop instead.
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
 - `start-wims.sh` — Open the WS Hub window. The desktop icon runs this. If that window is already open, this brings it forward.
 - `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WS Hub window uses.
@@ -28,6 +28,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `windows/Install-WSJTX-RigNameShortcuts.ps1` — Helper used by Install-WSJTX-RigNameShortcuts.cmd.
 - `windows/Install-Wims.cmd` — First Windows install: Python, Git, firewall, desktop icon.
 - `windows/Install-Wims.ps1` — Helper used by Install-Wims.cmd.
+- `windows/install.ps1` — PowerShell install entry for scripted installs (was `install.ps1` at the top of the folder before 1.0.20). Double-click Install-Wims.cmd instead.
 - `windows/Install-WimsAgent-Desktop-Shortcut.cmd` — Lab-only agent icon. Not part of the normal install.
 - `windows/Install-WimsConsoleKiosk.ps1` — Desktop shortcut that opens Operate in a compact window.
 - `windows/Install-WimsDesktopShortcut.ps1` — Helper that writes the WIMS shortcut.

@@ -37,9 +37,9 @@ Modes:
             latency.  Exits nonzero on failure.
 
 Examples:
-  python testbed/inhibit_bench.py selftest
-  python testbed/inhibit_bench.py gate --rts /dev/ttyUSB1
-  python testbed/inhibit_bench.py agent --targets 192.168.1.42:22372 \\
+  python tools/testbed/inhibit_bench.py selftest
+  python tools/testbed/inhibit_bench.py gate --rts /dev/ttyUSB1
+  python tools/testbed/inhibit_bench.py agent --targets 192.168.1.42:22372 \\
       --controller-id $(hostname)-ssb --script "k0.7 c0.4 k0.05 c0.05 k0.05 c2.0"
 """
 
@@ -52,7 +52,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.interlock.inhibit import (  # noqa: E402
     DEFAULT_GATE_PORT,

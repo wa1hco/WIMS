@@ -206,7 +206,7 @@ Heartbeat intervals.
 | `src/wims/interlock/inhibit.py` encode/parse | JSON `tx_inhibit` | **Done** — type-18 QDataStream |
 | `InhibitGate` | Single global hold; any release clears | **Done** — per-`controller_id` leases OR’d |
 | `KeyAgentScheduler` emit path | JSON + `band`/`seq` | **Done** — `controller_id` + `station`; band off-wire |
-| `testbed/inhibit_bench.py` | Speaks JSON (was `inhibit_spike.py`) | **Done** — type-18; `--controller-id` |
+| `tools/testbed/inhibit_bench.py` | Speaks JSON (was `inhibit_spike.py`) | **Done** — type-18; `--controller-id` |
 | `tests/unit/test_inhibit.py` | JSON / single-hold cases | **Done** — type-18; multi-OR; deadman |
 | InhibitStatus type 17 parse + same-band discovery | Missing | **Done** — `messages` + `key.discovery` + seat Key |
 | `python -m wims.seat --log --key` | N/A | **Done** — shared RadioInfo band |

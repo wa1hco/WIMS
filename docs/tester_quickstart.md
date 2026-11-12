@@ -74,7 +74,7 @@ With the **server already running** on the same machine:
 ### Developer
 
 ```bash
-python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
+python3 tools/testbed/simulators/emulator.py --iface 127.0.0.1 \
   --instances SIM-6M:50313000,SIM-2M:144174000
 ```
 

@@ -88,7 +88,7 @@ the fast audio mute. As the *primary* mechanism it is blunt in four distinct way
 
 1. **It destroys sequencer state.** Halt Tx aborts the QSO auto-sequence, not just the current
    emission. A 0.8 s SSB burst mid-cycle costs the whole QSO in progress, which then needs a
-   human to re-initiate. (The puncture bench, `testbed/tx_interrupt_bench.py`, showed the RF
+   human to re-initiate. (The puncture bench, `tools/testbed/tx_interrupt_bench.py`, showed the RF
    interruption itself is nearly free — gaps ≤1.6 s did not measurably hurt FT8 decode
    probability at any workable SNR. The protocol tolerates brief interruption; only the
    Halt-based *control path* turns it into a lost QSO.)
@@ -130,7 +130,7 @@ always has — while the gate thread (§5) decides at the line whether the radio
 - **Brief burst mid-cycle:** the RF has a hole in it (mask interval + agent hang, §below).
   The modulator never stopped, so the waveform stays on the symbol clock and RF resumes
   mid-waveform the instant the gate opens — exactly the punctured signal measured in
-  `testbed/tx_interrupt_bench.py` (gaps ≤1.6 s: no measurable decode cost).
+  `tools/testbed/tx_interrupt_bench.py` (gaps ≤1.6 s: no measurable decode cost).
 - **Inhibit spanning a cycle start:** WSJT-X "transmits" normally; nothing radiates until the
   gate opens, then the remainder radiates, correctly aligned — a leading puncture. No
   late-start logic, no cancelled timers, no skipped cycles.
@@ -371,7 +371,7 @@ for it (PIN diodes or QSK-rated relays). Consequences for this design:
 Market reality: RTS→PTT keying cables are commercial commodities, but **KEY→CTS sensing is
 generally unavailable**. The fleet reference design is the station's own
 **Keyline_Interface** board (KiCad project committed at
-[`hardware/keyline_interface/`](../../hardware/keyline_interface/), schematic + PCB + SVG;
+[`tools/hardware/keyline_interface/`](../../tools/hardware/keyline_interface/), schematic + PCB + SVG;
 canonical source lives in the SO4R_Interlock_V2 project). As built — netlist-verified:
 
 - **USB-C → FT230XS** (U1, SSOP-16), used purely as a modem-line device: TXD/RXD/CBUS all
@@ -393,11 +393,11 @@ canonical source lives in the SO4R_Interlock_V2 project). As built — netlist-v
   "replicate the fleet standard" means *order more*, not *solder more*. **First production
   run: 10 boards on order (2026-07)** — hardware for the §9.2 latency bench and the fleet.
 - **The dongle self-identifies over USB:** the FT230X internal MTP is programmed
-  (Linux: [`hardware/keyline_interface/eeprom/`](../../hardware/keyline_interface/eeprom/);
+  (Linux: [`tools/hardware/keyline_interface/eeprom/`](../../tools/hardware/keyline_interface/eeprom/);
   Windows: FT_PROG) with manufacturer **"FTDI WA1HCO"**, product **"FT230X Keyline"**, and a
   unique serial **`KLnnnn`**. VID:PID stays **0403:6015**. Software can then find the
   board among a seat's serial ports by descriptor instead of asking a human to pick a
-  COM port. udev rule: [`hardware/keyline_interface/99-keyline.rules`](../../hardware/keyline_interface/99-keyline.rules).
+  COM port. udev rule: [`tools/hardware/keyline_interface/99-keyline.rules`](../../tools/hardware/keyline_interface/99-keyline.rules).
   The Key agent can auto-select its CTS source, and the setup agent's readiness check
   can verify "Keyline dongle present" — the §11.2 zero-config posture extended to
   *which port*, the one serial question that was still left to a human.
@@ -632,7 +632,7 @@ appears — there is no UDP enable.
    release it with PTT still held — does RF resume (level) or stay off until PTT cycles
    (latch)? Record latch-vs-level in the §6 table per rig; the fleet's hardware-inhibit
    wiring (§6 layer 3) depends on the answer.
-4. **Decode-impact regression:** already done in principle — `testbed/tx_interrupt_bench.py`
+4. **Decode-impact regression:** already done in principle — `tools/testbed/tx_interrupt_bench.py`
    (gaps ≤1.6 s free; middle-Costas loss matters only ≥2.4 s near the floor). Re-run with the
    actual inhibit envelope (PTT drop, no audio ramp) if the RF envelope differs materially
    from the audio-puncture model.
@@ -848,7 +848,7 @@ with them:
    just waiting out the TTL — which also proves the deadman + its alarm) → badge off, RF
    resumes mid-waveform. That is the complete acceptance demo, plus `tcpdump`/`nc -lu` to
    watch InhibitStatus. The richer harness (scripted CW keying trains, latency selftest,
-   deadman scenarios) is `testbed/inhibit_bench.py` in the WIMS repo — also the **reference
+   deadman scenarios) is `tools/testbed/inhibit_bench.py` in the WIMS repo — also the **reference
    lab path**: its unit-tested Python `InhibitGate` defines the semantics the C++
    transplant must match, test case by test case.
 

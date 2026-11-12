@@ -1,6 +1,6 @@
 # Keyline FT230X (VID:PID 0403:6015, manufacturer FTDI WA1HCO).
 #
-#   sudo cp hardware/keyline_interface/99-keyline.rules /etc/udev/rules.d/
+#   sudo cp tools/hardware/keyline_interface/99-keyline.rules /etc/udev/rules.d/
 #   sudo udevadm control --reload-rules && sudo udevadm trigger
 #
 # ModemManager must not open the tty: it asserts RTS, which keys J3.

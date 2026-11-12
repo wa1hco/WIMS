@@ -15,7 +15,6 @@ cd "$ROOT"
 repair_wims_exec_bits() {
   local f
   for f in \
-    "$ROOT/install.sh" \
     "$ROOT/scripts/Install WS Hub.desktop" \
     "$ROOT/scripts/add-wims-to-desktop.sh" \
     "$ROOT/scripts/install-linux.sh" \
