@@ -283,6 +283,8 @@ class HandoffTests(unittest.TestCase):
         with mock.patch(
             "wims.launcher.singleton.try_acquire_launcher_lock", return_value=True,
         ), mock.patch(
+            "wims.launcher.app.migrate_legacy_shortcut", return_value=None,
+        ), mock.patch(
             "wims.launcher.handoff.start_raise_server", side_effect=start,
         ), mock.patch(
             "builtins.__import__", side_effect=block_tk,

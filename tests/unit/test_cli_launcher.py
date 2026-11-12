@@ -192,6 +192,47 @@ class RoleCatalogTests(unittest.TestCase):
         self.assertTrue(path.is_file())
         self.assertEqual(path.name, "wims.png")
 
+    def test_linux_shortcut_named_ws_hub_replaces_old_wims_icon(self):
+        from wims.launcher import app
+        if sys.platform.startswith("win"):
+            self.skipTest("Linux desktop entries")
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            desk = home / "Desktop"
+            menu = home / ".local" / "share" / "applications"
+            desk.mkdir(parents=True)
+            menu.mkdir(parents=True)
+            for folder in (desk, menu):
+                (folder / "WIMS.desktop").write_text(
+                    "[Desktop Entry]\nName=WIMS\nExec=/bin/bash /x/scripts/start-wims.sh\n",
+                    encoding="utf-8",
+                )
+            other = desk / "Other.desktop"
+            other.write_text("[Desktop Entry]\nName=Other\n", encoding="utf-8")
+            with mock.patch.object(Path, "home", return_value=home), mock.patch(
+                "wims.launcher.app.mark_linux_launcher_trusted"
+            ), mock.patch("wims.launcher.app._refresh_applications_menu"):
+                path = app.migrate_legacy_shortcut()
+                self.assertEqual(path, desk / "WS Hub.desktop")
+                # A second launch with the new icon present changes nothing.
+                self.assertIsNone(app.migrate_legacy_shortcut())
+            for folder in (desk, menu):
+                self.assertFalse((folder / "WIMS.desktop").exists())
+                text = (folder / "WS Hub.desktop").read_text(encoding="utf-8")
+                self.assertIn("Name=WS Hub\n", text)
+            self.assertTrue(other.is_file())
+
+    def test_no_desktop_icon_means_no_migration(self):
+        from wims.launcher import app
+        if sys.platform.startswith("win"):
+            self.skipTest("Linux desktop entries")
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            (home / "Desktop").mkdir()
+            with mock.patch.object(Path, "home", return_value=home):
+                self.assertIsNone(app.migrate_legacy_shortcut())
+            self.assertEqual(list((home / "Desktop").iterdir()), [])
+
     def test_probe_site_urls_falls_back_to_localhost(self):
         from wims.launcher.app import probe_site_urls
         with mock.patch("wims.launcher.app.site_reachable") as sr:

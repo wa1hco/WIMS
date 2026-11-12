@@ -29,7 +29,8 @@ from urllib.request import Request, urlopen
 
 from wims import __version__ as _PKG_VERSION
 
-_DEFAULT_GITHUB_REPO = "wa1hco/WIMS"
+# Renamed from wa1hco/WIMS; GitHub redirects the old name for 1.0.17 installs.
+_DEFAULT_GITHUB_REPO = "wa1hco/WS-Hub"
 _TAG_VER = re.compile(
     r"^v?(?P<base>\d+\.\d+\.\d+)(?:-(?P<suffix>tester|rc(?P<rc>[1-9]\d*)))?$"
 )

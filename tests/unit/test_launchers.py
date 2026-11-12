@@ -88,7 +88,9 @@ class ScriptsAllowlistTests(unittest.TestCase):
         self.assertIn("wims.launcher", cmd.read_text(encoding="utf-8"))
         self.assertIn("Install-WIMS-Desktop-Shortcut.cmd", bat.read_text(encoding="utf-8"))
         shortcut = ps1.read_text(encoding="utf-8")
-        self.assertIn("WIMS.lnk", shortcut)
+        self.assertIn("WS Hub.lnk", shortcut)
+        # An older "WIMS" launcher icon is replaced, not left beside it.
+        self.assertIn('"WIMS.lnk"', shortcut)
         self.assertIn("Start Menu", shortcut)
 
 
@@ -126,11 +128,11 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
             problems.extend(_hits(label, text))
         self.assertEqual(problems, [])
 
-    def test_desktop_entry_is_named_wims(self):
+    def test_desktop_entry_is_named_ws_hub(self):
         from wims.launcher.app import linux_desktop_entry_text
 
         text = linux_desktop_entry_text()
-        self.assertIn("Name=WIMS\n", text)
+        self.assertIn("Name=WS Hub\n", text)
         self.assertIn("Icon=", text)
         self.assertIn("scripts/start-wims.sh", text.replace("\\", "/"))
         self.assertIn("/bin/bash", text)

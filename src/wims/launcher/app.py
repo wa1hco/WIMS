@@ -113,6 +113,10 @@ _SRC = _REPO_ROOT / "src"
 _ICON_ICO = _REPO_ROOT / "scripts" / "windows" / "assets" / "wims.ico"
 # Linux/.desktop needs PNG — .ico often renders blank/transparent in GNOME/KDE.
 _ICON_PNG = _REPO_ROOT / "scripts" / "assets" / "wims.png"
+# What the Desktop icon and the app menu entry are called. Older installs used
+# "WIMS"; writing the new shortcut removes that one so there is never two.
+SHORTCUT_NAME = "WS Hub"
+_LEGACY_SHORTCUT_NAMES = ("WIMS",)
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = "http://192.168.1.119:8787"
@@ -609,7 +613,7 @@ def freedesktop_exec(argv: list[str]) -> str:
 
 
 def linux_desktop_entry_text() -> str:
-    """Freedesktop entry named WIMS. The program finds its own files."""
+    """Freedesktop entry named WS Hub. The program finds its own files."""
     icon = find_icon_path()
     icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
     script = _REPO_ROOT / "scripts" / "start-wims.sh"
@@ -618,9 +622,9 @@ def linux_desktop_entry_text() -> str:
         "[Desktop Entry]\n"
         "Type=Application\n"
         "Version=1.0\n"
-        "Name=WIMS\n"
+        f"Name={SHORTCUT_NAME}\n"
         "GenericName=WSJT-X Instance Management\n"
-        "Comment=WIMS agents and site console\n"
+        "Comment=WS Hub (formerly WIMS) agents and site console\n"
         f"Exec={exec_line}\n"
         f"Path={_REPO_ROOT}\n"
         f"{icon_line}\n"
@@ -687,19 +691,34 @@ def _refresh_applications_menu(menu: Path) -> None:
     )
 
 
+def _remove_legacy_linux_entries(folder: Path) -> None:
+    """Drop an older WIMS.desktop that starts this program (not anything else)."""
+    for name in _LEGACY_SHORTCUT_NAMES:
+        old = folder / f"{name}.desktop"
+        try:
+            if old.is_file() and "start-wims.sh" in old.read_text(
+                encoding="utf-8", errors="replace"
+            ):
+                old.unlink()
+        except OSError:
+            pass
+
+
 def write_linux_desktop_shortcut() -> Path:
     desk = desktop_dir()
     desk.mkdir(parents=True, exist_ok=True)
-    path = desk / "WIMS.desktop"
+    path = desk / f"{SHORTCUT_NAME}.desktop"
     content = linux_desktop_entry_text()
     path.write_text(content, encoding="utf-8")
     mark_linux_launcher_trusted(path)
+    _remove_legacy_linux_entries(desk)
     menu = Path.home() / ".local" / "share" / "applications"
     try:
         menu.mkdir(parents=True, exist_ok=True)
-        menu_path = menu / "WIMS.desktop"
+        menu_path = menu / f"{SHORTCUT_NAME}.desktop"
         menu_path.write_text(content, encoding="utf-8")
         mark_linux_launcher_trusted(menu_path)
+        _remove_legacy_linux_entries(menu)
     except OSError:
         pass
     check = linux_check_logs_desktop_entry_text()
@@ -718,7 +737,7 @@ def write_linux_desktop_shortcut() -> Path:
 
 
 def write_windows_shortcut() -> Path:
-    """Create/refresh Desktop WIMS.lnk with sticky custom icon.
+    """Create/refresh Desktop "WS Hub.lnk" with sticky custom icon.
 
     Prefer the Install-WimsDesktopShortcut.ps1 helper (wscript + VBS + absolute
     .ico). Direct .cmd targets often revert to the default batch icon on Windows.
@@ -734,10 +753,10 @@ def write_windows_shortcut() -> Path:
             ],
             check=False, capture_output=True, text=True,
         )
-        return desk / "WIMS.lnk"
+        return desk / f"{SHORTCUT_NAME}.lnk"
 
     # Fallback if the helper is missing from an old tree.
-    lnk = desk / "WIMS.lnk"
+    lnk = desk / f"{SHORTCUT_NAME}.lnk"
     icon = find_icon_path()
     starter = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.cmd"
     vbs = _REPO_ROOT / "scripts" / "windows" / "Start-WimsLauncher.vbs"
@@ -750,7 +769,7 @@ def write_windows_shortcut() -> Path:
             f"$s.Arguments = '//nologo \"{vbs}\"'; "
             f"$s.WorkingDirectory = '{workdir}'; "
             "$s.WindowStyle = 1; "
-            "$s.Description = 'WIMS launcher — agents + site console'; "
+            "$s.Description = 'WS Hub launcher — agents + site console'; "
             f"$s.IconLocation = '{icon},0'; "
             "$s.Save()"
         )
@@ -764,7 +783,7 @@ def write_windows_shortcut() -> Path:
             f"$s.TargetPath = '{starter}'; "
             f"$s.WorkingDirectory = '{workdir}'; "
             "$s.WindowStyle = 1; "
-            "$s.Description = 'WIMS launcher — agents + site console'; "
+            "$s.Description = 'WS Hub launcher — agents + site console'; "
             f"{icon_ps}"
             "$s.Save()"
         )
@@ -779,7 +798,7 @@ def write_windows_shortcut() -> Path:
             f"$s.Arguments = '-m wims.launcher'; "
             f"$s.WorkingDirectory = '{_REPO_ROOT}'; "
             "$s.WindowStyle = 1; "
-            "$s.Description = 'WIMS launcher — agents + site console'; "
+            "$s.Description = 'WS Hub launcher — agents + site console'; "
             f"{icon_ps}"
             "$s.Save()"
         )
@@ -787,7 +806,34 @@ def write_windows_shortcut() -> Path:
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
         check=False, capture_output=True, text=True,
     )
+    if lnk.is_file():
+        for name in _LEGACY_SHORTCUT_NAMES:
+            try:
+                (desk / f"{name}.lnk").unlink(missing_ok=True)
+            except OSError:
+                pass
     return lnk
+
+
+def migrate_legacy_shortcut() -> Path | None:
+    """Rename an older WIMS Desktop icon to WS Hub, once, after an update.
+
+    Only acts when the old icon is still on the Desktop, so a PC that never
+    added the icon gets none. Never raises.
+    """
+    try:
+        desk = desktop_dir()
+        if sys.platform.startswith("win"):
+            if any((desk / f"{n}.lnk").is_file() for n in _LEGACY_SHORTCUT_NAMES):
+                return write_windows_shortcut()
+            return None
+        if any(
+            (desk / f"{n}.desktop").is_file() for n in _LEGACY_SHORTCUT_NAMES
+        ) and not (desk / f"{SHORTCUT_NAME}.desktop").is_file():
+            return write_linux_desktop_shortcut()
+    except Exception:
+        return None
+    return None
 
 
 class LauncherApp:
@@ -800,7 +846,7 @@ class LauncherApp:
         self.root = root
         self._rev = _git_rev()
         self.root.title(
-            f"WIMS launcher  ·  {launcher_rev_label(__version__, self._rev)}"
+            f"WS Hub launcher  ·  {launcher_rev_label(__version__, self._rev)}"
         )
         # Closed window fits through Other tools…. Checking that box may grow
         # the window; a short screen scrolls the extra panel.
@@ -1737,7 +1783,7 @@ class LauncherApp:
         info = self._update_info
         if info is not None and not info.is_git:
             url = (info.release_url or "").strip() or (
-                f"https://github.com/{os.environ.get('WIMS_GITHUB_REPO') or 'wa1hco/WIMS'}/releases"
+                f"https://github.com/{os.environ.get('WIMS_GITHUB_REPO') or 'wa1hco/WS-Hub'}/releases"
             )
             self._append_log(f"Open release {url}")
             try:
@@ -2970,7 +3016,7 @@ class LauncherApp:
                 pass
         line = f"{launcher}    {server}" if server else launcher
         try:
-            self.root.title(f"WIMS launcher  ·  {line}")
+            self.root.title(f"WS Hub launcher  ·  {line}")
         except Exception:
             pass
         hp = getattr(self, "_home_panel", None)
@@ -3516,6 +3562,7 @@ def main(argv: list[str] | None = None) -> int:
     from wims.launcher.singleton import try_acquire_launcher_lock
     if not try_acquire_launcher_lock():
         return announce_already_running()
+    migrate_legacy_shortcut()
     # Publish the raise listener before the window exists so a second
     # double-click during startup still reaches this process.
     try:

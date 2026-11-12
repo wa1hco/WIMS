@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Put a WIMS icon on the desktop and in the application menu.
+# Put the WS Hub icon on the desktop and in the application menu.
 # The desktop file runs this with bash, so the executable bit is optional.
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,12 +43,12 @@ On Fedora, the package is python3-tkinter."
 fi
 
 if ! "$ROOT/scripts/start-wims.sh" --install-shortcut; then
-  wims_say "WIMS" "WIMS could not add the desktop icon.
+  wims_say "WS Hub" "WS Hub could not add the desktop icon.
 
 Double-click Add WIMS to Desktop again."
   exit 1
 fi
 
-wims_say "WIMS" "WIMS is on the desktop and in the app menu.
+wims_say "WS Hub" "WS Hub is on the desktop and in the app menu.
 
-Double-click WIMS."
+Double-click WS Hub."

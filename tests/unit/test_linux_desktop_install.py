@@ -177,7 +177,7 @@ class InstallerScriptTests(unittest.TestCase):
             self.assertIn("python3-tk", proc.stdout)
             self.assertIn("python3-tkinter", proc.stdout)
             self.assertIn("Add WIMS to Desktop", proc.stdout)
-            self.assertFalse((home / "Desktop" / "WIMS.desktop").exists())
+            self.assertFalse((home / "Desktop" / "WS Hub.desktop").exists())
 
     def test_install_repairs_exec_bits_and_writes_trusted_icons(self):
         targets = [INSTALLER, ROOT / "scripts" / "start-wims.sh", DESKTOP]
@@ -220,25 +220,25 @@ class InstallerScriptTests(unittest.TestCase):
                     timeout=60,
                 )
                 self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-                self.assertIn("Double-click WIMS", proc.stdout)
+                self.assertIn("Double-click WS Hub", proc.stdout)
                 self.assertNotIn("python3-tk", proc.stdout)
                 for path in targets:
                     self.assertTrue(os.access(path, os.X_OK), path)
-                desk = home / "Desktop" / "WIMS.desktop"
-                menu = home / ".local" / "share" / "applications" / "WIMS.desktop"
+                desk = home / "Desktop" / "WS Hub.desktop"
+                menu = home / ".local" / "share" / "applications" / "WS Hub.desktop"
                 logs = home / "Desktop" / "Check logs.desktop"
                 self.assertTrue(desk.is_file())
                 self.assertTrue(menu.is_file())
                 self.assertTrue(logs.is_file())
                 self.assertTrue(os.access(desk, os.X_OK))
                 text = desk.read_text(encoding="utf-8")
-                self.assertIn("Name=WIMS\n", text)
+                self.assertIn("Name=WS Hub\n", text)
                 self.assertIn("/bin/bash", text)
                 self.assertIn("start-wims.sh", text)
                 gio = gio_log.read_text(encoding="utf-8")
                 self.assertIn("metadata::trusted", gio)
                 self.assertIn("true", gio)
-                self.assertIn("WIMS.desktop", gio)
+                self.assertIn("WS Hub.desktop", gio)
         finally:
             for path, mode in saved.items():
                 path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)

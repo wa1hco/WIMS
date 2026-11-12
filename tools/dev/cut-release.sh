@@ -29,7 +29,7 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-git tag -a "$TAG" -m "WIMS ${TAG#v}"
+git tag -a "$TAG" -m "WS Hub ${TAG#v}"
 echo "Created $TAG on $(git rev-parse --short HEAD)"
 echo "Publish: git push origin $TAG"
 echo "  (Actions workflow Release builds zip/tar and creates the GitHub Release)"

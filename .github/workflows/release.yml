@@ -170,23 +170,33 @@ jobs:
           test -f "$SUMS"
 
           NOTES=$(mktemp)
+          # Hand-written notes for this version, when present, lead the page and
+          # their first heading is the release title.
+          NOTES_SRC="docs/releases/v${VERSION}.md"
+          [ -f "$NOTES_SRC" ] || NOTES_SRC="docs/releases/v${VERSION%%-*}.md"
+          TITLE="WS Hub ${VERSION}"
           {
-            echo "## WIMS ${VERSION} (${CHANNEL})"
-            echo
-            echo "Allow-list source packages for testers (stdlib Python)."
-            echo "Windows zip is **tree-only** until the bundled CPython+Tk runtime lands;"
-            echo "Install still uses/finds system Python ≥ 3.10."
-            echo
+            if [ -f "$NOTES_SRC" ]; then
+              sed '1{/^# /d}' "$NOTES_SRC"
+              echo
+            else
+              echo "## WS Hub ${VERSION} (${CHANNEL})"
+              echo
+              echo "Allow-list source packages for testers (stdlib Python)."
+              echo "Windows zip is **tree-only** until the bundled CPython+Tk runtime lands;"
+              echo "Install still uses/finds system Python ≥ 3.10."
+              echo
+            fi
             echo "### Assets"
             echo
             echo "| File | Use |"
             echo "|------|-----|"
-            echo "| \`wims-${VERSION}-windows-x86_64.zip\` | Extract to \`C:\\\\WIMS\` → \`Install-Wims.cmd\` |"
-            echo "| \`wims-${VERSION}-linux-x86_64.tar.gz\` | Unpack, open scripts, double-click Add WIMS to Desktop |"
+            echo "| \`wims-${VERSION}-windows-x86_64.zip\` | Extract to \`C:\\WIMS\` → \`Install-Wims.cmd\`, then WS Hub |"
+            echo "| \`wims-${VERSION}-linux-x86_64.tar.gz\` | Unpack, open scripts, double-click Add WIMS to Desktop, then WS Hub |"
             echo
             echo "### Install"
             echo
-            echo "See [INSTALL.md](INSTALL.md) and [docs/tester_quickstart.md](docs/tester_quickstart.md)."
+            echo "See [INSTALL.md](https://github.com/wa1hco/WS-Hub/blob/main/INSTALL.md) and [docs/tester_quickstart.md](https://github.com/wa1hco/WS-Hub/blob/main/docs/tester_quickstart.md)."
             echo "Sibling digi app builds: [wsjtx-inhibit Releases](https://github.com/wa1hco/wsjtx-inhibit/releases)."
             echo
             echo "### Checksums"
@@ -199,6 +209,10 @@ jobs:
               echo "This is a **prerelease** (${CHANNEL}) build."
             fi
           } > "$NOTES"
+          if [ -f "$NOTES_SRC" ]; then
+            H1=$(sed -n 's/^# //p' "$NOTES_SRC" | head -n 1)
+            if [ -n "$H1" ]; then TITLE="$H1"; fi
+          fi
 
           EXTRA=()
           if [ "$PRERELEASE" = "true" ]; then
@@ -212,10 +226,10 @@ jobs:
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$LIN" "$WIN" "$SUMS" --clobber
-            gh release edit "$TAG" --notes-file "$NOTES" "${EXTRA[@]}"
+            gh release edit "$TAG" --title "$TITLE" --notes-file "$NOTES" "${EXTRA[@]}"
           else
             gh release create "$TAG" "$LIN" "$WIN" "$SUMS" \
-              --title "WIMS ${VERSION}" \
+              --title "$TITLE" \
               --notes-file "$NOTES" \
               "${EXTRA[@]}"
           fi
