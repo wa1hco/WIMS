@@ -45,7 +45,26 @@ from pyftdi.ftdi import Ftdi
 from pyftdi.usbtools import UsbTools
 
 # Data stays next to the boards (fleet.csv, backups). This file lives in tools/dev.
-_EEPROM_DIR = Path(__file__).resolve().parents[1] / "hardware" / "keyline_interface" / "eeprom"
+# Before 1.0.20 that folder was hardware/ at the repo root. git does not track the
+# data, so an old checkout keeps it there; use it rather than start an empty
+# registry that would hand out serials already on boards.
+_NEW_EEPROM_DIR = Path(__file__).resolve().parents[1] / "hardware" / "keyline_interface" / "eeprom"
+_OLD_EEPROM_DIR = Path(__file__).resolve().parents[2] / "hardware" / "keyline_interface" / "eeprom"
+
+
+def _pick_eeprom_dir(new: Path, old: Path) -> Path:
+    old_has_data = (old / "fleet.csv").exists() or (old / "backups").is_dir()
+    if not old_has_data:
+        return new
+    if (new / "fleet.csv").exists() or (new / "backups").is_dir():
+        raise SystemExit(
+            f"Keyline data is in two places:\n  {old}\n  {new}\n"
+            f"Merge fleet.csv and backups/ into {new}, then delete {old}."
+        )
+    return old
+
+
+_EEPROM_DIR = _pick_eeprom_dir(_NEW_EEPROM_DIR, _OLD_EEPROM_DIR)
 BACKUP_DIR = _EEPROM_DIR / "backups"
 FLEET_CSV = _EEPROM_DIR / "fleet.csv"
 
