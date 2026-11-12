@@ -114,7 +114,7 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         proc = subprocess.run(
             [sys.executable, "-m", "wims.launcher", "--help"],
             cwd=ROOT,
-            env={k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
             capture_output=True,
             text=True,
             timeout=30,
@@ -225,17 +225,19 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
 
 
 class SoloLauncherPathTests(unittest.TestCase):
-    def test_solo_starts_without_pythonpath(self):
-        """The checkout shim serves /healthz and the Goal menu."""
+    def test_solo_starts_from_checkout(self):
+        """scripts/start-wims-solo.sh, with no PYTHONPATH, serves /healthz and the Goal menu."""
         port = 18787
         env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        # The script runs the first python3 on PATH; make that this interpreter.
+        env["PATH"] = os.pathsep.join([str(Path(sys.executable).parent), env.get("PATH", "")])
         env.pop("WIMS_CONTEST_RULES", None)
         env.pop("WIMS_LOGS", None)
         with tempfile.TemporaryDirectory() as td:
             env["XDG_CONFIG_HOME"] = td
             proc = subprocess.Popen(
                 [
-                    sys.executable, "-m", "wims.solo",
+                    "bash", str(ROOT / "scripts" / "start-wims-solo.sh"),
                     "--no-open", "--no-check", "--no-seed",
                     "--http-port", str(port),
                     "--iface", "127.0.0.1",

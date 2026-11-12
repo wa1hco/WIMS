@@ -21,7 +21,7 @@
 #
 # WIMS smoke validation — proves the project runs end-to-end on this machine.
 #
-# Honors CLAUDE.md "verify live, not by assertion": it runs the self-contained
+# Honors docs/project_rules.md "verify live, not by assertion": it runs the self-contained
 # unit suites AND a live no-RF run (server ingests the emulator's multicast →
 # state → SSE → JSON). No network hardware, no N1MM, no pytest required.
 #

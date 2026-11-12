@@ -50,15 +50,16 @@ Inside the program, the code, folders, and files still use the old name `wims` (
 
 For people changing WS Hub. Operators use the desktop icon.
 
-WS Hub is plain Python 3.10+ with no packages to install. From a clone of [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub):
+WS Hub is plain Python 3.10+ with no packages to install. The code is in `src/`. From a clone of [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub):
 
 ```bash
+export PYTHONPATH=$PWD/src   # the launch scripts in scripts/ set this themselves
 python3 -m wims version
 python3 -m wims solo --no-open
 tools/dev/validate.sh        # the same checks CI runs
 ```
 
-On a Mac there is no double-click installer; from the folder run `scripts/add-wims-to-desktop.sh`. Cutting a release: [INSTALL.md](INSTALL.md#cut-a-release-maintainers).
+On a Mac there is no double-click installer; from the folder run `scripts/add-wims-to-desktop.sh`. Cutting a release: [INSTALL.md](INSTALL.md#cut-a-release-maintainers). Rules for changes (safety, wording, tests): [docs/project_rules.md](docs/project_rules.md).
 
 ## License
 

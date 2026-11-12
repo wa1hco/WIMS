@@ -131,7 +131,7 @@ Uses **explicit localhost target** on the current home scripts (older fixed gate
 
 ```text
 # Older fixed gate (current home script default):
-python3 -m wims.seat --key --targets 127.0.0.1:22372
+PYTHONPATH=src python3 -m wims.seat --key --targets 127.0.0.1:22372
 
 # inhibit-3.2-rc1: prefer discovery once home H1 is retargeted
 # (omit --targets; needs live band from Status / RadioInfo)

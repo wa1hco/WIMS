@@ -31,8 +31,9 @@ Checklist: [design-principles.md](../design-principles.md).
 
 ### Developer
 
-Typed commands are for people changing WIMS. From the repo root the checkout
-shim finds `src/` with no path variable: `python3 -m wims version`,
+Typed commands are for people changing WS Hub. From the repo root, put `src/` on
+the path first (`export PYTHONPATH=$PWD/src`; the root `wims/` shim that did this
+was removed 2026-11-12): `python3 -m wims version`,
 `python3 -m wims solo --no-open`, `python3 -m wims.logaudit`.
 One-command smoke: `tools/dev/validate.sh`.
 
