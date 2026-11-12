@@ -79,7 +79,7 @@ Rules:
 - Unset `tx_capable` means **true** (fleet-safe).  
 - Explicit `false` → Operate **Work denied**; treat as decode-only.  
 - Shared-trx class → config check wants **exactly one** TX-capable mark.  
-- Developer only: a path override, `python -m wims.solo --seat-profile /path/to.json`
+- Developer only: a path override, `PYTHONPATH=src python3 -m wims.solo --seat-profile /path/to.json`
   (same flag on `wims.server.app`).
 
 Edit via **Setup** toggles, or copy the example file into the default path.

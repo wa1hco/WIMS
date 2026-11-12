@@ -1,0 +1,16 @@
+---
+description: WS Hub project rules (safety, zero-knowledge, stdlib, design vs status)
+alwaysApply: true
+---
+
+# WS Hub project rules
+
+The full rules are in @docs/project_rules.md ([project_rules.md](mdc:docs/project_rules.md)). Read it before proposing or making changes. The essentials, always in force:
+
+- **No automated or unattended transmit.** A person starts every transmit. Zero TX overlap per resource group; fail safe to receive.
+- **Design vs progress.** Design decisions go in `docs/plan/wims_design.md`; what is built goes in `docs/plan/wims_status.md`.
+- **Python, stdlib first.** No runtime dependencies; tests are `unittest` under `tests/unit/`.
+- **Verify live, not by assertion.** Unit tests plus a live run against captures or the emulator in `tools/testbed/simulators/`.
+- **Zero-knowledge, zero-memory.** Operator instructions never ask for environment variables, `python -m`, or command-line flags; those go in a section titled **Developer**. See `docs/design-principles.md`.
+- **Names.** The product is WS Hub (formerly WIMS). The Python package, folders, and file names keep `wims`.
+- **Clean builds.** See `clean-builds.mdc`.

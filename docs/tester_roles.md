@@ -155,7 +155,7 @@ multi-op or KEY; site multi-multi does.
 
 ## Quick “see what a tester sees” (no RF)
 
-Double-click **WIMS**, or run `./scripts/start-wims-solo.sh`. The browser opens at http://localhost:8787/.
+Double-click **WS Hub**, or run `./scripts/start-wims-solo.sh`. The browser opens at http://localhost:8787/.
 
 ### Developer
 
@@ -175,7 +175,7 @@ tools/dev/run_ui_fleet.sh
 tools/dev/run_ui_fleet.sh --six-only
 
 # manual (developer):
-python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
+PYTHONPATH=src python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
 python3 tools/testbed/simulators/fleet_ui.py   # or --six-only
 # → http://localhost:8787/status
 ```

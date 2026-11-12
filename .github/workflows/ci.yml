@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         # Project targets ≥3.10; 3.12 is the common Windows install path;
-        # 3.14 is the local dev target (CLAUDE.md).
+        # 3.14 is the local dev target (docs/project_rules.md).
         python-version: ["3.10", "3.12", "3.14"]
 
     steps:
