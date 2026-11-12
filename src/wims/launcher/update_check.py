@@ -72,6 +72,77 @@ class UpdateInfo:
         return f"{s} {self.remote_date}".strip() if self.remote_date else s
 
 
+@dataclass(frozen=True)
+class BannerUpdateAction:
+    """What the launcher banner button should say and do."""
+
+    kind: str  # install | pull | download
+    button_label: str
+    tooltip: str
+    how: str
+    install_tag: str = ""
+
+    @property
+    def display_version(self) -> str:
+        tag = (self.install_tag or "").strip()
+        if not tag:
+            return "update"
+        return tag if tag.lower().startswith("v") else f"v{tag}"
+
+
+def banner_update_action(
+    info: UpdateInfo,
+    *,
+    windows: bool | None = None,
+) -> BannerUpdateAction:
+    """Choose the banner button for this copy: install, pull, or download.
+
+    A Linux (or macOS) release install has no git and can replace itself in
+    place. A git clone still pulls origin/main. A Windows zip cannot swap
+    itself yet, so the button only opens GitHub Releases.
+    """
+    if windows is None:
+        windows = sys.platform.startswith("win")
+    dirty = " (local edits present)" if info.dirty else ""
+    tag = (info.release_tag or "").strip()
+    stay = "Site server on this PC is left running; seat agents restart after."
+    if not info.is_git and not windows:
+        action_name = "update"
+        if tag:
+            action_name = tag if tag.lower().startswith("v") else f"v{tag}"
+        label = f"Install\n{action_name}"
+        how = f"Click Install {action_name} to replace this copy."
+        tooltip = (
+            "Download and install this release in place. "
+            "The current copy is saved so you can go back. " + stay
+        )
+        return BannerUpdateAction(
+            kind="install",
+            button_label=label,
+            tooltip=tooltip,
+            how=how,
+            install_tag=tag,
+        )
+    if not info.is_git and windows:
+        return BannerUpdateAction(
+            kind="download",
+            button_label="Download\nupdate",
+            tooltip="Open GitHub Releases in a browser. This copy cannot be replaced in place on Windows yet.",
+            how="Click Download update to open GitHub Releases.",
+        )
+    if info.source == "release":
+        picked = tag or "a release"
+        how = f"Click Update WS Hub to pull, or pick {picked} in Updates."
+    else:
+        how = f"Click Update WS Hub to pull GitHub main{dirty}."
+    return BannerUpdateAction(
+        kind="pull",
+        button_label="Update\nWS Hub",
+        tooltip="Pull latest from GitHub main (one click). " + stay,
+        how=how,
+    )
+
+
 def _git_env() -> dict[str, str]:
     """Never wait on Git Credential Manager in a hidden launcher child."""
     env = os.environ.copy()
@@ -1228,7 +1299,7 @@ def apply_release(
     code, _out = _git(root, ["checkout", "--detach", wanted])
     if code != 0:
         return False, "Could not switch to that release. This copy is unchanged."
-    return True, f"Now on {wanted}. Restarting the WIMS window."
+    return True, f"Now on {wanted}. Restarting the WS Hub window."
 
 
 def rollback_release(
@@ -1268,7 +1339,7 @@ def rollback_release(
         restored = code_c == 0
     if not restored:
         return False, "Could not go back. This copy is unchanged."
-    return True, "Back on the previous copy. Restarting the WIMS window."
+    return True, "Back on the previous copy. Restarting the WS Hub window."
 
 
 # ── Release download installs (Linux / macOS, no git) ─────────────────

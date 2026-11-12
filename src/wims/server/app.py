@@ -3799,9 +3799,9 @@ def main() -> None:
             if info.available:
                 tag = info.release_tag or info.remote_short
                 print(
-                    f"WIMS update available: {info.local_label} → {info.remote_label}"
+                    f"WS Hub update available: {info.local_label} → {info.remote_label}"
                     f"{f' ({tag})' if tag else ''}. "
-                    "Desktop Update WIMS, or GitHub Releases.",
+                    "Use the update button in the WS Hub window, or GitHub Releases.",
                     flush=True,
                 )
         except Exception:

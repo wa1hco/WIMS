@@ -53,7 +53,7 @@ That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when an
 
 - **Install:** [INSTALL.md](../INSTALL.md). Then double-click **WS Hub** on the desktop.
 - **Console:** `http://<server>:8787/`. The WS Hub window opens it as an app window with Chrome, Chromium, or Edge, or a dedicated resizable Firefox window; otherwise it uses the normal default browser.
-- **Updates:** the **Updates** list in the WS Hub window. An update is never installed in the middle of a contact; it waits for **Install this update**.
+- **Updates:** the button at the top of the WS Hub window, or the **Updates** list. An update is never installed in the middle of a contact; it waits until you click **Install update** or **Install this update**.
 
 **Exact app settings:** [operator_setup.md](operator_setup.md).
 

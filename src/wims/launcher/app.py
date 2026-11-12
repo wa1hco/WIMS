@@ -99,6 +99,7 @@ from wims.launcher.update_check import (
     UpdateSnapshot,
     apply_git_update,
     apply_release,
+    banner_update_action,
     clamp_check_interval,
     env_skip_update_check,
     gather_updates,
@@ -1075,8 +1076,8 @@ class LauncherApp:
         )
         ToolTip(self._server_rev_lbl, SERVER_REV_TIP)
 
-        # Banner row: message + action button side by side, so e.g. Update WIMS
-        # sits next to the "Update available" text instead of below the fold.
+        # Banner row: message + action button side by side, so the update
+        # action sits next to the "Update available" text instead of below the fold.
         banner_row = tk.Frame(home, bg="#f4f4f4")
         banner_row.pack(fill="x", pady=(4, 2))
         self._banner = tk.Label(
@@ -1086,10 +1087,10 @@ class LauncherApp:
         )
         self._banner.pack(side="left", fill="x", expand=True)
         self._update_btn = tk.Button(
-            banner_row, text="Update\nWIMS", font=_ui_font(11, "bold"),
+            banner_row, text="Update\nWS Hub", font=_ui_font(11, "bold"),
             command=self._do_update, padx=8, pady=4,
         )
-        ToolTip(
+        self._update_btn_tip = ToolTip(
             self._update_btn,
             "Pull latest from GitHub main (one click). "
             "Site server on this PC is left running; seat agents restart after.",
@@ -1528,7 +1529,7 @@ class LauncherApp:
         self._fix_text.set(fix)
 
     def _show_update_button(self, show: bool) -> None:
-        """Show/hide the Update WIMS button beside the banner message.
+        """Show/hide the banner update button beside the banner message.
 
         winfo_manager (not winfo_ismapped): ismapped stays False until the
         widget is actually drawn, which would skip a hide that follows a
@@ -1710,16 +1711,30 @@ class LauncherApp:
         if entry.relation == "current":
             self._updates.set_notice("This copy is already that version.")
             return
+        self._start_release_install(entry.tag, entry.html_url)
+
+    def _start_release_install(self, tag: str, url: str = "") -> None:
+        """Install one release in place (banner button or Install this update)."""
+        if self._updating:
+            return
+        wanted = (tag or "").strip()
+        if not wanted:
+            self._updates.set_notice("Select an update in the list first.")
+            return
         self._updating = True
         self._updates.set_busy(True)
-        tag = entry.tag
-        url = entry.html_url
+        self._show_update_button(False)
+        self._set_banner(
+            "busy",
+            f"Installing {wanted}…",
+            "Site server left alone.",
+        )
 
         def progress(message: str) -> None:
             self.root.after(0, self._updates.set_notice, message)
 
         def work() -> None:
-            ok, msg = apply_release(_REPO_ROOT, tag, on_progress=progress)
+            ok, msg = apply_release(_REPO_ROOT, wanted, on_progress=progress)
             self.root.after(0, self._on_release_applied, ok, msg, url, False)
 
         threading.Thread(target=work, daemon=True).start()
@@ -1758,10 +1773,26 @@ class LauncherApp:
         self._updates.set_notice(notice)
         self._set_banner(
             "ok",
-            "Restoring the WIMS window…" if went_back else "Restarting the WIMS window…",
+            "Restoring the WS Hub window…" if went_back else "Restarting the WS Hub window…",
             finish or "The window opens again on that copy.",
         )
         self.root.after(600, self._relaunch_self)
+
+    def _offer_update(self, info: UpdateInfo) -> None:
+        """Show the banner button and text that match this copy's update path."""
+        action = banner_update_action(info)
+        self._update_btn.configure(text=action.button_label)
+        try:
+            self._update_btn_tip.set_text(action.tooltip)
+        except Exception:
+            pass
+        subj = f" — {info.remote_subject}" if info.remote_subject else ""
+        self._set_banner(
+            "warn",
+            f"Update available — {info.local_label} → {info.remote_label}{subj}",
+            action.how + " Site server stays up; seat agents restart after.",
+        )
+        self._show_update_button(True)
 
     def _on_update_check(self, info: UpdateInfo) -> None:
         self._update_info = info
@@ -1770,27 +1801,11 @@ class LauncherApp:
         if not info.available:
             self._show_update_button(False)
             return
-        self._show_update_button(True)
-        subj = f" — {info.remote_subject}" if info.remote_subject else ""
-        dirty = " (local edits present)" if info.dirty else ""
-        if info.source == "release" and not info.is_git and not sys.platform.startswith("win"):
-            how = "Open Updates and click Install this update to replace this copy."
-        elif info.source == "release" and not info.is_git:
-            how = "Click Update WIMS to open GitHub Releases (this tree is not a git clone)."
-        elif info.source == "release":
-            how = (
-                f"Click Update WIMS to pull, or download {info.release_tag or 'the release'}."
-            )
-        else:
-            how = f"Click Update WIMS to pull GitHub main{dirty}."
-        self._set_banner(
-            "warn",
-            f"Update available — {info.local_label} → {info.remote_label}{subj}",
-            how + " Site server stays up; seat agents restart after.",
-        )
+        self._offer_update(info)
         identity = info.remote_sha or info.release_tag or info.remote_label
         if identity and identity != getattr(self, "_logged_update_id", ""):
             self._logged_update_id = identity
+            subj = f" — {info.remote_subject}" if info.remote_subject else ""
             self._append_log(
                 f"Update available: {info.local_label} → {info.remote_label}{subj}"
             )
@@ -1802,20 +1817,47 @@ class LauncherApp:
             if not already_nagged(info.remote_sha):
                 subj2 = info.remote_subject or "bugfix on main"
                 if notify_no_focus(
-                    "WIMS update available",
+                    "WS Hub update available",
                     f"{info.local_label} -> {info.remote_label}: {subj2}. "
-                    "Run Desktop Update WIMS when convenient.",
+                    "When convenient, use the update button in the WS Hub window.",
                 ):
                     mark_nagged(info.remote_sha)
         except Exception:
             pass
 
+    def _newest_installable_entry(self) -> ReleaseEntry | None:
+        """Newest newer release in the Updates list, if any."""
+        try:
+            entries = list(getattr(self._updates, "_entries", []) or [])
+        except Exception:
+            entries = []
+        for entry in entries:
+            if getattr(entry, "relation", "") == "newer":
+                return entry
+        return None
+
     def _do_update(self) -> None:
-        """Pull origin/main when this is a git clone; else open GitHub Releases."""
+        """Install, pull, or open Releases, matching the banner button."""
         if self._updating:
             return
         info = self._update_info
-        if info is not None and not info.is_git:
+        if info is None:
+            is_git = (_REPO_ROOT / ".git").exists()
+            info = UpdateInfo(available=True, is_git=is_git)
+        action = banner_update_action(info)
+        if action.kind == "install":
+            tag = action.install_tag
+            url = (info.release_url or "").strip()
+            if not tag:
+                entry = self._newest_installable_entry()
+                if entry is not None:
+                    tag, url = entry.tag, entry.html_url
+            if not tag:
+                self._updates.set_notice("Select an update in the list first.")
+                return
+            self._start_release_install(tag, url)
+            return
+        if action.kind == "download":
             url = (info.release_url or "").strip() or (
                 f"https://github.com/{os.environ.get('WIMS_GITHUB_REPO') or 'wa1hco/WS-Hub'}/releases"
             )
@@ -1835,7 +1877,7 @@ class LauncherApp:
         self._updating = True
         self._set_banner(
             "busy",
-            "Updating WIMS…",
+            "Updating WS Hub…",
             "Pulling origin/main. Site server left alone.",
         )
         # Stop owned seat agents only (not site server).
@@ -1906,7 +1948,7 @@ class LauncherApp:
     def _relaunch_self(self) -> None:
         # Drop the singleton lock *before* spawn. The child acquires the same
         # lock at startup; if we still hold it, pythonw exits silently and
-        # this window then closes — Update WIMS never comes back.
+        # this window then closes — the update never comes back.
         from wims.launcher.singleton import (
             release_launcher_lock,
             try_acquire_launcher_lock,
@@ -2135,7 +2177,7 @@ class LauncherApp:
 
         self._apply_site_server_policy(ok_site=ok_site, base=base)
 
-        # During Update WIMS, do not restart agents that were stopped for the pull.
+        # During an update, do not restart agents that were stopped for the pull.
         if not self._updating:
             intent = self._current_intent()
             want = agents_for_intent(intent)
@@ -2579,7 +2621,7 @@ class LauncherApp:
         )
 
         if self._updating:
-            # Keep "Updating WIMS…" / "Updated — restarting". The 4s status
+            # Keep "Updating WS Hub…" / "Updated — restarting". The 4s status
             # pulse used to restore "Update available" so the click looked dead.
             self._schedule_status(4000)
             return
@@ -2616,14 +2658,7 @@ class LauncherApp:
         elif update_pending:
             info = self._update_info
             assert info is not None
-            subj = f" — {info.remote_subject}" if info.remote_subject else ""
-            self._set_banner(
-                "warn",
-                f"Update available — {info.local_label} → {info.remote_label}{subj}",
-                "Click Update WIMS to pull GitHub main. "
-                "Site server stays up; seat agents restart after.",
-            )
-            self._show_update_button(True)
+            self._offer_update(info)
         elif wsjt_intent and not wsjt_live:
             self._set_banner(
                 "warn",

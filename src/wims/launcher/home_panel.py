@@ -323,8 +323,8 @@ class AgentHomePanel:
         self.start_server_btn.pack_forget()
         self.restart_server_btn.pack_forget()
         self.restart_needed_lbl.pack_forget()
-        # Update WIMS lives beside the launcher banner (next to the update
-        # message), not down here — see app._show_update_button.
+        # The banner update button lives beside the launcher message,
+        # not down here — see app._show_update_button.
 
     def update_running(
         self,

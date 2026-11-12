@@ -372,14 +372,13 @@ def _page_html(state: AgentState) -> bytes:
     if upd and upd.get("available"):
         update_html = (
             '<div class="panel" style="border-color:#d4a72c;background:#fff8c5">'
-            "<b>WIMS update available</b> "
+            "<b>WS Hub update available</b> "
             f"{html.escape(str(upd.get('local_short') or ''))} → "
             f"{html.escape(str(upd.get('remote_short') or ''))}"
             f"{(' — ' + html.escape(str(upd.get('subject') or ''))) if upd.get('subject') else ''}"
-            "<div class=\"meta\">When convenient: Desktop <b>Update WIMS</b> "
-            "(Windows) or launcher <b>Update WIMS</b> / "
-            "<code>git pull --ff-only origin main</code> (Linux). "
-            "Does not auto-install.</div></div>"
+            "<div class=\"meta\">When convenient, use the update button "
+            "in the WS Hub window. Nothing is installed until you choose it."
+            "</div></div>"
         )
     elif upd and upd.get("checked"):
         detail = html.escape(str(upd.get("detail") or "up to date"))
@@ -637,16 +636,16 @@ def _maybe_nudge_update(state: AgentState, *, force: bool = False) -> None:
         })
         print(
             f"update available: {info.local_label} -> {info.remote_label} "
-            f"(run Update WIMS when convenient)",
+            f"(use the update button in the WS Hub window when convenient)",
             flush=True,
         )
         # Toast once per SHA (force click still refreshes the page banner).
         if not already_nagged(info.remote_sha):
             subj = info.remote_subject or "bugfix on main"
             if notify_no_focus(
-                "WIMS update available",
+                "WS Hub update available",
                 f"{info.local_label} -> {info.remote_label}: {subj}. "
-                "Run Update WIMS when convenient.",
+                "When convenient, use the update button in the WS Hub window.",
             ):
                 mark_nagged(info.remote_sha)
     else:

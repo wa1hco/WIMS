@@ -18,7 +18,7 @@ RESTART_NEEDED_TIP = (
 )
 RESTART_PLAIN_TIP = (
     "Site server is on this PC — stop and start it again to load "
-    "the latest code after Update WIMS / git pull."
+    "the latest code after an update or git pull."
 )
 # The two revision labels under the window title.
 LAUNCHER_REV_TIP = "Launcher: the code this window loaded when it opened."
