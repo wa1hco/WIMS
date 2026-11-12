@@ -109,15 +109,18 @@ Windows (contest seat):
   Full unblock notes: README.md (Windows section) and INSTALL.md.
 
 Linux (personal laptop):
-  1. Unpack this tar.gz (it keeps the permission to run the installer)
-  2. Open the WIMS folder, open scripts, and double-click
-     "Add WIMS to Desktop"
+  1. Unpack this tar.gz anywhere, Downloads is fine (it keeps the
+     permission to run the installer)
+  2. Open the unpacked folder, open scripts, and double-click
+     "Install WS Hub". It copies WS Hub to ~/.local/share/ws-hub and
+     puts the icon on the desktop and in the app menu.
      GNOME: if a message says the file is not trusted, right-click it
        and click Allow Launching, then double-click it again
      KDE, XFCE, or Cinnamon: if a window asks, click Execute or Run
      If it opens as a page of text, right-click it, choose Properties,
        allow it to run as a program, and double-click it again
-  3. Double-click the WIMS icon
+  3. Delete the downloaded folder and the tar.gz; they are not needed
+  4. Double-click the WS Hub icon
 
 Docs: INSTALL.md · docs/tester_quickstart.md
 Design: docs/plan/wims_release_packages.md
@@ -156,7 +159,7 @@ deny_check() {
         "src/wims/server/app.py" \
         "src/wims/server/static/ops.html" \
         "scripts/windows/Install-Wims.cmd" \
-        "scripts/Add WIMS to Desktop.desktop" \
+        "scripts/Install WS Hub.desktop" \
         "scripts/add-wims-to-desktop.sh" \
         "scripts/start-wims.sh" \
         "install.sh" \
@@ -194,7 +197,7 @@ linux_exec_bits() {
     local f
     for f in \
         "install.sh" \
-        "scripts/Add WIMS to Desktop.desktop" \
+        "scripts/Install WS Hub.desktop" \
         "scripts/add-wims-to-desktop.sh" \
         "scripts/install-linux.sh" \
         "scripts/start-wims.sh" \
@@ -218,7 +221,7 @@ import tarfile
 
 archive = sys.argv[1]
 need = (
-    "scripts/Add WIMS to Desktop.desktop",
+    "scripts/Install WS Hub.desktop",
     "scripts/add-wims-to-desktop.sh",
     "scripts/start-wims.sh",
     "scripts/Check logs.sh",

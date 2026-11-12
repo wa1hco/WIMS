@@ -77,7 +77,7 @@ if [ "$WANT_SHORTCUT" = "1" ]; then
         echo "Installing Desktop shortcut ..."
         "$REPO_DIR/scripts/add-wims-to-desktop.sh" || {
             echo "WARNING: Desktop shortcut install failed." >&2
-            echo "  Double-click scripts/Add WIMS to Desktop.desktop again." >&2
+            echo "  Double-click scripts/Install WS Hub.desktop again." >&2
         }
     else
         echo "WARNING: scripts/add-wims-to-desktop.sh missing; skip shortcut." >&2
@@ -90,7 +90,7 @@ cat <<EOF
 
 Install complete.
 
-Start: double-click the Desktop icon named WIMS.
+Start: double-click the Desktop icon named WS Hub.
 On one PC, choose Start Solo in that window.
 
 Docs: INSTALL.md · docs/tester_quickstart.md

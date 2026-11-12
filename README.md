@@ -5,7 +5,7 @@
 | | |
 |--|--|
 | Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
-| Linux | Double-click [`scripts/Add WIMS to Desktop.desktop`](scripts/Add%20WIMS%20to%20Desktop.desktop) |
+| Linux | Double-click [`scripts/Install WS Hub.desktop`](scripts/Install%20WS%20Hub.desktop) |
 
 **Step 2.** Double-click **WS Hub**. After an update from 1.0.17 or earlier, the icon may still say **WIMS**; double-click it once and it becomes **WS Hub**.
 
@@ -131,20 +131,20 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 
 ### B. Linux — first time on this PC
 
-1. Open the WIMS folder.
+1. Unpack the download anywhere (Downloads is fine) and open that folder.
 2. Open **scripts**.
-3. Double-click **Add WIMS to Desktop**.
+3. Double-click **Install WS Hub**.
 
-**WS Hub** (formerly WIMS) is then on the desktop and in the app menu. Double-click **WS Hub**.
+WS Hub copies itself to `~/.local/share/ws-hub` in your home folder and puts **WS Hub** (formerly WIMS) on the desktop and in the app menu. You can then delete the download. Double-click **WS Hub**.
 
 The file manager may ask once before that first file runs:
 
-- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Add WIMS to Desktop** and click **Allow Launching**. Then double-click it again.
+- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Install WS Hub** and click **Allow Launching**. Then double-click it again.
 - **KDE:** If a window asks whether to open or run the file, click **Execute**.
 - **XFCE:** If a window asks whether to run the file, click **Execute**.
 - **Cinnamon:** If a window asks, click **Run**. If it says the file is not trusted, right-click it and click **Allow Launching**, then double-click it again.
 
-If the file opens as a page of text, the download dropped the permission to run it. Right-click **Add WIMS to Desktop**, open **Properties**, allow it to run as a program, and double-click it again.
+If the file opens as a page of text, the download dropped the permission to run it. Right-click **Install WS Hub**, open **Properties**, allow it to run as a program, and double-click it again.
 
 If Python or the window library is missing, a message names what to install. Install that, then do what the message says.
 

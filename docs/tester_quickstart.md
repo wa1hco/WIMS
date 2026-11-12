@@ -45,7 +45,7 @@ really differs.
 
 **Linux**
 
-1. Open the WIMS folder, open **scripts**, and double-click **Add WIMS to Desktop**.
+1. Open the unpacked folder, open **scripts**, and double-click **Install WS Hub**. WS Hub copies itself to `~/.local/share/ws-hub`; the download can then be deleted.
 2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**. Details are in [INSTALL.md](../INSTALL.md).
 3. If a message names a missing package, install that package, then do what the message says.
 

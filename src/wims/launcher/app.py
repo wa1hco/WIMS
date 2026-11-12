@@ -691,11 +691,37 @@ def _refresh_applications_menu(menu: Path) -> None:
     )
 
 
+def legacy_entry_starts_wims(text: str) -> bool:
+    """True when a desktop entry's text starts this program, by any form used.
+
+    Forms seen: ``Exec=... scripts/start-wims.sh`` (1.0.x installer),
+    ``Exec=env PYTHONPATH=.../src python -m wims.launcher`` (earliest), and a
+    ``Path=`` that is a WIMS/WS Hub program folder. Anything else is left alone.
+    """
+    exec_line = ""
+    path_line = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("Exec=") and not exec_line:
+            exec_line = line[5:]
+        elif line.startswith("Path=") and not path_line:
+            path_line = line[5:].strip()
+    if "start-wims.sh" in exec_line or "wims.launcher" in exec_line:
+        return True
+    if path_line:
+        name = Path(path_line.rstrip("/")).name.lower()
+        if name in ("wims", "ws-hub") or re.fullmatch(
+            r"wims-\d+\.\d+\.\d+.*", name
+        ):
+            return True
+    return False
+
+
 def _is_our_legacy_linux_entry(path: Path) -> bool:
     """True for an older WIMS.desktop that starts this program."""
     try:
-        return path.is_file() and "start-wims.sh" in path.read_text(
-            encoding="utf-8", errors="replace"
+        return path.is_file() and legacy_entry_starts_wims(
+            path.read_text(encoding="utf-8", errors="replace")
         )
     except OSError:
         return False
@@ -1747,7 +1773,9 @@ class LauncherApp:
         self._show_update_button(True)
         subj = f" — {info.remote_subject}" if info.remote_subject else ""
         dirty = " (local edits present)" if info.dirty else ""
-        if info.source == "release" and not info.is_git:
+        if info.source == "release" and not info.is_git and not sys.platform.startswith("win"):
+            how = "Open Updates and click Install this update to replace this copy."
+        elif info.source == "release" and not info.is_git:
             how = "Click Update WIMS to open GitHub Releases (this tree is not a git clone)."
         elif info.source == "release":
             how = (

@@ -24,7 +24,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-DESKTOP = ROOT / "scripts" / "Add WIMS to Desktop.desktop"
+DESKTOP = ROOT / "scripts" / "Install WS Hub.desktop"
 INSTALLER = ROOT / "scripts" / "add-wims-to-desktop.sh"
 
 
@@ -38,8 +38,8 @@ def _user_facing(text: str) -> str:
 class DesktopFileTests(unittest.TestCase):
     def test_installer_file_is_named_and_executable(self):
         text = DESKTOP.read_text(encoding="utf-8")
-        self.assertTrue(DESKTOP.name.startswith("Add WIMS"))
-        self.assertIn("Name=Add WIMS to Desktop\n", text)
+        self.assertTrue(DESKTOP.name.startswith("Install WS Hub"))
+        self.assertIn("Name=Install WS Hub\n", text)
         self.assertIn("add-wims-to-desktop.sh", text)
         self.assertIn("/bin/bash", text)
         self.assertIn("file://", text)
@@ -47,7 +47,7 @@ class DesktopFileTests(unittest.TestCase):
         self.assertTrue(os.access(DESKTOP, os.X_OK))
         self.assertTrue(os.access(INSTALLER, os.X_OK))
         listed = subprocess.run(
-            ["git", "ls-files", "-s", "--", "scripts/Add WIMS to Desktop.desktop"],
+            ["git", "ls-files", "-s", "--", "scripts/Install WS Hub.desktop"],
             cwd=ROOT,
             capture_output=True,
             text=True,
@@ -151,7 +151,7 @@ class InstallerScriptTests(unittest.TestCase):
         self.assertIn("Python was not found", shown)
         self.assertIn("python3", shown)
         self.assertIn("python3-tk", shown)
-        self.assertIn("Add WIMS to Desktop", shown)
+        self.assertIn("Install WS Hub", shown)
         self.assertNotIn("python -m", shown)
         self.assertNotIn("PYTHONPATH", shown)
 
@@ -176,7 +176,7 @@ class InstallerScriptTests(unittest.TestCase):
             self.assertNotEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertIn("python3-tk", proc.stdout)
             self.assertIn("python3-tkinter", proc.stdout)
-            self.assertIn("Add WIMS to Desktop", proc.stdout)
+            self.assertIn("Install WS Hub", proc.stdout)
             self.assertFalse((home / "Desktop" / "WS Hub.desktop").exists())
 
     def test_install_repairs_exec_bits_and_writes_trusted_icons(self):
@@ -244,13 +244,103 @@ class InstallerScriptTests(unittest.TestCase):
                 path.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
+class ReleaseTreeInstallTests(unittest.TestCase):
+    """A downloaded (non-git) tree is copied to $XDG_DATA_HOME/ws-hub."""
+
+    def _fake_download(self, parent: Path, name: str) -> Path:
+        tree = parent / name
+        tree.mkdir(parents=True)
+        for d in ("src", "scripts"):
+            shutil.copytree(
+                ROOT / d, tree / d, symlinks=True,
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+            )
+        shutil.copy2(ROOT / "pyproject.toml", tree / "pyproject.toml")
+        return tree
+
+    def _run(self, tree: Path, home: Path, tmp: Path, gio_log: Path):
+        bindir = _bindir(tmp, ["gio", "update-desktop-database"])
+        for name, body in (
+            ("gio", f'#!/bin/sh\nprintf "%s\\n" "$@" >> "{gio_log}"\n'),
+            ("update-desktop-database", "#!/bin/sh\nexit 0\n"),
+        ):
+            tool = bindir / name
+            if tool.is_symlink() or tool.exists():
+                tool.unlink()
+            tool.write_text(body, encoding="utf-8")
+            tool.chmod(0o755)
+        for name in ("python3", "python"):
+            link = bindir / name
+            if link.exists() or link.is_symlink():
+                link.unlink()
+            os.symlink(sys.executable, link)
+        env = _quiet_env(home)
+        env["XDG_DATA_HOME"] = str(home / "data")
+        env["PATH"] = f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"
+        return subprocess.run(
+            ["/bin/bash", str(tree / "scripts" / "add-wims-to-desktop.sh")],
+            cwd=tree, env=env, capture_output=True, text=True, timeout=120,
+        )
+
+    def test_download_is_copied_home_and_icons_point_there(self):
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            home = tmp / "home"
+            desk = home / "Desktop"
+            menu = home / ".local" / "share" / "applications"
+            desk.mkdir(parents=True)
+            menu.mkdir(parents=True)
+            # The oldest icon form, and one that is not ours.
+            for folder in (desk, menu):
+                (folder / "WIMS.desktop").write_text(
+                    "[Desktop Entry]\nName=WIMS\n"
+                    "Exec=env PYTHONPATH=/home/x/ham/wims/src /usr/bin/python -m wims.launcher\n"
+                    "Path=/home/x/ham/wims\n",
+                    encoding="utf-8",
+                )
+            other = desk / "Other.desktop"
+            other.write_text("[Desktop Entry]\nName=Other\nExec=other\n", encoding="utf-8")
+            download = self._fake_download(home / "Downloads", "wims-9.9.9-linux-x86_64")
+            gio_log = tmp / "gio.txt"
+            proc = self._run(download, home, tmp, gio_log)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            installed = home / "data" / "ws-hub"
+            self.assertTrue((installed / "src" / "wims" / "__init__.py").is_file())
+            self.assertTrue(os.access(installed / "scripts" / "start-wims.sh", os.X_OK))
+            self.assertIn("delete the downloaded folder", proc.stdout)
+            self.assertIn(str(installed), proc.stdout)
+            for folder in (desk, menu):
+                entry = (folder / "WS Hub.desktop").read_text(encoding="utf-8")
+                self.assertIn(f"Path={installed}\n", entry)
+                self.assertIn(f"Icon={installed}/scripts/assets/wims.png", entry)
+                self.assertIn(f"{installed}/scripts/start-wims.sh", entry)
+                self.assertNotIn("Downloads", entry)
+                self.assertFalse((folder / "WIMS.desktop").exists())
+            self.assertTrue(other.is_file())
+
+            # Install a newer download: the copy is replaced, logs are kept.
+            (installed / "scratch").mkdir()
+            (installed / "scratch" / "launcher-details.log").write_text("kept\n")
+            stale = installed / "only-in-old.txt"
+            stale.write_text("old\n")
+            newer = self._fake_download(home / "Downloads", "wims-9.9.10-linux-x86_64")
+            proc = self._run(newer, home, tmp, gio_log)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertFalse(stale.exists())
+            self.assertEqual(
+                (installed / "scratch" / "launcher-details.log").read_text(), "kept\n",
+            )
+            leftovers = [p.name for p in installed.parent.iterdir() if p.name.startswith(".ws-hub")]
+            self.assertEqual(leftovers, [])
+
+
 class PackageExecBitTests(unittest.TestCase):
     def test_zip_from_unix_keeps_the_bit_and_python_zip_drops_it(self):
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             archive = tmp / "src.zip"
             subprocess.run(
-                ["zip", "-q", str(archive), "scripts/Add WIMS to Desktop.desktop"],
+                ["zip", "-q", str(archive), "scripts/Install WS Hub.desktop"],
                 cwd=ROOT,
                 check=True,
                 capture_output=True,
@@ -262,14 +352,14 @@ class PackageExecBitTests(unittest.TestCase):
                 check=True,
                 capture_output=True,
             )
-            restored = unzip_dir / "scripts" / "Add WIMS to Desktop.desktop"
+            restored = unzip_dir / "scripts" / "Install WS Hub.desktop"
             self.assertTrue(os.access(restored, os.X_OK))
 
             py_dir = tmp / "pyzip"
             py_dir.mkdir()
             with zipfile.ZipFile(archive) as zf:
                 zf.extractall(py_dir)
-            dropped = py_dir / "scripts" / "Add WIMS to Desktop.desktop"
+            dropped = py_dir / "scripts" / "Install WS Hub.desktop"
             self.assertTrue(dropped.is_file())
             self.assertFalse(os.access(dropped, os.X_OK))
 
@@ -292,7 +382,7 @@ class PackageExecBitTests(unittest.TestCase):
             self.assertEqual(len(tarballs), 1, proc.stdout)
             with tarfile.open(tarballs[0]) as tf:
                 members = {m.name: m for m in tf.getmembers()}
-                desktop = _member(members, "scripts/Add WIMS to Desktop.desktop")
+                desktop = _member(members, "scripts/Install WS Hub.desktop")
                 starter = _member(members, "scripts/start-wims.sh")
                 helper = _member(members, "scripts/_say.sh")
                 self.assertTrue(desktop.mode & 0o111)
@@ -301,7 +391,7 @@ class PackageExecBitTests(unittest.TestCase):
                 note = tf.extractfile(_member(members, "README-INSTALL.txt"))
                 self.assertIsNotNone(note)
                 readme = note.read().decode()
-            self.assertIn("Add WIMS to Desktop", readme)
+            self.assertIn("Install WS Hub", readme)
             self.assertIn("Allow Launching", readme)
             self.assertNotIn("./scripts/add-wims-to-desktop.sh", readme)
 
@@ -309,19 +399,19 @@ class PackageExecBitTests(unittest.TestCase):
 class OperatorDocTests(unittest.TestCase):
     def test_linux_steps_are_double_click(self):
         readme = _user_facing((ROOT / "README.md").read_text(encoding="utf-8"))
-        self.assertIn("Add WIMS to Desktop", readme)
+        self.assertIn("Install WS Hub", readme)
         self.assertIn("Allow Launching", readme)
         self.assertNotIn("./scripts/add-wims-to-desktop.sh", readme)
         self.assertNotIn("./install.sh", readme)
         install = (ROOT / "INSTALL.md").read_text(encoding="utf-8")
         linux = install.split("## Developer", 1)[0]
-        self.assertIn("Add WIMS to Desktop", linux)
+        self.assertIn("Install WS Hub", linux)
         self.assertNotIn("sudo apt", linux)
         self.assertNotIn("./install.sh", linux)
         quick = (ROOT / "docs" / "tester_quickstart.md").read_text(encoding="utf-8")
         self.assertNotIn("./scripts/add-wims-to-desktop.sh", quick)
         self.assertNotIn("./scripts/start-wims-solo.sh", quick)
-        self.assertIn("Add WIMS to Desktop", quick)
+        self.assertIn("Install WS Hub", quick)
 
 
 def _wait_for(path: Path, seconds: float = 3.0) -> bool:
