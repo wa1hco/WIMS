@@ -65,7 +65,7 @@ After that, operators only need the Desktop **WIMS** icon (same idea as N1MM / W
 That icon opens the same window as the other WIMS start files.
 When a release is newer, the window shows a small **update** mark and lists the
 release with its date. Hover a row for what changed. **Check now** looks again.
-**Update**, **Install this update**, and **Go back** are buttons. Nothing installs
+**Update WS Hub** (a git copy), **Download update** (a zip copy), **Install this update**, and **Go back** are buttons. Nothing installs
 by itself. The site server is left running. A look also happens every few hours
 while the window is open. No network just leaves the list as it was.
 
@@ -73,7 +73,7 @@ while the window is open. No network just leaves the list as it was.
 
 1. **Once:** `Install-Wims.cmd` (admin preferred on golden images).  
 2. **Daily:** Desktop **WIMS**.  
-3. **When offered:** **Update WIMS** (one click). Mid-contest you can ignore the banner.
+3. **When offered:** **Update WS Hub** or **Download update** in the window (one click). Mid-contest you can ignore the banner. The Desktop **Update WIMS** shortcut still runs the git updater.
 
 ### Other scripts (menu calls these; rarely opened by hand)
 

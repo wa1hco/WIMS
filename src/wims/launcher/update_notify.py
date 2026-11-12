@@ -146,8 +146,8 @@ def check_and_nudge(
     subj = info.remote_subject or "bugfix / improvement on main"
     body = (
         f"{info.local_label} -> {info.remote_label}: {subj}. "
-        "When convenient, run Desktop 'Update WIMS' (does not auto-install)."
+        "When convenient, use the update button in the WS Hub window."
     )
-    if notify_no_focus("WIMS update available", body):
+    if notify_no_focus("WS Hub update available", body):
         mark_nagged(info.remote_sha)
     return info

@@ -110,7 +110,7 @@ def release_launcher_lock() -> None:
 
     ``_relaunch_self`` must call this *before* spawning the new process;
     otherwise the child sees the lock, exits, and the parent then quits —
-    Update WIMS looks like it never completed. The raise listener stops
+    the update looks like it never completed. The raise listener stops
     first so a double-click during the handoff is not acknowledged by a
     window that is about to close.
     """

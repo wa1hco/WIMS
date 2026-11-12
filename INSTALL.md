@@ -26,7 +26,7 @@ If the file opens as a page of text, right-click it, open **Properties**, allow 
 
 If Python or the window library is missing, a message names what to install. On Ubuntu and Debian the packages are `python3` and `python3-tk`. On Fedora the window library is `python3-tkinter`. Install that, then double-click **Install WS Hub** again.
 
-**Updating.** In the WS Hub window, open **Updates**, pick the new version, and click **Install this update**. WS Hub downloads it, checks it, and replaces the copy in `~/.local/share/ws-hub`. **Go back** returns to the copy it replaced. Installing a newer download with **Install WS Hub** does the same thing.
+**Updating.** When an update is available, click **Install update** at the top of the WS Hub window. That does the same thing as picking the version in **Updates** and clicking **Install this update**. WS Hub downloads it, checks it, and replaces the copy in `~/.local/share/ws-hub`. **Go back** returns to the copy it replaced. Installing a newer download with **Install WS Hub** also does the same thing.
 
 **Only one copy.** The folder is always `~/.local/share/ws-hub`, with no version in its name. The copy an update replaced is kept at `~/.local/share/ws-hub.previous` for **Go back**; the next update replaces it, so old copies do not pile up.
 
