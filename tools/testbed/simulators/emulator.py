@@ -7,8 +7,8 @@ monitor / fleet view / activity map — and later the §3.2 sender and §3.4 arb
 be developed and tested at multi-instance scale with no radios.
 
 Run (from the repo root), then point the fleet view at the same group:
-    python testbed/simulators/emulator.py
-    python testbed/simulators/emulator.py --period 3 --instances SIM-6M:50313000,SIM-2M:144174000
+    python tools/testbed/simulators/emulator.py
+    python tools/testbed/simulators/emulator.py --period 3 --instances SIM-6M:50313000,SIM-2M:144174000
     # in another window:
     python src/wims/discovery/fleet.py --port 2237 --multicast 224.0.0.73 --host 127.0.0.1
 
@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from wims.udp import encode as E  # noqa: E402
 from wims.udp import messages as M  # noqa: E402

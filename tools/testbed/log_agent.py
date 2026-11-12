@@ -5,7 +5,7 @@
 
 """Shim: log agent lives in ``wims.log`` now.
 
-  python testbed/log_agent.py --band 6m
+  python tools/testbed/log_agent.py --band 6m
   python -m wims.log --band 6m
 """
 
@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.log.app import main
 

@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 # Importing the emulator adds src/ to sys.path (its own bootstrap), so wims imports work after.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "testbed" / "simulators"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "testbed" / "simulators"))
 import emulator as EM  # noqa: E402
 
 from wims.udp import messages as M  # noqa: E402

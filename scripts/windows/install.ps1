@@ -1,19 +1,19 @@
 #Requires -Version 5.1
 
-# install.ps1 - WIMS install / update for Windows (repo-root entry).
+# install.ps1 - WS Hub install / update for Windows (scripted entry).
+# Lived at the repo root before 1.0.20.
 #
 # Run from inside the cloned or unpacked tree:
 #
-#     git clone https://github.com/wa1hco/WIMS.git C:\WIMS
+#     git clone https://github.com/wa1hco/WS-Hub.git C:\WIMS
 #     cd C:\WIMS
-#     .\install.ps1
+#     .\scripts\windows\install.ps1
 #
 # Or after unpacking a GitHub Release ZIP, from that folder:
 #
-#     .\install.ps1
+#     .\scripts\windows\install.ps1
 #
-# Thin wrapper around scripts\windows\Install-Wims.ps1 so the map144-style
-# root entry works. Prefer Install-Wims.cmd (UAC elevation) when double-clicking;
+# Thin wrapper around Install-Wims.ps1 in this folder. Prefer Install-Wims.cmd (UAC elevation) when double-clicking;
 # this script is for PowerShell / scripted installs.
 #
 # Keep ASCII-only + CRLF (Windows PowerShell 5.1).
@@ -30,7 +30,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = (Resolve-Path $PSScriptRoot).Path
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Inner = Join-Path $RepoRoot "scripts\windows\Install-Wims.ps1"
 if (-not (Test-Path -LiteralPath $Inner)) {
     throw "Missing $Inner — not a full WIMS tree?"

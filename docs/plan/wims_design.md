@@ -1723,7 +1723,7 @@ leases — see [`docs/protocols/wsjtx_tx_inhibit.md`](../protocols/wsjtx_tx_inhi
   WSJT-X (improved-fork patch) computes `RTS = intent ∧ ¬inhibit` on a dedicated PTT serial
   port — ~1–2 ms, deterministic. **Puncture mode:** mid-cycle inhibit masks only the PTT line
   while the modulator keeps running, so RF resumes mid-waveform *within the same period*
-  (decode impact bench-verified negligible for gaps ≤1.6 s, `testbed/tx_interrupt_bench.py`).
+  (decode impact bench-verified negligible for gaps ≤1.6 s, `tools/testbed/tx_interrupt_bench.py`).
   The Layer-2 external audio mute above remains the backstop for unpatched/CAT-PTT seats.
 - **Correction:** the UDP Halt path measures **~210–400 ms to PTT-down** (GUI tick + fixed
   200 ms timer + CAT), not the ~50–200 ms implied above — and there is **no UDP enable

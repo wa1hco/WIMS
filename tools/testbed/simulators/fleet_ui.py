@@ -37,7 +37,7 @@ Default layout matches the multi-multi sketch (networking §1):
 Run (repo root):
 
     tools/dev/run_ui_fleet.sh
-    # or: PYTHONPATH=src python3 testbed/simulators/fleet_ui.py
+    # or: PYTHONPATH=src python3 tools/testbed/simulators/fleet_ui.py
     # → http://localhost:8787/status
 
 WSJT-X uses band stream ports; N1MM XML → UDP :12060 unicast (--n1mm-host).
@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_esc
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from wims.core.bands import band_label  # noqa: E402
 from wims.udp import encode as E  # noqa: E402

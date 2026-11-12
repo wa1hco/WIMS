@@ -6,7 +6,7 @@
 """KEY / TX-inhibit role entrypoint.
 
 Product surface for the desktop launcher. Lab modes wrap the inhibit bench
-(``testbed/inhibit_bench.py``). Fleet target-list assignment
+(``tools/testbed/inhibit_bench.py``). Fleet target-list assignment
 (docs/plan/wims_key_agent.md) is later; ``daemon`` is still a config stub.
 """
 
@@ -18,14 +18,14 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_BENCH = _REPO_ROOT / "testbed" / "inhibit_bench.py"
+_BENCH = _REPO_ROOT / "tools" / "testbed" / "inhibit_bench.py"
 
 
 def _load_bench():
     if not _BENCH.is_file():
         raise FileNotFoundError(
             f"KEY inhibit bench not found at {_BENCH}. "
-            "Clone the full WIMS tree (include testbed/)."
+            "Clone the full WIMS tree (include tools/testbed/)."
         )
     spec = importlib.util.spec_from_file_location("wims_inhibit_bench", _BENCH)
     if spec is None or spec.loader is None:
@@ -48,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser(
         "selftest",
         help="UDP loopback gate+agent assertions "
-             "(same as testbed/inhibit_bench.py selftest)",
+             "(same as tools/testbed/inhibit_bench.py selftest)",
     )
     sub.add_parser("gate", help="lab gate stand-in (pass remaining flags after --)")
     sub.add_parser("agent", help="lab key agent (pass remaining flags after --)")

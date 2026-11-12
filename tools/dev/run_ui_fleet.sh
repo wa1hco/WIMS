@@ -58,7 +58,7 @@ fi
 echo "  server up (pid $SRV_PID)  log: scratch/ui_fleet_server.log"
 
 mkdir -p scratch
-"$PY" testbed/simulators/fleet_ui.py --iface "$IFACE" "${EXTRA_FLEET[@]}" &
+"$PY" tools/testbed/simulators/fleet_ui.py --iface "$IFACE" "${EXTRA_FLEET[@]}" &
 FLEET_PID=$!
 echo "  fleet_ui (pid $FLEET_PID)"
 echo

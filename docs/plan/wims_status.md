@@ -54,8 +54,8 @@ One-command smoke: `tools/dev/validate.sh`.
   Map: **[wims_networking.md](wims_networking.md)** + **[operator_setup.md](../operator_setup.md)**.
 - **Seat CAT stack (design):** preferred **Icom + wfview** path in networking **§3.2–§3.3**
   (WIMS never owns radio COM; RigCtld must be explicitly enabled in wfview).
-- **No-RF test bed:** `python testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
-- **Interlock bench:** `python testbed/interlock_bench.py`
+- **No-RF test bed:** `python tools/testbed/simulators/emulator.py --iface 127.0.0.1 --instances ROY-6M:50313000,CHIP-2M:144174000,TRL-432:432174000`
+- **Interlock bench:** `python tools/testbed/interlock_bench.py`
 
 ## Tests — unit suites green (no pytest dep; run `python tests/unit/test_*.py`)
 `test_messages` · `test_encode` · `test_emulator` · `test_arbiter` · `test_controller` ·
@@ -154,8 +154,8 @@ decodes, n1mm_sync, agents, tx`. The site-server snapshot also carries `cluster`
 (`instance|call|grid`) for click-to-work; `tx` = `{enabled, can_tx, controller, holders,
 cq_enabled, last_action}`.
 
-**Test bed (§5):** WSJT-X emulator built (`testbed/simulators/emulator.py`, reacts Reply→TX /
-Halt→RX); interlock bench (`testbed/interlock_bench.py`). Remaining: captured-traffic replay, N1MM
+**Test bed (§5):** WSJT-X emulator built (`tools/testbed/simulators/emulator.py`, reacts Reply→TX /
+Halt→RX); interlock bench (`tools/testbed/interlock_bench.py`). Remaining: captured-traffic replay, N1MM
 stub, rotator stub, fast-mute harness.
 
 **§2.6 roster feature backlog status:** A4/A5/A6, **A7** (DX cluster Spotted list), C1/C2 done; B3, C3, C4, D1, D3, the §3.15 pieces
@@ -826,8 +826,8 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   TX_INHIBIT.md (**10.5 × dit**, clamp 0.315–1.260 s). Spike `--controller-id`;
   `test_inhibit` 30/30 + inhibit bench selftest green. Still out: Key
   daemon product fan-out, InhibitStatus type-17 target discovery.
-- **2026-09-02** — **Rename lab harness:** `testbed/inhibit_spike.py` →
-  `testbed/inhibit_bench.py` (talk about the **inhibit bench**, same family as
+- **2026-09-02** — **Rename lab harness:** `tools/testbed/inhibit_spike.py` →
+  `tools/testbed/inhibit_bench.py` (talk about the **inhibit bench**, same family as
   `interlock_bench.py` / sister-repo inhibit-test). `python -m wims.key`
   {selftest,gate,agent} loads the bench; historical build-log “spike” means this.
 - **2026-09-03** — **N1MM/SSB-CW seat agent:** `python -m wims.seat --log/--key`

@@ -35,7 +35,7 @@ UDP.
   with a visible breakdown; the UI is plain HTML/SSE behind a stable JSON API.
 - **Verify live, not by assertion.** Prove each piece with the lightweight
   self-running tests in `tests/unit/` (no pytest dep) **and** a live run against
-  real captures (`captures/`) or the emulator (`testbed/simulators/`). Keep the
+  real captures (`captures/`) or the emulator (`tools/testbed/simulators/`). Keep the
   suite green.
 - **Safety by construction:** zero TX overlap per resource group; fail-safe to RX;
   **no automated/unattended transmit** — a human always initiates TX.

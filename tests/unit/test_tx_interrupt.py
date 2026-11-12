@@ -1,4 +1,4 @@
-"""Unit tests for the pure puncture() helper in testbed/tx_interrupt_bench.py.
+"""Unit tests for the pure puncture() helper in tools/testbed/tx_interrupt_bench.py.
 
 Covers only the fast-mute actuator model (raised-cosine gated gap in int16 PCM);
 no ft8sim/jt9 binaries required. The signal-level experiment itself lives in
@@ -9,7 +9,7 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "testbed"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools" / "testbed"))
 
 from tx_interrupt_bench import puncture  # noqa: E402
 

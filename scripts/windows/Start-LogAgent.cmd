@@ -28,5 +28,5 @@ echo  N1MM: 127.0.0.1:2333
 echo.
 
 REM First arg --dry-run prints only. Extra args passed through.
-"%PYTHON_EXE%" "%ROOT%\testbed\log_agent.py" %*
+"%PYTHON_EXE%" "%ROOT%\tools\testbed\log_agent.py" %*
 if errorlevel 1 pause

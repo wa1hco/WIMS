@@ -12,7 +12,7 @@ FT-serial (`DU0FDKHO`, …). That is enough for `/dev/ttyUSB*` uniqueness, but
 | Field | Value | Why |
 |---|---|---|
 | VID:PID | `0403:6015` | stock FT230X — do **not** change (drivers) |
-| Manufacturer | `FTDI WA1HCO` | [wims_tx_inhibit.md](../../../docs/plan/wims_tx_inhibit.md) §4.1.2 |
+| Manufacturer | `FTDI WA1HCO` | [wims_tx_inhibit.md](../../../../docs/plan/wims_tx_inhibit.md) §4.1.2 |
 | Product | `FT230X Keyline` | same pattern as SO4R `FT230X SO4R Port n`; udev `*Keyline*` |
 | Serial | `KL0001` … | unique, labeled on the enclosure |
 | CTS/RTS invert | factory (off) | Keyline J1 polarity |

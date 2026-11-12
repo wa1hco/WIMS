@@ -125,7 +125,7 @@ def test_save_preserves_unknown_keys():
 
 def test_example_file_loads():
     root = Path(__file__).resolve().parents[2]
-    example = root / "examples" / "seat-profile-home-dual-rx.json"
+    example = root / "docs" / "examples" / "seat-profile-home-dual-rx.json"
     assert example.is_file()
     prof = load_seat_profile(example)
     assert prof.station_class == "shared_trx_dual_rx"

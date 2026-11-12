@@ -182,9 +182,9 @@ Release ZIPs from a browser often set Mark of the Web. Symptoms: SmartScreen (�
 2. SmartScreen → **More info** → **Run anyway** (only if you trust [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub)).
 3. Unblock downloaded files:
    - Explorer → right-click file → **Properties** → **Unblock** → **OK**
-   - Or: `Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1`
+   - Or: `Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1`
 4. Forced one-shot run:  
-   `powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1`
+   `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\windows\install.ps1`
 
 Do not set permanent `Set-ExecutionPolicy Unrestricted` just for WIMS. See also the main [README.md](../../README.md) Windows section.
 

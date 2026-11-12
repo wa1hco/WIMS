@@ -105,7 +105,7 @@ jobs:
           STRICT: "1"
         run: |
           set -euo pipefail
-          chmod +x tools/dev/package-release.sh install.sh scripts/install-linux.sh
+          chmod +x tools/dev/package-release.sh scripts/install-linux.sh
           tools/dev/package-release.sh "${{ needs.prepare.outputs.version }}"
           ls -la dist/
 

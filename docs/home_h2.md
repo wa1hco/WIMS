@@ -62,7 +62,7 @@ Default path:
 | Windows | `%LOCALAPPDATA%\WIMS\seat-profile.json` |
 | Linux | `~/.local/share/wims/seat-profile.json` |
 
-Example (also in `examples/seat-profile-home-dual-rx.json`):
+Example (also in `docs/examples/seat-profile-home-dual-rx.json`):
 
 ```json
 {

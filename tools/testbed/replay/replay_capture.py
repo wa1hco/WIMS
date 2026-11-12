@@ -7,9 +7,9 @@ Two modes:
           timing) so the real monitor / WIMS can consume them with no radio.
 
 Run (from the repo root):
-    python testbed/replay/replay_capture.py
-    python testbed/replay/replay_capture.py captures/wsjtx-20260616-221551.jsonl
-    python testbed/replay/replay_capture.py --emit 224.0.0.73:2237 --realtime
+    python tools/testbed/replay/replay_capture.py
+    python tools/testbed/replay/replay_capture.py captures/wsjtx-20260616-221551.jsonl
+    python tools/testbed/replay/replay_capture.py --emit 224.0.0.73:2237 --realtime
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "src"))
 
 from wims.udp import messages as M  # noqa: E402
 from wims.udp.monitor import Monitor  # noqa: E402

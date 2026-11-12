@@ -13,7 +13,8 @@ Not for contest operation. These build, test, package, or bring up hardware.
 - `proxmox-clone-wims-seats.sh` — On the Proxmox host, clone the Windows seat guests.
 - `_pve_api.py` — Small Proxmox API helper.
 - `_pve_spawn_seats.py` — Spawn the lab seat guests.
-- `flash_keyline.py` — Program a Keyline board’s USB name. Backups stay under `hardware/keyline_interface/eeprom/`.
+- `wims.code-workspace` — VS Code workspace with this repo and the sibling radio repos.
+- `flash_keyline.py` — Program a Keyline board’s USB name. Backups stay under `tools/hardware/keyline_interface/eeprom/`.
 - `windows/Start-GrokAtLogon.cmd` — Start the Grok CLI at sign-in.
 - `windows/Start-GrokAtLogon.vbs` — Sign-in starter for that Grok command.
 - `windows/Install-GrokLogonStartup.cmd` — Add the Grok sign-in shortcut.

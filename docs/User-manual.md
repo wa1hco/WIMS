@@ -175,7 +175,7 @@ Optional. Launcher **WSJT-X** intent → local UI `http://127.0.0.1:8790/` and r
 ## Inhibit / Keyline
 
 - Pick **KEY device** in the launcher (COM / `/dev/tty…` / `sim:up`).  
-- Hardware: [hardware/keyline_interface/](../hardware/keyline_interface/) · flash: [eeprom/README.md](../hardware/keyline_interface/eeprom/README.md).  
+- Hardware: [tools/hardware/keyline_interface/](../tools/hardware/keyline_interface/) · flash: [eeprom/README.md](../tools/hardware/keyline_interface/eeprom/README.md).  
 - Digi needs patched WSJT-X (type **18** hold; port **22372** or ephemeral via InhibitStatus).  
 
 ![Key agent](manual/images/key-agent.png)

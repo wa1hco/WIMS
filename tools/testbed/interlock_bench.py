@@ -6,7 +6,7 @@ to transmit, the arbiter serializes, the controller sends Reply to whichever hol
 the grant. An OverlapDetector watches the actual transmit state off the wire and
 asserts **the group never has two transmitters at once** — end-to-end, no RF.
 
-    python testbed/interlock_bench.py
+    python tools/testbed/interlock_bench.py
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from wims.udp import messages as M  # noqa: E402
@@ -32,7 +32,7 @@ GROUP_OF = lambda i: "6m"                    # noqa: E731  (one shared group)
 
 def main() -> int:
     emu = subprocess.Popen(
-        [sys.executable, str(ROOT / "testbed" / "simulators" / "emulator.py"),
+        [sys.executable, str(ROOT / "tools" / "testbed" / "simulators" / "emulator.py"),
          "--period", "2", "--rate", "3", "--seed", "2", "--iface", IFACE,
          "--instances", "SIM-6A:50313000,SIM-6B:50314000"],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

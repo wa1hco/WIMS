@@ -2,7 +2,7 @@
 
 **Status:** active plan (no production cutover)  
 **Date:** 2026-09-17  
-**Related:** session architecture notes; `wims_design.md` §5; unit tests under `tests/unit/`; `testbed/simulators/`
+**Related:** session architecture notes; `wims_design.md` §5; unit tests under `tests/unit/`; `tools/testbed/simulators/`
 
 ## 1. Goal
 
@@ -76,7 +76,7 @@ Type-18 datagrams are **not** bus payloads.
 
 | Piece | Exists today | Harness need |
 |-------|--------------|--------------|
-| WSJT emulator | `testbed/simulators/emulator.py` | Publish via bus adapter; multi-id; Reply/Halt reaction |
+| WSJT emulator | `tools/testbed/simulators/emulator.py` | Publish via bus adapter; multi-id; Reply/Halt reaction |
 | N1MM stub | Partial / design | Emit contacts + accept TCP log; publish `log/...` |
 | Type-18 sink | Unit tests around KEY | Record holds; assert target set + timing |
 | Operate headless | Server state / roster tests | Subscribe filters; score cache; Work emit |
@@ -203,7 +203,7 @@ No phase removes plane-A listeners until P6+ and a named contest rehearsal.
 ## 12. Immediate next implementation steps (when coding starts)
 
 1. Add `src/wims/bus/` with protocol + `MemoryBus` + tests.  
-2. Thin harness runner script under `testbed/bus/` (scenarios A1–A3).  
+2. Thin harness runner script under `tools/testbed/bus/` (scenarios A1–A3).  
 3. Do **not** wire server ingest to the bus yet.  
 4. Keep packaging stdlib-only until P4 chooses a broker wheel/bundle strategy.
 

@@ -10,7 +10,7 @@ Operate UDP modes: **Local** (same PC as WSJT-X, loopback) vs **Network** (LAN m
 
 Related: [User-manual.md](User-manual.md) · [plan/wims_networking.md](plan/wims_networking.md) ·  
 [decisions/2026-08-29-n1mm-live-band.md](decisions/2026-08-29-n1mm-live-band.md) ·  
-[hardware/keyline_interface/eeprom/README.md](../hardware/keyline_interface/eeprom/README.md)
+[tools/hardware/keyline_interface/eeprom/README.md](../tools/hardware/keyline_interface/eeprom/README.md)
 
 ---
 
@@ -118,8 +118,8 @@ Copy the open log onto the server if N1MM runs elsewhere.
 
 ## 4. Keyline interface (SSB/CW KEY → inhibit)
 
-Hardware: [hardware/keyline_interface/](../hardware/keyline_interface/)  
-Identity / flash: [eeprom/README.md](../hardware/keyline_interface/eeprom/README.md)
+Hardware: [tools/hardware/keyline_interface/](../tools/hardware/keyline_interface/)  
+Identity / flash: [eeprom/README.md](../tools/hardware/keyline_interface/eeprom/README.md)
 
 ### Wiring (operator view)
 

@@ -45,7 +45,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 | **Operator console** | Browser — Operate / Overview / WSJT-X / N1MM / Setup | `http://<host>:8787/` | **Yes** (opened by Solo) |
 | **WSJT monitor** | Local WSJT-X.ini audit + report, UI `:8790` | Launcher **WSJT-X** · `Check-WimsSetup.cmd` | Optional on digi PCs |
 | **N1MM agent** | **Broadcast** + **Log** + optional **KEY** | Launcher **N1MM** + **SSB/CW KEY** | Contest N1MM PC |
-| **Inhibit bench** | Lab gate/agent/selftest | `testbed/inhibit_bench.py` (developer) | Lab only |
+| **Inhibit bench** | Lab gate/agent/selftest | `tools/testbed/inhibit_bench.py` (developer) | Lab only |
 | **Seat pack** (Flex 50 / IC-9700 144) | Radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
 **Naming:** WSJT **monitor** is `wims.agent` (optional for RF). **N1MM agent** is
@@ -81,7 +81,7 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 |-------|----------|----------------|
 | N1MM agent | WS Hub window: **N1MM** (+ **SSB/CW KEY**) | Logger PC — Broadcast / Log / KEY |
 | Pure inhibit logic | `src/wims/interlock/inhibit.py` | No |
-| Inhibit bench | `testbed/inhibit_bench.py` | Lab |
+| Inhibit bench | `tools/testbed/inhibit_bench.py` | Lab |
 | Gate inside WSJT-X | [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) | Separate build |
 
 Home tracks A–C do **not** require KEY or a patched WSJT-X.
@@ -160,7 +160,7 @@ Double-click **WIMS**, or run `./scripts/start-wims-solo.sh`. The browser opens 
 ### Developer
 
 ```bash
-python3 testbed/simulators/emulator.py --iface 127.0.0.1 \
+python3 tools/testbed/simulators/emulator.py --iface 127.0.0.1 \
   --instances SIM-6M:50313000,SIM-2M:144174000
 ```
 
@@ -176,7 +176,7 @@ tools/dev/run_ui_fleet.sh --six-only
 
 # manual (developer):
 python3 -m wims.server.app --iface 127.0.0.1 --no-presence --no-seed
-python3 testbed/simulators/fleet_ui.py   # or --six-only
+python3 tools/testbed/simulators/fleet_ui.py   # or --six-only
 # → http://localhost:8787/status
 ```
 

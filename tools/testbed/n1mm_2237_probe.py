@@ -29,13 +29,13 @@ Two modes
 Examples
 --------
   # OS-level: does 127.0.0.1:2237 see multicast?
-  python testbed/n1mm_2237_probe.py --self-test --bind 127.0.0.1
+  python tools/testbed/n1mm_2237_probe.py --self-test --bind 127.0.0.1
 
   # OS-level: 0.0.0.0:2237 + join group (true dual-consumer seat)
-  python testbed/n1mm_2237_probe.py --self-test --bind 0.0.0.0 --join 224.0.0.73
+  python tools/testbed/n1mm_2237_probe.py --self-test --bind 0.0.0.0 --join 224.0.0.73
 
   # Live against three N1MM VMs (from Linux contest NIC)
-  python testbed/n1mm_2237_probe.py --live \\
+  python tools/testbed/n1mm_2237_probe.py --live \\
       --iface 192.168.1.119 \\
       --targets 192.168.1.120,192.168.1.121,192.168.1.122 \\
       --wait 8
@@ -53,7 +53,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from wims.udp import encode as E  # noqa: E402
 from wims.udp import messages as M  # noqa: E402
