@@ -52,7 +52,7 @@ If Python or the window library is missing, a message names what to install. Ins
      powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
      ```
 3. Double-click **`Install-Wims.cmd`** (UAC), or run the Bypass line above.
-4. Start Desktop **WIMS**.
+4. Start Desktop **WS Hub** (called **WIMS** before 1.0.18).
 
 Install adds/finds Python ≥ 3.10, **Git** (clone + in-app GitHub update check; skipped for Release ZIP trees with no `.git`), firewall TCP **8787**, Desktop shortcut.  
 It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.

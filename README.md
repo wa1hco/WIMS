@@ -7,7 +7,7 @@
 | Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
 | Linux | Double-click [`scripts/Add WIMS to Desktop.desktop`](scripts/Add%20WIMS%20to%20Desktop.desktop) |
 
-**Step 2.** Double-click **WS Hub** (the icon was called WIMS before 1.0.18).
+**Step 2.** Double-click **WS Hub**. After an update from 1.0.17 or earlier, the icon may still say **WIMS**; double-click it once and it becomes **WS Hub**.
 
 The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If that window is already open, double-clicking the icon brings it to the front.
 

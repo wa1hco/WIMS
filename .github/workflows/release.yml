@@ -172,8 +172,8 @@ jobs:
           NOTES=$(mktemp)
           # Hand-written notes for this version, when present, lead the page and
           # their first heading is the release title.
+          # Exact match only, so an -rc or -tester tag never borrows GA notes.
           NOTES_SRC="docs/releases/v${VERSION}.md"
-          [ -f "$NOTES_SRC" ] || NOTES_SRC="docs/releases/v${VERSION%%-*}.md"
           TITLE="WS Hub ${VERSION}"
           {
             if [ -f "$NOTES_SRC" ]; then

@@ -105,19 +105,34 @@ if (Test-Path -LiteralPath $checkCmd) {
     Write-Host ""
 }
 
-# Install / refresh never creates WIMS Server or WIMS Agent icons, and the
-# old "WIMS" launcher icon is now "WS Hub", so drop all three.
-foreach ($staleName in @("WIMS.lnk", "WIMS Server.lnk", "WIMS Agent.lnk")) {
+# Install / refresh never creates WIMS Server or WIMS Agent icons.
+foreach ($staleName in @("WIMS Server.lnk", "WIMS Agent.lnk")) {
     $stale = Join-Path $desk $staleName
     if (Test-Path -LiteralPath $stale) {
         Remove-Item -LiteralPath $stale -Force
-        Write-Host " Removed leftover $staleName (now WS Hub)."
+        Write-Host " Removed leftover $staleName (launcher only)."
     }
 }
-$staleStart = Join-Path $startMenu "WIMS.lnk"
-if (Test-Path -LiteralPath $staleStart) {
-    Remove-Item -LiteralPath $staleStart -Force
-    Write-Host " Removed the old WIMS Start menu entry (now WS Hub)."
+
+# The old "WIMS" launcher icon is now "WS Hub". Remove it only when it starts
+# this program, so a WIMS.lnk for anything else is left alone.
+function Test-OurOldLauncher([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $w = New-Object -ComObject WScript.Shell
+        $old = $w.CreateShortcut($Path)
+        $text = "$($old.TargetPath) $($old.Arguments)"
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null
+        return ($text -match 'Start-WimsLauncher|wims\.launcher|WIMS\.cmd')
+    } catch {
+        return $false
+    }
+}
+foreach ($stale in @((Join-Path $desk "WIMS.lnk"), (Join-Path $startMenu "WIMS.lnk"))) {
+    if (Test-OurOldLauncher $stale) {
+        Remove-Item -LiteralPath $stale -Force
+        Write-Host " Removed the old WIMS icon (now WS Hub): $stale"
+    }
 }
 
 if (-not $NoPause) { pause }

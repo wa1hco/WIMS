@@ -691,17 +691,25 @@ def _refresh_applications_menu(menu: Path) -> None:
     )
 
 
+def _is_our_legacy_linux_entry(path: Path) -> bool:
+    """True for an older WIMS.desktop that starts this program."""
+    try:
+        return path.is_file() and "start-wims.sh" in path.read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return False
+
+
 def _remove_legacy_linux_entries(folder: Path) -> None:
     """Drop an older WIMS.desktop that starts this program (not anything else)."""
     for name in _LEGACY_SHORTCUT_NAMES:
         old = folder / f"{name}.desktop"
-        try:
-            if old.is_file() and "start-wims.sh" in old.read_text(
-                encoding="utf-8", errors="replace"
-            ):
+        if _is_our_legacy_linux_entry(old):
+            try:
                 old.unlink()
-        except OSError:
-            pass
+            except OSError:
+                pass
 
 
 def write_linux_desktop_shortcut() -> Path:
@@ -806,12 +814,6 @@ def write_windows_shortcut() -> Path:
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
         check=False, capture_output=True, text=True,
     )
-    if lnk.is_file():
-        for name in _LEGACY_SHORTCUT_NAMES:
-            try:
-                (desk / f"{name}.lnk").unlink(missing_ok=True)
-            except OSError:
-                pass
     return lnk
 
 
@@ -824,11 +826,15 @@ def migrate_legacy_shortcut() -> Path | None:
     try:
         desk = desktop_dir()
         if sys.platform.startswith("win"):
-            if any((desk / f"{n}.lnk").is_file() for n in _LEGACY_SHORTCUT_NAMES):
+            if any(
+                (desk / f"{n}.lnk").is_file() for n in _LEGACY_SHORTCUT_NAMES
+            ) and not (desk / f"{SHORTCUT_NAME}.lnk").is_file():
+                # The helper removes the old icon only when it starts WIMS.
                 return write_windows_shortcut()
             return None
         if any(
-            (desk / f"{n}.desktop").is_file() for n in _LEGACY_SHORTCUT_NAMES
+            _is_our_legacy_linux_entry(desk / f"{n}.desktop")
+            for n in _LEGACY_SHORTCUT_NAMES
         ) and not (desk / f"{SHORTCUT_NAME}.desktop").is_file():
             return write_linux_desktop_shortcut()
     except Exception:
@@ -3562,13 +3568,17 @@ def main(argv: list[str] | None = None) -> int:
     from wims.launcher.singleton import try_acquire_launcher_lock
     if not try_acquire_launcher_lock():
         return announce_already_running()
-    migrate_legacy_shortcut()
     # Publish the raise listener before the window exists so a second
     # double-click during startup still reaches this process.
     try:
         start_raise_server()
     except Exception:
         pass
+    # Rename an old WIMS Desktop icon in the background; on Windows this waits
+    # on PowerShell, and the window should not.
+    threading.Thread(
+        target=migrate_legacy_shortcut, name="shortcut-migrate", daemon=True,
+    ).start()
 
     try:
         import tkinter as tk
