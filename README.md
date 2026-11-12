@@ -1,13 +1,13 @@
 # WIMS — WSJT-X Instance Management System
 
-**Step 1.** Put **WIMS** on the Desktop and in the Start menu (Linux: the app menu).
+**Step 1.** Put **WS Hub** on the Desktop and in the Start menu (Linux: the app menu).
 
 | | |
 |--|--|
 | Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
 | Linux | Double-click [`scripts/Add WIMS to Desktop.desktop`](scripts/Add%20WIMS%20to%20Desktop.desktop) |
 
-**Step 2.** Double-click **WIMS**.
+**Step 2.** Double-click **WS Hub**. After an update from 1.0.17 or earlier, the icon may still say **WIMS**; double-click it once and it becomes **WS Hub**.
 
 The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If that window is already open, double-clicking the icon brings it to the front.
 
@@ -135,7 +135,7 @@ defaults are lab-oriented; details in [scripts/windows/README.md](scripts/window
 2. Open **scripts**.
 3. Double-click **Add WIMS to Desktop**.
 
-WIMS is then on the desktop and in the app menu. Double-click **WIMS**.
+**WS Hub** (formerly WIMS) is then on the desktop and in the app menu. Double-click **WS Hub**.
 
 The file manager may ask once before that first file runs:
 
@@ -150,7 +150,7 @@ If Python or the window library is missing, a message names what to install. Ins
 
 ### C. Already installed — just run
 
-Double-click **WIMS**. On Windows the same window is **Start-WimsLauncher** in `scripts\windows\`. On one PC with WSJT-X, **Start-Wims-Solo** opens Operate and the browser.
+Double-click **WS Hub**. On Windows the same window is **Start-WimsLauncher** in `scripts\windows\`. On one PC with WSJT-X, **Start-Wims-Solo** opens Operate and the browser.
 
 ---
 

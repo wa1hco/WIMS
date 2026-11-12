@@ -601,12 +601,12 @@ try {
             $launchHelper = Join-Path $launcherDir "Install-WimsDesktopShortcut.ps1"
             if (Test-Path -LiteralPath $launchHelper) {
                 & powershell -NoProfile -ExecutionPolicy Bypass -File $launchHelper -NoPause
-                Ok (Join-Path $desk "WIMS.lnk")
+                Ok (Join-Path $desk "WS Hub.lnk")
             } else {
                 $launchCmd = Join-Path $launcherDir "Start-WimsLauncher.cmd"
                 $launchVbs = Join-Path $launcherDir "Start-WimsLauncher.vbs"
                 if (Test-Path -LiteralPath $launchCmd) {
-                    $lnkL = Join-Path $desk "WIMS.lnk"
+                    $lnkL = Join-Path $desk "WS Hub.lnk"
                     $ll = $wsh.CreateShortcut($lnkL)
                     if ((Test-Path -LiteralPath $launchVbs) -and (Test-Path -LiteralPath $icoServer)) {
                         $ll.TargetPath = Join-Path $env:SystemRoot "System32\wscript.exe"
@@ -619,7 +619,7 @@ try {
                         }
                     }
                     $ll.WorkingDirectory = $launcherDir
-                    $ll.Description = "WIMS launcher — agents + site console"
+                    $ll.Description = "WS Hub launcher — agents + site console"
                     $ll.Save()
                     Ok $lnkL
                 }

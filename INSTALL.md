@@ -10,9 +10,9 @@ Stdlib Python only. No `pip install` for the product path.
 
 | Method | Steps |
 |--------|--------|
-| **Git clone** (lab / updates via git) | `git clone https://github.com/wa1hco/WIMS.git` then `cd WIMS` |
-| **GitHub Release** | Download `wims-<ver>-windows-x86_64.zip` or `wims-<ver>-linux-x86_64.tar.gz` from [Releases](https://github.com/wa1hco/WIMS/releases) |
-| **Rolling `main` ZIP** | [main.zip](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip) — unversioned |
+| **Git clone** (lab / updates via git) | `git clone https://github.com/wa1hco/WS-Hub.git` then `cd WS-Hub` |
+| **GitHub Release** | Download `wims-<ver>-windows-x86_64.zip` or `wims-<ver>-linux-x86_64.tar.gz` from [Releases](https://github.com/wa1hco/WS-Hub/releases) |
+| **Rolling `main` ZIP** | [main.zip](https://github.com/wa1hco/WS-Hub/archive/refs/heads/main.zip) — unversioned |
 
 Contest Windows install root: **`C:\WIMS`**.  
 Release packages **omit** `hardware/` (Keyline flash/KiCad). KEY *software* (`wims.seat --key`) is in `src/`.
@@ -27,7 +27,7 @@ The release file is `wims-<ver>-linux-x86_64.tar.gz`. A ZIP of `main` works too.
 2. Open **scripts**.
 3. Double-click **Add WIMS to Desktop**.
 
-WIMS is then on the desktop and in the app menu. Double-click **WIMS**.
+**WS Hub** (formerly WIMS) is then on the desktop and in the app menu. Double-click **WS Hub**.
 
 The file manager may ask once:
 
@@ -52,7 +52,7 @@ If Python or the window library is missing, a message names what to install. Ins
      powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
      ```
 3. Double-click **`Install-Wims.cmd`** (UAC), or run the Bypass line above.
-4. Start Desktop **WIMS**.
+4. Start Desktop **WS Hub** (called **WIMS** before 1.0.18).
 
 Install adds/finds Python ≥ 3.10, **Git** (clone + in-app GitHub update check; skipped for Release ZIP trees with no `.git`), firewall TCP **8787**, Desktop shortcut.  
 It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.

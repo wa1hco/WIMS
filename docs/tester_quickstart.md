@@ -54,7 +54,7 @@ No extra Python packages are required. Git is not required for a release package
 ### A3. Start the server and open the browser
 
 **Windows:** Desktop **WIMS** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
-**Linux:** double-click **WIMS**, then start the site server in that window. On one PC, start Solo in that window.
+**Linux:** double-click **WS Hub**, then start the site server in that window. On one PC, start Solo in that window.
 
 Open:
 
@@ -76,7 +76,7 @@ Open:
 **Windows:** **`Start-WimsAgent.cmd`** (one-shot check) or **WIMS Agent** continuous.  
 Local agent UI: http://127.0.0.1:8790/  
 
-**Linux:** double-click **WIMS** and run the WSJT seat check.
+**Linux:** double-click **WS Hub** and run the WSJT seat check.
 
 **Pass:** agent prints a setup report; continuous agent appears under Status/Setup **agents** if the server URL is correct.
 
@@ -108,7 +108,7 @@ Prefer **solo** on one PC (simplest):
 | OS | Start |
 |----|--------|
 | Windows | **`Start-Wims-Solo.cmd`** |
-| Linux | Double-click **WIMS**, then **Start Solo** |
+| Linux | Double-click **WS Hub**, then **Start Solo** |
 
 Solo = local server, no fleet presence election, browser to Operate.
 
@@ -128,7 +128,7 @@ Optional but good: **`--rig-name=HOME-FT8`** (or any unique name) so the instanc
 ### B3. Check setup
 
 **Windows:** **`Check-WimsSetup.cmd`**  
-**Linux:** double-click **WIMS** and run the WSJT seat check.
+**Linux:** double-click **WS Hub** and run the WSJT seat check.
 
 Fix anything marked **`[XX]`** before continuing.
 
