@@ -1,4 +1,4 @@
-# WIMS — Build Status & Milestones
+# WS Hub (formerly WIMS) — Build Status & Milestones
 
 Companion tracker to **[wims_design.md](wims_design.md)** (the requirements / design source of
 truth). This file holds **implementation progress only** — what's built, tested, and running —
@@ -9,24 +9,22 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ---
 
+## At a glance (2026-11-12, version 1.0.19)
+
+**Built and in use:**
+- Call roster on Operate across every WSJT-X, ranked by score, with Country, Az DX, km, and one needed badge (grid, state, DXCC, CQ zone, ITU zone, continent, call; **mult** in a contest, hidden when a place word is shown). The goal's rules line is a tooltip on the **Call roster** heading.
+- Roster click = **Work** (Reply on a decode that WSJT-X already has), **Halt TX** for this console's Work. A person starts every transmit; CQ and Enable TX stay in WSJT-X.
+- Goals (contest, award, checklist, custom) against a chosen log; remembered grids for tail-ends; worked-but-unconfirmed places with GridTracker's LoTW file.
+- Approximate Az DX from the DXCC entity when no grid is known, marked `~`. No grid is ever estimated from the entity.
+- Spotted: DX cluster spots on any band, the same columns and needed badge, QSY cost, SSB/CW/FT8/FT4/Other mode filters. A spot click selects only.
+- N1MM agent (Broadcast, Log, KEY), TX groups and overlap display, read-only rotator headings through rotctld.
+- Linux install to `~/.local/share/ws-hub` and in-app updates for that copy; Windows install to `C:\WIMS`.
+
+**Planned, not built:** a spot click that retunes over CAT, sets the mode, and points the antenna (the QSO still starts from the roster after WSJT-X decodes the station; WSJT-X cannot start a contact it has not decoded); manual rotator turn; tuner and switch control; PSK Reporter and the other hint sources; first on-air bring-up of Work into a dummy load (M5).
+
 ## How to run (current)
 
-1. Put **WIMS** on the Desktop and in the Start menu (Linux: the app menu).
-   Windows: double-click `scripts\Add WIMS to Desktop.bat`.
-   Linux: double-click `scripts/Add WIMS to Desktop.desktop`.
-2. Double-click **WIMS**. That is the same window as `scripts/start-wims.sh`
-   and the Windows WIMS shortcut. Start Operate or the site server there.
-   The browser opens at `http://localhost:8787/`. A second double-click
-   brings the WIMS window that is already open to the front.
-3. On one PC with WSJT-X, **Start-Wims-Solo** (`scripts/start-wims-solo.sh` or
-   `scripts\windows\Start-Wims-Solo.cmd`) uses that same Operate start and
-   opens the browser.
-   In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP
-   requests ON. Plane A is one port for all bands (decision 2026-09-05).
-4. First Windows install: double-click `scripts\windows\Install-Wims.cmd`.
-   Setup check: `Check-WimsSetup.cmd`, or the WSJT seat check in the WIMS window.
-   Compare logs: double-click **Check logs**, or open the Log page → **Check logs**.
-   `Add WIMS to Desktop` puts **Check logs** next to **WIMS**.
+Install: [INSTALL.md](../../INSTALL.md). Then double-click **WS Hub**. Start Operate or the site server in that window; the browser opens at `http://localhost:8787/`. On one PC with WSJT-X, **Start Solo** does the same start and opens the browser. In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP requests ON (plane A, one port for all bands, decision 2026-09-05). Setup check: `Check-WimsSetup.cmd` or the WSJT seat check in the WS Hub window. Compare logs: double-click **Check logs**, or Log → **Check logs**.
 
 Checklist: [design-principles.md](../design-principles.md).
 
@@ -79,7 +77,7 @@ on push/PR to `main` (Python 3.10 / 3.12 / 3.14) plus a `pyproject.toml` ↔
 `release.yml` + `tester-packages.yml`, [INSTALL.md](../../INSTALL.md). Artifacts:
 `wims-<ver>-windows-x86_64.zip` + `wims-<ver>-linux-x86_64.tar.gz` (omit `hardware/`);
 Windows **bundled CPython+Tk** still PR 0/5. Tag scheme: numeric `__version__` +
-`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.16`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.16).
+`vX.Y.Z[-tester|-rcN]`. **Current release:** [`v1.0.16`](https://github.com/wa1hco/WS-Hub/releases/tag/v1.0.16).
 
 **Tester product surface:** [docs/tester_roles.md](../tester_roles.md) — what installers
 and launchers mean (solo / server / seat agent; KEY agent out of R0).
@@ -93,7 +91,7 @@ and launchers mean (solo / server / seat agent; KEY agent out of R0).
   the N1MM log and **click a roster line** to Work (Reply). `python -m wims.solo` + Windows/Linux
   wrappers. **Done:** roster-line **Work** (GT2, no global arm) + Halt, arbiter grant/release,
   `tx` state block, casual (non-contest) seed, **CI green gate**, GitHub Release
-  [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0). **Remaining:**
+  [`v1.0.0`](https://github.com/wa1hco/WS-Hub/releases/tag/v1.0.0). **Remaining:**
   first bring-up against **real WSJT-X** into a dummy load (echo-exactness of Reply).
 
 - [~] **M1 — parser + read-only dashboard.** Parser (§3.1); console monitor + fleet view; browser
@@ -520,7 +518,7 @@ partial; everything else missing — see the backlog table in wims_design.md §2
   git checkout (not only when cloning): launcher “Update available” is `git fetch
   origin/main`, so a USB-copied clone still needs `git` on PATH. Release ZIP trees
   (no `.git`) still skip Git.
-- **2026-09-07** — **Version `1.0.0`** + GitHub Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0).
+- **2026-09-07** — **Version `1.0.0`** + GitHub Release [`v1.0.0`](https://github.com/wa1hco/WS-Hub/releases/tag/v1.0.0).
   Install/release scaffolding (aligned to [wims_release_packages.md](wims_release_packages.md)):
   root `install.sh` / `install.ps1`, `scripts/install-linux.sh`,
   `tools/dev/packaging/write_manifest.py`, allow-list `package-release.sh`,

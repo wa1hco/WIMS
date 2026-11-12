@@ -1,7 +1,9 @@
 # Operator setup — WSJT-X, N1MM, Keyline
 
+WS Hub was called WIMS before 1.0.18; some windows and files still say WIMS.
+
 **Audience:** contest seat operators and the person wiring the fleet.  
-**Goal:** one place that says **exactly** what to set so WIMS can see digi, log, and KEY.
+**Goal:** one place that says **exactly** what to set so WS Hub can see digi, log, and KEY.
 
 **Home only (no fleet):** stages **H0 Operate** / **H1 Inhibit** — see [home_h0_h1.md](home_h0_h1.md).  
 Operate UDP modes: **Local** (same PC as WSJT-X, loopback) vs **Network** (LAN multicast) — same doc.
@@ -14,10 +16,10 @@ Related: [User-manual.md](User-manual.md) · [plan/wims_networking.md](plan/wims
 
 ## Which PC runs what
 
-| PC role | Apps | WIMS |
+| PC role | Apps | WS Hub |
 |---------|------|------|
-| **Site server** (one per LAN) | Optional N1MM for log seed | Desktop **WIMS** → **Site server** (not offered on a WSJT-X-only seat; N1MM PCs only if none is already up) · console `http://<server>:8787/` |
-| **N1MM / SSB-CW logger** | N1MM (+ optional KEY hardware) | Desktop **WIMS** → check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent** |
+| **Site server** (one per LAN) | Optional N1MM for log seed | Desktop **WS Hub** → **Site server** (not offered on a WSJT-X-only seat; N1MM PCs only if none is already up) · console `http://<server>:8787/` |
+| **N1MM / SSB-CW logger** | N1MM (+ optional KEY hardware) | Desktop **WS Hub** → check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent** |
 | **WSJT-X digi** | One or more WSJT-X | Multicast settings below; optional **WSJT-X** intent → monitor agent `:8790`. Never offers **Site server**. |
 | **Operator laptop** | Browser only | `http://<server>:8787/` |
 
@@ -25,23 +27,9 @@ Console top nav: **Operate · Overview · WSJT-X · N1MM · Setup** (no single �
 
 ---
 
-## 1. Install WIMS (once per PC that runs agents or the server)
+## 1. Install WS Hub (once per PC that runs agents or the server)
 
-### Windows
-
-1. Put the tree on disk (`git clone` or copy so you have `src\wims\` and `scripts\windows\`).  
-2. Double-click **`scripts\windows\Install-Wims.cmd`** (UAC once on a golden image).  
-3. Day-to-day: Desktop **WIMS**. Update: Desktop **Update WIMS** or launcher banner.  
-
-Details: [scripts/windows/README.md](../scripts/windows/README.md).
-
-### Linux
-
-1. Open the WIMS folder, open **scripts**, and double-click **Install WS Hub**.
-2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**.
-3. Double-click **WS Hub**. The downloaded folder can be deleted; WS Hub now lives in `~/.local/share/ws-hub`.
-
-If Python or the window library is missing, a message names what to install. On Ubuntu and Debian those are `python3` and `python3-tk`. On Fedora the window library is `python3-tkinter`. No `pip` packages for runtime.
+Follow **[INSTALL.md](../INSTALL.md)**: on Linux, double-click **Install WS Hub** in the release's **scripts** folder; on Windows, extract to `C:\WIMS` and double-click **Install-Wims.cmd**. Then use Desktop **WS Hub** every day. Updates come from the **Updates** list in that window.
 
 ---
 
@@ -105,12 +93,12 @@ That joins plane A and double-logs against the agent.
 
 The **N1MM agent** owns digi → this N1MM (Log), Broadcast relay, and KEY.
 
-### 3c. N1MM agent (WIMS) — Log + Broadcast + KEY
+### 3c. N1MM agent — Log + Broadcast + KEY
 
 On the same PC as N1MM:
 
-1. Set `WIMS_SERVER=http://<site-server-lan-ip>:8787` (env or launcher discovery).  
-2. Desktop **WIMS** → check **N1MM** (and **SSB/CW KEY** if this seat has KEY).  
+1. Nothing to type: the agent finds the site server on the LAN. If it does not, put the site address in the WS Hub window under **Other tools…** (site URL).  
+2. Desktop **WS Hub** → check **N1MM** (and **SSB/CW KEY** if this seat has KEY).  
 3. That starts the **N1MM agent** (`wims.seat`) with three sections:
 
 | Section | What it does |
@@ -142,7 +130,7 @@ Identity / flash: [eeprom/README.md](../hardware/keyline_interface/eeprom/README
 ### Software on the N1MM / KEY PC
 
 1. Plug Keyline (Windows: COMx; Linux: `/dev/serial/by-id/…Keyline…` or `/dev/ttyUSB*`).  
-2. Desktop **WIMS** → check **SSB/CW KEY**.  
+2. Desktop **WS Hub** → check **SSB/CW KEY**.  
 3. **KEY device** combobox: pick the Keyline COM/tty (Refresh after plug-in).  
 4. N1MM agent **KEY** section should show CTS idle / KEY down; targets appear after digi instances announce InhibitStatus on this band.
 

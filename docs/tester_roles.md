@@ -1,4 +1,6 @@
-# WIMS — What you install (roles for testers)
+# WS Hub — What you install (roles for testers)
+
+WS Hub was called WIMS before 1.0.18; the code and many file names still say `wims`.
 
 This is the **operator-facing product surface**: what lands on a PC, what each piece is
 for, and what is **not** in the home-tester cut. Use it when evaluating a checkout or a
@@ -13,24 +15,13 @@ future GitHub Release.
 
 ## One tree, one desktop launcher
 
-WIMS is **one codebase** (stdlib Python, no `pip` deps for runtime). You clone or unpack
+WS Hub is **one codebase** (stdlib Python, no `pip` deps for runtime). You clone or unpack
 the tree, run **Install** on Windows if needed, then use the **desktop GUI launcher** —
 same idea as double-clicking N1MM or WSJT-X.
 
-| How you get the tree | Notes |
-|----------------------|--------|
-| `git clone https://github.com/wa1hco/WIMS.git` | Preferred for lab git updates |
-| [GitHub **Release**](https://github.com/wa1hco/WIMS/releases) | `wims-<ver>-windows-x86_64.zip` → `C:\WIMS`; linux `.tar.gz` |
-| [GitHub ZIP of `main`](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip) | Rolling; unversioned |
+**Install once:** **[INSTALL.md](../INSTALL.md)** (Linux: **Install WS Hub**; Windows: `Install-Wims.cmd`). It does **not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
-**Install once:** see **[INSTALL.md](../INSTALL.md)**.  
-**Windows:** `scripts\windows\Install-Wims.cmd` (UAC) or repo-root `.\install.ps1`  
-→ Python ≥ 3.10, Git (clone + GitHub update check; not needed for a Release ZIP), firewall **TCP 8787**, Desktop **WIMS**.  
-**Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
-
-**Linux:** open **scripts** and double-click **Install WS Hub**. Python 3.10 or newer and the window library must be installed (`python3` and `python3-tk`; on Fedora, `python3-tkinter`). If either is missing, a message says what to install.
-
-**Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
+**Everyday start (contest):** double-click Desktop **WS Hub** → **Site server** (one PC);
 on each **N1MM** PC check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent**; on **WSJT** PCs
 optional monitor. Solo is under **lab roles** only.
 
@@ -48,13 +39,13 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 
 | Role / name | What it is | How you start it | Home tester (R0)? |
 |-------------|------------|------------------|-------------------|
-| **Desktop launcher** | GUI: role picker, band port, tooltips, Desktop shortcut helper | Desktop **WIMS** · `python -m wims` · `Start-WimsLauncher.cmd` | **Yes — primary entry** |
-| **Solo** | Site server + browser, single-PC defaults (one WSJT port, no fleet presence) | GUI **Start Solo** · `Start-Wims-Solo.cmd` · `python -m wims solo` | **Yes — primary path** |
-| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins **`2237`** | GUI **Start server** · `Start-WimsServer.cmd` · `python -m wims server` | Optional (Track D / multi-PC) |
+| **Desktop launcher** | GUI: role picker, band port, tooltips, Desktop shortcut helper | Desktop **WS Hub** · `Start-WimsLauncher.cmd` | **Yes — primary entry** |
+| **Solo** | Site server + browser, single-PC defaults (one WSJT port, no fleet presence) | GUI **Start Solo** · `Start-Wims-Solo.cmd` | **Yes — primary path** |
+| **Site server** | Multicast ingest, roster, N1MM seed/live, Work/Halt, HTTP+SSE; fleet joins **`2237`** | GUI **Start server** · `Start-WimsServer.cmd` | Optional (Track D / multi-PC) |
 | **Operator console** | Browser — Operate / Overview / WSJT-X / N1MM / Setup | `http://<host>:8787/` | **Yes** (opened by Solo) |
-| **WSJT monitor** | Local WSJT-X.ini audit + report, UI `:8790` | Launcher **WSJT-X** · `Check-WimsSetup.cmd` · `python -m wims.agent` | Optional on digi PCs |
-| **N1MM agent** | **Broadcast** + **Log** + optional **KEY** | Launcher **N1MM** + **SSB/CW KEY** · `python -m wims.seat --log --key` | Contest N1MM PC |
-| **Inhibit bench** | Lab gate/agent/selftest | `python -m wims key selftest` · `testbed/inhibit_bench.py` | Lab only |
+| **WSJT monitor** | Local WSJT-X.ini audit + report, UI `:8790` | Launcher **WSJT-X** · `Check-WimsSetup.cmd` | Optional on digi PCs |
+| **N1MM agent** | **Broadcast** + **Log** + optional **KEY** | Launcher **N1MM** + **SSB/CW KEY** | Contest N1MM PC |
+| **Inhibit bench** | Lab gate/agent/selftest | `testbed/inhibit_bench.py` (developer) | Lab only |
 | **Seat pack** (Flex 50 / IC-9700 144) | Radio middleware + N1MM + WSJT-X + agent | `Start-Seat-*.cmd`, **`WIMS.cmd`** text menu | Lab / fleet only |
 
 **Naming:** WSJT **monitor** is `wims.agent` (optional for RF). **N1MM agent** is
@@ -81,14 +72,14 @@ meet them as buttons in the GUI (legacy `.cmd` launchers still work):
 
 | Mode | Entry | What you see |
 |------|--------|----------------|
-| Setup check | `Check-WimsSetup.cmd` or `python -m wims.agent --solo` | `[OK]` / `[! ]` / `[XX]` for WSJT-X (+ N1MM probe) |
+| Setup check | `Check-WimsSetup.cmd`, or the WSJT seat check in the WS Hub window | `[OK]` / `[! ]` / `[XX]` for WSJT-X (+ N1MM probe) |
 | Continuous | Launcher **WSJT-X** / `Start-WimsAgent-Continuous.cmd` | **http://127.0.0.1:8790/** + Overview **Agents**. That page can mark this PC’s radio as IF-reporting (21 MHz → 222, 28 MHz → 432). Leave it alone for Flex / real HF. |
 
 ### N1MM agent / KEY / inhibit
 
 | Layer | Location | Tester-facing? |
 |-------|----------|----------------|
-| N1MM agent | `python -m wims.seat --log --key` | Logger PC — Broadcast / Log / KEY |
+| N1MM agent | WS Hub window: **N1MM** (+ **SSB/CW KEY**) | Logger PC — Broadcast / Log / KEY |
 | Pure inhibit logic | `src/wims/interlock/inhibit.py` | No |
 | Inhibit bench | `testbed/inhibit_bench.py` | Lab |
 | Gate inside WSJT-X | [wa1hco/wsjtx-wims](https://github.com/wa1hco/wsjtx-wims) | Separate build |
@@ -105,7 +96,7 @@ If `scripts/windows/` looks crowded, only these matter for home:
 |------|---------|--------|
 | 1. Install prereqs | `Install-Wims.cmd` | Double-click **Install WS Hub**. If a message names a package, install it and follow the message. |
 | 2. Desktop icon | `Install-WIMS-Desktop-Shortcut.cmd` | Same double-click (desktop and app menu) |
-| 3. Open WIMS | Double-click Desktop **WIMS** | same |
+| 3. Open WIMS | Double-click Desktop **WS Hub** | same |
 | 4. In the GUI | **Check this PC**, then **Start Solo** | same |
 | 5. Console | GUI **Open Operate** → http://localhost:8787/ | same |
 
@@ -146,12 +137,12 @@ TX steps in the runbook are **provisional** until the first real-WSJT-X dummy-lo
 | Area | Status |
 |------|--------|
 | CI on GitHub (`validate.sh`) | Done |
-| Release / tester-package workflows | Done; current Release [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0) |
+| Release / tester-package workflows | Done; current Release [`v1.0.0`](https://github.com/wa1hco/WS-Hub/releases/tag/v1.0.0) |
 | Dummy-load Reply echo-exactness | Open (R0 ship gate) |
 | Seat agent: interlock / KEY / mute | Not productized |
 | KEY agent fleet assignment | Lab selftest in GUI only; no server-pushed targets yet |
 | Rotator product path (rotctld, design §2.10) | Not started. A lab sim and an in-process GS-232 helper exist; they are not the product path |
-| Desktop GUI role launcher | Done (`python -m wims` / Desktop **WIMS** icon) |
+| Desktop GUI role launcher | Done (Desktop **WS Hub** icon) |
 | Multi-op claims, remote console polish | Later milestones |
 | Fleet inventory UI + KEY target lists as nodes churn | Design §2.13; not coded |
 

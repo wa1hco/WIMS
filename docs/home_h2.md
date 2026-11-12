@@ -79,7 +79,7 @@ Rules:
 - Unset `tx_capable` means **true** (fleet-safe).  
 - Explicit `false` → Operate **Work denied**; treat as decode-only.  
 - Shared-trx class → config check wants **exactly one** TX-capable mark.  
-- Optional path override: `python -m wims.solo --seat-profile /path/to.json`
+- Developer only: a path override, `python -m wims.solo --seat-profile /path/to.json`
   (same flag on `wims.server.app`).
 
 Edit via **Setup** toggles, or copy the example file into the default path.
@@ -98,7 +98,7 @@ Point that at the **TX-capable** patched gate.
 ## Quick start
 
 1. Run two WSJT-X instances (unique `--rig-name`).  
-2. Start Operate: `Start-Wims-Solo` / `python -m wims.solo`.  
+2. Start Operate: double-click **WS Hub** and click **Start Solo** (Windows: `Start-Wims-Solo.cmd`).  
 3. Open **Setup**. Mark one TX-capable, one decode-only. Save.  
 4. Confirm Status shows **TX** / **decode** badges.  
 5. Work a line on the TX source only.  
