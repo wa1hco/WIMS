@@ -47,3 +47,6 @@ scripts/windows/update-log.txt
 *.swp
 .DS_Store
 Thumbs.db
+
+# Generated into release archives only
+/BUILD_STAMP

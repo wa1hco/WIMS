@@ -35,7 +35,11 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from wims.launcher.server_rev import RESTART_NEEDED_MARK, revision_token
+from wims.launcher.server_rev import (
+    RESTART_NEEDED_MARK,
+    revision_token,
+    revisions_match,
+)
 
 # Same directory as the other per-user WIMS files (last log, launcher lock).
 PID_FILENAME = "site-server.pid"
@@ -69,6 +73,11 @@ DID_NOT_COME_UP_MESSAGE = (
 STILL_OLD_MESSAGE = (
     "The site server came back, but it is still not the installed copy."
 )
+NO_REVISION_MESSAGE = (
+    "The site server came back. This copy does not report a build revision, "
+    "so the installed copy could not be confirmed."
+)
+NO_REVISION_DETAIL = "The site server is running."
 
 
 def other_pc_message(host: str) -> str:
@@ -610,10 +619,13 @@ def health_server_rev(health: dict | None) -> str:
     return raw.strip()
 
 
-def revisions_match(disk_rev: str | None, server_rev: str | None) -> bool:
-    disk = revision_token(disk_rev)
-    server = revision_token(server_rev)
-    return bool(disk and server and disk == server)
+def health_server_version(health: dict | None) -> str:
+    if not _is_site_health(health):
+        return ""
+    raw = health.get("version") if isinstance(health, dict) else None
+    if not isinstance(raw, str):
+        return ""
+    return raw.strip()
 
 
 def _until(
@@ -699,6 +711,8 @@ def banner_for_restart(
     text = (message or "").strip()
     if not text:
         return None
+    if ok and text == NO_REVISION_MESSAGE:
+        return ("ok", text, NO_REVISION_DETAIL)
     if ok and not stale:
         return ("ok", text, RESTARTED_DETAIL)
     if not ok and stale:
@@ -715,6 +729,7 @@ def perform_site_restart(
     disk_rev: str | None,
     fetch_health: Callable[[], dict | None],
     start_server: Callable[[], None],
+    disk_version: str | None = None,
     request_stop: Callable[[], bool] | None = None,
     stop_pid: Callable[[int], None] | None = None,
     listener_pids: list[int] | None = None,
@@ -786,6 +801,7 @@ def perform_site_restart(
         _say(on_log, "No site server on this port. Starting one.")
         return _start_and_confirm(
             disk_rev=disk_rev,
+            disk_version=disk_version,
             fetch_health=fetch_health,
             start_server=start_server,
             on_log=on_log,
@@ -830,6 +846,7 @@ def perform_site_restart(
 
     return _start_and_confirm(
         disk_rev=disk_rev,
+        disk_version=disk_version,
         fetch_health=fetch_health,
         start_server=start_server,
         on_log=on_log,
@@ -859,6 +876,7 @@ def _start_and_confirm(
     rev_timeout_s: float,
     interval_s: float,
     stopped: bool,
+    disk_version: str | None = None,
 ) -> RestartOutcome:
     _say(on_log, "Starting the site server.")
     try:
@@ -867,21 +885,45 @@ def _start_and_confirm(
         _say(on_log, f"Start failed: {exc}")
         return RestartOutcome(False, DID_NOT_COME_UP_MESSAGE, stopped=stopped)
 
-    state = {"saw_other": False, "rev": ""}
+    state = {"saw_other": False, "saw_unknown": False, "rev": ""}
 
     def matched() -> bool:
         try:
             health = fetch_health()
         except Exception:
             return False
-        rev = health_server_rev(health)
-        if not rev:
+        if not _is_site_health(health):
             return False
-        if revisions_match(disk_rev, rev):
-            state["rev"] = revision_token(rev)
+        rev = health_server_rev(health)
+        ver = health_server_version(health)
+        if revisions_match(
+            disk_rev, rev,
+            disk_version=disk_version, server_version=ver,
+        ):
+            token = revision_token(rev) or ver.strip() or (
+                disk_version or ""
+            ).strip()
+            state["rev"] = token
             return True
-        state["saw_other"] = True
-        state["rev"] = revision_token(rev)
+        disk_tok = revision_token(disk_rev)
+        server_tok = revision_token(rev)
+        if disk_tok and server_tok and disk_tok != server_tok:
+            state["saw_other"] = True
+            state["rev"] = server_tok
+            return False
+        if disk_tok or server_tok:
+            # One side has a revision and the other does not yet, or the
+            # versions were not enough to confirm. Wait out the timeout.
+            state["saw_unknown"] = True
+            state["rev"] = server_tok or disk_tok
+            return False
+        dv = (disk_version or "").strip()
+        sv = (ver or "").strip()
+        if dv and sv and dv.lstrip("vV") != sv.lstrip("vV"):
+            state["saw_other"] = True
+            state["rev"] = sv
+            return False
+        state["saw_unknown"] = True
         return False
 
     ok = _until(
@@ -899,6 +941,11 @@ def _start_and_confirm(
         _say(on_log, STILL_OLD_MESSAGE)
         return RestartOutcome(
             False, STILL_OLD_MESSAGE, state["rev"], stopped=stopped,
+        )
+    if state["saw_unknown"]:
+        _say(on_log, NO_REVISION_MESSAGE)
+        return RestartOutcome(
+            True, NO_REVISION_MESSAGE, state["rev"], stopped=stopped,
         )
     _say(on_log, DID_NOT_COME_UP_MESSAGE)
     return RestartOutcome(False, DID_NOT_COME_UP_MESSAGE, stopped=stopped)

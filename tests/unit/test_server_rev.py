@@ -41,6 +41,7 @@ from wims.launcher.server_rev import (  # noqa: E402
     UPDATE_STALE_NOTICE,
     launcher_rev_label,
     restart_server_tip,
+    revisions_match,
     server_restart_needed,
     server_rev_label,
     update_install_notice,
@@ -74,6 +75,33 @@ class CompareTests(unittest.TestCase):
 
     def test_server_down_is_not_a_warning(self):
         self.assertFalse(server_restart_needed(_DISK, None))
+
+    def test_both_unknown_is_not_a_warning_without_versions(self):
+        for token in ("?", "unknown", "", None):
+            self.assertFalse(server_restart_needed(token, token))
+            self.assertFalse(revisions_match(token, token))
+
+    def test_both_unknown_compares_package_version(self):
+        self.assertFalse(server_restart_needed(
+            "?", "?", disk_version="1.0.20", server_version="1.0.20",
+        ))
+        self.assertTrue(revisions_match(
+            "?", "?", disk_version="1.0.20", server_version="v1.0.20",
+        ))
+        self.assertTrue(server_restart_needed(
+            "?", "?", disk_version="1.0.20", server_version="1.0.19",
+        ))
+        self.assertFalse(revisions_match(
+            "?", "?", disk_version="1.0.20", server_version="1.0.19",
+        ))
+
+    def test_sha_is_not_compared_to_a_version(self):
+        self.assertFalse(revisions_match(
+            _DISK, "?", disk_version="1.0.20", server_version="1.0.20",
+        ))
+        self.assertFalse(server_restart_needed(
+            _DISK, "?", disk_version="1.0.20", server_version="1.0.20",
+        ))
 
     def test_label_sits_next_to_the_launcher_revision(self):
         self.assertEqual(
@@ -192,11 +220,14 @@ class FreshStampTests(unittest.TestCase):
             return f"abc{calls['n']} 2026-10-18 00:00:00 +0000\n"
 
         git_stamp.cache_clear()
-        repo = Path("/tmp/wims-rev-test")
-        with mock.patch("wims.gitinfo.subprocess.check_output", side_effect=fake):
-            first = git_stamp(repo)
-            second = git_stamp(repo)
-            fresh = git_stamp_fresh(repo)
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            (repo / ".git").mkdir()
+            with mock.patch("wims.gitinfo.subprocess.check_output", side_effect=fake):
+                first = git_stamp(repo)
+                second = git_stamp(repo)
+                fresh = git_stamp_fresh(repo)
         self.assertEqual(first, second)
         self.assertEqual(first, "abc1 2026-10-18 00:00:00 +0000")
         self.assertEqual(fresh, "abc2 2026-10-18 00:00:00 +0000")

@@ -42,17 +42,54 @@ def revision_token(stamp: str | None) -> str:
     return token
 
 
-def server_restart_needed(disk_rev: str | None, server_rev: str | None) -> bool:
-    """True only when both revisions are known and they differ.
+def revisions_match(
+    disk_rev: str | None,
+    server_rev: str | None,
+    *,
+    disk_version: str | None = None,
+    server_version: str | None = None,
+) -> bool:
+    """True when the running server is the same copy as the tree on disk.
 
-    A server that is down, or an older build that does not report
-    ``server_rev``, is not a mismatch. Unknown disk (``?``) is not either.
+    Compare revision tokens when both are known. When both are unknown
+    (``?``, empty, or missing), compare package versions instead. A SHA
+    is never compared to a version string. One known token and one
+    unknown is not a match.
     """
     disk = revision_token(disk_rev)
     server = revision_token(server_rev)
-    if not disk or not server:
+    if disk and server:
+        return disk == server
+    if disk or server:
         return False
-    return disk != server
+    dv = _plain_version(disk_version)
+    sv = _plain_version(server_version)
+    return bool(dv and sv and dv == sv)
+
+
+def server_restart_needed(
+    disk_rev: str | None,
+    server_rev: str | None,
+    *,
+    disk_version: str | None = None,
+    server_version: str | None = None,
+) -> bool:
+    """True only when both identities are known and they differ.
+
+    A server that is down, or an older build that does not report
+    ``server_rev``, is not a mismatch. Unknown disk (``?``) is not
+    either, unless both sides lack a revision and the package versions
+    are known and differ.
+    """
+    disk = revision_token(disk_rev)
+    server = revision_token(server_rev)
+    if disk and server:
+        return disk != server
+    if not disk and not server:
+        dv = _plain_version(disk_version)
+        sv = _plain_version(server_version)
+        return bool(dv and sv and dv != sv)
+    return False
 
 
 def _plain_version(version: str | None) -> str:
@@ -109,6 +146,7 @@ def restart_server_tip(
     server_version: str | None,
     server_rev: str | None,
     disk_rev: str | None,
+    disk_version: str | None = None,
 ) -> str:
     """What Restart site server is about to reload, and whether it matches disk.
 
@@ -129,9 +167,15 @@ def restart_server_tip(
         installed = f"Installed code: {disk_tok}."
     else:
         installed = "Installed code was not reported."
-    if server_tok and disk_tok and server_tok == disk_tok:
+    if revisions_match(
+        disk_rev, server_rev,
+        disk_version=disk_version, server_version=server_version,
+    ):
         state = "Up to date."
-    elif server_restart_needed(disk_rev, server_rev):
+    elif server_restart_needed(
+        disk_rev, server_rev,
+        disk_version=disk_version, server_version=server_version,
+    ):
         state = RESTART_NEEDED_TIP
     else:
         state = RESTART_PLAIN_TIP
@@ -144,14 +188,19 @@ def update_install_notice(
     disk_rev: str | None,
     server_rev: str | None,
     local_server: bool,
+    disk_version: str | None = None,
+    server_version: str | None = None,
 ) -> str:
     """Updates-list sentence after Install, or empty when nothing extra is due.
 
     Go back, a server that is not on this PC, and an older build with no
-    revision stay quiet.
+    revision stay quiet. A version-only mismatch still asks for a restart.
     """
     if went_back or not local_server:
         return ""
-    if server_restart_needed(disk_rev, server_rev):
+    if server_restart_needed(
+        disk_rev, server_rev,
+        disk_version=disk_version, server_version=server_version,
+    ):
         return UPDATE_STALE_NOTICE
     return ""

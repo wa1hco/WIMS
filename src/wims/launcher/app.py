@@ -3060,6 +3060,7 @@ class LauncherApp:
                     server_version=server_version,
                     server_rev=server_rev,
                     disk_rev=disk_rev,
+                    disk_version=__version__,
                 ))
             except Exception:
                 pass
@@ -3098,8 +3099,12 @@ class LauncherApp:
         restart_shown = bool(
             ok_site and local and not is_wsjt_only_seat(self._current_intent())
         )
-        # No server_rev (older build, or the server is down) → not stale.
-        stale = bool(restart_shown and server_restart_needed(disk, server_rev))
+        # No server_rev (older build, or the server is down) → not stale
+        # unless both sides only have a package version and those differ.
+        stale = bool(restart_shown and server_restart_needed(
+            disk, server_rev,
+            disk_version=__version__, server_version=server_version,
+        ))
         self._server_code_stale = stale
         return stale
 
@@ -3116,6 +3121,7 @@ class LauncherApp:
             base = ""
         ok, used, health = probe_site_with_health(base or None, timeout=0.6)
         server_rev = ""
+        server_version = ""
         if (
             ok
             and isinstance(health, dict)
@@ -3124,6 +3130,9 @@ class LauncherApp:
             raw = health.get("server_rev")
             if isinstance(raw, str):
                 server_rev = raw.strip()
+            raw_v = health.get("version")
+            if isinstance(raw_v, str):
+                server_version = raw_v.strip()
         local = bool(ok and (
             self._local_server_procs() or self._site_url_is_local(used)
         ))
@@ -3132,6 +3141,8 @@ class LauncherApp:
             disk_rev=disk,
             server_rev=server_rev,
             local_server=local,
+            disk_version=__version__,
+            server_version=server_version,
         )
 
     def _reset_console_window(self) -> None:

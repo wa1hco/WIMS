@@ -2630,6 +2630,57 @@ function operateOfferedBands(s) {
   return out;
 }
 
+
+function rosDecodeWord(n) {
+  return Number(n) === 1 ? "decode" : "decodes";
+}
+
+/** Band and max-age filters only — the Show menu is applied separately. */
+function rosPassesBandAndAge(c, selected, maxAge) {
+  if (selected && selected.size) {
+    const hitBand = c.band && c.band !== "?" && selected.has(c.band);
+    const hitInst = c.instance && selected.has(c.instance);
+    const unknown = !c.band || c.band === "?";
+    if (!hitBand && !hitInst && !unknown) return false;
+  }
+  if (maxAge > 0 && c.age != null && c.age > maxAge) return false;
+  return true;
+}
+
+/**
+ * Empty-roster line. Uses the candidates already in the roster window
+ * (server keeps ~5 min; the max-age control may narrow that). Not one
+ * FT8 period, so the text does not say "this period".
+ */
+function rosEmptyText(r, needMode, selected, maxAge) {
+  const cands = (r && Array.isArray(r.candidates)) ? r.candidates : [];
+  if (!cands.length) return "no decodes yet…";
+  const inWindow = cands.filter((c) => rosPassesBandAndAge(c, selected, maxAge));
+  const n = inWindow.length || cands.length;
+  const mode = rosNormalizeNeed(needMode);
+  if (!inWindow.length) {
+    return n + " " + rosDecodeWord(n) + ", none match Show";
+  }
+  if (mode === "needed") {
+    return n + " " + rosDecodeWord(n) + ", none needed";
+  }
+  return n + " " + rosDecodeWord(n) + ", none match Show";
+}
+
+function rosEmptyTip(r, needMode, selected, maxAge) {
+  const cands = (r && Array.isArray(r.candidates)) ? r.candidates : [];
+  if (!cands.length) return "";
+  const inWindow = cands.filter((c) => rosPassesBandAndAge(c, selected, maxAge));
+  const mode = rosNormalizeNeed(needMode);
+  if (!inWindow.length) {
+    return "Band or max age hid every station heard in the roster window.";
+  }
+  if (mode === "needed") {
+    return "Show is Needed. Stations were heard in the current band and max age filters, and none are needed.";
+  }
+  return "The Show menu hid every station in the current band and max age filters.";
+}
+
 function rosDraw() {
   const r = _rosData; if (!r) return;
   rosSyncMaxAgeControl();
@@ -2645,14 +2696,8 @@ function rosDraw() {
   const maxAge = rosMaxAgeSec();
   let rows = r.candidates.filter(c => {
     if (!rosKeepCandidate(c, needMode)) return false;
-    if (selected && selected.size) {
-      const hitBand = c.band && c.band !== "?" && selected.has(c.band);
-      const hitInst = c.instance && selected.has(c.instance);
-      const unknown = !c.band || c.band === "?";
-      // Unknown-band lines stay visible until Status fills dial/band.
-      if (!hitBand && !hitInst && !unknown) return false;
-    }
-    if (maxAge > 0 && c.age != null && c.age > maxAge) return false;
+    // Unknown-band lines stay visible until Status fills dial/band.
+    if (!rosPassesBandAndAge(c, selected, maxAge)) return false;
     return true;
   });
 
@@ -2683,7 +2728,18 @@ function rosDraw() {
     `${needNote} · ${r.not_needed} worked · ${r.count} heard` +
     ` · showing ${rows.length} · ${bandNote} · ${colNote}`;
   const body = $("ros-body"); body.innerHTML = "";
-  $("ros-empty").style.display = rows.length ? "none" : "block";
+  const empty = $("ros-empty");
+  if (empty) {
+    if (rows.length) {
+      empty.style.display = "none";
+    } else {
+      empty.style.display = "block";
+      empty.textContent = rosEmptyText(r, needMode, selected, maxAge);
+      const tip = rosEmptyTip(r, needMode, selected, maxAge);
+      if (tip) empty.title = tip;
+      else empty.removeAttribute("title");
+    }
+  }
   // Drop prior fit widths before painting new cells so measure sees content.
   const table = $("ros");
   const oldFit = table && table.querySelector("colgroup.col-fit, colgroup.ros-fit");
