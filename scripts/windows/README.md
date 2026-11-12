@@ -179,7 +179,7 @@ The `.cmd` files run PowerShell with **`-ExecutionPolicy Bypass` for that run on
 Release ZIPs from a browser often set Mark of the Web. Symptoms: SmartScreen (“Windows protected your PC”), or PowerShell “cannot be loaded because running scripts is disabled” / “not digitally signed”.
 
 1. Use **`Install-Wims.cmd`**, not a bare double-click of `.ps1`.
-2. SmartScreen → **More info** → **Run anyway** (only if you trust [wa1hco/WIMS](https://github.com/wa1hco/WIMS)).
+2. SmartScreen → **More info** → **Run anyway** (only if you trust [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub)).
 3. Unblock downloaded files:
    - Explorer → right-click file → **Properties** → **Unblock** → **OK**
    - Or: `Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1`

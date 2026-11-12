@@ -1,5 +1,7 @@
 # WIMS — WSJT-X Instance Management System: Requirements & Design
 
+> **Name:** the product is **WS Hub** (formerly WIMS) since 1.0.18; the repo is [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub). This design keeps the WIMS name where it names code, files, and history. What is built is in [wims_status.md](wims_status.md).
+
 *Working name: **WIMS** (WSJT-X Instance Management System).*
 
 This is the **requirements / goals / design** source of truth for WIMS — a supervised,

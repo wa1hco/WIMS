@@ -7,7 +7,7 @@ does **not** duplicate them — if the global isn't present on this machine, syn
 rather than copying its contents here (avoids drift). Same pattern as the parallel
 `map144` project.
 
-WIMS (WSJT-X Instance Management System) — a supervised, **human-in-the-loop**
+WS Hub (formerly WIMS, WSJT-X Instance Management System; repo `wa1hco/WS-Hub`; the package, folders, and files keep the `wims` name) — a supervised, **human-in-the-loop**
 operating console for multi-instance VHF contesting (the "WSJT-X wrangler"
 position). Target deployment: a fixed multi-multi VHF effort across several
 vehicles on one LAN; WIMS provides cross-vehicle visibility and lets one console

@@ -1,6 +1,8 @@
-# WIMS — Tester quick start
+# WS Hub — Tester quick start
 
-**Goal:** evaluate WIMS at home or in the lab without needing a full multi-multi contest.
+WS Hub was called WIMS before 1.0.18; some file names and windows still say WIMS.
+
+**Goal:** evaluate WS Hub at home or in the lab without needing a full multi-multi contest.
 
 **What you install (roles):** [tester_roles.md](tester_roles.md) — solo vs server vs seat
 agent vs KEY agent (not in R0), and which Windows scripts matter.
@@ -14,12 +16,12 @@ Pick the **track** that matches what you have. Each track builds on the previous
 | **C** | **WSJT-X + N1MM** (+ optional unique **rig-name**) | Needed/dupe + click-to-Work |
 | **D** | Multi-PC / multi-WSJT (optional) | Fleet-style — separate, more like W2SZ |
 
-**WIMS vs GridTracker at home:** GridTracker is excellent for maps, awards, and day-to-day FT8.
-WIMS is aimed at **contest-style ranking** (needed vs worked, mult-aware roster) and **click-to-work**
+**WS Hub vs GridTracker at home:** GridTracker is excellent for maps, awards, and day-to-day FT8.
+WS Hub is aimed at **contest-style ranking** (needed vs worked, mult-aware roster) and **click-to-work**
 through a controlled path. On one radio at home it is still useful to try; multi-instance is where it
 really differs.
 
-**Not an autobot:** a human always starts TX (roster click). **Call CQ** is done in WSJT-X, not WIMS.
+**Not an autobot:** a person always starts TX (roster click). **Call CQ** is done in WSJT-X, not WS Hub.
 
 ---
 
@@ -27,33 +29,18 @@ really differs.
 
 **Time:** ~15 minutes · **No** WSJT-X or N1MM required.
 
-### A1. Get the tree
+### A1. Install
 
-| Method | |
-|--------|--|
-| Git | `git clone https://github.com/wa1hco/WIMS.git` then `cd WIMS` |
-| ZIP / USB | Folder must contain `src\wims\` and `scripts\windows\` (or `scripts/` on Linux) |
+Follow **[INSTALL.md](../INSTALL.md)**. In short:
 
-### A2. Install prerequisites
+- **Linux:** unpack the release, open **scripts**, double-click **Install WS Hub** (choose **Allow Launching** if asked), then delete the download.
+- **Windows:** extract the zip to `C:\WIMS` and double-click `scripts\windows\Install-Wims.cmd` (allow the permission prompt once). Log: `scripts\windows\install-log.txt`.
 
-**Windows**
+No extra Python packages are required. Git is not required for a release package.
 
-1. Open `scripts\windows\`
-2. Double-click **`Install-Wims.cmd`** → allow UAC once  
-3. Expect: Python, Git (clone + GitHub update check), firewall **TCP 8787**, desktop launchers  
-4. Log: `scripts\windows\install-log.txt`
+### A2. Start the server and open the browser
 
-**Linux**
-
-1. Open the unpacked folder, open **scripts**, and double-click **Install WS Hub**. WS Hub copies itself to `~/.local/share/ws-hub`; the download can then be deleted.
-2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**. Details are in [INSTALL.md](../INSTALL.md).
-3. If a message names a missing package, install that package, then do what the message says.
-
-No extra Python packages are required. Git is not required for a release package or a ZIP of main.
-
-### A3. Start the server and open the browser
-
-**Windows:** Desktop **WIMS** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
+**Windows:** Desktop **WS Hub** → **Site server** (N1MM / dedicated host PC only), or **`Start-WimsServer.cmd`**.  
 **Linux:** double-click **WS Hub**, then start the site server in that window. On one PC, start Solo in that window.
 
 Open:
@@ -71,16 +58,16 @@ Open:
 
 **Full seat settings:** [operator_setup.md](operator_setup.md).
 
-### A4. Optional — seat agent (still no WSJT-X)
+### A3. Optional — seat agent (still no WSJT-X)
 
-**Windows:** **`Start-WimsAgent.cmd`** (one-shot check) or **WIMS Agent** continuous.  
+**Windows:** **`Start-WimsAgent.cmd`** (one-shot check) or check **WSJT-X** in the WS Hub window for the continuous monitor.  
 Local agent UI: http://127.0.0.1:8790/  
 
 **Linux:** double-click **WS Hub** and run the WSJT seat check.
 
 **Pass:** agent prints a setup report; continuous agent appears under Status/Setup **agents** if the server URL is correct.
 
-### A5. Optional — no-RF “fleet” (emulator)
+### A4. Optional — no-RF “fleet” (emulator)
 
 With the **server already running** on the same machine:
 
@@ -135,7 +122,7 @@ Fix anything marked **`[XX]`** before continuing.
 ### B4. Decode
 
 Leave WSJT-X decoding (any band/mode FT8 is fine). Wait 1–2 cycles.
-A 10 m or 15 m dial stays **10m / 15m**. WIMS does not turn 28 MHz into 70 cm
+A 10 m or 15 m dial stays **10m / 15m**. WS Hub does not turn 28 MHz into 70 cm
 unless you mark that rig-name on **Setup** (only for a radio that reports IF,
 such as a 28 MHz transverter).
 
@@ -160,14 +147,12 @@ such as a 28 MHz transverter).
 1. N1MM running and logging (any contest/casual log is fine).  
 2. **Config → Configure Ports → Broadcast Data:** enable **Radio** + **Contacts** → destination **`127.0.0.1:12060`**.  
 3. **N1MM WSJT/JTDX UDP reader → OFF** (obsolete; the N1MM agent Log path owns digi → N1MM).  
-4. Start **N1MM agent** (launcher **N1MM** intent) with `WIMS_SERVER=http://127.0.0.1:8787` (or your site URL).  
-5. **Historical log (dupe/mult seed):** WIMS reads `.s3db` files only on the **machine running the WIMS server**.  
-   - Same PC as N1MM → auto-scans N1MM `UserDir\Databases` (registry), `%USERPROFILE%\Databases`, and `Documents\N1MM Logger+\Databases`. Check server console for **N1MM seed scan dirs**.  
-   - Startup order: **`--seed-db`** (that file only) → **last N1MM-tab pick** (remembered on this PC) → auto latest dated contest.  
-   - Casual **`DX`** loses auto-pick to named contests (e.g. June VHF) — pick yours once on **N1MM** (or `--seed-db`); it sticks after restart.  
-   - If N1MM tab still says no logs while N1MM has `wa1hco.s3db` open: note the full path in N1MM and set `WIMS_SEED_DB_DIR` or pass `--seed-db` to that file.  
-   - Server on another host/VM → **copy** the open log `.s3db` onto the server (or point `WIMS_SEED_DB_DIR` at a share), then **N1MM** → **Rescan** and pick **DX** (or your contest).  
-   - UDP Contacts alone do **not** load your past 11k QSOs — only new QSOs after start.
+4. In the WS Hub window, check **N1MM** to start the **N1MM agent**. It finds the site server on the LAN by itself; if not, put the site address under **Other tools…** (site URL).  
+5. **Historical log (dupe/mult seed):** WS Hub reads N1MM `.s3db` files only on the **PC running the site server**.  
+   - Same PC as N1MM → it looks in the usual N1MM `Databases` folders by itself.  
+   - Pick the log on the **Log** page. Your pick is remembered on this PC. With no pick, it uses the newest dated contest log, so a casual **`DX`** log loses to a named contest until you pick it once.  
+   - Server on another PC → **copy** the open `.s3db` onto the server, then **Log** → **Look again** and pick it.  
+   - UDP Contacts alone do **not** load your past QSOs — only new QSOs after start.
 
 ### C3. Unique rig-name (recommended even with one radio)
 
@@ -176,7 +161,7 @@ Stops future pain if you add a second PC later.
 | Place | What |
 |-------|------|
 | Shortcut / Startup | `"…\wsjtx.exe" --rig-name=HOME-FT8` |
-| WIMS seat pack | `scripts\windows\seat-local.cmd` → `WSJTX_RIG_NAME=HOME-FT8` |
+| Seat pack | `scripts\windows\seat-local.cmd` → `WSJTX_RIG_NAME=HOME-FT8` |
 | Helper | **`Find-And-Set-WsjtxRigName.cmd -RigName HOME-FT8 -Apply`** then exit all `wsjtx.exe` and restart |
 
 ### C4. Prove needed / dupe
@@ -189,11 +174,11 @@ Stops future pain if you add a second PC later.
 
 1. **Accept UDP** still ON.  
 2. Manual double-click in WSJT-X Band Activity works (proves radio).  
-3. Fresh CQ still on Band Activity → **click the roster line** in WIMS.  
-4. WSJT-X fills DX / Enable Tx; **Halt TX** in WIMS stops this console’s Work
+3. Fresh CQ still on Band Activity → **click the roster line** in WS Hub. The station must be in that WSJT-X's own Band Activity; WS Hub cannot start a contact WSJT-X has not decoded.  
+4. WSJT-X fills DX / Enable Tx; **Halt TX** in WS Hub stops this console’s Work
    (not other operators; two bands from this console → both stop).
 
-If click works in WIMS UI but WSJT-X ignores DX: firewall allow **wsjtx.exe** inbound UDP (not only port 2237 — control uses an ephemeral port). Details: [tester_runbook.md](tester_runbook.md) §6.
+If click works in the WS Hub page but WSJT-X ignores DX: firewall allow **wsjtx.exe** inbound UDP (not only port 2237 — control uses an ephemeral port). Details: [tester_runbook.md](tester_runbook.md) §6.
 
 ### C6. What “useful at home” looks like
 
@@ -201,7 +186,7 @@ If click works in WIMS UI but WSJT-X ignores DX: firewall allow **wsjtx.exe** in
 - Click-to-work without hunting Band Activity.  
 - Optional later: second radio / second PC → Track D.
 
-GridTracker remains better for maps and long-term awards; WIMS is better for **“who do I still need and can I answer them from one console?”**
+GridTracker remains better for maps and long-term awards; WS Hub is better for **“who do I still need and can I answer them from one console?”**
 
 ---
 
@@ -220,7 +205,7 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 
 **Minimum dual-PC lab:**
 
-1. **Server PC:** WIMS server (joins **`224.0.0.73:2237`** by default).  
+1. **Server PC:** WS Hub site server (joins **`224.0.0.73:2237`** by default).  
 2. **Each radio PC:** unique rig-name; UDP `224.0.0.73` port **`2237`**; Outgoing interface = LAN; Accept UDP ON.  
 3. Browser → `http://<server-lan-ip>:8787/`.
 
@@ -235,7 +220,7 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | **`Start-Wims-Solo.cmd`** | B / C | One-PC server + browser |
 | **`Check-WimsSetup.cmd`** | B / C | Plain-language setup audit |
 | **`Start-WimsAgent.cmd`** | A | One-shot agent report |
-| **Desktop WIMS** | A / D | Launcher (agents + optional site server) |
+| **Desktop WS Hub** | A / D | Launcher (agents + optional site server) |
 | **`Find-And-Set-WsjtxRigName.cmd`** | C / D | Unique UDP id on launchers |
 
 ---
@@ -245,13 +230,13 @@ GridTracker remains better for maps and long-term awards; WIMS is better for **�
 | Symptom | Likely fix |
 |---------|------------|
 | Browser can’t open :8787 | Server not running; another app on 8787; firewall (server install adds TCP 8787) |
-| Roster empty (Track B/C) | WSJT-X port ≠ WIMS port; UDP Server not multicast; Outgoing interface blank |
+| Roster empty (Track B/C) | WSJT-X port ≠ WS Hub port; UDP Server not multicast; Outgoing interface blank |
 | Two PCs, one WSJT row | Same default id `WSJT-X` — set unique `--rig-name` |
 | Work “ok” but DX blank | Accept UDP off; Windows firewall on **wsjtx.exe**; stale Band Activity line |
 | N1MM sees stations, Send/Receive red | Ethernet is **Public** — N1MM allow-rules are Private-only. Run `Set-ContestLanPrivate.cmd` (UAC) on **each** N1MM PC |
-| Work click / UDP still dead after Private | App rules missing or bound to an old `wsjtx.exe` path. Run `Set-ContestAppFirewall.cmd` (WIMS menu **F**) |
+| Work click / UDP still dead after Private | App rules missing or bound to an old `wsjtx.exe` path. Run `Set-ContestAppFirewall.cmd` (`WIMS.cmd` menu **F**) |
 | Needed never greys | N1MM Broadcast Contacts off; wrong contest log on N1MM tab; no N1MM (Track B) |
-| Bind warning on :2240 | Expected if something else holds 2240 — WIMS no longer uses 2240 for any band |
+| Bind warning on :2240 | Expected if something else holds 2240 — WS Hub no longer uses 2240 for any band |
 
 More detail: [tester_runbook.md](tester_runbook.md) (solo deep dive) · [plan/wims_networking.md](plan/wims_networking.md) (fleet).
 

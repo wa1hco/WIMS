@@ -37,7 +37,7 @@ This design defines **release packages** for Windows (primary) and Linux (second
 | Local seat configs (gitignored) | `scripts/windows/seat-common.cmd`, `seat-local.cmd`, `radio-flex50.cmd`, `radio-ic9700-144.cmd`, `python-path.txt` |
 | Linux | Double-click `scripts/Add WIMS to Desktop.desktop`. System `python3` + `python3-tk` (the dialog names the package if it is missing). The release tarball keeps the executable bit. |
 | CI | `.github/workflows/ci.yml` → `tools/dev/validate.sh` on 3.10/3.12/3.14; version pin `pyproject.toml` ↔ `wims.__version__` |
-| Releases | [`v1.0.0`](https://github.com/wa1hco/WIMS/releases/tag/v1.0.0); Windows bundled runtime still later |
+| Releases | [`v1.0.0`](https://github.com/wa1hco/WS-Hub/releases/tag/v1.0.0); Windows bundled runtime still later |
 | KEY software | IN product: `wims.seat --key` (N1MM agent KEY section) |
 | Keyline hardware tools | OUT of software package: entire `hardware/` (EEPROM flash, `*.bin`, `99-keyline.rules`, KiCad) |
 
@@ -117,7 +117,7 @@ flowchart TB
   KEYSW -->|"uses if present"| KLHW
 ```
 
-**Hard rule:** release zip/tar/deb **must not** contain `hardware/` at all. Operators who need Keyline flash use the git repo + [eeprom README](https://github.com/wa1hco/WIMS/tree/main/hardware/keyline_interface/eeprom) on a builder machine — not the contest USB image.
+**Hard rule:** release zip/tar/deb **must not** contain `hardware/` at all. Operators who need Keyline flash use the git repo + [eeprom README](https://github.com/wa1hco/WS-Hub/tree/main/hardware/keyline_interface/eeprom) on a builder machine — not the contest USB image.
 
 ### Artifact matrix
 

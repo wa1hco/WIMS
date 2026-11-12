@@ -1,246 +1,67 @@
-# WIMS — WSJT-X Instance Management System
+# WS Hub
 
-**Step 1.** Put **WS Hub** on the Desktop and in the Start menu (Linux: the app menu).
+WS Hub (formerly WIMS, the WSJT-X Instance Management System) is one console for a station running several copies of WSJT-X. It gathers every decode into one ranked **call roster**, marks what your goal still needs, and lets one operator answer a station with a click. It works alongside N1MM Logger+, GridTracker, DX cluster spots, and rotators.
 
-| | |
+It is built for multi-multi VHF contesting (the ARRL VHF contests at W2SZ), and it is useful at home with one radio too: a contest, an award such as DXCC or VUCC, or just a checklist of what is worth working.
+
+**A person starts every transmit.** WS Hub never calls CQ and never transmits on its own. Clicking a roster line answers a station that WSJT-X has already decoded; Enable TX and CQ stay in WSJT-X. It also keeps radios that share an antenna or band from transmitting at the same time.
+
+![The Operate page: the call roster](docs/manual/images/site-operate.png)
+
+*The Operate page (an October screenshot, before the WS Hub name and the Show menu).*
+
+## Install
+
+Download the newest release from **[GitHub Releases](https://github.com/wa1hco/WS-Hub/releases)**. The files are still named `wims-<version>-…`.
+
+- **Linux:** unpack the `.tar.gz` anywhere, open **scripts**, and double-click **Install WS Hub**. If the file manager asks, choose **Allow Launching** (or Execute, or Run). WS Hub copies itself to `~/.local/share/ws-hub`; delete the download, then double-click **WS Hub**.
+- **Windows:** extract the `.zip` to `C:\WIMS`, open `scripts\windows`, and double-click **Install-Wims.cmd**. Then double-click **WS Hub** on the Desktop.
+
+Step by step, with what to do when the desktop asks a question: **[INSTALL.md](INSTALL.md)**. Updates come from the **Updates** list in the WS Hub window.
+
+## What it does today
+
+- **Call roster** on the Operate page: every decode from every WSJT-X, ranked by score, with Country, distance, and heading. A badge says why a station is needed (grid, state, DXCC, CQ zone, ITU zone, continent, or call); in a contest it says **mult**. Click a line to **Work** that station in the WSJT-X that heard it; **Halt TX** stops what your console started.
+- **Goals:** a contest, an award (DXCC, Worked All States, VUCC), a checklist, or your own list, checked against the log you choose. WS Hub reads logs and never changes them.
+- **Spotted:** DX cluster spots the goal still needs, on any band, filtered by mode (SSB, CW, FT8, FT4, Other). A spot on a band with no WSJT-X running is marked **QSY**. A click selects the station; it does not retune or transmit yet.
+- **Headings:** from the grid when one is known; otherwise an approximate heading from the station's country, marked `~`. WS Hub never guesses a grid square.
+- **N1MM:** digital contacts go into N1MM, and N1MM's log decides dupes and mults.
+- **Transmit interlock:** radios in one group never transmit together, and an SSB/CW key line can hold a patched WSJT-X off the air.
+- **Rotators:** headings are read through hamlib `rotctld`.
+
+What is planned and not built yet (for example, a spot click that retunes the radio and points the antenna) is in **[the build status](docs/plan/wims_status.md)**.
+
+## Documentation
+
+| For | Read |
 |--|--|
-| Windows | Double-click [`scripts\Add WIMS to Desktop.bat`](scripts/Add%20WIMS%20to%20Desktop.bat) |
-| Linux | Double-click [`scripts/Install WS Hub.desktop`](scripts/Install%20WS%20Hub.desktop) |
+| Installing | [INSTALL.md](INSTALL.md) |
+| Using the console | [User manual](docs/User-manual.md) |
+| Setting up WSJT-X, N1MM, and the key line | [Operator setup](docs/operator_setup.md) |
+| Trying it at home, step by step | [Tester quick start](docs/tester_quickstart.md) · [What each piece is](docs/tester_roles.md) |
+| Every file you can double-click | [scripts/README.md](scripts/README.md) |
+| Networking a multi-PC station | [Networking](docs/plan/wims_networking.md) |
+| How it is designed, and what is built | [Design](docs/plan/wims_design.md) · [Build status](docs/plan/wims_status.md) |
+| What changed in each version | [Release notes](docs/releases/) |
 
-**Step 2.** Double-click **WS Hub**. After an update from 1.0.17 or earlier, the icon may still say **WIMS**; double-click it once and it becomes **WS Hub**.
-
-The WIMS window opens. Start Operate or the site server there, and the console opens in the browser at <http://localhost:8787/>. If that window is already open, double-clicking the icon brings it to the front.
-
-Every file you can double-click is listed in [scripts/README.md](scripts/README.md).
-
-Supervised, **human-in-the-loop** console for multi-instance VHF contesting: one operator sees a
-ranked **call roster** across the fleet and **clicks to work** stations (S&P / tailend via WSJT-X
-UDP Reply). Works with N1MM+, optional GridTracker, and rotators. **Not an autobot** — a human
-starts every exchange; **run/CQ** stays in the seat WSJT-X UI (design §2.12).
-
-On Setup, **Goal** is what you want from the stations you hear (a contest, an award, just operating, or your own list). The line under it is the rule in plain language. Changing it applies immediately. Just operating uses a **Checklist**: tick what is worth working, each line overall, on each band, or on each mode. **Advanced** holds a custom rule, and station state and county. The log WIMS checks is on **Log**: which file, and whether to count the whole log, contacts from now, or this year. To compare log files, double-click **Check logs**, or open Log → **Check logs**. The first line says how many logs were read and what is missing. WIMS only reads logs.
-
-| Where the choice is saved | |
-|--|--|
-| Linux | `~/.config/wims/` |
-| Windows | `%APPDATA%\wims\` |
-
-The checklist is checked against the log you chose. A contest goal suggests the newest matching contest log only when you have not chosen one. Your choice stays until you change it.
-
-> Design: [docs/plan/wims_design.md](docs/plan/wims_design.md) ·
-> Status: [docs/plan/wims_status.md](docs/plan/wims_status.md)
-
-## Install & quick start
-
-**Short install guide:** **[INSTALL.md](INSTALL.md)** — Release package or ZIP, then the double-click installer for your system.  
-**Testers / home evaluation:**  
-**[docs/tester_quickstart.md](docs/tester_quickstart.md)** — tracks from *no radio apps* → WSJT-X only → WSJT-X+N1MM → optional multi-PC.  
-**What you install (roles):** [docs/tester_roles.md](docs/tester_roles.md) — solo vs server vs N1MM agent / WSJT monitor.  
-**Seat setup (WSJT-X · N1MM · Keyline):** [docs/operator_setup.md](docs/operator_setup.md).
-
-Full instructions for a **new machine with nothing installed** (except Windows or Linux itself).
-WIMS is **stdlib-only** (no `pip install`); the Windows installer brings in Python/Git/firewall.
-
-Versioned packages (when cut): [GitHub Releases](https://github.com/wa1hco/WIMS/releases)
-(`wims-<ver>-windows-x86_64.zip`, `wims-<ver>-linux-x86_64.tar.gz`).  
-Design: [docs/plan/wims_release_packages.md](docs/plan/wims_release_packages.md).
-
-### A. Windows — full setup (site server or lab PC)
-
-**Installer (pick one):**
-
-| Entry | Notes |
-|-------|--------|
-| [`scripts/windows/Install-Wims.cmd`](scripts/windows/Install-Wims.cmd) | Double-click; allow **UAC** (recommended) |
-| [`install.ps1`](install.ps1) | Repo-root wrapper (map144-style); same logic |
-
-Prefer the **`.cmd`** path. It starts PowerShell with `-ExecutionPolicy Bypass` for that run only. You do **not** need to change machine policy, and scripts are **not** Authenticode-signed yet.
-
-#### Windows blocks unsigned scripts / downloads
-
-GitHub Release ZIPs and browser downloads often carry a Mark of the Web. Windows may block `.ps1` / warn on first run.
-
-1. **Prefer** double-click **`Install-Wims.cmd`** (not `install.ps1` alone).
-2. If **SmartScreen** says “Windows protected your PC”: click **More info** → **Run anyway** (only if you trust [wa1hco/WIMS](https://github.com/wa1hco/WIMS)).
-3. If Explorer / PowerShell says the file is **blocked** or “not digitally signed”:
-   - In Explorer: right-click the **zip** (before extract) or `Install-Wims.cmd` / `install.ps1` → **Properties** → check **Unblock** → **OK**.
-   - Or in PowerShell from `C:\WIMS`:
-     ```powershell
-     Unblock-File -Path .\scripts\windows\*.cmd, .\scripts\windows\*.ps1, .\install.ps1
-     ```
-4. To run the root wrapper when policy still blocks `.ps1`:
-   ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-   ```
-
-Do **not** set a permanent `Set-ExecutionPolicy Unrestricted` unless you already manage that on the PC.
-
-| If missing, install adds | How |
-|--------------------------|-----|
-| **Python ≥ 3.10** | `winget`, else silent download of python.org **3.12.x** |
-| **Git** | `winget` — clone **and** launcher “Update available” (`git fetch origin/main`). Skipped for Release ZIP trees (no `.git`) |
-| **Firewall rule TCP 8787** | so browsers on the LAN can open the console |
-| **Start launchers + desktop shortcut** | pins the real `python.exe` path in `python-path.txt` (PATH not required; LibreOffice / Store stub ignored) |
-
-**Not** installed by WIMS: N1MM Logger+, WSJT-X, GridTracker, radio drivers — install those
-separately if this PC is a radio seat.
-
-#### 1. Get the WIMS tree onto the PC (pick one)
-
-| Method | Steps |
-|--------|--------|
-| **USB / network share** (offline-friendly) | Copy a full `WIMS` folder to e.g. `C:\WIMS` |
-| **GitHub Release ZIP** | [Releases](https://github.com/wa1hco/WIMS/releases) → `wims-*-windows-x86_64.zip` → extract to `C:\WIMS` |
-| **GitHub ZIP of `main`** | [main.zip](https://github.com/wa1hco/WIMS/archive/refs/heads/main.zip), extract to e.g. `C:\WIMS` |
-| **Git already installed** | `git clone https://github.com/wa1hco/WIMS.git C:\WIMS` |
-
-You only need the folder that contains `src\wims\` and `scripts\windows\`.
-
-#### 2. Run the installer (installs missing prereqs)
-
-1. If the tree came from a browser download, **Unblock** first (section above).
-2. Open Explorer → `C:\WIMS\scripts\windows\` (or your path).
-3. Double-click **`Install-Wims.cmd`**.
-4. Click **Yes** on the UAC prompt (needed for machine-wide Python and firewall).
-5. Wait until it reports success. Log: `scripts\windows\install-log.txt`.  
-   On failure: re-run Install, or see [scripts/windows/README.md](scripts/windows/README.md)
-   (“If you still see Python not found”).
-
-#### 3. Start the site server
-
-- Desktop **WIMS** → **Site server** (N1MM or dedicated host PC — not a WSJT-X-only seat), or **`Start-WimsServer.cmd`**.
-- Browser on this PC: [http://localhost:8787/](http://localhost:8787/)  
-  · Overview `/overview` · WSJT-X `/wsjt` · Log `/log` · N1MM `/n1mm` (several stations) · Setup `/setup`
-
-Use the **contest LAN IP** for `--iface` when other hosts must reach the server (the Start script
-defaults are lab-oriented; details in [scripts/windows/README.md](scripts/windows/README.md)).
-
-#### 4. Point radios / operators at it
-
-| Role | What to install / do |
-|------|----------------------|
-| **This PC = site server only** | WIMS install above is enough. Optional: copy an N1MM contest file onto the server, then choose it on the Log page. |
-| **Radio seat** (N1MM + WSJT-X) | Install N1MM/WSJT-X yourself. Multicast + **Outgoing interface = LAN**. Browser → `http://<server-ip>:8787/`. Seat agent pack: same `scripts\windows\` folder — see **Full Windows guide** below. |
-| **Operator laptop** | Browser only → `http://<server-ip>:8787/` (no WIMS install). |
-
-**Full Windows guide** (seat auto-start, agent, offline flags, troubleshooting):  
-**[scripts/windows/README.md](scripts/windows/README.md)**
-
-**Fleet networking** (ports, N1MM, WSJT-X settings, readiness):  
-**[docs/plan/wims_networking.md](docs/plan/wims_networking.md)**
-
-### B. Linux — first time on this PC
-
-1. Unpack the download anywhere (Downloads is fine) and open that folder.
-2. Open **scripts**.
-3. Double-click **Install WS Hub**.
-
-WS Hub copies itself to `~/.local/share/ws-hub` in your home folder and puts **WS Hub** (formerly WIMS) on the desktop and in the app menu. You can then delete the download. Double-click **WS Hub**.
-
-The file manager may ask once before that first file runs:
-
-- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Install WS Hub** and click **Allow Launching**. Then double-click it again.
-- **KDE:** If a window asks whether to open or run the file, click **Execute**.
-- **XFCE:** If a window asks whether to run the file, click **Execute**.
-- **Cinnamon:** If a window asks, click **Run**. If it says the file is not trusted, right-click it and click **Allow Launching**, then double-click it again.
-
-If the file opens as a page of text, the download dropped the permission to run it. Right-click **Install WS Hub**, open **Properties**, allow it to run as a program, and double-click it again.
-
-If Python or the window library is missing, a message names what to install. Install that, then do what the message says.
-
-### C. Already installed — just run
-
-Double-click **WS Hub**. On Windows the same window is **Start-WimsLauncher** in `scripts\windows\`. On one PC with WSJT-X, **Start-Wims-Solo** opens Operate and the browser.
-
----
-
-## What it does
-
-- **Call roster** — every decode ranked by expected score; click for **S&P or tailend** (Reply on
-  a retained decode, including **73**). **Run/CQ** is not started from WIMS (design §2.12).
-- **Contest scoring** — explainable factors; **N1MM** is dupe/mult authority; WIMS keeps a log copy.
-- **Cross-vehicle console** — one roster + health instead of chat-only coordination.
-- **Multi-operator** — soft control claims; cooperative team (design §2.7).
-- **Zero TX overlap** per resource group; **SSB/CW priority** with preventive gate + 10 ms mute
-  (design §3.4.1).
-- **Setup assist** — connectivity checks, fleet discovery, plain-language readiness.
-- **Dial is RF by default.** 28.074 MHz stays 10m (Flex / SmartSDR already
-  report RF). Mark a seat on **Setup** only when its radio reports IF
-  (Roy 222 at 21 MHz, Roy 432 at 28 MHz). No environment variable.
-
-## Architecture at a glance
-
-```
-   WSJT-X #1 (6m FT8) ┐
-   WSJT-X #2 (6m MSK) ┤          ┌──────────────────────────┐
-   WSJT-X #3 (2m FT8) ┼─UDP──▶  │          WIMS            │ ◀── human override (SSB/CW op)
-   WSJT-X #N ...       ┘         │  - UDP parse/control     │
-        ▲                        │  - multi-instance mgr    │
-        │  Reply / HaltTx /      │  - INTERLOCK (TX arbiter)│──▶ Dashboard
-        │  FreeText / Replay     │  - decision engine       │
-        └────────────────────────│  - safety / watchdog     │
-                                 └───────┬─────────┬────────┘
-                                         │         │
-                           N1MM+ (log, ◀┘          └▶ Rotators (seat agent → rotctld)
-                           dupe/needed)
-```
-
-**Site server** = multicast consumer + console control (Reply / Halt / Free Text — not Call CQ).
-Consoles are browsers. Soft claim who may command TX from the console; local seat **run/CQ**
-(Enable Tx in WSJT-X) is attended by the seat op. 10 ms SSB/CW mute runs on the **radio host
-agent**, not through the server. Design §2.12 / §4 / §4.5.
-Rotator control is designed and not built yet: the seat agent speaks hamlib
-rotctld, and the console never sees a port (design §2.10).
-
-## Status
-
-**Phase-1 read-only console is live** (roster, interlock, N1MM sync, agents, three-page UI).
-Operate also has a separate **Spotted** list of DX cluster spots (other bands included;
-a click does not transmit or retune). PSK Reporter and the other hint lists are not built.
-Command path (click-to-work) and later milestones: [wims_status.md](docs/plan/wims_status.md).
-
-## Repository layout
-
-```
-WIMS/
-├── docs/plan/            design · status · networking
-├── scripts/              double-click launchers (see scripts/README.md)
-├── tools/dev/            tests, packaging, lab helpers
-├── src/wims/             server, udp, engine, interlock, n1mm, agent, …
-├── testbed/              WSJT-X emulator, interlock bench
-└── tests/unit/           no-pytest unit suites
-```
+Inside the program, the code, folders, and files still use the old name `wims` (for example `src/wims` and `C:\WIMS`). That is expected.
 
 ## Developer
 
-Typed commands, path variables, and flags are for people changing WIMS. Operators use the Desktop icon.
+For people changing WS Hub. Operators use the desktop icon.
 
-On a Mac, double-click is not available. From the WIMS folder: `scripts/add-wims-to-desktop.sh`.
+WS Hub is plain Python 3.10+ with no packages to install. From a clone of [wa1hco/WS-Hub](https://github.com/wa1hco/WS-Hub):
 
 ```bash
-# from the repo root; the checkout shim finds src/ with no path variable
 python3 -m wims version
 python3 -m wims solo --no-open
-python3 -m wims.logaudit
-tools/dev/validate.sh
+tools/dev/validate.sh        # the same checks CI runs
 ```
 
-```bat
-set PYTHONPATH=src
-python -m wims solo
-```
-
-Log compare flags (`--adif`, `--n1mm-db`, `--lotw`, `--json`) are optional. With no arguments the compare tool uses the WSJT-X logs it can find on this PC.
+On a Mac there is no double-click installer; from the folder run `scripts/add-wims-to-desktop.sh`. Cutting a release: [INSTALL.md](INSTALL.md#cut-a-release-maintainers).
 
 ## License
 
-WIMS is free software licensed under the **GNU General Public License v3.0 or later**
-(**GPL-3.0-or-later**). See [LICENSE](LICENSE) for the full text.
+WS Hub is free software under the **GNU General Public License v3.0 or later** (GPL-3.0-or-later). See [LICENSE](LICENSE).
 
     Copyright (C) 2026 Jeff Millar, WA1HCO
-
-    This program is free software: you can redistribute it and/or modify it
-    under the terms of the GNU General Public License as published by the Free
-    Software Foundation, either version 3 of the License, or (at your option)
-    any later version. It is distributed WITHOUT ANY WARRANTY; see the license
-    for details.

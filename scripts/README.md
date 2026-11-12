@@ -16,8 +16,8 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `_say.sh` — Shows a plain message in a window when this PC has one.
 - `install-linux.sh` — Shell entry for a Linux install. Double-click Install WS Hub.desktop instead.
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
-- `start-wims.sh` — Open the WIMS window. The desktop icon runs this. If that window is already open, this brings it forward.
-- `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WIMS window uses.
+- `start-wims.sh` — Open the WS Hub window. The desktop icon runs this. If that window is already open, this brings it forward.
+- `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WS Hub window uses.
 - `windows/Check-Logs.cmd` — See whether the logs on this PC agree.
 - `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
 - `windows/Find-And-Set-WsjtxRigName.cmd` — Point WSJT-X shortcuts at the right rig name.
