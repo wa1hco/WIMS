@@ -72,5 +72,15 @@ class ManifestBuildTests(unittest.TestCase):
             self.m.build_manifest(repo_root=ROOT, tag_or_version="9.9.9")
 
 
+class PackageReleaseScriptTests(unittest.TestCase):
+    def test_script_writes_and_requires_build_stamp(self):
+        text = (ROOT / "tools" / "dev" / "package-release.sh").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("write_build_stamp", text)
+        self.assertIn("BUILD_STAMP", text)
+        self.assertIn('        "BUILD_STAMP" \\', text)
+
+
 if __name__ == "__main__":
     unittest.main()

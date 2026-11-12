@@ -31,6 +31,8 @@ from wims.launcher.site_restart import (  # noqa: E402
     NOT_IDENTIFIED_MESSAGE,
     NOT_WIMS_MESSAGE,
     NOT_WIMS_PROCESS_MESSAGE,
+    NO_REVISION_DETAIL,
+    NO_REVISION_MESSAGE,
     STILL_OLD_MESSAGE,
     banner_for_restart,
     clear_site_server_pid,
@@ -66,7 +68,8 @@ class _Clock:
         self.t += float(dt)
 
 
-def _health(rev: str, *, pid: int | None = None, host: str = "shack") -> dict:
+def _health(rev: str, *, pid: int | None = None, host: str = "shack",
+            version: str | None = None) -> dict:
     body = {
         "ok": True,
         "role": "wims-site-server",
@@ -75,6 +78,8 @@ def _health(rev: str, *, pid: int | None = None, host: str = "shack") -> dict:
     }
     if pid is not None:
         body["pid"] = pid
+    if version is not None:
+        body["version"] = version
     return body
 
 
@@ -311,6 +316,94 @@ class RestartTests(unittest.TestCase):
         self.assertTrue(state["started"])
         self.assertEqual(outcome.message, STILL_OLD_MESSAGE)
         self.assertNotEqual(outcome.message, restarted_message("ccc3333"))
+
+    def test_unknown_revisions_with_the_same_version_are_a_match(self):
+        state = {"up": True, "started": False}
+
+        def fetch():
+            if not state["up"]:
+                return None
+            return _health("?", pid=4242 if not state["started"] else 5000,
+                           version="1.0.20")
+
+        def start() -> None:
+            state["started"] = True
+            state["up"] = True
+
+        outcome = self._run(
+            disk_rev="?",
+            disk_version="1.0.20",
+            fetch_health=fetch,
+            start_server=start,
+            request_stop=lambda: False,
+            stop_pid=lambda _pid: state.update(up=False),
+            listener_pids=[4242],
+            argv_of=lambda pid: _SOLO if pid == 4242 else _NGINX,
+            alive=lambda pid: pid == 4242 and not state["started"],
+            port_open=lambda: state["up"],
+        )
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.message, restarted_message("1.0.20"))
+        self.assertNotEqual(outcome.message, STILL_OLD_MESSAGE)
+
+    def test_unknown_revisions_without_a_version_are_honest_not_an_error(self):
+        state = {"up": True, "started": False}
+
+        def fetch():
+            if not state["up"]:
+                return None
+            return _health("?", pid=4242 if not state["started"] else 5000)
+
+        def start() -> None:
+            state["started"] = True
+            state["up"] = True
+
+        outcome = self._run(
+            disk_rev="?",
+            fetch_health=fetch,
+            start_server=start,
+            request_stop=lambda: False,
+            stop_pid=lambda _pid: state.update(up=False),
+            listener_pids=[4242],
+            argv_of=lambda pid: _SOLO if pid == 4242 else _NGINX,
+            alive=lambda pid: pid == 4242 and not state["started"],
+            port_open=lambda: state["up"],
+        )
+        self.assertTrue(outcome.ok)
+        self.assertEqual(outcome.message, NO_REVISION_MESSAGE)
+        self.assertNotEqual(outcome.message, STILL_OLD_MESSAGE)
+        banner = banner_for_restart(
+            in_progress=False, message=outcome.message, ok=True, stale=False,
+        )
+        self.assertEqual(banner, ("ok", NO_REVISION_MESSAGE, NO_REVISION_DETAIL))
+
+    def test_unknown_revisions_with_different_versions_are_a_mismatch(self):
+        state = {"up": True, "started": False}
+
+        def fetch():
+            if not state["up"]:
+                return None
+            return _health("?", pid=4242 if not state["started"] else 5000,
+                           version="1.0.19")
+
+        def start() -> None:
+            state["started"] = True
+            state["up"] = True
+
+        outcome = self._run(
+            disk_rev="?",
+            disk_version="1.0.20",
+            fetch_health=fetch,
+            start_server=start,
+            request_stop=lambda: False,
+            stop_pid=lambda _pid: state.update(up=False),
+            listener_pids=[4242],
+            argv_of=lambda pid: _SOLO if pid == 4242 else _NGINX,
+            alive=lambda pid: pid == 4242 and not state["started"],
+            port_open=lambda: state["up"],
+        )
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.message, STILL_OLD_MESSAGE)
 
     def test_server_that_does_not_come_back_says_so(self):
         state = {"up": True}

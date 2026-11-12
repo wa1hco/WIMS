@@ -130,6 +130,27 @@ This package omits hardware/ (Keyline flash/KiCad). KEY *software*
 EOF
 
     cp "$STAGE/manifest.json" "$dest_root/manifest.json"
+
+    # Release trees have no .git. A BUILD_STAMP lets the launcher and
+    # site server compare the running copy with the installed one.
+    PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}" python3 - "$ROOT" "$DISPLAY" "$dest_root" <<'STAMPY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+version = sys.argv[2]
+dest = Path(sys.argv[3])
+sys.path.insert(0, str(root / "src"))
+from wims.gitinfo import collect_build_identity, write_build_stamp
+
+ident = collect_build_identity(root, version)
+write_build_stamp(
+    dest,
+    version=ident["version"],
+    commit=ident["commit"],
+    stamp=ident["stamp"],
+)
+STAMPY
 }
 
 deny_check() {
@@ -165,6 +186,7 @@ deny_check() {
         "install.sh" \
         "INSTALL.md" \
         "manifest.json" \
+        "BUILD_STAMP" \
         "README-INSTALL.txt"
     do
         if [ ! -e "$root/$need" ]; then
