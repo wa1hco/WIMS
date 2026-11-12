@@ -461,7 +461,10 @@ class ReleaseListTests(unittest.TestCase):
 
 class ApplyReleaseTests(unittest.TestCase):
     def test_refuses_a_non_git_tree(self):
-        with tempfile.TemporaryDirectory() as td:
+        # Windows cannot replace a running folder; Linux uses the tarball path.
+        with tempfile.TemporaryDirectory() as td, mock.patch(
+            "wims.launcher.update_check._can_replace_tree", return_value=False,
+        ):
             ok, msg = apply_release(Path(td), "v1.2.0")
         self.assertFalse(ok)
         self.assertIn("not installed from git", msg)

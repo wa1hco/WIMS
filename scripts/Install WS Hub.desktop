@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Version=1.0
-Name=Add WIMS to Desktop
-GenericName=Install WIMS
-Comment=Put WIMS on the desktop and in the app menu
+Name=Install WS Hub
+GenericName=Install WS Hub
+Comment=Install WS Hub and put it on the desktop and in the app menu
 # If this opened as a page of text, right-click it, choose Properties, allow it
 # to run as a program, and double-click it again.
 # The Exec line is escaped so the desktop can store it. Leave the backslashes.

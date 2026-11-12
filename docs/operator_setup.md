@@ -37,9 +37,9 @@ Details: [scripts/windows/README.md](../scripts/windows/README.md).
 
 ### Linux
 
-1. Open the WIMS folder, open **scripts**, and double-click **Add WIMS to Desktop**.
+1. Open the WIMS folder, open **scripts**, and double-click **Install WS Hub**.
 2. If the file manager asks, click **Allow Launching**, **Execute**, or **Run**.
-3. Double-click **WIMS**.
+3. Double-click **WS Hub**. The downloaded folder can be deleted; WS Hub now lives in `~/.local/share/ws-hub`.
 
 If Python or the window library is missing, a message names what to install. On Ubuntu and Debian those are `python3` and `python3-tk`. On Fedora the window library is `python3-tkinter`. No `pip` packages for runtime.
 

@@ -28,7 +28,7 @@ same idea as double-clicking N1MM or WSJT-X.
 → Python ≥ 3.10, Git (clone + GitHub update check; not needed for a Release ZIP), firewall **TCP 8787**, Desktop **WIMS**.  
 **Does not** install N1MM, WSJT-X, GridTracker, or radio drivers.
 
-**Linux:** open **scripts** and double-click **Add WIMS to Desktop**. Python 3.10 or newer and the window library must be installed (`python3` and `python3-tk`; on Fedora, `python3-tkinter`). If either is missing, a message says what to install.
+**Linux:** open **scripts** and double-click **Install WS Hub**. Python 3.10 or newer and the window library must be installed (`python3` and `python3-tk`; on Fedora, `python3-tkinter`). If either is missing, a message says what to install.
 
 **Everyday start (contest):** double-click Desktop **WIMS** → **Site server** (one PC);
 on each **N1MM** PC check **N1MM** (+ **SSB/CW KEY**) → **N1MM agent**; on **WSJT** PCs
@@ -103,7 +103,7 @@ If `scripts/windows/` looks crowded, only these matter for home:
 
 | Step | Windows | Linux |
 |------|---------|--------|
-| 1. Install prereqs | `Install-Wims.cmd` | Double-click **Add WIMS to Desktop**. If a message names a package, install it and follow the message. |
+| 1. Install prereqs | `Install-Wims.cmd` | Double-click **Install WS Hub**. If a message names a package, install it and follow the message. |
 | 2. Desktop icon | `Install-WIMS-Desktop-Shortcut.cmd` | Same double-click (desktop and app menu) |
 | 3. Open WIMS | Double-click Desktop **WIMS** | same |
 | 4. In the GUI | **Check this PC**, then **Start Solo** | same |

@@ -23,15 +23,17 @@ Sibling digi builds: [wsjtx-inhibit Releases](https://github.com/wa1hco/wsjtx-in
 
 The release file is `wims-<ver>-linux-x86_64.tar.gz`. A ZIP of `main` works too.
 
-1. Unpack it and open the WIMS folder.
-2. Open **scripts**.
-3. Double-click **Add WIMS to Desktop**.
+1. Unpack it anywhere. Downloads is fine.
+2. Open the unpacked folder, then open **scripts**.
+3. Double-click **Install WS Hub**.
 
-**WS Hub** (formerly WIMS) is then on the desktop and in the app menu. Double-click **WS Hub**.
+WS Hub copies itself to the WS Hub folder in your home folder (`~/.local/share/ws-hub`) and puts **WS Hub** (formerly WIMS) on the desktop and in the app menu. You can then delete the download. Double-click **WS Hub**.
+
+To install a newer release the same way, unpack it and double-click **Install WS Hub** again. It replaces the copy in your home folder and keeps your settings. A git clone is not copied; its icon points at the clone.
 
 The file manager may ask once:
 
-- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Add WIMS to Desktop** and click **Allow Launching**. Then double-click it again.
+- **Ubuntu and other GNOME desktops:** If a message says the file is not trusted, right-click **Install WS Hub** and click **Allow Launching**. Then double-click it again.
 - **KDE:** If a window asks whether to open or run the file, click **Execute**.
 - **XFCE:** If a window asks whether to run the file, click **Execute**.
 - **Cinnamon:** If a window asks, click **Run**. If it says the file is not trusted, right-click it and click **Allow Launching**, then double-click it again.

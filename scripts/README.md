@@ -4,7 +4,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 
 <!-- scripts-allowlist -->
 - `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu. Also adds Check logs.
-- `Add WIMS to Desktop.desktop` — Linux: double-click to put a WIMS icon on the desktop and in the app menu. Also adds Check logs.
+- `Install WS Hub.desktop` — Linux: double-click to install WS Hub. A download is copied to `~/.local/share/ws-hub` (a git clone stays put), then the WS Hub icon goes on the desktop and in the app menu. Also adds Check logs.
 - `add-wims-to-desktop.sh` — What the Linux desktop file runs. Also adds Check logs.
 - `Check logs.bat` — Windows: see whether the logs on this PC agree.
 - `Check logs.sh` — See whether the logs on this PC agree. Opens the result in the browser.
@@ -14,7 +14,7 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `assets/wims.png` — Icon used on the Linux desktop entry.
 - `_resolve-python.sh` — Finds Python for the other Linux start files.
 - `_say.sh` — Shows a plain message in a window when this PC has one.
-- `install-linux.sh` — Shell entry for a Linux install. Double-click Add WIMS to Desktop.desktop instead.
+- `install-linux.sh` — Shell entry for a Linux install. Double-click Install WS Hub.desktop instead.
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
 - `start-wims.sh` — Open the WIMS window. The desktop icon runs this. If that window is already open, this brings it forward.
 - `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WIMS window uses.
