@@ -66,7 +66,7 @@ import os, sys
 try:
     import tkinter as tk
     from tkinter import messagebox
-    root = tk.Tk()
+    root = tk.Tk(className="ws-hub")
     root.withdraw()
     try:
         root.attributes("-topmost", True)

@@ -136,6 +136,7 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
         self.assertIn("Icon=", text)
         self.assertIn("scripts/start-wims.sh", text.replace("\\", "/"))
         self.assertIn("/bin/bash", text)
+        self.assertIn("StartupWMClass=ws-hub\n", text)
         self.assertNotIn("PYTHONPATH", text)
         self.assertNotIn("-m ", text)
 
@@ -148,6 +149,7 @@ class ZeroKnowledgeWordingTests(unittest.TestCase):
 
         text = linux_check_logs_desktop_entry_text()
         self.assertIn("Name=Check logs\n", text)
+        self.assertNotIn("StartupWMClass=", text)
         self.assertNotIn("python", text.lower())
         shortcut = (ROOT / "scripts" / "windows" / "Install-WimsDesktopShortcut.ps1").read_text(
             encoding="utf-8"

@@ -16,6 +16,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+from unittest import mock
 import zipfile
 from pathlib import Path
 
@@ -235,6 +236,7 @@ class InstallerScriptTests(unittest.TestCase):
                 self.assertIn("Name=WS Hub\n", text)
                 self.assertIn("/bin/bash", text)
                 self.assertIn("start-wims.sh", text)
+                self.assertIn("StartupWMClass=ws-hub\n", text)
                 gio = gio_log.read_text(encoding="utf-8")
                 self.assertIn("metadata::trusted", gio)
                 self.assertIn("true", gio)
@@ -314,6 +316,7 @@ class ReleaseTreeInstallTests(unittest.TestCase):
                 self.assertIn(f"Path={installed}\n", entry)
                 self.assertIn(f"Icon={installed}/scripts/assets/wims.png", entry)
                 self.assertIn(f"{installed}/scripts/start-wims.sh", entry)
+                self.assertIn("StartupWMClass=ws-hub\n", entry)
                 self.assertNotIn("Downloads", entry)
                 self.assertFalse((folder / "WIMS.desktop").exists())
             self.assertTrue(other.is_file())
@@ -477,6 +480,107 @@ def _member(members: dict, suffix: str):
     if not hits:
         raise AssertionError(f"missing {suffix}")
     return hits[0]
+
+
+class DesktopWmClassTests(unittest.TestCase):
+    """GNOME dock matching: StartupWMClass and rewrite of existing icons."""
+
+    def test_launcher_entry_startup_wmclass_matches_tk_classname(self):
+        from wims.launcher.app import (
+            WM_CLASS_LAUNCHER,
+            linux_check_logs_desktop_entry_text,
+            linux_desktop_entry_text,
+        )
+
+        self.assertEqual(WM_CLASS_LAUNCHER, "ws-hub")
+        text = linux_desktop_entry_text()
+        self.assertIn(f"StartupWMClass={WM_CLASS_LAUNCHER}\n", text)
+        # Check logs is a terminal + browser, not a Tk window.
+        check = linux_check_logs_desktop_entry_text()
+        self.assertNotIn("StartupWMClass=", check)
+
+    def test_production_tk_roots_set_classname(self):
+        missing = []
+        for folder in (ROOT / "src", ROOT / "scripts"):
+            for path in folder.rglob("*"):
+                if path.suffix not in {".py", ".sh"} or not path.is_file():
+                    continue
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                for i, line in enumerate(lines):
+                    if "tk.Tk(" not in line and "tkinter.Tk(" not in line:
+                        continue
+                    window = "\n".join(lines[max(0, i - 1) : i + 2])
+                    if "className" not in window:
+                        rel = path.relative_to(ROOT)
+                        missing.append(f"{rel}:{i + 1}: {line.strip()}")
+        self.assertEqual(missing, [])
+
+    def test_update_rewrites_existing_linux_entries_missing_wmclass(self):
+        from wims.launcher import app
+
+        if sys.platform.startswith("win"):
+            self.skipTest("Linux desktop entries")
+        stale = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=WS Hub\n"
+            f"Path={app._REPO_ROOT}\n"
+            "Exec=/bin/bash /tmp/ws-hub/scripts/start-wims.sh\n"
+            "StartupNotify=true\n"
+        )
+        other_tree = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=WS Hub\n"
+            "Path=/opt/other-ws-hub\n"
+            "Exec=/bin/bash /opt/other-ws-hub/scripts/start-wims.sh\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            desk = home / "Desktop"
+            menu = home / ".local" / "share" / "applications"
+            desk.mkdir(parents=True)
+            menu.mkdir(parents=True)
+            (desk / "WS Hub.desktop").write_text(stale, encoding="utf-8")
+            (menu / "WS Hub.desktop").write_text(stale, encoding="utf-8")
+            foreign = desk / "Other.desktop"
+            foreign.write_text(other_tree, encoding="utf-8")
+            with mock.patch.object(Path, "home", return_value=home), mock.patch(
+                "wims.launcher.app.mark_linux_launcher_trusted"
+            ), mock.patch("wims.launcher.app._refresh_applications_menu"):
+                path = app.migrate_legacy_shortcut()
+                self.assertEqual(path, desk / "WS Hub.desktop")
+                # Already current: a later start does not rewrite again.
+                self.assertIsNone(app.migrate_legacy_shortcut())
+            for folder in (desk, menu):
+                text = (folder / "WS Hub.desktop").read_text(encoding="utf-8")
+                self.assertIn("StartupWMClass=ws-hub\n", text)
+                self.assertIn(f"Path={app._REPO_ROOT}\n", text)
+            self.assertEqual(foreign.read_text(encoding="utf-8"), other_tree)
+
+    def test_refresh_leaves_another_installs_icon_alone(self):
+        from wims.launcher import app
+
+        if sys.platform.startswith("win"):
+            self.skipTest("Linux desktop entries")
+        foreign = (
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=WS Hub\n"
+            "Path=/opt/other-ws-hub\n"
+            "Exec=/bin/bash /opt/other-ws-hub/scripts/start-wims.sh\n"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            desk = home / "Desktop"
+            desk.mkdir(parents=True)
+            target = desk / "WS Hub.desktop"
+            target.write_text(foreign, encoding="utf-8")
+            with mock.patch.object(Path, "home", return_value=home), mock.patch(
+                "wims.launcher.app.mark_linux_launcher_trusted"
+            ), mock.patch("wims.launcher.app._refresh_applications_menu"):
+                self.assertIsNone(app.refresh_linux_desktop_entries())
+            self.assertEqual(target.read_text(encoding="utf-8"), foreign)
 
 
 if __name__ == "__main__":

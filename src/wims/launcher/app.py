@@ -122,6 +122,11 @@ _ICON_PNG = _REPO_ROOT / "scripts" / "assets" / "wims.png"
 # "WIMS"; writing the new shortcut removes that one so there is never two.
 SHORTCUT_NAME = "WS Hub"
 _LEGACY_SHORTCUT_NAMES = ("WIMS",)
+# X11 instance name (first WM_CLASS field) for every WS Hub Tk window.
+# Tk capitalizes the class (second field) to "Ws-hub". Ubuntu's dock matches
+# StartupWMClass against the instance first, so the desktop entry uses this
+# same string.
+WM_CLASS_LAUNCHER = "ws-hub"
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
 _DEFAULT_SITE = LOCAL_SITE
@@ -366,6 +371,11 @@ def find_icon_path() -> Path | None:
 def find_window_icon_path() -> Path | None:
     """Tk window icon — PNG on Linux, ICO on Windows when available."""
     return find_icon_path()
+
+
+def new_tk_root(tk_mod, class_name: str = WM_CLASS_LAUNCHER):
+    """A top-level window GNOME can match to the WS Hub desktop icon."""
+    return tk_mod.Tk(className=class_name)
 
 
 def _which_browser(candidate: str) -> str | None:
@@ -693,11 +703,17 @@ def linux_desktop_entry_text() -> str:
         "Terminal=false\n"
         "Categories=HamRadio;Network;\n"
         "StartupNotify=true\n"
+        f"StartupWMClass={WM_CLASS_LAUNCHER}\n"
     )
 
 
 def linux_check_logs_desktop_entry_text() -> str:
-    """Freedesktop entry for the occasional log compare. Not the live console."""
+    """Freedesktop entry for the occasional log compare. Not the live console.
+
+    Check logs opens in a terminal and then a browser, so it has no Tk
+    WM_CLASS. StartupWMClass is omitted on purpose: a value of ws-hub would
+    steal the main window's dock icon, and a made-up class would not match.
+    """
     icon = find_icon_path()
     icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
     script = _REPO_ROOT / "scripts" / "Check logs.sh"
@@ -832,6 +848,49 @@ def write_linux_desktop_shortcut() -> Path:
     return path
 
 
+def _linux_entry_is_this_tree(text: str) -> bool:
+    """True when a .desktop file was written for this program folder."""
+    return f"Path={_REPO_ROOT}" in text
+
+
+def refresh_linux_desktop_entries() -> Path | None:
+    """Rewrite existing Linux icons so they stay in step with this copy.
+
+    After an in-app update the window restarts under the new code. If the
+    Desktop or app-menu icon already starts this folder but is missing
+    StartupWMClass (or other current fields), it is rewritten. Does not
+    create a first icon on a PC that never added one. Never raises.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        menu = Path.home() / ".local" / "share" / "applications"
+        candidates = [
+            desktop_dir() / f"{SHORTCUT_NAME}.desktop",
+            menu / f"{SHORTCUT_NAME}.desktop",
+        ]
+        found_ours = False
+        stale = False
+        want = f"StartupWMClass={WM_CLASS_LAUNCHER}"
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if not _linux_entry_is_this_tree(text):
+                continue
+            found_ours = True
+            if want not in text:
+                stale = True
+        if found_ours and stale:
+            return write_linux_desktop_shortcut()
+    except Exception:
+        return None
+    return None
+
+
 def write_windows_shortcut() -> Path:
     """Create/refresh Desktop "WS Hub.lnk" with sticky custom icon.
 
@@ -908,8 +967,11 @@ def write_windows_shortcut() -> Path:
 def migrate_legacy_shortcut() -> Path | None:
     """Rename an older WIMS Desktop icon to WS Hub, once, after an update.
 
-    Only acts when the old icon is still on the Desktop, so a PC that never
-    added the icon gets none. Never raises.
+    Only creates an icon when the old one is still on the Desktop, so a PC
+    that never added the icon gets none. On Linux, also rewrites an existing
+    WS Hub icon for this folder when it is missing current fields such as
+    StartupWMClass, so an in-app update picks up the dock-icon match.
+    Never raises.
     """
     try:
         desk = desktop_dir()
@@ -925,9 +987,9 @@ def migrate_legacy_shortcut() -> Path | None:
             for n in _LEGACY_SHORTCUT_NAMES
         ) and not (desk / f"{SHORTCUT_NAME}.desktop").is_file():
             return write_linux_desktop_shortcut()
+        return refresh_linux_desktop_entries()
     except Exception:
         return None
-    return None
 
 
 class LauncherApp:
@@ -3669,7 +3731,7 @@ def show_operator_message(text: str) -> None:
         import tkinter as tk
         from tkinter import messagebox
 
-        root = tk.Tk()
+        root = new_tk_root(tk)
     except Exception:
         if not show_plain_message(text):
             print(text, flush=True)
@@ -3751,7 +3813,7 @@ def main(argv: list[str] | None = None) -> int:
         print(WINDOW_LIBRARY_MESSAGE, file=sys.stderr)
         return 2
 
-    root = tk.Tk()
+    root = new_tk_root(tk)
     # Temporary size. _fit_default_geometry then fits through Other tools….
     root.geometry("560x440")
     LauncherApp(root)
