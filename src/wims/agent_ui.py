@@ -108,7 +108,9 @@ class AgentStatusWindow:
         self._on_quit = on_quit
         self._poll_ms = max(250, int(poll_ms))
         self.tk = tk
-        self.root = root or tk.Tk()
+        # Same WM_CLASS as the launcher so the dock shows the WS Hub icon,
+        # not the generic Tk one. className is only set when we create the root.
+        self.root = root or tk.Tk(className="ws-hub")
         self._owns_root = root is None
         self.root.title("WIMS agent")
         # Tall enough for Broadcast + Log + KEY rows without a manual resize.

@@ -220,6 +220,7 @@ class RoleCatalogTests(unittest.TestCase):
                 self.assertFalse((folder / "WIMS.desktop").exists())
                 text = (folder / "WS Hub.desktop").read_text(encoding="utf-8")
                 self.assertIn("Name=WS Hub\n", text)
+                self.assertIn("StartupWMClass=ws-hub\n", text)
             self.assertTrue(other.is_file())
 
     def test_no_desktop_icon_means_no_migration(self):
