@@ -30,7 +30,7 @@ if not defined WIMS_SEAT_ID (
   )
 )
 
-if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+REM WIMS_SERVER is optional; if unset, the agent discovers the site server.
 
 set "SEAT_ARGS="
 if defined WIMS_SEAT_ID set "SEAT_ARGS=--seat-id %WIMS_SEAT_ID%"

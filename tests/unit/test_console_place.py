@@ -380,7 +380,8 @@ class ReuseDecisionTests(unittest.TestCase):
             self.assertNotIn("python", text.lower())
         self.assertIn("already open", console_open_message("reuse").lower())
         self.assertIn("cannot be placed", console_open_message("browser"))
-        self.assertIn("cannot be placed", console_open_message("kiosk"))
+        self.assertIn("Opened the site console", console_open_message("kiosk"))
+        self.assertIn("usual browser instead", console_open_message("browser-fallback"))
         self.assertIn("Chrome", console_open_message("browser"))
 
 

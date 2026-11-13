@@ -28,7 +28,7 @@ if not exist "%PYTHON_EXE%" if /I not "%PYTHON_EXE%"=="py" if /I not "%PYTHON_EX
 REM Seat defaults (site server URL) before GUI — same as other seat scripts.
 if exist "%~dp0seat-common.cmd" call "%~dp0seat-common.cmd"
 if exist "%~dp0seat-local.cmd" call "%~dp0seat-local.cmd"
-if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+REM WIMS_SERVER is optional; if unset, WS Hub finds or starts the site server.
 
 REM Prefer pythonw / pyw so starting WIMS does not open a python.exe console.
 set "GUI_EXE=%PYTHON_EXE%"

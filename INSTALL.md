@@ -64,7 +64,7 @@ Settings are not in the program folder, so installing or updating keeps them.
 
 ## After installing
 
-- One PC with WSJT-X: double-click **WS Hub** and click **Start Solo**. The console opens at <http://localhost:8787/>.
+- One PC with WSJT-X: double-click **WS Hub**. If no site server is already on the network, this PC starts one and the console opens at <http://localhost:8787/>.
 - A station with several PCs: one PC runs the site server; see [Operator setup](docs/operator_setup.md) and [Networking](docs/plan/wims_networking.md).
 - Using the console: [User manual](docs/User-manual.md).
 

@@ -42,7 +42,7 @@ from wims.launcher.assets import (
 
 
 class SeatIntentTests(unittest.TestCase):
-    def test_wsjt_only_seat_never_starts_server(self):
+    def test_wsjt_only_seat_can_host_server_when_intent_on(self):
         a = agents_for_intent({
             INTENT_N1MM: False,
             INTENT_WSJT: True,
@@ -52,19 +52,22 @@ class SeatIntentTests(unittest.TestCase):
         self.assertTrue(is_wsjt_only_seat({
             INTENT_WSJT: True, INTENT_N1MM: False,
         }))
-        self.assertFalse(a[AGENT_SERVER])
+        self.assertTrue(a[AGENT_SERVER])
         self.assertTrue(a[AGENT_WSJT])
 
-    def test_offer_site_server_wsjt_seat_never(self):
+    def test_offer_site_server_wsjt_seat_when_none_or_local(self):
         wsjt = {
             INTENT_N1MM: False, INTENT_WSJT: True,
             INTENT_SSB_CW: False, INTENT_SERVER: False,
         }
-        self.assertFalse(offer_site_server(
+        self.assertTrue(offer_site_server(
             wsjt, site_reachable=False, local_server=False,
         ))
-        self.assertFalse(offer_site_server(
+        self.assertTrue(offer_site_server(
             wsjt, site_reachable=True, local_server=True,
+        ))
+        self.assertFalse(offer_site_server(
+            wsjt, site_reachable=True, local_server=False,
         ))
 
     def test_offer_site_server_n1mm_hides_when_remote_running(self):
