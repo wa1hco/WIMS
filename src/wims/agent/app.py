@@ -27,8 +27,8 @@ links — zero-memory operator path) when ``--server`` / WIMS_SERVER is unset.
 
 Run:
   python -m wims.agent
-  python -m wims.agent --server http://192.168.1.119:8787
-  python -m wims.agent --daemon --server http://192.168.1.119:8787
+  python -m wims.agent --server http://192.168.x.y:8787
+  python -m wims.agent --daemon --server http://192.168.x.y:8787
   python -m wims.agent --lab
 """
 
@@ -50,6 +50,7 @@ if __package__ in (None, ""):
 
 from wims.agent.export import export_report  # noqa: E402
 from wims.agent.report import build_report, format_report_text, format_wsjtx_html_table  # noqa: E402
+from wims.launcher.site_choice import adopt_discovered_server_url, same_site_host  # noqa: E402
 
 # Presence is optional at import time so a half-updated tree still runs the scan.
 try:
@@ -146,9 +147,18 @@ class AgentState:
             self.presence = beacon
             if beacon:
                 base = (beacon.get("console_base") or "").rstrip("/")
-                # Prefer discovered URL when operator did not pin --server.
-                if base and not self.configured_server:
-                    self.server_url = base
+                export = self.export_result or {}
+                current_reachable = not (
+                    bool(self.server_url) and export.get("ok") is False
+                )
+                new = adopt_discovered_server_url(
+                    self.server_url,
+                    base,
+                    configured=self.configured_server,
+                    current_reachable=current_reachable,
+                )
+                if new:
+                    self.server_url = new
 
     def get_presence(self) -> dict | None:
         with self._lock:
@@ -174,47 +184,13 @@ class AgentState:
         return b
 
 
-def _url_host(url: str) -> str:
-    """Hostname/IP from a console base URL (lowercased, no brackets)."""
-    try:
-        from urllib.parse import urlparse
-        host = (urlparse(url).hostname or "").strip().lower()
-        return host[1:-1] if host.startswith("[") and host.endswith("]") else host
-    except Exception:
-        return ""
-
-
 def _same_site_host(configured: str, discovered: str) -> bool:
     """True when configured and discovered URLs are the same site.
 
-    ``http://127.0.0.1:8787`` vs ``http://192.168.1.181:8787`` on this PC is
-    normal (launcher often pins localhost; presence advertises the LAN IP) —
-    not an operator fault and not worth a yellow banner.
+    http://127.0.0.1:8787 vs this PC's LAN address is normal (the launcher
+    often pins localhost; presence advertises the LAN IP).
     """
-    a = (configured or "").rstrip("/")
-    b = (discovered or "").rstrip("/")
-    if not a or not b:
-        return True
-    if a == b:
-        return True
-    ha, hb = _url_host(a), _url_host(b)
-    if not ha or not hb:
-        return False
-    if ha == hb:
-        return True
-    loopback = {"127.0.0.1", "localhost", "::1"}
-    local_ips = set()
-    try:
-        from wims.agent.report import _lan_ips
-        local_ips = {ip.strip().lower() for ip in (_lan_ips() or []) if ip}
-    except Exception:
-        pass
-    # Either side is loopback and the other is this machine's LAN address.
-    if ha in loopback and (hb in loopback or hb in local_ips):
-        return True
-    if hb in loopback and (ha in loopback or ha in local_ips):
-        return True
-    return False
+    return same_site_host(configured, discovered)
 
 
 def _presence_block_html(state: AgentState) -> str:
@@ -681,7 +657,7 @@ def main(argv: list[str] | None = None) -> int:
         help="stay running: local UI on --local-port + periodic rescan/export (startup script)",
     )
     ap.add_argument("--server", default=os_env_server(),
-                    help="site server base URL (e.g. http://192.168.1.119:8787); "
+                    help="site server base URL (e.g. http://192.168.x.y:8787); "
                          "also WIMS_SERVER env. If omitted, discover via presence multicast.")
     ap.add_argument("--export", action="store_true",
                     help="one-shot: POST report when --server is set (also implied if --server given); "

@@ -473,7 +473,7 @@ class AgentHomePanel:
                 self.restart_needed_lbl.pack_forget()
 
     def set_server_intent_visible(self, visible: bool) -> None:
-        """Show or hide the Site server checkbox (never offered on WSJT-X seats)."""
+        """Show or hide the Site server checkbox (hidden when a remote server is up)."""
         row = self._server_intent_row
         if row is None:
             return

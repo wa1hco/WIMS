@@ -9,7 +9,8 @@ REM   radio-flex50.cmd        / radio-flex50.example.cmd
 REM   radio-ic9700-144.cmd    / radio-ic9700-144.example.cmd
 
 REM Site WIMS server (agent reports here)
-set "WIMS_SERVER=http://192.168.1.119:8787"
+REM Optional. Leave unset to discover, or pin e.g. http://192.168.x.y:8787
+REM set "WIMS_SERVER=http://192.168.x.y:8787"
 
 REM Optional: which pack Install-WimsSeatStartup / Start-WimsSeat default to
 REM   flex50 | ic9700-144

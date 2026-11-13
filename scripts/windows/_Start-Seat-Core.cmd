@@ -62,7 +62,7 @@ if "!SMARTSDR_DIR!"=="" set "SMARTSDR_DIR=C:\Program Files\SmartSDR v4.2.20"
 if "!SMARTSDR_EXE!"=="" if not "!SMARTSDR_DIR!"=="" set "SMARTSDR_EXE=!SMARTSDR_DIR!\SmartSDR.exe"
 if "!SMARTSDR_CAT_EXE!"=="" if not "!SMARTSDR_DIR!"=="" set "SMARTSDR_CAT_EXE=!SMARTSDR_DIR!\CAT.exe"
 if "!SMARTSDR_DAX_EXE!"=="" if not "!SMARTSDR_DIR!"=="" set "SMARTSDR_DAX_EXE=!SMARTSDR_DIR!\DAX.exe"
-if "!WIMS_SERVER!"=="" set "WIMS_SERVER=http://192.168.1.119:8787"
+REM WIMS_SERVER is optional; if unset, WS Hub finds or starts the site server.
 
 if "!LOG!"=="" set "LOG=%HERE%seat-startup-log.txt"
 echo [%DATE% %TIME%] Seat begin stack=!RADIO_STACK! label=!SEAT_LABEL! > "%LOG%"

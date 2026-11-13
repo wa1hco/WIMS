@@ -550,8 +550,13 @@ def console_open_message(mode: str) -> str:
     """One plain sentence for the Details log. No flags, no variables."""
     if mode == "reuse":
         return "Console is already open. Reloading that window."
-    if mode == "app":
+    if mode in ("app", "kiosk"):
         return "Opened the site console."
+    if mode == "browser-fallback":
+        return (
+            "The dedicated console window did not stay open. "
+            "Opened the console in the usual browser instead."
+        )
     return (
         "The console opened in the usual browser. "
         "That window cannot be placed. "

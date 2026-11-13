@@ -67,7 +67,6 @@ from wims.launcher.assets import (
     INTENT_WSJT,
     agents_for_intent,
     detect_assets,
-    is_wsjt_only_seat,
     load_key_device,
     load_antennas,
     AssetSnapshot,
@@ -80,6 +79,11 @@ from wims.launcher.assets import (
     save_seat_intent,
     seat_intent_saved,
     seed_intent_from_assets,
+)
+from wims.launcher.site_choice import (
+    LOCAL_SITE,
+    same_site_host,
+    should_host_local_site_server,
 )
 from wims.launcher.home_panel import AgentHomePanel
 from wims.launcher.process_replace import (
@@ -120,7 +124,7 @@ SHORTCUT_NAME = "WS Hub"
 _LEGACY_SHORTCUT_NAMES = ("WIMS",)
 _DETAILS_LOG = _REPO_ROOT / "scratch" / "launcher-details.log"
 
-_DEFAULT_SITE = "http://192.168.1.119:8787"
+_DEFAULT_SITE = LOCAL_SITE
 # Pixels under the last fitted row so the checkbox border is not clipped.
 _HOME_FIT_PAD = 4
 # Other tools… may grow the window, then scroll. The margin stays small so
@@ -485,15 +489,8 @@ _FIREFOX_USER_CHROME = """\
 
 def _kiosk_profile_dir() -> Path:
     """Dedicated Firefox/Chrome profile so the console is not mixed with browsing."""
-    if sys.platform.startswith("win"):
-        local = (os.environ.get("LOCALAPPDATA") or "").strip()
-        if local:
-            return Path(local) / "WIMS" / "kiosk-profile"
-        return Path.home() / "AppData" / "Local" / "WIMS" / "kiosk-profile"
-    xdg = (os.environ.get("XDG_DATA_HOME") or "").strip()
-    if xdg:
-        return Path(xdg) / "wims" / "kiosk-profile"
-    return Path.home() / ".local" / "share" / "wims" / "kiosk-profile"
+    from wims.console.kiosk import default_kiosk_profile_dir
+    return default_kiosk_profile_dir()
 
 
 def prepare_firefox_kiosk_profile(profile: Path | None = None) -> Path:
@@ -538,7 +535,10 @@ def _firefox_kiosk_command(url: str) -> list[str] | None:
     for candidate in candidates:
         executable = _which_browser(candidate)
         if executable:
-            profile = prepare_firefox_kiosk_profile()
+            from wims.console.kiosk import firefox_kiosk_profile_dir
+            profile = prepare_firefox_kiosk_profile(
+                firefox_kiosk_profile_dir(executable),
+            )
             return [
                 executable,
                 "--new-instance",
@@ -550,37 +550,98 @@ def _firefox_kiosk_command(url: str) -> list[str] | None:
     return None
 
 
+def _open_url_in_default_browser(url: str) -> str:
+    """Open the console with the desktop's usual browser (no dedicated profile)."""
+    if sys.platform.startswith("linux"):
+        xdg = shutil.which("xdg-open")
+        if xdg:
+            subprocess.Popen(
+                [xdg, url],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return "browser"
+    webbrowser.open(url)
+    return "browser"
+
+
+def _start_console_command(command: list[str], *, mode: str, hidden: bool) -> str:
+    """Start a dedicated console window; fall back if it exits immediately."""
+    from wims.console.kiosk import (
+        clear_console_pid,
+        console_process_stayed_up,
+        remember_console_pid,
+    )
+
+    kw: dict = {}
+    if hidden:
+        kw["stdout"] = subprocess.DEVNULL
+        kw["stderr"] = subprocess.DEVNULL
+    proc = subprocess.Popen(command, **kw)
+    if console_process_stayed_up(proc):
+        remember_console_pid(proc.pid)
+        return mode
+    try:
+        proc.wait(timeout=1)
+    except Exception:
+        pass
+    clear_console_pid()
+    return ""
+
+
 def open_wims_url(url: str) -> str:
     """Open the site console on this PC, or reload the one already open.
 
     A page on another PC is not "already open" here. Chrome, Chromium, and
-    Edge get an app window whose spot is saved. Anything else is today's
-    browser open; the caller says the window cannot be placed.
+    Edge get an app window whose spot is saved. Snap Firefox gets a profile
+    it can write. If a dedicated window exits immediately, the usual
+    browser opens the same URL instead.
     """
+    from wims.console.kiosk import (
+        hold_console_launch_lock,
+        live_console_pid,
+    )
     from wims.console.place import local_console_is_open, request_console_reload
 
     if local_console_is_open(url):
         request_console_reload(url)
         return "reuse"
-    configured = os.environ.get("WIMS_BROWSER", "").strip()
-    # Honor an explicit Firefox choice before Chromium --app= (this PC).
-    if configured and "firefox" in Path(configured).name.lower():
+
+    with hold_console_launch_lock() as got_lock:
+        if local_console_is_open(url):
+            request_console_reload(url)
+            return "reuse"
+        if live_console_pid() is not None:
+            # Another start is already bringing the window up.
+            return "reuse"
+        if not got_lock:
+            return _open_url_in_default_browser(url)
+
+        configured = os.environ.get("WIMS_BROWSER", "").strip()
+        # Honor an explicit Firefox choice before Chromium --app= (this PC).
+        if configured and "firefox" in Path(configured).name.lower():
+            command = _firefox_kiosk_command(url)
+            if command:
+                mode = _start_console_command(command, mode="kiosk", hidden=False)
+                if mode:
+                    return mode
+                _open_url_in_default_browser(url)
+                return "browser-fallback"
+        command = _browser_app_command(url)
+        if command:
+            mode = _start_console_command(command, mode="app", hidden=True)
+            if mode:
+                return mode
+            _open_url_in_default_browser(url)
+            return "browser-fallback"
         command = _firefox_kiosk_command(url)
         if command:
-            subprocess.Popen(command)
-            return "kiosk"
-    command = _browser_app_command(url)
-    if command:
-        subprocess.Popen(
-            command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        )
-        return "app"
-    command = _firefox_kiosk_command(url)
-    if command:
-        subprocess.Popen(command)
-        return "kiosk"
-    webbrowser.open(url)
-    return "browser"
+            mode = _start_console_command(command, mode="kiosk", hidden=False)
+            if mode:
+                return mode
+            _open_url_in_default_browser(url)
+            return "browser-fallback"
+        return _open_url_in_default_browser(url)
 
 
 def desktop_dir() -> Path:
@@ -894,6 +955,7 @@ class LauncherApp:
         self._site_var = tk.StringVar(value=site_base_url())
         self._card_widgets: dict[str, dict] = {}
         self._discovering = False
+        self._site_choice_ready = False
         self._last_wsjt_sev: str | None = None
         self._last_wsjt_msg: str = ""
         self._site_ok = False
@@ -1119,8 +1181,6 @@ class LauncherApp:
             antennas=load_antennas(),
             on_antennas_change=self._on_antennas_change,
         )
-        if is_wsjt_only_seat(self._current_intent()):
-            self._home_panel.set_server_intent_visible(False)
         self._updates = UpdatesPanel(
             home,
             tk=tk,
@@ -2178,7 +2238,9 @@ class LauncherApp:
         self._apply_site_server_policy(ok_site=ok_site, base=base)
 
         # During an update, do not restart agents that were stopped for the pull.
-        if not self._updating:
+        # Wait for LAN discovery (or auto-host) so agents are not pointed at
+        # a guessed address before we know whether a server is already up.
+        if not self._updating and (self._site_choice_ready or ok_site):
             intent = self._current_intent()
             want = agents_for_intent(intent)
             # Combined N1MM seat: restart if log/key flags changed.
@@ -2299,9 +2361,6 @@ class LauncherApp:
         self._refresh_status()
 
     def _start_agent(self, agent_id: str, *, open_browser: bool = False) -> None:
-        if agent_id == AGENT_SERVER and is_wsjt_only_seat(self._current_intent()):
-            self._append_log("WSJT-X seat: not starting site server.")
-            return
         role_id = self._agent_role[agent_id]
         if self._proc_running(role_id) or agent_id in self._starting:
             self._append_log(f"{agent_id} agent already starting/running — not starting a second copy.")
@@ -2496,7 +2555,9 @@ class LauncherApp:
 
     def _apply_discovered_site(self, url: str | None) -> None:
         self._discovering = False
+        self._site_choice_ready = True
         if url:
+            previous = (self._site_var.get() or "").strip()
             self._site_var.set(url)
             os.environ["WIMS_SERVER"] = url
             save_last_site_url(url)
@@ -2504,12 +2565,22 @@ class LauncherApp:
             if not self._proc_running("server"):
                 self._site_external = True
             self._append_log(f"Site server: {url}")
+            self._repoint_agents_if_needed(previous, url)
+        elif should_host_local_site_server(
+            discovery_done=True,
+            site_reachable=False,
+            last_site_url=load_last_site_url(),
+            env_server=(os.environ.get("WIMS_SERVER") or "").strip() or None,
+        ):
+            self._auto_host_local_site_server()
         else:
             self._site_ok = False
             self._append_log(
                 f"No site server heard — using {self._site_var.get() or site_base_url()}"
             )
         self._refresh_status()
+        if self._replace_done:
+            self._sync_detect_and_agents()
 
     def _fetch_wsjt_report(self) -> None:
         """Pull last agent summary from local monitor (best-effort)."""
@@ -2805,8 +2876,40 @@ class LauncherApp:
             pass
         return out
 
+    def _auto_host_local_site_server(self) -> None:
+        """No server on the LAN — run one on this PC and open the console."""
+        base = LOCAL_SITE
+        self._site_var.set(base)
+        os.environ["WIMS_SERVER"] = base
+        self._server_start_blocked = False
+        self._intent_vars[INTENT_SERVER].set(True)
+        self._persist_intent()
+        self._append_log("No site server on the LAN — starting one on this PC.")
+        self._start_agent(AGENT_SERVER, open_browser=True)
+
+    def _repoint_agents_if_needed(self, previous: str, new: str) -> None:
+        """Restart local agents when the site server moved to another host."""
+        if same_site_host(previous, new):
+            return
+        if not (previous or "").strip() or not (new or "").strip():
+            return
+        for aid, label in (
+            (AGENT_WSJT, "Seat agent"),
+            (AGENT_N1MM_SEAT, "N1MM agent"),
+        ):
+            if not self._agent_running(aid):
+                continue
+            self._append_log(
+                f"Site server is now {new} — restarting {label} so it follows."
+            )
+            self._stop_agent(aid, explicit=True)
+            self.root.after(
+                600,
+                lambda a=aid: self._start_agent(a, open_browser=False),
+            )
+
     def _apply_site_server_policy(self, *, ok_site: bool, base: str) -> None:
-        """Hide/clear Site server on WSJT-X seats; N1MM does not start a second."""
+        """Show Site server when this PC may host; hide it when a remote one is up."""
         intent = self._current_intent()
         local = bool(self._local_server_procs()) or (
             ok_site and self._site_url_is_local(base)
@@ -2821,15 +2924,7 @@ class LauncherApp:
             return
         if not intent.get(INTENT_SERVER) and not self._proc_running("server"):
             return
-        if is_wsjt_only_seat(intent):
-            if intent.get(INTENT_SERVER):
-                self._intent_vars[INTENT_SERVER].set(False)
-                self._persist_intent()
-                self._append_log("WSJT-X seat: Site server not offered; intent cleared.")
-            if self._proc_running("server"):
-                self._stop_agent(AGENT_SERVER, explicit=True)
-            return
-        # Remote site already running (N1MM / dedicated): do not host a second.
+        # Remote site already running: do not host a second.
         if intent.get(INTENT_SERVER):
             self._intent_vars[INTENT_SERVER].set(False)
             self._persist_intent()
@@ -2868,11 +2963,6 @@ class LauncherApp:
         check, and the second-launcher handoff are not changed. An open
         console on this PC reconnects in the same window.
         """
-        if is_wsjt_only_seat(self._current_intent()):
-            self._append_log(
-                "Restart refused — WSJT-X seat does not host the site server."
-            )
-            return
         ok, base = probe_site_urls(self._site_var.get().strip() or None)
         health = fetch_site_health(base, timeout=0.8) if ok else None
         # The URL this window settled on is the server it would restart.
@@ -3037,8 +3127,6 @@ class LauncherApp:
             pass
         if hasattr(hp, "set_restart_needed"):
             hp.set_restart_needed(False)
-        if is_wsjt_only_seat(intent):
-            return
         if ok_site and local:
             restart_btn.pack(side="left", padx=(8, 0))
             if stale and hasattr(hp, "set_restart_needed"):
@@ -3131,9 +3219,7 @@ class LauncherApp:
         local = bool(self._local_server_procs()) or (
             ok_site and self._site_url_is_local(base)
         )
-        restart_shown = bool(
-            ok_site and local and not is_wsjt_only_seat(self._current_intent())
-        )
+        restart_shown = bool(ok_site and local)
         # No server_rev (older build, or the server is down) → not stale
         # unless both sides only have a package version and those differ.
         stale = bool(restart_shown and server_restart_needed(

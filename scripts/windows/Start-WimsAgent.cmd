@@ -33,7 +33,7 @@ cd /d "%ROOT%"
 call "%~dp0_resolve-python.cmd"
 
 REM Optional: set WIMS_SERVER to also push one report to the site dashboard
-REM if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+REM Optional: set WIMS_SERVER=http://192.168.x.y:8787 to pin the site server.
 
 set "SEAT_ARGS="
 if defined WIMS_SEAT_ID set "SEAT_ARGS=--seat-id %WIMS_SEAT_ID%"

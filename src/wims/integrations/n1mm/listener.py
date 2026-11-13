@@ -38,7 +38,7 @@ Run (from the repo root):
     python src/wims/integrations/n1mm/listener.py --port 12060
     # multicast (same group as WSJT-X is fine; port differs):
     python src/wims/integrations/n1mm/listener.py --port 12060 \\
-        --multicast 224.0.0.73 --host 192.168.1.119
+        --multicast 224.0.0.73 --host 192.168.x.y
 """
 
 from __future__ import annotations

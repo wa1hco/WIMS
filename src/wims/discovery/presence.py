@@ -632,7 +632,7 @@ class DiscoverResult:
 def _udp_block_hints(*, found_via_http: bool) -> list[str]:
     hints = [
         f"On site server: confirm log shows presence announce on {DEFAULT_GROUP}:{DEFAULT_PORT}",
-        "Restart site server with --iface <contest-LAN-IP> (e.g. 192.168.1.119)",
+        "Restart site server with --iface <contest-LAN-IP> (e.g. 192.168.x.y)",
         f"Firewall: allow UDP {DEFAULT_PORT} (and TCP {DEFAULT_HTTP_PORT}) on server + seat",
         "Seat VM: use bridged networking on the contest LAN (not host-only if server is elsewhere)",
         "Same L2: seat must ping the server LAN IP; multicast/broadcast do not cross routers",

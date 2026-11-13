@@ -28,7 +28,7 @@ import urllib.request
 def export_report(report: dict, server_url: str, *, timeout: float = 8.0) -> dict:
     """POST report to ``{server_url}/api/agents/report``.
 
-    ``server_url`` may be ``http://192.168.1.119:8787`` or include a trailing slash.
+    ``server_url`` may be ``http://192.168.x.y:8787`` or include a trailing slash.
     Returns a small result dict: ok, status, body/error.
     """
     base = (server_url or "").strip().rstrip("/")

@@ -24,7 +24,7 @@ set "PYTHONPATH=%ROOT%\src"
 cd /d "%ROOT%"
 
 if exist "%HERE%seat-local.cmd" call "%HERE%seat-local.cmd"
-if not defined WIMS_SERVER set "WIMS_SERVER=http://192.168.1.119:8787"
+REM WIMS_SERVER is optional; if unset, WS Hub finds or starts the site server.
 
 :menu
 cls

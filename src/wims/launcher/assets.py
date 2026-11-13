@@ -122,8 +122,9 @@ def seed_intent_from_assets(snap: AssetSnapshot) -> dict[str, bool]:
 
     N1MM installed/running → N1MM agent. WSJT-X running, or WSJT-X present
     on a non-N1MM PC (ini on disk) → Seat agent. Never auto-enables KEY
-    (needs a COM pick), Antennas (needs a rotator address), or Site server
-    (one per LAN).
+    (needs a COM pick) or Antennas (needs a rotator address). Site server
+    stays off here; after LAN discovery finds none, the launcher starts
+    one on this PC so a single-PC install just works.
     """
     n1mm = bool(snap.n1mm_present)
     wsjt = bool(snap.wsjt_running) or (bool(snap.wsjt_present) and not n1mm)
@@ -149,11 +150,7 @@ def missing_intent_agent_labels(
         missing.append("N1MM agent")
     if (intent.get(INTENT_WSJT) or intent.get(INTENT_ANTENNAS)) and not wsjt_up:
         missing.append("Seat agent")
-    if (
-        intent.get(INTENT_SERVER)
-        and not server_up
-        and not is_wsjt_only_seat(intent)
-    ):
+    if intent.get(INTENT_SERVER) and not server_up:
         missing.append("Site server")
     return missing
 
@@ -360,12 +357,12 @@ def offer_site_server(
 ) -> bool:
     """Whether the launcher should offer Site server (checkbox / Start).
 
-    WSJT-X-only seat: never. N1MM (and dedicated host) PCs: do not offer
-    when a *remote* site server is already running. Local hosting still
-    shows the checkbox so the operator can stop it.
+    Do not offer when a *remote* site server is already running (any seat,
+    including a WSJT-X-only PC). When none is reachable, any PC may host
+    one so a single-PC install works. Local hosting still shows the
+    checkbox so the operator can stop it.
     """
-    if is_wsjt_only_seat(intent):
-        return False
+    _ = intent  # offer depends on reachability, not on which apps are on
     if site_reachable and not local_server:
         return False
     return True
@@ -373,7 +370,7 @@ def offer_site_server(
 
 def agents_for_intent(intent: dict[str, bool]) -> dict[str, bool]:
     """Which agents should be running given seat intent."""
-    want_server = bool(intent.get(INTENT_SERVER)) and not is_wsjt_only_seat(intent)
+    want_server = bool(intent.get(INTENT_SERVER))
     want: dict[str, bool] = {
         AGENT_WSJT: bool(intent.get(INTENT_WSJT) or intent.get(INTENT_ANTENNAS)),
         AGENT_SERVER: want_server,
