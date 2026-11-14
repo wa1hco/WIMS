@@ -25,7 +25,7 @@ Status: `[ ]` todo · `[~]` in progress · `[x]` done
 
 ## How to run (current)
 
-Install: [INSTALL.md](../../INSTALL.md). Then double-click **WS Hub**. Start Operate or the site server in that window; the browser opens at `http://localhost:8787/`. On one PC with WSJT-X, **Start Solo** does the same start and opens the browser. In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP requests ON (plane A, one port for all bands, decision 2026-09-05). Setup check: `Check-WimsSetup.cmd` or the WSJT seat check in the WS Hub window. Compare logs: double-click **Check logs**, or Log → **Check logs**.
+Install: [INSTALL.md](../../INSTALL.md). Then double-click **WS Hub**. Start Operate or the site server in that window; the browser opens at `http://localhost:8787/`. On one PC with WSJT-X, **Start Solo** does the same start and opens the browser. In WSJT-X: Settings → Reporting → UDP Server `224.0.0.73:2237`, Accept UDP requests ON (plane A, one port for all bands, decision 2026-09-05). Setup check: `Check-WimsSetup.cmd` or the WSJT seat check in the WS Hub window. Compare logs: **Check logs** in the WS Hub window (this PC), or Log → **Check logs** (the site server's PC).
 
 Checklist: [design-principles.md](../design-principles.md).
 

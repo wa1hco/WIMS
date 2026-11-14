@@ -707,30 +707,124 @@ def linux_desktop_entry_text() -> str:
     )
 
 
-def linux_check_logs_desktop_entry_text() -> str:
-    """Freedesktop entry for the occasional log compare. Not the live console.
+# Markers in a leftover Check logs icon that was written by this program.
+_CHECK_LOGS_MARKERS = (
+    "Check logs.sh",
+    "Check-Logs.cmd",
+    "Check logs.bat",
+    "wims.logaudit",
+)
 
-    Check logs opens in a terminal and then a browser, so it has no Tk
-    WM_CLASS. StartupWMClass is omitted on purpose: a value of ws-hub would
-    steal the main window's dock icon, and a made-up class would not match.
+
+def check_logs_desktop_entry_is_ours(text: str) -> bool:
+    """True when a .desktop file starts this program's Check logs."""
+    exec_line = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line.startswith("Exec=") and not exec_line:
+            exec_line = line[5:]
+            break
+    return any(marker in exec_line for marker in _CHECK_LOGS_MARKERS)
+
+
+def windows_check_logs_shortcut_is_ours(data: bytes) -> bool:
+    """True when a .lnk's bytes point at this program's Check logs."""
+    if not data:
+        return False
+    hay = data.decode("utf-16-le", errors="ignore") + "\n" + data.decode(
+        "latin-1", errors="ignore"
+    )
+    return any(marker in hay for marker in _CHECK_LOGS_MARKERS)
+
+
+def _unlink_ours_check_logs_icon(path: Path, *, windows: bool) -> bool:
+    """Delete one Check logs icon if it starts this program. Never raises."""
+    if not path.is_file():
+        return False
+    try:
+        if windows:
+            ours = windows_check_logs_shortcut_is_ours(path.read_bytes())
+        else:
+            ours = check_logs_desktop_entry_is_ours(
+                path.read_text(encoding="utf-8", errors="replace")
+            )
+    except OSError:
+        return False
+    if not ours:
+        return False
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True
+
+
+def remove_check_logs_shortcuts() -> list[Path]:
+    """Delete leftover Check logs icons that start this program.
+
+    Check logs now lives only in the WS Hub window and on the Log page.
+    Only files that point at this program's checker are removed. Never raises.
     """
-    icon = find_icon_path()
-    icon_line = f"Icon={icon}" if icon else "Icon=utilities-terminal"
-    script = _REPO_ROOT / "scripts" / "Check logs.sh"
-    exec_line = freedesktop_exec(["/bin/bash", str(script)])
-    return (
-        "[Desktop Entry]\n"
-        "Type=Application\n"
-        "Version=1.0\n"
-        "Name=Check logs\n"
-        "GenericName=Compare contest logs\n"
-        "Comment=See whether WSJT-X, N1MM, and other logs agree\n"
-        f"Exec={exec_line}\n"
-        f"Path={_REPO_ROOT}\n"
-        f"{icon_line}\n"
-        "Terminal=true\n"
-        "Categories=HamRadio;\n"
-        "StartupNotify=true\n"
+    removed: list[Path] = []
+    try:
+        desk = desktop_dir()
+        if sys.platform.startswith("win"):
+            appdata = os.environ.get("APPDATA", "")
+            start = (
+                Path(appdata) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
+                if appdata
+                else None
+            )
+            candidates = [desk / "Check logs.lnk"]
+            if start is not None:
+                candidates.append(start / "Check logs.lnk")
+            windows = True
+        else:
+            menu = Path.home() / ".local" / "share" / "applications"
+            candidates = [
+                desk / "Check logs.desktop",
+                menu / "Check logs.desktop",
+            ]
+            windows = False
+        for path in candidates:
+            if _unlink_ours_check_logs_icon(path, windows=windows):
+                removed.append(path)
+        if removed and not windows:
+            menu = Path.home() / ".local" / "share" / "applications"
+            _refresh_applications_menu(menu)
+    except Exception:
+        return removed
+    return removed
+
+
+def start_local_log_check() -> subprocess.Popen:
+    """Compare the logs on this PC and open the report. Reads only.
+
+    Same check the old Desktop icon ran. The report opens in the browser
+    and stays up if the WS Hub window is closed.
+    """
+    from wims.launcher.process_replace import windows_hidden_popen_kwargs
+
+    env = _role_env()
+    env.pop("WIMS_CAPTURED_LOG", None)
+    kw: dict = {
+        "cwd": str(_REPO_ROOT),
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform.startswith("win"):
+        kw.update(windows_hidden_popen_kwargs())
+        flags = int(kw.get("creationflags", 0) or 0)
+        flags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        kw["creationflags"] = flags
+    else:
+        kw["start_new_session"] = True
+    return subprocess.Popen(
+        _python_cmd() + ["-m", "wims.logaudit.page"],
+        **kw,
     )
 
 
@@ -833,17 +927,7 @@ def write_linux_desktop_shortcut() -> Path:
         _remove_legacy_linux_entries(menu)
     except OSError:
         pass
-    check = linux_check_logs_desktop_entry_text()
-    check_path = desk / "Check logs.desktop"
-    check_path.write_text(check, encoding="utf-8")
-    mark_linux_launcher_trusted(check_path)
-    try:
-        menu.mkdir(parents=True, exist_ok=True)
-        menu_check = menu / "Check logs.desktop"
-        menu_check.write_text(check, encoding="utf-8")
-        mark_linux_launcher_trusted(menu_check)
-    except OSError:
-        pass
+    remove_check_logs_shortcuts()
     _refresh_applications_menu(menu)
     return path
 
@@ -864,6 +948,7 @@ def refresh_linux_desktop_entries() -> Path | None:
     if not sys.platform.startswith("linux"):
         return None
     try:
+        remove_check_logs_shortcuts()
         menu = Path.home() / ".local" / "share" / "applications"
         candidates = [
             desktop_dir() / f"{SHORTCUT_NAME}.desktop",
@@ -974,6 +1059,7 @@ def migrate_legacy_shortcut() -> Path | None:
     Never raises.
     """
     try:
+        remove_check_logs_shortcuts()
         desk = desktop_dir()
         if sys.platform.startswith("win"):
             if any(
@@ -1237,6 +1323,7 @@ class LauncherApp:
             on_open_local=self._open_local_status,
             on_restart_server=self._restart_local_site_server,
             on_start_server=self._start_site_server_offer,
+            on_check_logs=self._check_logs,
             key_device_var=self._key_device_var,
             on_key_device_change=self._on_key_device_change,
             on_refresh_key_ports=self._refresh_key_ports,
@@ -3703,6 +3790,13 @@ class LauncherApp:
         else:
             widgets["state"].configure(text="")
             widgets["stop"].configure(state="disabled")
+
+    def _check_logs(self) -> None:
+        try:
+            start_local_log_check()
+            self._append_log("Check logs: opened the report for logs on this PC.")
+        except Exception as e:
+            self._append_log(f"Check logs failed: {e}")
 
     def _install_shortcut(self) -> None:
         try:

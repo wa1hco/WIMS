@@ -39,7 +39,7 @@ If Python or the window library is missing, a message names what to install. On 
 3. Open `C:\WIMS\scripts\windows` and double-click **Install-Wims.cmd**. Click **Yes** when Windows asks for permission.
 4. Double-click **WS Hub** on the Desktop or in the Start menu.
 
-The installer finds or installs Python, opens TCP port 8787 in the firewall so other PCs can reach the console, and puts **WS Hub** and **Check logs** on the Desktop and in the Start menu. Its log is `scripts\windows\install-log.txt`.
+The installer finds or installs Python, opens TCP port 8787 in the firewall so other PCs can reach the console, and puts **WS Hub** on the Desktop and in the Start menu. Check logs is a button in the WS Hub window, and also on the Log page of the console. Its log is `scripts\windows\install-log.txt`.
 
 The scripts are not signed yet, so Windows may warn the first time:
 

@@ -3,11 +3,9 @@
 These are the files you double-click or run. Nothing else belongs in this folder.
 
 <!-- scripts-allowlist -->
-- `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu. Also adds Check logs.
-- `Install WS Hub.desktop` — Linux: double-click to install WS Hub. A download is copied to `~/.local/share/ws-hub` (a git clone stays put), then the WS Hub icon goes on the desktop and in the app menu. Also adds Check logs.
-- `add-wims-to-desktop.sh` — What the Linux desktop file runs. Also adds Check logs.
-- `Check logs.bat` — Windows: see whether the logs on this PC agree.
-- `Check logs.sh` — See whether the logs on this PC agree. Opens the result in the browser.
+- `Add WIMS to Desktop.bat` — Windows: put a WIMS icon on the Desktop and in the Start menu.
+- `Install WS Hub.desktop` — Linux: double-click to install WS Hub. A download is copied to `~/.local/share/ws-hub` (a git clone stays put), then the WS Hub icon goes on the desktop and in the app menu.
+- `add-wims-to-desktop.sh` — What the Linux desktop file runs.
 - `assets/wims-128.png` — Icon, 128 px.
 - `assets/wims-48.png` — Icon, 48 px.
 - `assets/wims-64.png` — Icon, 64 px.
@@ -18,7 +16,6 @@ These are the files you double-click or run. Nothing else belongs in this folder
 - `start-wims-inhibit-home.sh` — Linux/Mac: home inhibit (key line holds transmit).
 - `start-wims.sh` — Open the WS Hub window. The desktop icon runs this. If that window is already open, this brings it forward.
 - `start-wims-solo.sh` — Linux/Mac: start Operate on this PC and open the browser. Same start the WS Hub window uses.
-- `windows/Check-Logs.cmd` — See whether the logs on this PC agree.
 - `windows/Check-WimsSetup.cmd` — Read-only setup check. Starts nothing.
 - `windows/Find-And-Set-WsjtxRigName.cmd` — Point WSJT-X shortcuts at the right rig name.
 - `windows/Find-And-Set-WsjtxRigName.ps1` — Helper used by Find-And-Set-WsjtxRigName.cmd.

@@ -224,7 +224,6 @@ linux_exec_bits() {
         "scripts/start-wims.sh" \
         "scripts/start-wims-solo.sh" \
         "scripts/start-wims-inhibit-home.sh" \
-        "scripts/Check logs.sh" \
         "scripts/_resolve-python.sh" \
         "scripts/_say.sh"
     do
@@ -245,7 +244,6 @@ need = (
     "scripts/Install WS Hub.desktop",
     "scripts/add-wims-to-desktop.sh",
     "scripts/start-wims.sh",
-    "scripts/Check logs.sh",
     "scripts/_say.sh",
 )
 with tarfile.open(archive) as tf:
