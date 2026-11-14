@@ -235,6 +235,74 @@ def test_grid_extractor_excludes_signoffs():
     assert m.extract_grid("CQ DX K1ABC EM48bk") == "EM48BK"
 
 
+def test_strip_decode_annot_ap_and_question_mark():
+    """WSJT-X UDP Decode text can end with a1..a7 and/or '?'."""
+    clean, tag, low = m.strip_decode_annot("CQ K1ABC FN42 a2")
+    assert (clean, tag, low) == ("CQ K1ABC FN42", "a2", False)
+
+    clean, tag, low = m.strip_decode_annot("K1ABC NJ1H FN42 a1")
+    assert (clean, tag, low) == ("K1ABC NJ1H FN42", "a1", False)
+
+    clean, tag, low = m.strip_decode_annot("CQ K1ABC FN42 ?")
+    assert (clean, tag, low) == ("CQ K1ABC FN42", None, True)
+
+    clean, tag, low = m.strip_decode_annot("CQ K1ABC FN42 a3 ?")
+    assert (clean, tag, low) == ("CQ K1ABC FN42", "a3", True)
+
+    # Official layout: '?' is character 37 of the 37-char field, then ' a2'.
+    padded = "CQ K1ABC FN42".ljust(36) + "? a2"
+    clean, tag, low = m.strip_decode_annot(padded)
+    assert (clean, tag, low) == ("CQ K1ABC FN42", "a2", True)
+
+    # A real grid is not an AP tag; a call like A71AB is not stripped.
+    clean, tag, low = m.strip_decode_annot("CQ A71AB FN42")
+    assert (clean, tag, low) == ("CQ A71AB FN42", None, False)
+    assert m.strip_decode_annot("CQ K1ABC FN42") == ("CQ K1ABC FN42", None, False)
+    assert m.strip_decode_annot("") == ("", None, False)
+    assert m.strip_decode_annot(None) == ("", None, False)
+
+
+def test_ap_suffix_does_not_hide_grid_or_signoff():
+    """Parsers see the on-air text after AP / '?' suffixes are stripped."""
+    assert m.extract_grid("CQ K1ABC FN42 a2") == "FN42"
+    assert m.standard_station_grid("CQ K1ABC FN42 a2") == ("K1ABC", "FN42")
+    assert m._interpret_decode("CQ K1ABC FN42 a2") == (
+        True, "K1ABC", "CQ", "FN42", "FN42",
+    )
+
+    assert m.extract_grid("W1AW K1ABC FN42 a1") == "FN42"
+    assert m.standard_station_grid("W1AW K1ABC FN42 a1") == ("K1ABC", "FN42")
+    assert m._interpret_decode("W1AW K1ABC FN42 a1") == (
+        False, "K1ABC", "W1AW", "FN42", "FN42",
+    )
+
+    # A '?' decode still parses as a CQ / exchange, but is not a confirmed
+    # grid source.
+    assert m.extract_grid("CQ K1ABC FN42 ?") == "FN42"
+    assert m.standard_station_grid("CQ K1ABC FN42 ?") is None
+    assert m._interpret_decode("CQ K1ABC FN42 ?") == (
+        True, "K1ABC", "CQ", "FN42", "FN42",
+    )
+    assert m.standard_station_grid("CQ K1ABC FN42 a3 ?") is None
+    assert m.extract_grid("CQ K1ABC FN42 a3 ?") == "FN42"
+    assert m._interpret_decode("CQ K1ABC FN42 a3 ?") == (
+        True, "K1ABC", "CQ", "FN42", "FN42",
+    )
+
+    assert m.decode_is_signoff("W2SZ N2MKT RR73 a7") is True
+    assert m.decode_is_signoff("W2SZ N2MKT 73 a5") is True
+    assert m._interpret_decode("W2SZ N2MKT RR73 a7") == (
+        False, "N2MKT", "W2SZ", None, "RR73",
+    )
+
+    # A grid such as FN42 is not treated as a tag; A71AB stays the call.
+    assert m.extract_grid("CQ A71AB FN42") == "FN42"
+    assert m.standard_station_grid("CQ A71AB FN42") == ("A71AB", "FN42")
+    assert m._interpret_decode("CQ A71AB FN42") == (
+        True, "A71AB", "CQ", "FN42", "FN42",
+    )
+
+
 def test_inhibit_status_roundtrip():
     from wims.udp import encode as E
     raw = E.build_inhibit_status(
