@@ -54,6 +54,7 @@ That overlap is the **inhibit** path: a beta/patched WSJT-X releases PTT when an
 - **Install:** [INSTALL.md](../INSTALL.md). Then double-click **WS Hub** on the desktop.
 - **Console:** `http://<server>:8787/`. The WS Hub window opens it as an app window with Chrome, Chromium, or Edge, or a dedicated resizable Firefox window; otherwise it uses the normal default browser.
 - **Updates:** the button at the top of the WS Hub window, or the **Updates** list. An update is never installed in the middle of a contact; it waits until you click **Install update** or **Install this update**.
+- **Check logs:** the **Check logs** button in the WS Hub window compares the logs on this PC and opens the report in the browser. The same-named button on the console's **Log** page compares the logs on the site server's PC. There is no separate Check logs desktop icon.
 
 **Exact app settings:** [operator_setup.md](operator_setup.md).
 
@@ -117,7 +118,7 @@ Click a Spotted line to select that station. The radio is not retuned and nothin
 |------|-----|---------|
 | **Overview** | `/overview` | System, bands, agents, rotators |
 | **WSJT-X** | `/wsjt` | Digi instances + decode activity heatmaps |
-| **Log** | `/log` | Which log counts, count-since, resync, Check logs |
+| **Log** | `/log` | Which log counts, count-since, resync, Check logs (logs on the site server's PC) |
 | **N1MM** | `/n1mm` | Several N1MM stations at once (hidden when there is only one) |
 
 (`/status` still opens Overview.)

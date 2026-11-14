@@ -21,7 +21,6 @@ repair_wims_exec_bits() {
     "$ROOT/scripts/start-wims.sh" \
     "$ROOT/scripts/start-wims-solo.sh" \
     "$ROOT/scripts/start-wims-inhibit-home.sh" \
-    "$ROOT/scripts/Check logs.sh" \
     "$ROOT/scripts/_resolve-python.sh" \
     "$ROOT/scripts/_say.sh"
   do

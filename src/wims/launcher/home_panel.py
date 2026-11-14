@@ -79,6 +79,7 @@ class AgentHomePanel:
         on_open_local: Callable[[], None],
         on_restart_server: Callable[[], None] | None = None,
         on_start_server: Callable[[], None] | None = None,
+        on_check_logs: Callable[[], None] | None = None,
         key_device_var: Any | None = None,
         on_key_device_change: Callable[[], None] | None = None,
         on_refresh_key_ports: Callable[[], None] | None = None,
@@ -292,6 +293,16 @@ class AgentHomePanel:
             open_btn,
             "Opens the site console on this PC. If that window is already "
             "open, it reloads and stays where you put it.",
+        )
+        self.check_logs_btn = tk.Button(
+            btns, text="Check logs", font=_ui_font(12),
+            command=(on_check_logs or (lambda: None)), padx=10, pady=4,
+        )
+        self.check_logs_btn.pack(side="left", padx=(8, 0))
+        ToolTip(
+            self.check_logs_btn,
+            "Compare the logs on this PC and list what does not match. "
+            "Nothing in the logs is changed. The report opens in the browser.",
         )
         self.local_btn = tk.Button(
             btns, text="Open local status", font=_ui_font(12),

@@ -77,32 +77,26 @@ Write-Host "  Icon: $icoAbs"
 Write-Host " Double-click WS Hub. The console opens in your browser when you start it."
 Write-Host ""
 
-$checkCmd = Join-Path $here "Check-Logs.cmd"
-if (Test-Path -LiteralPath $checkCmd) {
-    $checkAbs = (Resolve-Path -LiteralPath $checkCmd).Path
-    $checkLnk = Join-Path $desk "Check logs.lnk"
-    $wsh3 = New-Object -ComObject WScript.Shell
-    $ck = $wsh3.CreateShortcut($checkLnk)
-    $ck.TargetPath = $checkAbs
-    $ck.WorkingDirectory = $here
-    $ck.WindowStyle = 1
-    $ck.Description = "See whether your logs agree"
-    $ck.IconLocation = "$icoAbs,0"
-    $ck.Save()
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh3) | Out-Null
-    $checkStart = Join-Path $startMenu "Check logs.lnk"
-    $wsh4 = New-Object -ComObject WScript.Shell
-    $csm = $wsh4.CreateShortcut($checkStart)
-    $csm.TargetPath = $checkAbs
-    $csm.WorkingDirectory = $here
-    $csm.WindowStyle = 1
-    $csm.Description = "See whether your logs agree"
-    $csm.IconLocation = "$icoAbs,0"
-    $csm.Save()
-    [System.Runtime.InteropServices.Marshal]::ReleaseComObject($wsh4) | Out-Null
-    Write-Host " Desktop shortcut ready: Check logs"
-    Write-Host "  $checkLnk"
-    Write-Host ""
+# Check logs now lives only in the WS Hub window. Remove leftover icons
+# that start this program's checker, and leave any other Check logs.lnk alone.
+function Test-OurCheckLogs([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try {
+        $w = New-Object -ComObject WScript.Shell
+        $old = $w.CreateShortcut($Path)
+        $text = "$($old.TargetPath) $($old.Arguments)"
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null
+        return ($text -match 'Check-Logs\.cmd|Check logs\.bat|wims\.logaudit')
+    } catch {
+        return $false
+    }
+}
+foreach ($folder in @($desk, $startMenu)) {
+    $staleCheck = Join-Path $folder "Check logs.lnk"
+    if (Test-OurCheckLogs $staleCheck) {
+        Remove-Item -LiteralPath $staleCheck -Force
+        Write-Host " Removed the Check logs icon (now in WS Hub): $staleCheck"
+    }
 }
 
 # Install / refresh never creates WIMS Server or WIMS Agent icons.

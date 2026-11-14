@@ -230,7 +230,10 @@ class InstallerScriptTests(unittest.TestCase):
                 logs = home / "Desktop" / "Check logs.desktop"
                 self.assertTrue(desk.is_file())
                 self.assertTrue(menu.is_file())
-                self.assertTrue(logs.is_file())
+                self.assertFalse(logs.exists())
+                self.assertFalse(
+                    (home / ".local" / "share" / "applications" / "Check logs.desktop").exists()
+                )
                 self.assertTrue(os.access(desk, os.X_OK))
                 text = desk.read_text(encoding="utf-8")
                 self.assertIn("Name=WS Hub\n", text)
@@ -488,16 +491,13 @@ class DesktopWmClassTests(unittest.TestCase):
     def test_launcher_entry_startup_wmclass_matches_tk_classname(self):
         from wims.launcher.app import (
             WM_CLASS_LAUNCHER,
-            linux_check_logs_desktop_entry_text,
             linux_desktop_entry_text,
         )
 
         self.assertEqual(WM_CLASS_LAUNCHER, "ws-hub")
         text = linux_desktop_entry_text()
         self.assertIn(f"StartupWMClass={WM_CLASS_LAUNCHER}\n", text)
-        # Check logs is a terminal + browser, not a Tk window.
-        check = linux_check_logs_desktop_entry_text()
-        self.assertNotIn("StartupWMClass=", check)
+        self.assertNotIn("Name=Check logs", text)
 
     def test_production_tk_roots_set_classname(self):
         missing = []
@@ -545,6 +545,18 @@ class DesktopWmClassTests(unittest.TestCase):
             (menu / "WS Hub.desktop").write_text(stale, encoding="utf-8")
             foreign = desk / "Other.desktop"
             foreign.write_text(other_tree, encoding="utf-8")
+            leftover = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                "Name=Check logs\n"
+                f"Exec=/bin/bash {app._REPO_ROOT}/scripts/Check logs.sh\n"
+                f"Path={app._REPO_ROOT}\n"
+            )
+            (desk / "Check logs.desktop").write_text(leftover, encoding="utf-8")
+            (menu / "Check logs.desktop").write_text(leftover, encoding="utf-8")
+            foreign_check = desk / "not-ours.desktop"
+            # A differently named file is left even if the Exec looks like ours.
+            foreign_check.write_text(leftover, encoding="utf-8")
             with mock.patch.object(Path, "home", return_value=home), mock.patch(
                 "wims.launcher.app.mark_linux_launcher_trusted"
             ), mock.patch("wims.launcher.app._refresh_applications_menu"):
@@ -556,7 +568,30 @@ class DesktopWmClassTests(unittest.TestCase):
                 text = (folder / "WS Hub.desktop").read_text(encoding="utf-8")
                 self.assertIn("StartupWMClass=ws-hub\n", text)
                 self.assertIn(f"Path={app._REPO_ROOT}\n", text)
+                self.assertFalse((folder / "Check logs.desktop").exists())
             self.assertEqual(foreign.read_text(encoding="utf-8"), other_tree)
+            self.assertEqual(foreign_check.read_text(encoding="utf-8"), leftover)
+
+    def test_write_shortcut_does_not_create_check_logs_icon(self):
+        from wims.launcher import app
+
+        if sys.platform.startswith("win"):
+            self.skipTest("Linux desktop entries")
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)
+            desk = home / "Desktop"
+            menu = home / ".local" / "share" / "applications"
+            desk.mkdir(parents=True)
+            menu.mkdir(parents=True)
+            with mock.patch.object(Path, "home", return_value=home), mock.patch(
+                "wims.launcher.app.mark_linux_launcher_trusted"
+            ), mock.patch("wims.launcher.app._refresh_applications_menu"):
+                path = app.write_linux_desktop_shortcut()
+            self.assertEqual(path, desk / "WS Hub.desktop")
+            self.assertTrue((desk / "WS Hub.desktop").is_file())
+            self.assertTrue((menu / "WS Hub.desktop").is_file())
+            self.assertFalse((desk / "Check logs.desktop").exists())
+            self.assertFalse((menu / "Check logs.desktop").exists())
 
     def test_refresh_leaves_another_installs_icon_alone(self):
         from wims.launcher import app
