@@ -303,16 +303,81 @@ _CQ_QUALIFIERS = {
 }
 
 
+# Trailing annot WSJT-X appends to the UDP Decode *message* field, not the
+# on-air text. In lib/decoder.f90, ft8_decoded / ft4_decoded / fst4_decoded
+# write a 37-character message, optionally overwrite the last character with
+# '?', then a space and an 'aP' tag (a1..a7, lowercase 'a'). Q65 uses a 'q'
+# flag in that same trailing slot (q0, q1, q19, q1*). mainwindow.cpp
+# postDecode() copies everything after the time/snr/dt/df/mode prefix into
+# the UDP Message utf8, so those suffixes are on the wire. The UDP Low
+# confidence bool is a separate field, set when that 37th character is '?'.
+_AP_TAG_RE = re.compile(r"^a[0-9]$", re.IGNORECASE)
+_Q_TAG_RE = re.compile(r"^q[0-9][0-9*]?$", re.IGNORECASE)
+
+
+def strip_decode_annot(
+    message: str | None,
+) -> tuple[str, str | None, bool]:
+    """Strip trailing AP / Q65 / '?' annot from a WSJT-X decode message.
+
+    Returns ``(clean_text, ap_tag, low_confidence)``. ``ap_tag`` is the
+    trailing ``a1``..``a7`` (or Q65 ``q…``) token, or None. A ``?`` means
+    the decoder was not sure: keep the decode, but do not use it as a
+    confirmed grid source.
+
+    Tags are two-character ``aP`` tokens as WSJT-X writes them (lowercase
+    ``a`` plus a digit). A call such as A71AB is left alone.
+    """
+    if not message:
+        return "", None, False
+    tokens = message.split()
+    if not tokens:
+        return "", None, False
+
+    ap_tag: str | None = None
+    low_confidence = False
+
+    def _is_annot(token: str) -> bool:
+        return bool(_AP_TAG_RE.match(token) or _Q_TAG_RE.match(token))
+
+    while tokens:
+        last = tokens[-1]
+        if last == "?":
+            low_confidence = True
+            tokens.pop()
+            continue
+        if _is_annot(last):
+            if ap_tag is None:
+                ap_tag = last
+            tokens.pop()
+            continue
+        if last.endswith("?"):
+            # Official layout overwrites character 37 of the 37-char field,
+            # so a full-length free-text message can have '?' glued on.
+            low_confidence = True
+            trimmed = last[:-1].rstrip()
+            if trimmed:
+                tokens[-1] = trimmed
+            else:
+                tokens.pop()
+            continue
+        break
+
+    return " ".join(tokens), ap_tag, low_confidence
+
+
 def extract_grid(message: str | None) -> str | None:
     """Return the 4/6-char Maidenhead grid in a decode message, else None.
 
     Grid rides in CQ and Tx1 ('CALL CALL GRID') messages as the final token;
     reports/sign-offs ('R-12', 'RRR', 'RR73', '73') carry none. 'RR73' matches
-    the grid shape but is always a sign-off, so it is excluded.
+    the grid shape but is always a sign-off, so it is excluded. Trailing AP
+    tags and '?' are stripped first so they are not mistaken for the grid.
     """
-    if not message:
+    clean, _ap_tag, _low = strip_decode_annot(message)
+    if not clean:
         return None
-    last = message.split()[-1]
+    last = clean.split()[-1]
     if last.upper() == "RR73":
         return None
     return last.upper() if _GRID_RE.match(last) else None
@@ -323,8 +388,12 @@ def standard_station_grid(message: str | None) -> tuple[str, str] | None:
 
     Free text, QSY, and any line with extra words are not a grid source.
     ``RR73`` is a sign-off, not a grid. The grid is the transmitting station's.
+    A low-confidence (``?``) decode is kept as a decode, but is not used as
+    a confirmed grid source.
     """
-    text = (message or "").strip()
+    text, _ap_tag, low_confidence = strip_decode_annot(message)
+    if low_confidence:
+        return None
     if not text:
         return None
     if _interpret_qsy_message(text) or text.upper().startswith("QSY"):
@@ -359,7 +428,7 @@ _SIGNOFF_TOKENS = frozenset({"73", "RR73", "RRR"})
 
 def decode_is_signoff(message: str | None) -> bool:
     """True if the FT8 text is a completed-QSO sign-off (73 / RR73 / RRR)."""
-    text = (message or "").strip()
+    text, _ap_tag, _low = strip_decode_annot(message)
     if not text:
         return False
     return text.split()[-1].upper() in _SIGNOFF_TOKENS
@@ -533,6 +602,9 @@ def _interpret_decode(
     station; the whole line is the tail.
     """
     if not message or not message.strip():
+        return False, None, None, None, None
+    message, _ap_tag, _low = strip_decode_annot(message)
+    if not message:
         return False, None, None, None, None
     grid = extract_grid(message)
     qsy = _interpret_qsy_message(message)

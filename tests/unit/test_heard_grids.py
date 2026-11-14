@@ -152,6 +152,25 @@ def test_rr73_and_free_text_are_ignored():
     assert store.current("CX4BAN", t0 + 1) == "GF15"
 
 
+def test_ap_tag_is_a_grid_source_but_question_mark_is_not():
+    store = HeardGrids()
+    t0 = _t()
+    assert store.note_message("CQ K1ABC FN42 a2", "20m", t0) is True
+    assert store.current("K1ABC", t0) == "FN42"
+    assert store.note_message("CQ N1XYZ FN43 ?", "20m", t0) is False
+    assert store.current("N1XYZ", t0) is None
+    assert store.note_message("CQ N1XYZ FN43 a3 ?", "20m", t0) is False
+    assert store.current("N1XYZ", t0) is None
+
+    class _Decode:
+        message = "CQ W1AW FN31"
+        off_air = False
+        low_confidence = True
+
+    assert store.note_decode(_Decode(), "20m", t0) is False
+    assert store.current("W1AW", t0) is None
+
+
 def test_persistence_round_trip():
     tmp = Path(tempfile.mkdtemp())
     path = tmp / "heard_grids.json"
