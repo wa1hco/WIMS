@@ -77,6 +77,7 @@ from wims.integrations.logsource import N1mmLogSource  # noqa: E402
 from wims.integrations.cluster.client import ClusterService  # noqa: E402
 from wims.integrations.cluster.modes import canonical_mode as _spot_mode  # noqa: E402
 from wims.integrations.cluster.parse import valid_login_call as _login_call  # noqa: E402
+from wims.integrations.cluster.settings import effective_call as _cluster_effective_call  # noqa: E402
 from wims.integrations.cluster.view import OnAir as _OnAir  # noqa: E402
 from wims.config.seat_profile import (  # noqa: E402
     default_seat_profile_path, load_seat_profile, save_seat_profile_marks,
@@ -2246,6 +2247,22 @@ class LiveFleet:
         _call, grid = self._agent_station_locked()
         return self._grid_text(grid)
 
+    def _live_wsjtx_calls_locked(self) -> list[str]:
+        """Callsigns reported by live WSJT-X Status, newest last."""
+        now = time.time()
+        ranked: list[tuple[float, str]] = []
+        seen: set[str] = set()
+        for node in self._tracker.nodes.values():
+            if node.health(now) == "DEAD":
+                continue
+            call = (getattr(node, "de_call", None) or "").strip().upper()
+            if not _login_call(call) or call in seen:
+                continue
+            seen.add(call)
+            ranked.append((node.last_seen() or 0, call))
+        ranked.sort()
+        return [call for _seen, call in ranked]
+
     def _operations_locked(self, now: float) -> list:
         out = []
         for node in self._tracker.nodes.values():
@@ -2274,6 +2291,7 @@ class LiveFleet:
             callsign=self._operator_call_locked(),
             our_grid=self._operator_grid_locked() or None,
             operations=self._operations_locked(now),
+            live_calls=self._live_wsjtx_calls_locked(),
             classify=classify,
             grid_for=grid_for,
             rover_for=rover_for,
@@ -2289,12 +2307,18 @@ class LiveFleet:
 
     def _cluster_callsign(self) -> str:
         with self._lock:
-            return self._operator_call_locked()
+            return _cluster_effective_call(
+                self._cluster.settings(), self._operator_call_locked(),
+            )
 
     def set_cluster(self, body: dict) -> dict:
         """POST /api/cluster. Saved beside the Goal. No flag and no env var."""
         if not isinstance(body, dict):
             return {"ok": False, "error": "invalid_body"}
+        if "station_call" in body:
+            raw = str(body.get("station_call") or "").strip()
+            if raw and not _login_call(raw):
+                return {"ok": False, "error": "invalid_call"}
         saved = self._cluster.update(body)
         return {
             "ok": True,
@@ -2304,6 +2328,7 @@ class LiveFleet:
             "bands": saved["bands"],
             "modes": saved["modes"],
             "qsy_cost": saved["qsy_cost"],
+            "station_call": saved.get("station_call") or "",
         }
 
     def select_spot(self, body: dict) -> dict:

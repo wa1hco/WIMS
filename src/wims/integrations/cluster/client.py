@@ -45,6 +45,7 @@ from wims.integrations.cluster.parse import parse_spot, valid_login_call
 from wims.integrations.cluster.settings import (
     DEFAULT_TTL_S, MODE_FILTERS, allowed_bands, allowed_modes, known_nodes,
     load, save, sanitize,
+    call_mismatch_warning, effective_call,
 )
 from wims.integrations.cluster.telnet import plaintext, strip_telnet
 from wims.integrations.cluster.view import (
@@ -265,7 +266,7 @@ class ClusterService:
         current = self.settings()
         merged = dict(current)
         if isinstance(body, dict):
-            for key in ("enabled", "node", "host", "port", "bands", "modes", "qsy_cost"):
+            for key in ("enabled", "node", "host", "port", "bands", "modes", "qsy_cost", "station_call"):
                 if key in body:
                     merged[key] = body[key]
         cleaned = sanitize(merged)
@@ -308,7 +309,7 @@ class ClusterService:
 
     def public(self, *, now: float, callsign: str, our_grid: str | None,
                operations, classify, grid_for=None, rover_for=None,
-               spotter_grid=None, entity_latlon=None) -> dict:
+               spotter_grid=None, entity_latlon=None, live_calls=None) -> dict:
         with self._lock:
             settings = dict(self._settings)
             self._book.prune(now, DEFAULT_TTL_S)
@@ -316,7 +317,8 @@ class ClusterService:
             phase = self.phase
             reason = self.reason
             retry_s = self.retry_s
-            login = self.login_call or callsign or ""
+            wanted = effective_call(settings, callsign)
+            login = self.login_call or wanted
             selected = dict(self._selected) if self._selected else None
             saw_lines = self.saw_lines
             node_spoke = self.node_spoke
@@ -329,7 +331,7 @@ class ClusterService:
         if not settings.get("enabled"):
             phase = "off"
         elif phase == "off":
-            phase = "need_call" if not valid_login_call(callsign) else "connecting"
+            phase = "need_call" if not valid_login_call(wanted) else "connecting"
         rows, drops = ([], {"spot_count": 0})
         can_list = (
             settings.get("enabled") and not bands_empty and not modes_empty
@@ -395,7 +397,11 @@ class ClusterService:
             "all_modes": modes is None,
             "mode_choices": mode_choices(settings.get("modes")),
             "qsy_cost": int(settings.get("qsy_cost") or 0),
+            "station_call": settings.get("station_call") or "",
             "callsign": login,
+            "call_warning": call_mismatch_warning(
+                settings.get("station_call") or "", live_calls,
+            ),
             "phase": phase,
             "status_line": line,
             "detail": detail,
@@ -442,6 +448,7 @@ class ClusterService:
                     call = (self._callsign_fn() or "").strip().upper()
                 except Exception:
                     call = ""
+            call = effective_call(settings, call)
             if not valid_login_call(call):
                 with self._lock:
                     self.phase = "need_call"

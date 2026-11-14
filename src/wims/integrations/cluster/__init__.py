@@ -18,8 +18,9 @@
 
 """Read-only DX cluster spots (design §2.15).
 
-The site server logs in with the operator's callsign and listens. It does not
-post spots, and a click on a spotted station does not transmit or retune.
+The site server logs in with the Station call from Setup, or the call from a
+running WSJT-X if that field is blank, and listens. It does not post spots, and
+a click on a spotted station does not transmit or retune.
 """
 
 from wims.integrations.cluster.client import ClusterService

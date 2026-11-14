@@ -3407,6 +3407,7 @@ function clusterReadForm() {
     port: Number($("cluster-port") && $("cluster-port").value),
     qsy_cost: Number($("cluster-qsy") && $("cluster-qsy").value),
     bands: (all && all.checked) ? "all" : bands,
+    station_call: ($("cluster-station-call") && $("cluster-station-call").value || "").trim(),
   };
 }
 
@@ -3435,6 +3436,11 @@ function clusterSave() {
     if (!line) return;
     if (j && j.ok) {
       delete line.dataset.err;
+      const call = $("cluster-station-call");
+      if (call && j.station_call != null) call.value = j.station_call;
+    } else if (j && j.error === "invalid_call") {
+      line.dataset.err = "1";
+      line.textContent = "That is not a valid station call.";
     } else {
       line.dataset.err = "1";
       line.textContent = "Could not save. Try again.";
@@ -3471,6 +3477,8 @@ function clusterWire() {
   });
   const qsy = $("cluster-qsy");
   if (qsy) qsy.addEventListener("change", clusterSave);
+  const station = $("cluster-station-call");
+  if (station) station.addEventListener("change", clusterSave);
   const node = $("cluster-node");
   if (node) node.addEventListener("change", () => {
     clusterApplyPick();
@@ -3497,6 +3505,11 @@ function renderCluster(c) {
     line.textContent = c.status_line || "";
     if (c.detail) line.title = c.detail;
   }
+  const warn = $("cluster-call-warning");
+  if (warn) {
+    warn.textContent = (c && c.call_warning) || "";
+    warn.hidden = !warn.textContent;
+  }
   if (!host) return;
   clusterWire();
   if (_clusterReady) return;
@@ -3519,6 +3532,8 @@ function renderCluster(c) {
   const port = $("cluster-port");
   if (port) port.value = c.port || 7373;
   clusterApplyPick();
+  const station = $("cluster-station-call");
+  if (station) station.value = c.station_call || "";
   const qsy = $("cluster-qsy");
   if (qsy && c.qsy_cost != null) qsy.value = String(c.qsy_cost);
   const all = $("cluster-all");

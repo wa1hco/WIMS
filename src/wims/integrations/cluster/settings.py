@@ -42,6 +42,7 @@ import re
 from pathlib import Path
 
 from wims.core.bands import BAND_ORDER
+from wims.integrations.cluster.parse import valid_login_call
 
 SCHEMA = 2
 DEFAULT_HOST = "k1ttt.net"
@@ -88,6 +89,7 @@ def default_settings() -> dict:
         "bands": "all",
         "modes": "all",
         "qsy_cost": DEFAULT_QSY_COST,
+        "station_call": "",
     }
 
 
@@ -178,6 +180,48 @@ def _clean_qsy(value) -> int:
     return int(round(cost))
 
 
+def clean_station_call(value) -> str:
+    """A callsign we will send as the cluster login, or blank."""
+    return str(value or "").strip().upper() if valid_login_call(value) else ""
+
+
+def effective_call(settings: dict | None, live_call: str | None = "") -> str:
+    """Setup station call first; otherwise the live WSJT-X / logger call."""
+    setup = clean_station_call((settings or {}).get("station_call"))
+    if setup:
+        return setup
+    return clean_station_call(live_call)
+
+
+def call_mismatch_warning(setup_call: str, live_calls) -> str:
+    """Plain-language warning when Setup and a live WSJT-X disagree.
+
+    Nothing is changed automatically. An empty Setup call is not a mismatch.
+    """
+    setup = clean_station_call(setup_call)
+    if not setup:
+        return ""
+    others: list[str] = []
+    seen: set[str] = set()
+    for item in live_calls or []:
+        call = clean_station_call(item)
+        if call and call != setup and call not in seen:
+            seen.add(call)
+            others.append(call)
+    if not others:
+        return ""
+    if len(others) == 1:
+        reported = others[0]
+    elif len(others) == 2:
+        reported = f"{others[0]} and {others[1]}"
+    else:
+        reported = ", ".join(others[:-1]) + f", and {others[-1]}"
+    return (
+        f"Station call {setup} is different from the call WSJT-X reports "
+        f"({reported}). The cluster will use {setup}."
+    )
+
+
 def _migrate(data: dict) -> dict:
     """Move the old factory node (VE7CC port 23, schema 1) to K1TTT."""
     raw = dict(data)
@@ -216,6 +260,7 @@ def sanitize(data: dict | None) -> dict:
     out["modes"] = _clean_modes(raw.get("modes", "all"))
     if "qsy_cost" in raw:
         out["qsy_cost"] = _clean_qsy(raw.get("qsy_cost"))
+    out["station_call"] = clean_station_call(raw.get("station_call"))
     return out
 
 
