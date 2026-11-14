@@ -42,7 +42,8 @@ from wims.integrations.cluster.modes import infer_mode  # noqa: E402
 from wims.integrations.cluster.parse import parse_spot  # noqa: E402
 from wims.integrations.cluster.ranges import in_range  # noqa: E402
 from wims.integrations.cluster.settings import (  # noqa: E402
-    DEFAULT_HOST, DEFAULT_PORT, MODE_FILTERS, all_bands, load, save, sanitize,
+    DEFAULT_HOST, DEFAULT_PORT, MODE_FILTERS, all_bands,
+    call_mismatch_warning, effective_call, load, save, sanitize,
 )
 from wims.integrations.cluster.telnet import strip_telnet  # noqa: E402
 from wims.integrations.cluster.view import (  # noqa: E402
@@ -327,7 +328,7 @@ def test_status_lines_name_the_next_step():
         retry_s=0, reason="", spot_count=0, needed_count=0,
         bands_empty=False, have_grid=True,
     ) == "Cluster: off. Turn it on in Setup."
-    assert "WSJT-X has not sent one yet" in status_line(
+    assert "no callsign. Set the station call in Setup" in status_line(
         enabled=True, phase="need_call", host=DEFAULT_HOST, port=23, callsign="",
         retry_s=0, reason="", spot_count=0, needed_count=0,
         bands_empty=False, have_grid=True,
@@ -397,14 +398,17 @@ def test_settings_default_all_bands_and_node():
         assert fresh["bands"] == "all"
         assert fresh["modes"] == "all"
         assert fresh["qsy_cost"] == 8
+        assert fresh["station_call"] == ""
         save({"enabled": True, "host": "bad host", "port": 23,
-              "bands": ["10m", "nope", "6m"], "qsy_cost": 12}, path)
+              "bands": ["10m", "nope", "6m"], "qsy_cost": 12,
+              "station_call": "wa1hco"}, path)
         again = load(path)
         assert again["enabled"] is True
         assert again["host"] == DEFAULT_HOST
         assert again["bands"] == ["10m", "6m"]
         assert again["modes"] == "all"
         assert again["qsy_cost"] == 12
+        assert again["station_call"] == "WA1HCO"
         assert "160m" in all_bands() and "2m" in all_bands() and "70cm" in all_bands()
         old = Path(tmp) / "old.json"
         old.write_text(
@@ -416,6 +420,7 @@ def test_settings_default_all_bands_and_node():
         assert moved["host"] == "k1ttt.net" and moved["port"] == 7373
         assert moved["node"] == "k1ttt"
         assert moved["modes"] == "all"
+        assert moved["station_call"] == ""
         kept = Path(tmp) / "kept.json"
         kept.write_text(
             '{"schema": 2, "node": "ve7cc", "enabled": true, '
@@ -1111,6 +1116,102 @@ def test_spot_columns_match_the_roster():
     assert "MHz" not in spot_html
     assert "def short_why" not in view
     assert "NEED_LABEL" not in view
+
+
+def _public(svc, callsign="", live_calls=None, grid=HOME):
+    def classify(call, band, square, mode):
+        return {"needed": True}
+
+    return svc.public(
+        now=NOW, callsign=callsign, our_grid=grid,
+        operations=[], classify=classify, live_calls=live_calls,
+    )
+
+
+def test_station_call_settings_validate_and_prefer_setup():
+    assert effective_call({"station_call": "wa1hco"}, "K1ABC") == "WA1HCO"
+    assert effective_call({"station_call": ""}, "K1ABC") == "K1ABC"
+    assert effective_call({"station_call": "NOPE"}, "K1ABC") == "K1ABC"
+    assert effective_call({"station_call": ""}, "") == ""
+    assert sanitize({"station_call": "not a call"})["station_call"] == ""
+    assert sanitize({"station_call": "  k1abc/p "})["station_call"] == "K1ABC/P"
+    assert call_mismatch_warning("", ["K1ABC"]) == ""
+    assert call_mismatch_warning("WA1HCO", ["WA1HCO"]) == ""
+    assert call_mismatch_warning("WA1HCO", []) == ""
+    warning = call_mismatch_warning("WA1HCO", ["K1ABC", "N1XYZ"])
+    assert "WA1HCO" in warning and "K1ABC" in warning and "N1XYZ" in warning
+    assert "different" in warning
+    assert "will use WA1HCO" in warning
+
+
+def test_setup_station_call_is_used_when_wsjtx_is_not_running():
+    with tempfile.TemporaryDirectory() as tmp:
+        svc = ClusterService(path=Path(tmp) / "cluster.json")
+        svc.update({"enabled": True, "station_call": "wa1hco"})
+        view = _public(svc, callsign="")
+        assert view["station_call"] == "WA1HCO"
+        assert view["phase"] == "connecting"
+        assert view["callsign"] == "WA1HCO"
+        assert view["call_warning"] == ""
+        assert "no callsign" not in view["status_line"]
+
+
+def test_blank_setup_call_uses_live_call_and_warns_on_mismatch():
+    with tempfile.TemporaryDirectory() as tmp:
+        svc = ClusterService(path=Path(tmp) / "cluster.json")
+        svc.update({"enabled": True, "station_call": ""})
+        live = _public(svc, callsign="K1ABC", live_calls=["K1ABC"])
+        assert live["phase"] == "connecting"
+        assert live["callsign"] == "K1ABC"
+        assert live["call_warning"] == ""
+        neither = _public(svc, callsign="")
+        assert neither["phase"] == "need_call"
+        assert "Set the station call in Setup" in neither["status_line"]
+        svc.update({"enabled": True, "station_call": "WA1HCO"})
+        mismatch = _public(svc, callsign="K1ABC", live_calls=["K1ABC"])
+        assert mismatch["callsign"] == "WA1HCO"
+        assert "K1ABC" in mismatch["call_warning"]
+        assert "WA1HCO" in mismatch["call_warning"]
+
+
+def test_setup_station_call_connects_without_a_live_wsjtx_call():
+    with tempfile.TemporaryDirectory() as tmp:
+        opened = []
+
+        def boom(*_a, **_k):
+            opened.append(1)
+            raise ConnectionRefusedError("no")
+
+        svc = ClusterService(path=Path(tmp) / "cluster.json", connect=boom)
+
+        def pause(_seconds):
+            if opened or svc.phase == "need_call":
+                svc._stop.set()
+
+        svc._sleep = pause
+        svc.update({"enabled": True, "station_call": "WA1HCO"})
+        svc.start(lambda: "")
+        svc._thread.join(timeout=2)
+        assert opened == [1]
+        assert svc.phase != "need_call"
+        assert svc.login_call == "WA1HCO"
+
+
+def test_setup_page_has_station_call_and_warning():
+    root = Path(__file__).resolve().parents[2]
+    html = (root / "src/wims/server/static/setup.html").read_text(encoding="utf-8")
+    js = (root / "src/wims/server/static/wims.js").read_text(encoding="utf-8")
+    assert 'id="cluster-station-call"' in html
+    assert "Station call" in html
+    assert 'id="cluster-call-warning"' in html
+    assert "station_call" in js
+    assert "invalid_call" in js
+    assert "call_warning" in js
+    assert "That is not a valid station call." in js
+    assert "python -m" not in html.lower()
+    assert "PYTHONPATH" not in html
+
+
 
 
 if __name__ == "__main__":

@@ -103,8 +103,9 @@
 
   <h2>DX cluster</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">
-    Spots from a DX cluster, read only. WIMS logs in with the callsign from
-    WSJT-X and then only listens. It does not post spots. A click on Operate
+    Spots from a DX cluster, read only. The cluster logs in with the Station
+    call from this page, or with the call from a running WSJT-X if that field
+    is blank, and then only listens. It does not post spots. A click on Operate
     selects the station. It does not transmit and it does not retune a radio.
     Work still needs a live decode. Spots can be on any band you check, including
     ones you would have to QSY to. They drop off after 15 minutes.
@@ -112,6 +113,9 @@
   <div id="cluster-setup" class="syncrow" style="align-items:center;gap:10px;flex-wrap:wrap">
     <label style="font-size:13px" title="Turn spots on. Saved on this PC, the same way the Goal is.">
       <input type="checkbox" id="cluster-enabled"> Show spots
+    </label>
+    <label style="font-size:13px" title="The cluster logs in with this call. Leave it blank to use the call from a running WSJT-X.">
+      Station call <input id="cluster-station-call" size="10" spellcheck="false" autocomplete="off">
     </label>
     <label style="font-size:13px" title="K1TTT is the usual node. If the status says the node sent nothing, pick another.">
       Node
@@ -142,7 +146,8 @@
     <input type="checkbox" id="cluster-all" checked> All bands
   </label>
   <div id="cluster-bands" class="cluster-bands"></div>
-  <p id="cluster-setup-line" class="hint" style="font-size:12px;margin:6px 0 12px 0"></p>
+  <p id="cluster-setup-line" class="hint" style="font-size:12px;margin:6px 0 4px 0"></p>
+  <p id="cluster-call-warning" class="warn" style="font-size:12px;margin:0 0 12px 0" hidden></p>
 
   <h2>Networking checklist</h2>
   <p class="hint" style="font-size:12px;color:var(--dim);margin:0 0 6px 0">

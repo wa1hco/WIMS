@@ -219,7 +219,7 @@ def status_line(*, enabled: bool, phase: str, host: str, port: int,
     if modes_empty:
         return "Cluster: no modes are selected. Choose modes on Operate."
     if phase == "need_call":
-        return "Cluster: waiting for your callsign. WSJT-X has not sent one yet."
+        return "Cluster: no callsign. Set the station call in Setup."
     if phase in {"off", "connecting"}:
         return f"Cluster: connecting to {host}..."
     if phase == "refused":
